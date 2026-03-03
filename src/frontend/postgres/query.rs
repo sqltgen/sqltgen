@@ -125,9 +125,10 @@ fn extract_select_list(sql: &str) -> String {
 // ─── Multi-table helpers ──────────────────────────────────────────────────────
 
 /// Scan `FROM` and `JOIN` keywords and return all referenced tables with their aliases.
-fn extract_query_tables<'s>(sql: &str, schema: &'s Schema) -> Vec<(&'s Table, Option<String>)> {
+/// Schema tables are cloned; derived tables `(SELECT …) alias` are synthesised recursively.
+fn extract_query_tables(sql: &str, schema: &Schema) -> Vec<(Table, Option<String>)> {
     let upper = sql.to_uppercase();
-    let mut result: Vec<(&'s Table, Option<String>)> = Vec::new();
+    let mut result: Vec<(Table, Option<String>)> = Vec::new();
     let mut pos = 0;
 
     loop {
@@ -143,7 +144,19 @@ fn extract_query_tables<'s>(sql: &str, schema: &'s Schema) -> Vec<(&'s Table, Op
         pos = kw_abs + 1; // advance past keyword start to avoid re-matching
 
         let after_kw = sql[kw_abs + kw_len..].trim_start();
-        if after_kw.starts_with('(') { continue; } // skip subqueries
+
+        if after_kw.starts_with('(') {
+            // Derived table: (SELECT …) alias
+            let (inner_sql, consumed) = extract_paren_block(after_kw);
+            let after_block = after_kw[consumed..].trim_start();
+            if let Some(alias) = read_alias(after_block) {
+                let cols = parse_derived_cols(inner_sql, schema);
+                if !cols.is_empty() {
+                    result.push((Table { name: alias.clone(), columns: cols }, Some(alias)));
+                }
+            }
+            continue;
+        }
 
         // Read table reference (handles schema.table)
         let table_ref: String = after_kw.chars()
@@ -156,7 +169,7 @@ fn extract_query_tables<'s>(sql: &str, schema: &'s Schema) -> Vec<(&'s Table, Op
 
         let after_table = after_kw[table_ref.len()..].trim_start();
         let alias = read_alias(after_table);
-        result.push((table, alias));
+        result.push((table.clone(), alias));
     }
     result
 }
@@ -186,11 +199,11 @@ fn read_alias(s: &str) -> Option<String> {
 }
 
 /// Build a map from alias (and table name) to table reference.
-fn build_alias_map<'s>(tables: &[(&'s Table, Option<String>)]) -> HashMap<String, &'s Table> {
+fn build_alias_map<'a>(tables: &'a [(Table, Option<String>)]) -> HashMap<String, &'a Table> {
     let mut map = HashMap::new();
     for (table, alias) in tables {
-        map.insert(table.name.clone(), *table);
-        if let Some(a) = alias { map.insert(a.clone(), *table); }
+        map.insert(table.name.clone(), table);
+        if let Some(a) = alias { map.insert(a.clone(), table); }
     }
     map
 }
@@ -199,7 +212,7 @@ fn build_alias_map<'s>(tables: &[(&'s Table, Option<String>)]) -> HashMap<String
 fn resolve_select_cols_multi(
     select_list: &str,
     alias_map: &HashMap<String, &Table>,
-    all_tables: &[(&Table, Option<String>)],
+    all_tables: &[(Table, Option<String>)],
 ) -> Vec<ResultColumn> {
     let trimmed = select_list.trim();
     if trimmed == "*" {
@@ -237,7 +250,7 @@ fn resolve_select_cols_multi(
 fn resolve_params_multi(
     sql: &str,
     alias_map: &HashMap<String, &Table>,
-    all_tables: &[(&Table, Option<String>)],
+    all_tables: &[(Table, Option<String>)],
 ) -> Vec<Parameter> {
     let count = count_params(sql);
     if count == 0 { return vec![]; }
@@ -289,6 +302,115 @@ fn col_to_result(col: &Column) -> ResultColumn {
         sql_type: col.sql_type.clone(),
         nullable: col.nullable,
     }
+}
+
+/// Given a string that starts with `(`, extracts the balanced content between the
+/// outer parentheses and returns `(inner_content, bytes_consumed_including_parens)`.
+fn extract_paren_block(s: &str) -> (&str, usize) {
+    debug_assert!(s.starts_with('('));
+    let bytes = s.as_bytes();
+    let mut depth = 0usize;
+    let mut i = 0;
+    while i < s.len() {
+        match bytes[i] {
+            b'(' => depth += 1,
+            b')' => {
+                depth -= 1;
+                if depth == 0 { return (&s[1..i], i + 1); }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    (&s[1..], s.len()) // unbalanced — return everything
+}
+
+/// Splits a SELECT-list expression into its column reference and optional output alias.
+///
+/// Handles `col`, `col AS alias`, `expr AS alias` (e.g. `COUNT(*) AS cnt`).
+fn col_ref_and_alias(expr: &str) -> (String, Option<String>) {
+    let tokens: Vec<&str> = expr.split_ascii_whitespace().collect();
+    let n = tokens.len();
+    if n == 0 { return (String::new(), None); }
+    if n == 1 { return (tokens[0].to_lowercase(), None); }
+    // "… AS alias"
+    if n >= 3 && tokens[n - 2].eq_ignore_ascii_case("AS") {
+        let alias = tokens[n - 1].trim_matches('"').to_lowercase();
+        return (tokens[0].to_lowercase(), Some(alias));
+    }
+    (tokens[0].to_lowercase(), None)
+}
+
+/// Resolves a single column reference (qualified or unqualified) against the alias map.
+fn resolve_col_ref<'a>(
+    col_ref: &str,
+    alias_map: &HashMap<String, &'a Table>,
+    all_tables: &'a [(Table, Option<String>)],
+) -> Option<ResultColumn> {
+    if let Some(dot) = col_ref.find('.') {
+        let qualifier = col_ref[..dot].to_lowercase();
+        let col_name  = col_ref[dot + 1..].to_lowercase();
+        alias_map.get(&qualifier)
+            .and_then(|t| t.columns.iter().find(|c| c.name == col_name))
+            .map(col_to_result)
+    } else {
+        let col_name = col_ref.to_lowercase();
+        all_tables.iter().flat_map(|(t, _)| t.columns.iter())
+            .find(|c| c.name == col_name)
+            .map(col_to_result)
+    }
+}
+
+/// Parses the SELECT list of a derived table subquery and returns the resulting columns.
+/// Column aliases (`AS name`) become the column names; unresolvable expressions
+/// (aggregates, functions) produce a `Custom`-typed column if they carry an alias.
+fn parse_derived_cols(inner_sql: &str, schema: &Schema) -> Vec<Column> {
+    let upper = inner_sql.trim_start().to_uppercase();
+    if !upper.starts_with("SELECT") { return vec![]; }
+
+    let inner_tables = extract_query_tables(inner_sql, schema);
+    if inner_tables.is_empty() { return vec![]; }
+    let alias_map = build_alias_map(&inner_tables);
+    let select_list = extract_select_list(inner_sql);
+    let trimmed = select_list.trim();
+
+    if trimmed == "*" {
+        return inner_tables.iter()
+            .flat_map(|(t, _)| t.columns.iter().cloned())
+            .collect();
+    }
+
+    trimmed.split(',').flat_map(|expr| -> Vec<Column> {
+        let (col_ref, alias) = col_ref_and_alias(expr.trim());
+
+        // alias.* — expand all columns of that alias
+        if col_ref.ends_with(".*") {
+            let qualifier = col_ref[..col_ref.len() - 2].to_lowercase();
+            return alias_map.get(&qualifier)
+                .map(|t| t.columns.iter().cloned().collect())
+                .unwrap_or_default();
+        }
+        // bare *
+        if col_ref == "*" {
+            return inner_tables.iter().flat_map(|(t, _)| t.columns.iter().cloned()).collect();
+        }
+
+        match resolve_col_ref(&col_ref, &alias_map, &inner_tables) {
+            Some(rc) => {
+                let name = alias.unwrap_or_else(|| rc.name.clone());
+                vec![Column { name, sql_type: rc.sql_type, nullable: rc.nullable, is_primary_key: false }]
+            }
+            None => {
+                // Unresolvable expression — keep it if it has an alias
+                alias.map(|a| vec![Column {
+                    name: a,
+                    sql_type: SqlType::Custom("expr".into()),
+                    nullable: true,
+                    is_primary_key: false,
+                }]).unwrap_or_default()
+            }
+        }
+    }).collect()
 }
 
 fn extract_from_table(sql: &str) -> Option<String> {
@@ -803,6 +925,57 @@ mod tests {
         assert_eq!(q.result_columns.len(), 2);
         assert_eq!(q.result_columns[1].name, "title");
         assert_eq!(q.params[0].sql_type, SqlType::BigInt);
+    }
+
+    // ─── Derived-table tests (JOIN (SELECT …) alias) ─────────────────────────
+
+    #[test]
+    fn derived_table_join_resolves_column() {
+        // b.user_id comes from the derived table — should resolve to BigInt
+        let sql = "-- name: GetPosts :many\n\
+            SELECT a.id, b.user_id \
+            FROM users a JOIN (SELECT user_id FROM posts) b ON a.id = b.user_id;";
+        let q = &parse_queries(sql, &make_join_schema()).unwrap()[0];
+        let names: Vec<_> = q.result_columns.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["id", "user_id"]);
+        assert_eq!(q.result_columns[1].sql_type, SqlType::BigInt);
+    }
+
+    #[test]
+    fn derived_table_column_alias_renames() {
+        // title AS post_title in derived SELECT → outer sees b.post_title : Text
+        let sql = "-- name: GetPosts :many\n\
+            SELECT a.name, b.post_title \
+            FROM users a JOIN (SELECT title AS post_title FROM posts) b ON a.id = b.user_id;";
+        let q = &parse_queries(sql, &make_join_schema()).unwrap()[0];
+        let names: Vec<_> = q.result_columns.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["name", "post_title"]);
+        assert_eq!(q.result_columns[1].sql_type, SqlType::Text);
+    }
+
+    #[test]
+    fn derived_table_star_expands() {
+        // b.* should expand to the columns declared in the derived SELECT
+        let sql = "-- name: GetAll :many\n\
+            SELECT a.name, b.* \
+            FROM users a JOIN (SELECT id, title FROM posts) b ON a.id = b.user_id;";
+        let q = &parse_queries(sql, &make_join_schema()).unwrap()[0];
+        let names: Vec<_> = q.result_columns.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["name", "id", "title"]);
+    }
+
+    #[test]
+    fn derived_table_unresolvable_expr_uses_alias() {
+        // COUNT(*) AS cnt — can't resolve type, but column is present with Custom type
+        let sql = "-- name: GetCounts :many\n\
+            SELECT a.name, b.cnt \
+            FROM users a \
+            JOIN (SELECT user_id, COUNT(*) AS cnt FROM posts GROUP BY user_id) b \
+            ON a.id = b.user_id;";
+        let q = &parse_queries(sql, &make_join_schema()).unwrap()[0];
+        let cnt = q.result_columns.iter().find(|c| c.name == "cnt");
+        assert!(cnt.is_some());
+        assert!(matches!(cnt.unwrap().sql_type, SqlType::Custom(_)));
     }
 
     // ─── Qualified-wildcard tests (alias.*) ──────────────────────────────────
