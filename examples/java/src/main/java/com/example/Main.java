@@ -20,9 +20,9 @@ public class Main {
             createSchema(conn);
 
             // Insert
-            Queries.createUser(conn, "Alice", "alice@example.com");
-            Queries.createUser(conn, "Bob",   "bob@example.com");
-            Queries.createUser(conn, "Carol", "carol@example.com");
+            Queries.createUser(conn, "Alice", "alice@example.com", "Loves hiking");
+            Queries.createUser(conn, "Bob",   "bob@example.com",   null);
+            Queries.createUser(conn, "Carol", "carol@example.com", "Software engineer");
             System.out.println("Inserted 3 users.");
 
             // List all
@@ -58,6 +58,7 @@ public class Main {
                     email VARCHAR(255) NOT NULL
                 )
                 """);
+            st.execute("ALTER TABLE users ADD COLUMN bio VARCHAR(1024)");
         }
     }
 }
