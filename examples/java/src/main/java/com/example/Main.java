@@ -53,6 +53,11 @@ public class Main {
             System.out.println("\nAll posts with author:");
             Queries.listPostsWithAuthor(conn)
                    .forEach(p -> System.out.println("  " + p));
+
+            // Derived-table query — subquery computes per-user post count
+            System.out.println("\nUsers with post count:");
+            Queries.listUsersWithPostCount(conn)
+                   .forEach(r -> System.out.println("  " + r));
         }
     }
 

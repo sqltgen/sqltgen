@@ -103,4 +103,22 @@ public final class Queries {
             return rows;
         }
     }
+
+    public record ListUsersWithPostCountRow(
+        String name,
+        String email,
+        Object postCount
+    ) {}
+
+    private static final String SQL_LISTUSERSWITHPOSTCOUNT =
+        "SELECT u.name, u.email, pc.post_count FROM users u INNER JOIN (SELECT user_id, COUNT(*) AS post_count FROM posts GROUP BY user_id) pc ON u.id = pc.user_id;";
+    public static List<ListUsersWithPostCountRow> listUsersWithPostCount(Connection conn) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(SQL_LISTUSERSWITHPOSTCOUNT)) {
+            List<ListUsersWithPostCountRow> rows = new ArrayList<>();
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) rows.add(new ListUsersWithPostCountRow(rs.getString(1), rs.getString(2), rs.getObject(3)));
+            }
+            return rows;
+        }
+    }
 }
