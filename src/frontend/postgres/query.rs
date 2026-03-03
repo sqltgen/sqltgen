@@ -205,21 +205,30 @@ fn resolve_select_cols_multi(
     if trimmed == "*" {
         return all_tables.iter().flat_map(|(t, _)| t.columns.iter().map(col_to_result)).collect();
     }
-    trimmed.split(',').filter_map(|expr| {
+    trimmed.split(',').flat_map(|expr| -> Vec<ResultColumn> {
         let col_expr = expr.trim().split_whitespace().next().unwrap_or("").trim_matches('"');
         if let Some(dot) = col_expr.find('.') {
-            // Qualified: alias.col
+            // Qualified: alias.col  OR  alias.*
             let qualifier = col_expr[..dot].to_lowercase();
             let col_name  = col_expr[dot + 1..].trim_matches('"').to_lowercase();
-            alias_map.get(&qualifier)
-                .and_then(|t| t.columns.iter().find(|c| c.name == col_name))
-                .map(col_to_result)
+            if col_name == "*" {
+                // Expand all columns of the aliased table
+                alias_map.get(&qualifier)
+                    .map(|t| t.columns.iter().map(col_to_result).collect())
+                    .unwrap_or_default()
+            } else {
+                alias_map.get(&qualifier)
+                    .and_then(|t| t.columns.iter().find(|c| c.name == col_name))
+                    .map(|c| vec![col_to_result(c)])
+                    .unwrap_or_default()
+            }
         } else {
             // Unqualified: first match across tables in FROM order
             let col_name = col_expr.to_lowercase();
             all_tables.iter().flat_map(|(t, _)| t.columns.iter())
                 .find(|c| c.name == col_name)
-                .map(col_to_result)
+                .map(|c| vec![col_to_result(c)])
+                .unwrap_or_default()
         }
     }).collect()
 }
@@ -794,6 +803,39 @@ mod tests {
         assert_eq!(q.result_columns.len(), 2);
         assert_eq!(q.result_columns[1].name, "title");
         assert_eq!(q.params[0].sql_type, SqlType::BigInt);
+    }
+
+    // ─── Qualified-wildcard tests (alias.*) ──────────────────────────────────
+
+    #[test]
+    fn qualified_star_expands_single_table() {
+        // SELECT a.* should expand to all columns of `users`
+        let sql = "-- name: ListUsers :many\nSELECT a.* FROM users a;";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let names: Vec<_> = q.result_columns.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["id", "name", "email", "bio"]);
+    }
+
+    #[test]
+    fn qualified_star_expands_each_table_in_join() {
+        // SELECT a.*, b.* should expand both tables independently
+        let sql = "-- name: GetAll :many\n\
+            SELECT a.*, b.* FROM users a INNER JOIN posts b ON b.user_id = a.id;";
+        let q = &parse_queries(sql, &make_join_schema()).unwrap()[0];
+        // users has 2 cols, posts has 3 cols → 5 total, in order
+        assert_eq!(q.result_columns.len(), 5);
+        let names: Vec<_> = q.result_columns.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["id", "name", "id", "user_id", "title"]);
+    }
+
+    #[test]
+    fn qualified_star_mixed_with_regular_column() {
+        // SELECT a.*, b.title — a.* expands, b.title resolves normally
+        let sql = "-- name: GetUserPosts :many\n\
+            SELECT a.*, b.title FROM users a INNER JOIN posts b ON b.user_id = a.id;";
+        let q = &parse_queries(sql, &make_join_schema()).unwrap()[0];
+        let names: Vec<_> = q.result_columns.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["id", "name", "title"]);
     }
 
     #[test]
