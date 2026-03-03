@@ -65,8 +65,9 @@ impl Codegen for JavaCodegen {
 
 fn emit_java_query(src: &mut String, query: &Query, schema: &Schema) -> anyhow::Result<()> {
     let sql_const = format!("SQL_{}", query.name.to_uppercase());
+    let sql = jdbc_sql(&query.sql);
     writeln!(src, "    private static final String {sql_const} =")?;
-    writeln!(src, "        \"{};\";", query.sql.replace('\n', " ").replace('"', "\\\""))?;
+    writeln!(src, "        \"{};\";", sql.replace('\n', " ").replace('"', "\\\""))?;
 
     let return_type = match query.cmd {
         QueryCmd::One => {
@@ -231,6 +232,25 @@ fn rs_getter(sql_type: &SqlType) -> &'static str {
         SqlType::Bytes                 => "getBytes",
         _                              => "getObject",
     }
+}
+
+// ─── SQL helpers ──────────────────────────────────────────────────────────────
+
+/// Replace PostgreSQL `$N` placeholders with JDBC `?` markers.
+fn jdbc_sql(sql: &str) -> String {
+    let mut out = String::with_capacity(sql.len());
+    let mut chars = sql.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '$' && chars.peek().map_or(false, |c| c.is_ascii_digit()) {
+            out.push('?');
+            while chars.peek().map_or(false, |c| c.is_ascii_digit()) {
+                chars.next();
+            }
+        } else {
+            out.push(ch);
+        }
+    }
+    out
 }
 
 // ─── Name helpers ─────────────────────────────────────────────────────────────
