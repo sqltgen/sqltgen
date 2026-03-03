@@ -1,31 +1,33 @@
-use pest::Parser;
-use pest_derive::Parser;
+use sqlparser::ast::{
+    AlterColumnOperation, AlterTableOperation, ColumnOption, Ident, ObjectName, Statement,
+    TableConstraint,
+};
+use sqlparser::dialect::PostgreSqlDialect;
+use sqlparser::parser::Parser;
 
-use crate::ir::{Column, Schema, SqlType, Table};
 use crate::frontend::postgres::typemap;
-
-#[derive(Parser)]
-#[grammar = "frontend/postgres/ddl.pest"]
-struct DdlParser;
+use crate::ir::{Column, Schema, SqlType, Table};
 
 /// Parses PostgreSQL DDL into a [Schema].
 ///
 /// Processes `CREATE TABLE` and `ALTER TABLE` statements in order.
 /// All other statements are silently ignored.
 pub fn parse_schema(ddl: &str) -> anyhow::Result<Schema> {
-    let pairs = DdlParser::parse(Rule::script, ddl)
+    let dialect = PostgreSqlDialect {};
+    let stmts = Parser::parse_sql(&dialect, ddl)
         .map_err(|e| anyhow::anyhow!("DDL parse error: {e}"))?;
 
     let mut tables: Vec<Table> = Vec::new();
 
-    for pair in pairs.flatten() {
-        match pair.as_rule() {
-            Rule::create_table_stmt => {
-                if let Some(table) = parse_create_table(pair) {
-                    tables.push(table);
-                }
+    for stmt in stmts {
+        match stmt {
+            Statement::CreateTable(ct) => {
+                let table = build_create_table(&ct.name, &ct.columns, &ct.constraints);
+                tables.push(table);
             }
-            Rule::alter_table_stmt => apply_alter_table(pair, &mut tables),
+            Statement::AlterTable { name, operations, .. } => {
+                apply_alter_table(&name, &operations, &mut tables);
+            }
             _ => {}
         }
     }
@@ -33,297 +35,147 @@ pub fn parse_schema(ddl: &str) -> anyhow::Result<Schema> {
     Ok(Schema { tables })
 }
 
-// ─── ALTER TABLE ─────────────────────────────────────────────────────────────
+// ─── CREATE TABLE ─────────────────────────────────────────────────────────────
 
-fn apply_alter_table(pair: pest::iterators::Pair<Rule>, tables: &mut Vec<Table>) {
-    let mut inner = pair.into_inner();
+fn build_create_table(
+    name: &ObjectName,
+    column_defs: &[sqlparser::ast::ColumnDef],
+    constraints: &[TableConstraint],
+) -> Table {
+    let table_name = obj_name_to_str(name);
 
-    let table_ref = match inner.next() {
-        Some(p) if p.as_rule() == Rule::table_ref => p,
-        _ => return,
-    };
-    let table_name = extract_table_name(table_ref);
-
-    let Some(idx) = tables.iter().position(|t| t.name == table_name) else {
-        return; // ALTER on unknown table — ignore
-    };
-
-    for action_pair in inner {
-        if action_pair.as_rule() != Rule::alter_action {
-            continue;
-        }
-        let Some(child) = action_pair.into_inner().next() else { continue };
-        let table = &mut tables[idx];
-        match child.as_rule() {
-            Rule::add_column_action    => action_add_column(child, table),
-            Rule::drop_column_action   => action_drop_column(child, table),
-            Rule::alter_column_action  => action_alter_column(child, table),
-            Rule::rename_column_action => action_rename_column(child, table),
-            Rule::rename_table_action  => action_rename_table(child, table),
-            Rule::add_pk_action        => action_add_pk(child, table),
-            _ => {}
-        }
+    // Collect table-level PRIMARY KEY column names
+    let mut pk_cols: Vec<String> = Vec::new();
+    for constraint in constraints {
+        pk_cols.extend(pk_columns_from_constraint(constraint));
     }
-}
 
-fn action_add_column(pair: pest::iterators::Pair<Rule>, table: &mut Table) {
-    for child in pair.into_inner() {
-        if child.as_rule() == Rule::column_def {
-            if let Some(col) = parse_column_def(child) {
-                table.columns.push(col);
-            }
-            return;
-        }
+    let mut columns: Vec<Column> = Vec::new();
+    for col_def in column_defs {
+        columns.push(build_column(col_def));
     }
-}
 
-fn action_drop_column(pair: pest::iterators::Pair<Rule>, table: &mut Table) {
-    for child in pair.into_inner() {
-        if child.as_rule() == Rule::identifier {
-            let name = unquote(child.as_str());
-            table.columns.retain(|c| c.name != name);
-            return;
-        }
-    }
-}
-
-fn action_alter_column(pair: pest::iterators::Pair<Rule>, table: &mut Table) {
-    let mut inner = pair.into_inner();
-
-    let col_name = match inner.next() {
-        Some(p) if p.as_rule() == Rule::identifier => unquote(p.as_str()),
-        _ => return,
-    };
-    let subaction = match inner.next() {
-        Some(p) if p.as_rule() == Rule::alter_column_subaction => p,
-        _ => return,
-    };
-    let Some(child) = subaction.into_inner().next() else { return };
-    let Some(col) = table.columns.iter_mut().find(|c| c.name == col_name) else { return };
-
-    match child.as_rule() {
-        Rule::set_not_null_action  => col.nullable = false,
-        Rule::drop_not_null_action => col.nullable = true,
-        Rule::set_type_action => {
-            for sub in child.into_inner() {
-                if sub.as_rule() == Rule::data_type {
-                    let (new_type, is_array) = parse_data_type(sub);
-                    col.sql_type = if is_array {
-                        SqlType::Array(Box::new(new_type))
-                    } else {
-                        new_type
-                    };
-                    return;
-                }
-            }
-        }
-        _ => {}
-    }
-}
-
-fn action_rename_column(pair: pest::iterators::Pair<Rule>, table: &mut Table) {
-    let ids: Vec<_> = pair.into_inner()
-        .filter(|p| p.as_rule() == Rule::identifier)
-        .collect();
-    if ids.len() == 2 {
-        let old = unquote(ids[0].as_str());
-        let new = unquote(ids[1].as_str());
-        if let Some(col) = table.columns.iter_mut().find(|c| c.name == old) {
-            col.name = new;
-        }
-    }
-}
-
-fn action_rename_table(pair: pest::iterators::Pair<Rule>, table: &mut Table) {
-    for child in pair.into_inner() {
-        if child.as_rule() == Rule::identifier {
-            table.name = unquote(child.as_str());
-            return;
-        }
-    }
-}
-
-fn action_add_pk(pair: pest::iterators::Pair<Rule>, table: &mut Table) {
-    let pk_names: Vec<String> = pair.into_inner()
-        .find(|p| p.as_rule() == Rule::identifier_list)
-        .map(|id_list| {
-            id_list.into_inner()
-                .filter(|p| p.as_rule() == Rule::identifier)
-                .map(|p| unquote(p.as_str()))
-                .collect()
-        })
-        .unwrap_or_default();
-
-    for col in table.columns.iter_mut() {
-        if pk_names.contains(&col.name) {
+    // Promote columns that appear in a table-level PRIMARY KEY
+    for col in &mut columns {
+        if pk_cols.contains(&col.name) {
             col.is_primary_key = true;
             col.nullable = false;
         }
     }
+
+    Table { name: table_name, columns }
 }
 
-fn parse_create_table(pair: pest::iterators::Pair<Rule>) -> Option<Table> {
-    let mut inner = pair.into_inner();
-
-    // table_ref is first child
-    let table_ref = inner.next()?;
-    let table_name = extract_table_name(table_ref);
-
-    let mut columns: Vec<Column> = Vec::new();
-    let mut table_pk_cols: Vec<String> = Vec::new();
-
-    for item in inner {
-        match item.as_rule() {
-            Rule::col_or_constraint_list => {
-                for coc in item.into_inner() {
-                    if coc.as_rule() != Rule::col_or_constraint {
-                        continue;
-                    }
-                    if let Some(child) = coc.into_inner().next() {
-                        match child.as_rule() {
-                            Rule::column_def => {
-                                if let Some(col) = parse_column_def(child) {
-                                    columns.push(col);
-                                }
-                            }
-                            Rule::table_constraint => {
-                                collect_table_pk(child, &mut table_pk_cols);
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-
-    // Promote columns that appear in a table-level PRIMARY KEY
-    let columns = columns
-        .into_iter()
-        .map(|mut col| {
-            if table_pk_cols.contains(&col.name) {
-                col.is_primary_key = true;
-                col.nullable = false;
-            }
-            col
-        })
-        .collect();
-
-    Some(Table { name: table_name, columns })
-}
-
-fn extract_table_name(pair: pest::iterators::Pair<Rule>) -> String {
-    // table_ref = { (identifier ~ ".")? ~ identifier }
-    // last identifier is the table name
-    pair.into_inner()
-        .filter(|p| p.as_rule() == Rule::identifier)
-        .last()
-        .map(|p| unquote(p.as_str()))
-        .unwrap_or_default()
-}
-
-fn parse_column_def(pair: pest::iterators::Pair<Rule>) -> Option<Column> {
-    let mut inner = pair.into_inner();
-
-    let name_pair = inner.next()?;
-    let name = unquote(name_pair.as_str());
-
-    let data_type_pair = inner.next()?;
-    let (sql_type, is_array) = parse_data_type(data_type_pair);
+fn build_column(col_def: &sqlparser::ast::ColumnDef) -> Column {
+    let name = ident_to_str(&col_def.name);
+    let sql_type = col_type_from_def(col_def);
 
     let mut nullable = true;
     let mut is_primary_key = false;
 
-    for constraint in inner {
-        if constraint.as_rule() != Rule::column_constraint {
-            continue;
-        }
-        let child = match constraint.into_inner().next() {
-            Some(c) => c,
-            None => continue,
-        };
-        match child.as_rule() {
-            Rule::not_null => nullable = false,
-            Rule::primary_key_col => {
+    for opt_def in &col_def.options {
+        match &opt_def.option {
+            ColumnOption::NotNull => nullable = false,
+            ColumnOption::Null => nullable = true,
+            ColumnOption::Unique { is_primary, .. } if *is_primary => {
                 is_primary_key = true;
                 nullable = false;
             }
-            Rule::generated_col => nullable = false,
-            Rule::named_col_constraint => {
-                // Recurse into the inner constraint
-                if let Some(inner_c) = child.into_inner().nth(1) {
-                    match inner_c.as_rule() {
-                        Rule::not_null => nullable = false,
-                        Rule::primary_key_col => {
-                            is_primary_key = true;
-                            nullable = false;
+            ColumnOption::Generated { .. } => nullable = false,
+            _ => {}
+        }
+    }
+
+    Column { name, sql_type, nullable, is_primary_key }
+}
+
+fn col_type_from_def(col_def: &sqlparser::ast::ColumnDef) -> SqlType {
+    typemap::map(&col_def.data_type)
+}
+
+fn pk_columns_from_constraint(tc: &TableConstraint) -> Vec<String> {
+    match tc {
+        TableConstraint::PrimaryKey { columns, .. } => {
+            columns.iter().map(ident_to_str).collect()
+        }
+        _ => vec![],
+    }
+}
+
+// ─── ALTER TABLE ─────────────────────────────────────────────────────────────
+
+fn apply_alter_table(
+    name: &ObjectName,
+    operations: &[AlterTableOperation],
+    tables: &mut Vec<Table>,
+) {
+    let table_name = obj_name_to_str(name);
+    let Some(idx) = tables.iter().position(|t| t.name == table_name) else {
+        return; // ALTER on unknown table — ignore
+    };
+
+    for op in operations {
+        let table = &mut tables[idx];
+        match op {
+            AlterTableOperation::AddColumn { column_def, .. } => {
+                table.columns.push(build_column(column_def));
+            }
+            AlterTableOperation::DropColumn { column_name, .. } => {
+                let name = ident_to_str(column_name);
+                table.columns.retain(|c| c.name != name);
+            }
+            AlterTableOperation::AlterColumn { column_name, op } => {
+                let col_name = ident_to_str(column_name);
+                if let Some(col) = table.columns.iter_mut().find(|c| c.name == col_name) {
+                    match op {
+                        AlterColumnOperation::SetNotNull => col.nullable = false,
+                        AlterColumnOperation::DropNotNull => col.nullable = true,
+                        AlterColumnOperation::SetDataType { data_type, .. } => {
+                            col.sql_type = typemap::map(data_type);
                         }
                         _ => {}
                     }
                 }
             }
-            _ => {}
-        }
-    }
-
-    let final_type = if is_array {
-        SqlType::Array(Box::new(sql_type))
-    } else {
-        sql_type
-    };
-
-    Some(Column { name, sql_type: final_type, nullable, is_primary_key })
-}
-
-fn parse_data_type(pair: pest::iterators::Pair<Rule>) -> (SqlType, bool) {
-    let mut pg_type_text = String::new();
-    let mut array_count = 0usize;
-
-    for child in pair.into_inner() {
-        match child.as_rule() {
-            Rule::pg_type => pg_type_text = child.as_str().to_string(),
-            Rule::array_suffix => array_count += 1,
-            _ => {}
-        }
-    }
-
-    let base = typemap::map(&pg_type_text);
-    (base, array_count > 0)
-}
-
-fn collect_table_pk(pair: pest::iterators::Pair<Rule>, out: &mut Vec<String>) {
-    for child in pair.into_inner() {
-        match child.as_rule() {
-            Rule::table_primary_key => {
-                for id_pair in child.into_inner() {
-                    if id_pair.as_rule() == Rule::identifier_list {
-                        for id in id_pair.into_inner() {
-                            if id.as_rule() == Rule::identifier {
-                                out.push(unquote(id.as_str()));
-                            }
-                        }
+            AlterTableOperation::RenameColumn { old_column_name, new_column_name } => {
+                let old = ident_to_str(old_column_name);
+                let new = ident_to_str(new_column_name);
+                if let Some(col) = table.columns.iter_mut().find(|c| c.name == old) {
+                    col.name = new;
+                }
+            }
+            AlterTableOperation::RenameTable { table_name: new_name } => {
+                table.name = obj_name_to_str(new_name);
+            }
+            AlterTableOperation::AddConstraint(constraint) => {
+                let pk_cols = pk_columns_from_constraint(constraint);
+                for col in table.columns.iter_mut() {
+                    if pk_cols.contains(&col.name) {
+                        col.is_primary_key = true;
+                        col.nullable = false;
                     }
                 }
             }
-            Rule::named_table_constraint => {
-                // CONSTRAINT name table_constraint — recurse
-                if let Some(inner) = child.into_inner().nth(1) {
-                    collect_table_pk(inner, out);
-                }
-            }
-            _ => {}
+            _ => {} // OWNER TO, ENABLE/DISABLE TRIGGER, etc.
         }
     }
 }
 
-/// Removes surrounding double-quotes from a quoted identifier, lowercases bare ones.
-fn unquote(raw: &str) -> String {
-    if raw.starts_with('"') && raw.ends_with('"') {
-        raw[1..raw.len() - 1].replace("\"\"", "\"")
+// ─── Identifier helpers ───────────────────────────────────────────────────────
+
+/// Converts an identifier to a string, preserving case for quoted identifiers
+/// and lowercasing bare ones.
+pub(super) fn ident_to_str(ident: &Ident) -> String {
+    if ident.quote_style.is_some() {
+        ident.value.clone()
     } else {
-        raw.to_lowercase()
+        ident.value.to_lowercase()
     }
+}
+
+/// Returns the last component of a dotted name (e.g. `schema.table` → `table`).
+pub(super) fn obj_name_to_str(name: &ObjectName) -> String {
+    name.0.last().map(ident_to_str).unwrap_or_default()
 }
 
 #[cfg(test)]

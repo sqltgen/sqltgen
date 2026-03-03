@@ -1,5 +1,13 @@
 use std::collections::HashMap;
 
+use sqlparser::ast::{
+    Assignment, AssignmentTarget, BinaryOperator, Delete, Expr, FromTable, Insert,
+    Query as SqlQuery, Select, SelectItem, SetExpr, Statement, TableFactor, Value,
+};
+use sqlparser::dialect::PostgreSqlDialect;
+use sqlparser::parser::Parser;
+
+use crate::frontend::postgres::schema::{ident_to_str, obj_name_to_str};
 use crate::ir::{Column, Parameter, Query, QueryCmd, ResultColumn, Schema, SqlType, Table};
 
 /// Parses an annotated PostgreSQL query file into a list of [Query] models.
@@ -15,7 +23,10 @@ pub fn parse_queries(sql: &str, schema: &Schema) -> anyhow::Result<Vec<Query>> {
     let blocks = split_into_blocks(sql);
     let queries = blocks
         .into_iter()
-        .filter_map(|(ann, body)| build_query(&ann, body.trim().trim_end_matches(';').trim(), schema).ok())
+        .filter_map(|(ann, body)| {
+            let body = body.trim().trim_end_matches(';').trim();
+            build_query(&ann, body, schema).ok()
+        })
         .collect();
     Ok(queries)
 }
@@ -81,31 +92,45 @@ fn parse_annotation(line: &str) -> Option<Annotation> {
 // ─── Query building ──────────────────────────────────────────────────────────
 
 fn build_query(ann: &Annotation, sql: &str, schema: &Schema) -> anyhow::Result<Query> {
-    let upper = sql.trim_start().to_uppercase();
-    let result = if upper.starts_with("SELECT") {
-        build_select(ann, sql, schema)
-    } else if upper.starts_with("INSERT") {
-        build_insert(ann, sql, schema)
-    } else if upper.starts_with("UPDATE") {
-        build_update(ann, sql, schema)
-    } else if upper.starts_with("DELETE") {
-        build_delete(ann, sql, schema)
-    } else {
-        bare(ann, sql)
+    let dialect = PostgreSqlDialect {};
+    let stmts = match Parser::parse_sql(&dialect, sql) {
+        Ok(s) if !s.is_empty() => s,
+        _ => return Ok(bare(ann, sql)),
     };
-    Ok(result)
+
+    let query = match &stmts[0] {
+        Statement::Query(q) => build_select(ann, sql, q, schema),
+        Statement::Insert(ins) => build_insert(ann, sql, ins, schema),
+        Statement::Update { table, assignments, selection, returning, .. } => {
+            build_update(ann, sql, table, assignments, selection.as_ref(), returning.as_ref(), schema)
+        }
+        Statement::Delete(del) => build_delete(ann, sql, del, schema),
+        _ => bare(ann, sql),
+    };
+    Ok(query)
 }
 
 // ─── SELECT ──────────────────────────────────────────────────────────────────
 
-fn build_select(ann: &Annotation, sql: &str, schema: &Schema) -> Query {
-    let query_tables = extract_query_tables(sql, schema);
-    if query_tables.is_empty() { return bare(ann, sql); }
+fn build_select(ann: &Annotation, sql: &str, q: &SqlQuery, schema: &Schema) -> Query {
+    let SetExpr::Select(select) = q.body.as_ref() else {
+        return bare(ann, sql);
+    };
 
-    let alias_map = build_alias_map(&query_tables);
-    let select_list = extract_select_list(sql);
-    let result_columns = resolve_select_cols_multi(&select_list, &alias_map, &query_tables);
-    let params = resolve_params_multi(sql, &alias_map, &query_tables);
+    let all_tables = collect_from_tables(select, schema);
+    if all_tables.is_empty() {
+        return bare(ann, sql);
+    }
+    let alias_map = build_alias_map(&all_tables);
+
+    let result_columns = resolve_projection(select, &alias_map, &all_tables);
+    let params = {
+        let mut mapping = HashMap::new();
+        if let Some(expr) = &select.selection {
+            collect_params_from_expr(expr, &alias_map, &all_tables, &mut mapping);
+        }
+        build_params(mapping, count_params(sql))
+    };
 
     Query {
         name: ann.name.clone(),
@@ -116,378 +141,125 @@ fn build_select(ann: &Annotation, sql: &str, schema: &Schema) -> Query {
     }
 }
 
-fn extract_select_list(sql: &str) -> String {
-    let upper = sql.to_uppercase();
-    let from_idx = find_top_level_word(&upper, "FROM").unwrap_or(upper.len());
-    sql[6..from_idx].trim().to_string() // skip "SELECT"
-}
-
-// ─── Multi-table helpers ──────────────────────────────────────────────────────
-
-/// Scan `FROM` and `JOIN` keywords and return all referenced tables with their aliases.
-/// Schema tables are cloned; derived tables `(SELECT …) alias` are synthesised recursively.
-fn extract_query_tables(sql: &str, schema: &Schema) -> Vec<(Table, Option<String>)> {
-    let upper = sql.to_uppercase();
-    let mut result: Vec<(Table, Option<String>)> = Vec::new();
-    let mut pos = 0;
-
-    loop {
-        // Pick whichever of FROM / JOIN appears next
-        let from_hit = find_top_level_word(&upper[pos..], "FROM").map(|p| (pos + p, 4usize));
-        let join_hit = find_top_level_word(&upper[pos..], "JOIN").map(|p| (pos + p, 4usize));
-        let (kw_abs, kw_len) = match (from_hit, join_hit) {
-            (None, None) => break,
-            (Some(f), None) => f,
-            (None, Some(j)) => j,
-            (Some(f), Some(j)) => if f.0 <= j.0 { f } else { j },
-        };
-        pos = kw_abs + 1; // advance past keyword start to avoid re-matching
-
-        let after_kw = sql[kw_abs + kw_len..].trim_start();
-
-        if after_kw.starts_with('(') {
-            // Derived table: (SELECT …) alias
-            let (inner_sql, consumed) = extract_paren_block(after_kw);
-            let after_block = after_kw[consumed..].trim_start();
-            if let Some(alias) = read_alias(after_block) {
-                let cols = parse_derived_cols(inner_sql, schema);
-                if !cols.is_empty() {
-                    result.push((Table { name: alias.clone(), columns: cols }, Some(alias)));
-                }
-            }
-            continue;
-        }
-
-        // Read table reference (handles schema.table)
-        let table_ref: String = after_kw.chars()
-            .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '.')
-            .collect();
-        if table_ref.is_empty() { continue; }
-
-        let table_name = table_ref.split('.').last().unwrap_or(&table_ref).to_lowercase();
-        let Some(table) = schema.tables.iter().find(|t| t.name == table_name) else { continue };
-
-        let after_table = after_kw[table_ref.len()..].trim_start();
-        let alias = read_alias(after_table);
-        result.push((table.clone(), alias));
-    }
-    result
-}
-
-/// Read an optional alias word (skipping AS), returning None for SQL keywords.
-fn read_alias(s: &str) -> Option<String> {
-    // Skip optional AS
-    let s = if s.len() >= 2
-        && s[..2].eq_ignore_ascii_case("AS")
-        && s.as_bytes().get(2).map_or(true, |b| !b.is_ascii_alphanumeric() && *b != b'_')
-    {
-        s[2..].trim_start()
-    } else {
-        s
-    };
-
-    let word: String = s.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
-    if word.is_empty() { return None; }
-
-    const STOP: &[&str] = &[
-        "ON", "USING", "WHERE", "SET", "GROUP", "ORDER", "HAVING", "LIMIT",
-        "OFFSET", "INNER", "LEFT", "RIGHT", "FULL", "CROSS", "NATURAL", "JOIN",
-        "UNION", "INTERSECT", "EXCEPT", "RETURNING", "AND", "OR", "NOT",
-        "SELECT", "FROM", "AS",
-    ];
-    if STOP.contains(&word.to_uppercase().as_str()) { None } else { Some(word.to_lowercase()) }
-}
-
-/// Build a map from alias (and table name) to table reference.
-fn build_alias_map<'a>(tables: &'a [(Table, Option<String>)]) -> HashMap<String, &'a Table> {
-    let mut map = HashMap::new();
-    for (table, alias) in tables {
-        map.insert(table.name.clone(), table);
-        if let Some(a) = alias { map.insert(a.clone(), table); }
-    }
-    map
-}
-
-/// Resolve SELECT list columns against multiple tables.
-fn resolve_select_cols_multi(
-    select_list: &str,
-    alias_map: &HashMap<String, &Table>,
-    all_tables: &[(Table, Option<String>)],
-) -> Vec<ResultColumn> {
-    let trimmed = select_list.trim();
-    if trimmed == "*" {
-        return all_tables.iter().flat_map(|(t, _)| t.columns.iter().map(col_to_result)).collect();
-    }
-    trimmed.split(',').flat_map(|expr| -> Vec<ResultColumn> {
-        let col_expr = expr.trim().split_whitespace().next().unwrap_or("").trim_matches('"');
-        if let Some(dot) = col_expr.find('.') {
-            // Qualified: alias.col  OR  alias.*
-            let qualifier = col_expr[..dot].to_lowercase();
-            let col_name  = col_expr[dot + 1..].trim_matches('"').to_lowercase();
-            if col_name == "*" {
-                // Expand all columns of the aliased table
-                alias_map.get(&qualifier)
-                    .map(|t| t.columns.iter().map(col_to_result).collect())
-                    .unwrap_or_default()
-            } else {
-                alias_map.get(&qualifier)
-                    .and_then(|t| t.columns.iter().find(|c| c.name == col_name))
-                    .map(|c| vec![col_to_result(c)])
-                    .unwrap_or_default()
-            }
-        } else {
-            // Unqualified: first match across tables in FROM order
-            let col_name = col_expr.to_lowercase();
-            all_tables.iter().flat_map(|(t, _)| t.columns.iter())
-                .find(|c| c.name == col_name)
-                .map(|c| vec![col_to_result(c)])
-                .unwrap_or_default()
-        }
-    }).collect()
-}
-
-/// Resolve `$N` parameters using column references across multiple tables.
-fn resolve_params_multi(
-    sql: &str,
-    alias_map: &HashMap<String, &Table>,
-    all_tables: &[(Table, Option<String>)],
-) -> Vec<Parameter> {
-    let count = count_params(sql);
-    if count == 0 { return vec![]; }
-
-    let mut mapping: HashMap<usize, (String, SqlType, bool)> = HashMap::new();
-    let mut pos = 0;
-    while let Some(eq_pos) = sql[pos..].find('=') {
-        let abs_eq = pos + eq_pos;
-        let before = sql[..abs_eq].trim_end();
-        let col_ref: String = before.chars().rev()
-            .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '.')
-            .collect::<String>().chars().rev().collect();
-
-        let after = sql[abs_eq + 1..].trim_start();
-        if after.starts_with('$') {
-            let idx_str: String = after[1..].chars().take_while(|c| c.is_ascii_digit()).collect();
-            if let Ok(idx) = idx_str.parse::<usize>() {
-                let col = if let Some(dot) = col_ref.find('.') {
-                    let qualifier = col_ref[..dot].to_lowercase();
-                    let col_name  = col_ref[dot + 1..].to_lowercase();
-                    alias_map.get(&qualifier)
-                        .and_then(|t| t.columns.iter().find(|c| c.name == col_name))
-                } else {
-                    let col_name = col_ref.to_lowercase();
-                    all_tables.iter().flat_map(|(t, _)| t.columns.iter())
-                        .find(|c| c.name == col_name)
-                };
-                if let Some(c) = col {
-                    mapping.entry(idx).or_insert_with(|| {
-                        (c.name.clone(), c.sql_type.clone(), c.nullable)
-                    });
-                }
-            }
-        }
-        pos = abs_eq + 1;
-    }
-
-    (1..=count).map(|idx| match mapping.get(&idx) {
-        Some((name, sql_type, nullable)) => Parameter {
-            index: idx, name: name.clone(), sql_type: sql_type.clone(), nullable: *nullable,
-        },
-        None => Parameter { index: idx, name: format!("param{idx}"), sql_type: SqlType::Text, nullable: false },
-    }).collect()
-}
-
-fn col_to_result(col: &Column) -> ResultColumn {
-    ResultColumn {
-        name: col.name.clone(),
-        sql_type: col.sql_type.clone(),
-        nullable: col.nullable,
-    }
-}
-
-/// Given a string that starts with `(`, extracts the balanced content between the
-/// outer parentheses and returns `(inner_content, bytes_consumed_including_parens)`.
-fn extract_paren_block(s: &str) -> (&str, usize) {
-    debug_assert!(s.starts_with('('));
-    let bytes = s.as_bytes();
-    let mut depth = 0usize;
-    let mut i = 0;
-    while i < s.len() {
-        match bytes[i] {
-            b'(' => depth += 1,
-            b')' => {
-                depth -= 1;
-                if depth == 0 { return (&s[1..i], i + 1); }
-            }
-            _ => {}
-        }
-        i += 1;
-    }
-    (&s[1..], s.len()) // unbalanced — return everything
-}
-
-/// Splits a SELECT-list expression into its column reference and optional output alias.
-///
-/// Handles `col`, `col AS alias`, `expr AS alias` (e.g. `COUNT(*) AS cnt`).
-fn col_ref_and_alias(expr: &str) -> (String, Option<String>) {
-    let tokens: Vec<&str> = expr.split_ascii_whitespace().collect();
-    let n = tokens.len();
-    if n == 0 { return (String::new(), None); }
-    if n == 1 { return (tokens[0].to_lowercase(), None); }
-    // "… AS alias"
-    if n >= 3 && tokens[n - 2].eq_ignore_ascii_case("AS") {
-        let alias = tokens[n - 1].trim_matches('"').to_lowercase();
-        return (tokens[0].to_lowercase(), Some(alias));
-    }
-    (tokens[0].to_lowercase(), None)
-}
-
-/// Resolves a single column reference (qualified or unqualified) against the alias map.
-fn resolve_col_ref<'a>(
-    col_ref: &str,
-    alias_map: &HashMap<String, &'a Table>,
-    all_tables: &'a [(Table, Option<String>)],
-) -> Option<ResultColumn> {
-    if let Some(dot) = col_ref.find('.') {
-        let qualifier = col_ref[..dot].to_lowercase();
-        let col_name  = col_ref[dot + 1..].to_lowercase();
-        alias_map.get(&qualifier)
-            .and_then(|t| t.columns.iter().find(|c| c.name == col_name))
-            .map(col_to_result)
-    } else {
-        let col_name = col_ref.to_lowercase();
-        all_tables.iter().flat_map(|(t, _)| t.columns.iter())
-            .find(|c| c.name == col_name)
-            .map(col_to_result)
-    }
-}
-
-/// Parses the SELECT list of a derived table subquery and returns the resulting columns.
-/// Column aliases (`AS name`) become the column names; unresolvable expressions
-/// (aggregates, functions) produce a `Custom`-typed column if they carry an alias.
-fn parse_derived_cols(inner_sql: &str, schema: &Schema) -> Vec<Column> {
-    let upper = inner_sql.trim_start().to_uppercase();
-    if !upper.starts_with("SELECT") { return vec![]; }
-
-    let inner_tables = extract_query_tables(inner_sql, schema);
-    if inner_tables.is_empty() { return vec![]; }
-    let alias_map = build_alias_map(&inner_tables);
-    let select_list = extract_select_list(inner_sql);
-    let trimmed = select_list.trim();
-
-    if trimmed == "*" {
-        return inner_tables.iter()
-            .flat_map(|(t, _)| t.columns.iter().cloned())
-            .collect();
-    }
-
-    trimmed.split(',').flat_map(|expr| -> Vec<Column> {
-        let (col_ref, alias) = col_ref_and_alias(expr.trim());
-
-        // alias.* — expand all columns of that alias
-        if col_ref.ends_with(".*") {
-            let qualifier = col_ref[..col_ref.len() - 2].to_lowercase();
-            return alias_map.get(&qualifier)
-                .map(|t| t.columns.iter().cloned().collect())
-                .unwrap_or_default();
-        }
-        // bare *
-        if col_ref == "*" {
-            return inner_tables.iter().flat_map(|(t, _)| t.columns.iter().cloned()).collect();
-        }
-
-        match resolve_col_ref(&col_ref, &alias_map, &inner_tables) {
-            Some(rc) => {
-                let name = alias.unwrap_or_else(|| rc.name.clone());
-                vec![Column { name, sql_type: rc.sql_type, nullable: rc.nullable, is_primary_key: false }]
-            }
-            None => {
-                // Unresolvable expression — keep it if it has an alias
-                alias.map(|a| vec![Column {
-                    name: a,
-                    sql_type: SqlType::Custom("expr".into()),
-                    nullable: true,
-                    is_primary_key: false,
-                }]).unwrap_or_default()
-            }
-        }
-    }).collect()
-}
-
-fn extract_from_table(sql: &str) -> Option<String> {
-    let upper = sql.to_uppercase();
-    let from_pos = find_top_level_word(&upper, "FROM")?;
-    let after = sql[from_pos + 4..].trim_start();
-    let name: String = after.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
-    if name.is_empty() { None } else { Some(name.to_lowercase()) }
-}
-
 // ─── INSERT ──────────────────────────────────────────────────────────────────
 
-fn build_insert(ann: &Annotation, sql: &str, schema: &Schema) -> Query {
-    let table_name = match extract_word_after(sql, "INTO") {
-        Some(t) => t,
-        None => return bare(ann, sql),
+fn build_insert(ann: &Annotation, sql: &str, insert: &Insert, schema: &Schema) -> Query {
+    let table_name = obj_name_to_str(&insert.table_name);
+    let Some(table) = schema.tables.iter().find(|t| t.name == table_name) else {
+        return bare(ann, sql);
     };
-    let table = match find_table(schema, &table_name) { Some(t) => t, None => return bare(ann, sql) };
 
-    let col_list = extract_parenthesised_list(sql, 0);
-    let params = build_insert_params(&col_list, sql, table);
-    let returning = extract_returning(sql, table);
+    let col_names: Vec<String> = insert.columns.iter().map(ident_to_str).collect();
+    let count = count_params(sql);
+
+    let params = (1..=count)
+        .map(|idx| {
+            let (name, sql_type, nullable) =
+                match col_names.get(idx - 1).and_then(|n| table.columns.iter().find(|c| &c.name == n)) {
+                    Some(col) => (col.name.clone(), col.sql_type.clone(), col.nullable),
+                    None => (format!("param{idx}"), SqlType::Text, false),
+                };
+            Parameter { index: idx, name, sql_type, nullable }
+        })
+        .collect();
+
+    let result_columns = insert.returning.as_deref().map_or(vec![], |items| resolve_returning(items, table));
 
     Query {
         name: ann.name.clone(),
         cmd: ann.cmd.clone(),
         sql: sql.to_string(),
         params,
-        result_columns: returning,
+        result_columns,
     }
-}
-
-fn build_insert_params(col_names: &[String], sql: &str, table: &Table) -> Vec<Parameter> {
-    let count = count_params(sql);
-    (1..=count)
-        .map(|idx| {
-            let col_name = col_names.get(idx - 1);
-            let (name, sql_type, nullable) = match col_name.and_then(|n| find_col(table, n)) {
-                Some(col) => (col.name.clone(), col.sql_type.clone(), col.nullable),
-                None => (format!("param{idx}"), SqlType::Text, false),
-            };
-            Parameter { index: idx, name, sql_type, nullable }
-        })
-        .collect()
 }
 
 // ─── UPDATE ──────────────────────────────────────────────────────────────────
 
-fn build_update(ann: &Annotation, sql: &str, schema: &Schema) -> Query {
-    let table_name = match extract_word_after(sql, "UPDATE") {
-        Some(t) => t,
-        None => return bare(ann, sql),
+fn build_update(
+    ann: &Annotation,
+    sql: &str,
+    table_with_joins: &sqlparser::ast::TableWithJoins,
+    assignments: &[Assignment],
+    selection: Option<&Expr>,
+    returning: Option<&Vec<SelectItem>>,
+    schema: &Schema,
+) -> Query {
+    let table_name = match &table_with_joins.relation {
+        TableFactor::Table { name, .. } => obj_name_to_str(name),
+        _ => return bare(ann, sql),
     };
-    let table = match find_table(schema, &table_name) { Some(t) => t, None => return bare(ann, sql) };
+    let Some(table) = schema.tables.iter().find(|t| t.name == table_name) else {
+        return bare(ann, sql);
+    };
 
-    let params = resolve_params(sql, table);
-    let returning = extract_returning(sql, table);
+    let all_tables = vec![(table.clone(), None)];
+    let alias_map = build_alias_map(&all_tables);
+    let mut mapping: HashMap<usize, (String, SqlType, bool)> = HashMap::new();
+
+    // Parameters from SET clause: col = $N
+    for assignment in assignments {
+        let col_name = match &assignment.target {
+            AssignmentTarget::ColumnName(name) => {
+                name.0.last().map(ident_to_str).unwrap_or_default()
+            }
+            _ => continue,
+        };
+        if let Expr::Value(Value::Placeholder(p)) = &assignment.value {
+            if let Some(idx) = placeholder_idx(&p) {
+                if let Some(col) = table.columns.iter().find(|c| c.name == col_name) {
+                    mapping.entry(idx).or_insert((col.name.clone(), col.sql_type.clone(), col.nullable));
+                }
+            }
+        }
+    }
+
+    // Parameters from WHERE
+    if let Some(expr) = selection {
+        collect_params_from_expr(expr, &alias_map, &all_tables, &mut mapping);
+    }
+
+    let params = build_params(mapping, count_params(sql));
+    let result_columns = returning.map_or(vec![], |items| resolve_returning(items, table));
 
     Query {
         name: ann.name.clone(),
         cmd: ann.cmd.clone(),
         sql: sql.to_string(),
         params,
-        result_columns: returning,
+        result_columns,
     }
 }
 
 // ─── DELETE ──────────────────────────────────────────────────────────────────
 
-fn build_delete(ann: &Annotation, sql: &str, schema: &Schema) -> Query {
-    let table_name = match extract_from_table(sql) {
-        Some(t) => t,
-        None => return bare(ann, sql),
+fn build_delete(ann: &Annotation, sql: &str, delete: &Delete, schema: &Schema) -> Query {
+    let tables = match &delete.from {
+        FromTable::WithFromKeyword(t) | FromTable::WithoutKeyword(t) => t,
     };
-    let table = match find_table(schema, &table_name) { Some(t) => t, None => return bare(ann, sql) };
+    let table_name = tables
+        .first()
+        .and_then(|twj| match &twj.relation {
+            TableFactor::Table { name, .. } => Some(obj_name_to_str(name)),
+            _ => None,
+        });
 
-    let params = resolve_params(sql, table);
+    let Some(table_name) = table_name else {
+        return bare(ann, sql);
+    };
+    let Some(table) = schema.tables.iter().find(|t| t.name == table_name) else {
+        return bare(ann, sql);
+    };
+
+    let all_tables = vec![(table.clone(), None)];
+    let alias_map = build_alias_map(&all_tables);
+    let mut mapping = HashMap::new();
+
+    if let Some(expr) = &delete.selection {
+        collect_params_from_expr(expr, &alias_map, &all_tables, &mut mapping);
+    }
+
+    let params = build_params(mapping, count_params(sql));
 
     Query {
         name: ann.name.clone(),
@@ -498,83 +270,296 @@ fn build_delete(ann: &Annotation, sql: &str, schema: &Schema) -> Query {
     }
 }
 
-// ─── Parameter resolution ────────────────────────────────────────────────────
+// ─── Table collection ─────────────────────────────────────────────────────────
 
-/// Finds all `$N` placeholders and infers their column type from context.
-fn resolve_params(sql: &str, table: &Table) -> Vec<Parameter> {
-    let count = count_params(sql);
-    if count == 0 { return vec![]; }
+fn collect_from_tables(select: &Select, schema: &Schema) -> Vec<(Table, Option<String>)> {
+    let mut tables = Vec::new();
+    for twj in &select.from {
+        collect_table_factor(&twj.relation, schema, &mut tables);
+        for join in &twj.joins {
+            collect_table_factor(&join.relation, schema, &mut tables);
+        }
+    }
+    tables
+}
 
-    // Build index → column name from `col = $N` patterns in SET and WHERE
-    let mut mapping: std::collections::HashMap<usize, String> = Default::default();
-    let mut pos = 0;
-    while let Some(eq_pos) = sql[pos..].find('=') {
-        let abs_eq = pos + eq_pos;
-        // Get the word before '='
-        let before = sql[..abs_eq].trim_end();
-        let col_name: String = before
-            .chars()
-            .rev()
-            .take_while(|c| c.is_alphanumeric() || *c == '_')
-            .collect::<String>()
-            .chars()
-            .rev()
-            .collect();
-
-        // Get token after '='
-        let after = sql[abs_eq + 1..].trim_start();
-        if after.starts_with('$') {
-            let idx_str: String = after[1..].chars().take_while(|c| c.is_ascii_digit()).collect();
-            if let Ok(idx) = idx_str.parse::<usize>() {
-                if !col_name.is_empty() {
-                    mapping.entry(idx).or_insert_with(|| col_name.to_lowercase());
+fn collect_table_factor(
+    factor: &TableFactor,
+    schema: &Schema,
+    out: &mut Vec<(Table, Option<String>)>,
+) {
+    match factor {
+        TableFactor::Table { name, alias, .. } => {
+            let table_name = obj_name_to_str(name);
+            if let Some(t) = schema.tables.iter().find(|t| t.name == table_name) {
+                let alias_str = alias.as_ref().map(|a| ident_to_str(&a.name));
+                out.push((t.clone(), alias_str));
+            }
+        }
+        TableFactor::Derived { subquery, alias, .. } => {
+            if let Some(a) = alias {
+                let alias_name = ident_to_str(&a.name);
+                let cols = derived_cols(subquery, schema);
+                if !cols.is_empty() {
+                    out.push((
+                        Table { name: alias_name.clone(), columns: cols },
+                        Some(alias_name),
+                    ));
                 }
             }
         }
-        pos = abs_eq + 1;
+        _ => {}
     }
-
-    (1..=count)
-        .map(|idx| {
-            let col_name = mapping.get(&idx);
-            let (name, sql_type, nullable) = match col_name.and_then(|n| find_col(table, n)) {
-                Some(col) => (col.name.clone(), col.sql_type.clone(), col.nullable),
-                None => (format!("param{idx}"), SqlType::Text, false),
-            };
-            Parameter { index: idx, name, sql_type, nullable }
-        })
-        .collect()
 }
 
-// ─── RETURNING ───────────────────────────────────────────────────────────────
+fn build_alias_map<'a>(tables: &'a [(Table, Option<String>)]) -> HashMap<String, &'a Table> {
+    let mut map = HashMap::new();
+    for (table, alias) in tables {
+        map.insert(table.name.clone(), table);
+        if let Some(a) = alias {
+            map.insert(a.clone(), table);
+        }
+    }
+    map
+}
 
-fn extract_returning(sql: &str, table: &Table) -> Vec<ResultColumn> {
-    let upper = sql.to_uppercase();
-    let pos = match find_word(&upper, "RETURNING") {
-        Some(p) => p,
-        None => return vec![],
+// ─── Projection resolution ───────────────────────────────────────────────────
+
+fn resolve_projection(
+    select: &Select,
+    alias_map: &HashMap<String, &Table>,
+    all_tables: &[(Table, Option<String>)],
+) -> Vec<ResultColumn> {
+    let mut result = Vec::new();
+    for item in &select.projection {
+        match item {
+            SelectItem::Wildcard(_) => {
+                for (t, _) in all_tables {
+                    result.extend(t.columns.iter().map(col_to_result));
+                }
+            }
+            SelectItem::QualifiedWildcard(name, _) => {
+                let qualifier = name.0.last().map(ident_to_str).unwrap_or_default();
+                if let Some(t) = alias_map.get(&qualifier) {
+                    result.extend(t.columns.iter().map(col_to_result));
+                }
+            }
+            SelectItem::UnnamedExpr(expr) => {
+                if let Some(rc) = resolve_expr(expr, alias_map, all_tables) {
+                    result.push(rc);
+                }
+                // Unresolvable expr without alias (subquery, aggregate) — skip
+            }
+            SelectItem::ExprWithAlias { expr, alias } => {
+                let name = ident_to_str(alias);
+                match resolve_expr(expr, alias_map, all_tables) {
+                    Some(rc) => result.push(ResultColumn { name, ..rc }),
+                    None => result.push(ResultColumn {
+                        name,
+                        sql_type: SqlType::Custom("expr".into()),
+                        nullable: true,
+                    }),
+                }
+            }
+        }
+    }
+    result
+}
+
+fn resolve_expr(
+    expr: &Expr,
+    alias_map: &HashMap<String, &Table>,
+    all_tables: &[(Table, Option<String>)],
+) -> Option<ResultColumn> {
+    match expr {
+        Expr::Identifier(ident) => {
+            let col_name = ident_to_str(ident);
+            all_tables
+                .iter()
+                .flat_map(|(t, _)| t.columns.iter())
+                .find(|c| c.name == col_name)
+                .map(col_to_result)
+        }
+        Expr::CompoundIdentifier(parts) if parts.len() >= 2 => {
+            let qualifier = ident_to_str(&parts[parts.len() - 2]);
+            let col_name = ident_to_str(&parts[parts.len() - 1]);
+            alias_map
+                .get(&qualifier)
+                .and_then(|t| t.columns.iter().find(|c| c.name == col_name))
+                .map(col_to_result)
+        }
+        _ => None,
+    }
+}
+
+// ─── Derived table columns ────────────────────────────────────────────────────
+
+fn derived_cols(subquery: &SqlQuery, schema: &Schema) -> Vec<Column> {
+    let SetExpr::Select(select) = subquery.body.as_ref() else {
+        return vec![];
     };
-    let list = sql[pos + 9..].trim();
-    if list == "*" {
-        return table.columns.iter().map(col_to_result).collect();
+
+    let inner_tables = collect_from_tables(select, schema);
+    if inner_tables.is_empty() {
+        return vec![];
     }
-    list.split(',')
-        .filter_map(|expr| {
-            let name = expr.trim().split_whitespace().next().unwrap_or("").to_lowercase();
-            let name = name.trim_matches('"');
-            find_col(table, name).map(col_to_result)
+    let alias_map = build_alias_map(&inner_tables);
+
+    let mut cols = Vec::new();
+    for item in &select.projection {
+        match item {
+            SelectItem::Wildcard(_) => {
+                for (t, _) in &inner_tables {
+                    cols.extend(t.columns.iter().cloned());
+                }
+            }
+            SelectItem::QualifiedWildcard(name, _) => {
+                let qualifier = name.0.last().map(ident_to_str).unwrap_or_default();
+                if let Some(t) = alias_map.get(&qualifier) {
+                    cols.extend(t.columns.iter().cloned());
+                }
+            }
+            SelectItem::UnnamedExpr(expr) => {
+                if let Some(rc) = resolve_expr(expr, &alias_map, &inner_tables) {
+                    cols.push(Column {
+                        name: rc.name,
+                        sql_type: rc.sql_type,
+                        nullable: rc.nullable,
+                        is_primary_key: false,
+                    });
+                }
+            }
+            SelectItem::ExprWithAlias { expr, alias } => {
+                let alias_name = ident_to_str(alias);
+                match resolve_expr(expr, &alias_map, &inner_tables) {
+                    Some(rc) => cols.push(Column {
+                        name: alias_name,
+                        sql_type: rc.sql_type,
+                        nullable: rc.nullable,
+                        is_primary_key: false,
+                    }),
+                    None => cols.push(Column {
+                        name: alias_name,
+                        sql_type: SqlType::Custom("expr".into()),
+                        nullable: true,
+                        is_primary_key: false,
+                    }),
+                }
+            }
+        }
+    }
+    cols
+}
+
+// ─── Parameter resolution ─────────────────────────────────────────────────────
+
+fn collect_params_from_expr(
+    expr: &Expr,
+    alias_map: &HashMap<String, &Table>,
+    all_tables: &[(Table, Option<String>)],
+    mapping: &mut HashMap<usize, (String, SqlType, bool)>,
+) {
+    match expr {
+        Expr::BinaryOp { left, op, right } => {
+            if matches!(op, BinaryOperator::Eq) {
+                // col = $N
+                if let Expr::Value(Value::Placeholder(p)) = &**right {
+                    if let Some(idx) = placeholder_idx(p) {
+                        if let Some(rc) = resolve_expr(left, alias_map, all_tables) {
+                            mapping.entry(idx).or_insert((rc.name, rc.sql_type, rc.nullable));
+                        }
+                    }
+                }
+                // $N = col (unusual)
+                if let Expr::Value(Value::Placeholder(p)) = &**left {
+                    if let Some(idx) = placeholder_idx(p) {
+                        if let Some(rc) = resolve_expr(right, alias_map, all_tables) {
+                            mapping.entry(idx).or_insert((rc.name, rc.sql_type, rc.nullable));
+                        }
+                    }
+                }
+            }
+            collect_params_from_expr(left, alias_map, all_tables, mapping);
+            collect_params_from_expr(right, alias_map, all_tables, mapping);
+        }
+        Expr::InSubquery { expr, .. } => {
+            // Walk only the outer expression; do NOT recurse into the subquery
+            collect_params_from_expr(expr, alias_map, all_tables, mapping);
+        }
+        Expr::Nested(inner) => {
+            collect_params_from_expr(inner, alias_map, all_tables, mapping);
+        }
+        Expr::IsNull(inner) | Expr::IsNotNull(inner) => {
+            collect_params_from_expr(inner, alias_map, all_tables, mapping);
+        }
+        _ => {}
+    }
+}
+
+fn build_params(mapping: HashMap<usize, (String, SqlType, bool)>, count: usize) -> Vec<Parameter> {
+    (1..=count)
+        .map(|idx| match mapping.get(&idx) {
+            Some((name, sql_type, nullable)) => Parameter {
+                index: idx,
+                name: name.clone(),
+                sql_type: sql_type.clone(),
+                nullable: *nullable,
+            },
+            None => Parameter {
+                index: idx,
+                name: format!("param{idx}"),
+                sql_type: SqlType::Text,
+                nullable: false,
+            },
         })
         .collect()
 }
 
-// ─── Utilities ───────────────────────────────────────────────────────────────
+// ─── RETURNING ────────────────────────────────────────────────────────────────
 
-fn find_table<'a>(schema: &'a Schema, name: &str) -> Option<&'a Table> {
-    schema.tables.iter().find(|t| t.name == name)
+fn resolve_returning(items: &[SelectItem], table: &Table) -> Vec<ResultColumn> {
+    let all_tables = [(table.clone(), None)];
+    let alias_map = build_alias_map(&all_tables);
+    let mut result = Vec::new();
+    for item in items {
+        match item {
+            SelectItem::Wildcard(_) => {
+                result.extend(table.columns.iter().map(col_to_result));
+            }
+            SelectItem::UnnamedExpr(expr) => {
+                if let Some(rc) = resolve_expr(expr, &alias_map, &all_tables) {
+                    result.push(rc);
+                }
+            }
+            SelectItem::ExprWithAlias { expr, alias } => {
+                if let Some(rc) = resolve_expr(expr, &alias_map, &all_tables) {
+                    result.push(ResultColumn { name: ident_to_str(alias), ..rc });
+                }
+            }
+            _ => {}
+        }
+    }
+    result
 }
 
-fn find_col<'a>(table: &'a Table, name: &str) -> Option<&'a Column> {
-    table.columns.iter().find(|c| c.name == name)
+// ─── Utilities ────────────────────────────────────────────────────────────────
+
+fn col_to_result(col: &Column) -> ResultColumn {
+    ResultColumn {
+        name: col.name.clone(),
+        sql_type: col.sql_type.clone(),
+        nullable: col.nullable,
+    }
+}
+
+fn bare(ann: &Annotation, sql: &str) -> Query {
+    Query {
+        name: ann.name.clone(),
+        cmd: ann.cmd.clone(),
+        sql: sql.to_string(),
+        params: vec![],
+        result_columns: vec![],
+    }
 }
 
 fn count_params(sql: &str) -> usize {
@@ -591,108 +576,8 @@ fn count_params(sql: &str) -> usize {
     max
 }
 
-fn bare(ann: &Annotation, sql: &str) -> Query {
-    Query {
-        name: ann.name.clone(),
-        cmd: ann.cmd.clone(),
-        sql: sql.to_string(),
-        params: vec![],
-        result_columns: vec![],
-    }
-}
-
-/// Extracts comma-separated tokens from the first `(...)` in sql starting at `start`.
-fn extract_parenthesised_list(sql: &str, start: usize) -> Vec<String> {
-    let open = match sql[start..].find('(') {
-        Some(p) => start + p,
-        None => return vec![],
-    };
-    let mut depth = 0usize;
-    let mut buf = String::new();
-    for ch in sql[open..].chars() {
-        match ch {
-            '(' => {
-                depth += 1;
-                if depth > 1 { buf.push(ch); }
-            }
-            ')' => {
-                depth -= 1;
-                if depth == 0 { break; }
-                buf.push(ch);
-            }
-            _ if depth == 1 => buf.push(ch),
-            _ => {}
-        }
-    }
-    buf.split(',').map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty()).collect()
-}
-
-/// Like [`find_word`] but skips content inside parenthesised subexpressions and
-/// single-quoted string literals, so keywords inside subqueries are invisible.
-fn find_top_level_word(upper: &str, keyword: &str) -> Option<usize> {
-    let klen = keyword.len();
-    let bytes = upper.as_bytes();
-    let mut i = 0;
-    let mut depth = 0usize;
-
-    while i < upper.len() {
-        match bytes[i] {
-            b'\'' => {
-                // Skip string literal, handling escaped '' pairs
-                i += 1;
-                while i < upper.len() {
-                    if bytes[i] == b'\'' {
-                        i += 1;
-                        if bytes.get(i) == Some(&b'\'') { i += 1; } else { break; }
-                    } else {
-                        i += 1;
-                    }
-                }
-            }
-            b'(' => { depth += 1; i += 1; }
-            b')' => { depth = depth.saturating_sub(1); i += 1; }
-            _ if depth == 0 => {
-                if upper[i..].starts_with(keyword) {
-                    let before_ok = i == 0
-                        || (!bytes[i - 1].is_ascii_alphanumeric() && bytes[i - 1] != b'_');
-                    let after_ok = i + klen >= upper.len()
-                        || (!bytes[i + klen].is_ascii_alphanumeric() && bytes[i + klen] != b'_');
-                    if before_ok && after_ok { return Some(i); }
-                }
-                i += 1;
-            }
-            _ => { i += 1; }
-        }
-    }
-    None
-}
-
-/// Returns index of word boundary match for `keyword` in `upper` (uppercase) string.
-fn find_word(upper: &str, keyword: &str) -> Option<usize> {
-    let klen = keyword.len();
-    let bytes = upper.as_bytes();
-    let mut i = 0;
-    while i + klen <= upper.len() {
-        if upper[i..].starts_with(keyword) {
-            let before_ok = i == 0 || !bytes[i - 1].is_ascii_alphanumeric() && bytes[i - 1] != b'_';
-            let after_ok = i + klen >= upper.len()
-                || !bytes[i + klen].is_ascii_alphanumeric() && bytes[i + klen] != b'_';
-            if before_ok && after_ok {
-                return Some(i);
-            }
-        }
-        i += 1;
-    }
-    None
-}
-
-/// Extracts the next bare identifier word after a keyword.
-fn extract_word_after(sql: &str, keyword: &str) -> Option<String> {
-    let upper = sql.to_uppercase();
-    let pos = find_top_level_word(&upper, keyword)?;
-    let after = sql[pos + keyword.len()..].trim_start();
-    let word: String = after.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
-    if word.is_empty() { None } else { Some(word.to_lowercase()) }
+fn placeholder_idx(s: &str) -> Option<usize> {
+    s.strip_prefix('$')?.parse().ok()
 }
 
 #[cfg(test)]
