@@ -62,10 +62,10 @@ SQL files
 |---|---|---|
 | `DialectParser` trait | ✅ | `parse_schema`, `parse_queries` |
 | **PostgreSQL** | | |
-| `ddl.pest` — PEG grammar for DDL | ✅ | Handles CREATE TABLE, constraints, arrays |
-| `typemap.rs` — pg type string → `SqlType` | ✅ | Case-insensitive, strips size params; 14 unit tests |
-| `schema.rs` — DDL parser → `Schema` | ✅ | 8 unit tests (table PK, array cols, IF NOT EXISTS, DEFAULT, GENERATED…) |
-| `query.rs` — annotated query file parser | ✅ | SELECT/INSERT/UPDATE/DELETE + param inference; 13 unit tests |
+| `typemap.rs` — `DataType` → `SqlType` | ✅ | Matches sqlparser AST variants directly; 13 unit tests |
+| `schema.rs` — DDL parser → `Schema` | ✅ | sqlparser-rs AST; 19 unit tests |
+| `query.rs` — annotated query file parser | ✅ | SELECT/INSERT/UPDATE/DELETE + JOINs + subqueries + derived tables; 34 unit tests |
+| `query.rs` — CTE (`WITH`) support | ❌ | Planned next — see Remaining work |
 | **SQLite** | ❌ | Not started |
 
 ## Backend layer (`src/backend/`)
@@ -91,13 +91,19 @@ SQL files
 
 ### High priority
 
-1. **Rust backend** — generate `sqlx` query functions (or plain `postgres` crate)
-2. **Go backend** — generate structs + `database/sql` functions
-3. **Smoke test** — add a sample `sqlt.json` + `schema.sql` + `queries.sql` under `examples/`
-   and verify `sqlt generate` produces correct Java/Kotlin output end-to-end
+1. **CTE support** (`WITH` clauses) — reuse `cols_from_subquery` (same pattern as derived
+   tables); build a synthetic table per CTE and add it to scope before resolving the outer
+   `SELECT`. Four tests: basic, param in inner/outer, chained CTEs, CTE joined with schema table.
+
+2. **Rust backend** — generate `sqlx` query functions (or plain `postgres` crate)
+
+3. **Go backend** — generate structs + `database/sql` functions
 
 ### Medium priority
 
+1. **`UNION` / `INTERSECT` result columns** — resolve from left branch of `SetExpr::SetOperation`
+2. **`CAST(x AS type)` result type** — call `typemap::map()` on the cast's `DataType`
+3. **`HAVING` params** — same `collect_params_from_expr` walk on `select.having`
 4. **Python backend** — generate dataclasses + `psycopg2` / `asyncpg` functions
 5. **TypeScript backend** — generate interfaces + `pg` / `postgres.js` functions
 6. **Better error messages** — surface parse errors with line numbers
@@ -105,8 +111,8 @@ SQL files
 
 ### Low priority / future
 
-8. **SQLite frontend** — `DialectParser` impl for SQLite DDL
-9. **C / C++ / C# backends** — stubs to add later
-10. **Multiple query files** — allow `queries` to be a list of paths
-11. **Schema-qualified tables** — handle `schema.table` references in queries
-12. **`sqlt init`** subcommand — scaffold a starter `sqlt.json`
+1. **SQLite frontend** — `DialectParser` impl for SQLite DDL
+2. **C / C++ / C# backends** — stubs to add later
+3. **Multiple query files** — allow `queries` to be a list of paths
+4. **Schema-qualified tables** — handle `schema.table` references in queries
+5. **`sqlt init`** subcommand — scaffold a starter `sqlt.json`
