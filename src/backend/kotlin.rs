@@ -62,7 +62,8 @@ impl Codegen for KotlinCodegen {
 
 fn emit_kotlin_query(src: &mut String, query: &Query, schema: &Schema) -> anyhow::Result<()> {
     let sql_const = format!("SQL_{}", query.name.to_uppercase());
-    writeln!(src, "    private const val {sql_const} = \"{};\"", query.sql.replace('\n', " ").replace('"', "\\\""))?;
+    let sql = jdbc_sql(&query.sql);
+    writeln!(src, "    private const val {sql_const} = \"{};\"", sql.replace('\n', " ").replace('"', "\\\""))?;
 
     let return_type = match query.cmd {
         QueryCmd::One => {
@@ -162,6 +163,22 @@ fn emit_row_constructor(query: &Query, schema: &Schema) -> String {
         format!("rs.{}({})", rs_getter(&col.sql_type), i + 1)
     }).collect();
     format!("{class}({})", args.join(", "))
+}
+
+fn jdbc_sql(sql: &str) -> String {
+    let mut out = String::with_capacity(sql.len());
+    let mut chars = sql.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '$' && chars.peek().map_or(false, |c| c.is_ascii_digit()) {
+            out.push('?');
+            while chars.peek().map_or(false, |c| c.is_ascii_digit()) {
+                chars.next();
+            }
+        } else {
+            out.push(ch);
+        }
+    }
+    out
 }
 
 // ─── Type helpers ─────────────────────────────────────────────────────────────
