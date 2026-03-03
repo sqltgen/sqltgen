@@ -106,4 +106,21 @@ object Queries {
             return rows
         }
     }
+
+    data class GetActiveAuthorsRow(
+        val id: Long,
+        val name: String,
+        val email: String
+    )
+
+    private const val SQL_GETACTIVEAUTHORS = "WITH post_authors AS (     SELECT DISTINCT user_id FROM posts ) SELECT u.id, u.name, u.email FROM users u JOIN post_authors pa ON pa.user_id = u.id;"
+    fun getActiveAuthors(conn: Connection): List<GetActiveAuthorsRow> {
+        conn.prepareStatement(SQL_GETACTIVEAUTHORS).use { ps ->
+            val rows = mutableListOf<GetActiveAuthorsRow>()
+            ps.executeQuery().use { rs ->
+                while (rs.next()) rows.add(GetActiveAuthorsRow(rs.getLong(1), rs.getString(2), rs.getString(3)))
+            }
+            return rows
+        }
+    }
 }

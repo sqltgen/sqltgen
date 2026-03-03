@@ -121,4 +121,22 @@ public final class Queries {
             return rows;
         }
     }
+
+    public record GetActiveAuthorsRow(
+        long id,
+        String name,
+        String email
+    ) {}
+
+    private static final String SQL_GETACTIVEAUTHORS =
+        "WITH post_authors AS (     SELECT DISTINCT user_id FROM posts ) SELECT u.id, u.name, u.email FROM users u JOIN post_authors pa ON pa.user_id = u.id;";
+    public static List<GetActiveAuthorsRow> getActiveAuthors(Connection conn) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(SQL_GETACTIVEAUTHORS)) {
+            List<GetActiveAuthorsRow> rows = new ArrayList<>();
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) rows.add(new GetActiveAuthorsRow(rs.getLong(1), rs.getString(2), rs.getString(3)));
+            }
+            return rows;
+        }
+    }
 }

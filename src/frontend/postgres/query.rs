@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use sqlparser::ast::{
     Assignment, AssignmentTarget, BinaryOperator, Delete, Expr, FromTable, Insert,
-    Query as SqlQuery, Select, SelectItem, SetExpr, Statement, TableFactor, Value,
+    Query as SqlQuery, Select, SelectItem, SetExpr, Statement, TableFactor, Value, With,
 };
 use sqlparser::dialect::PostgreSqlDialect;
 use sqlparser::parser::Parser;
@@ -117,7 +117,8 @@ fn build_select(ann: &Annotation, sql: &str, q: &SqlQuery, schema: &Schema) -> Q
         return bare(ann, sql);
     };
 
-    let all_tables = collect_from_tables(select, schema);
+    let ctes = build_cte_scope(q.with.as_ref(), schema);
+    let all_tables = collect_from_tables(select, schema, &ctes);
     if all_tables.is_empty() {
         return bare(ann, sql);
     }
@@ -272,12 +273,16 @@ fn build_delete(ann: &Annotation, sql: &str, delete: &Delete, schema: &Schema) -
 
 // ─── Table collection ─────────────────────────────────────────────────────────
 
-fn collect_from_tables(select: &Select, schema: &Schema) -> Vec<(Table, Option<String>)> {
+fn collect_from_tables(
+    select: &Select,
+    schema: &Schema,
+    ctes: &[Table],
+) -> Vec<(Table, Option<String>)> {
     let mut tables = Vec::new();
     for twj in &select.from {
-        collect_table_factor(&twj.relation, schema, &mut tables);
+        collect_table_factor(&twj.relation, schema, ctes, &mut tables);
         for join in &twj.joins {
-            collect_table_factor(&join.relation, schema, &mut tables);
+            collect_table_factor(&join.relation, schema, ctes, &mut tables);
         }
     }
     tables
@@ -286,12 +291,15 @@ fn collect_from_tables(select: &Select, schema: &Schema) -> Vec<(Table, Option<S
 fn collect_table_factor(
     factor: &TableFactor,
     schema: &Schema,
+    ctes: &[Table],
     out: &mut Vec<(Table, Option<String>)>,
 ) {
     match factor {
         TableFactor::Table { name, alias, .. } => {
             let table_name = obj_name_to_str(name);
-            if let Some(t) = schema.tables.iter().find(|t| t.name == table_name) {
+            let found = ctes.iter().find(|t| t.name == table_name)
+                .or_else(|| schema.tables.iter().find(|t| t.name == table_name));
+            if let Some(t) = found {
                 let alias_str = alias.as_ref().map(|a| ident_to_str(&a.name));
                 out.push((t.clone(), alias_str));
             }
@@ -299,7 +307,7 @@ fn collect_table_factor(
         TableFactor::Derived { subquery, alias, .. } => {
             if let Some(a) = alias {
                 let alias_name = ident_to_str(&a.name);
-                let cols = derived_cols(subquery, schema);
+                let cols = derived_cols(subquery, schema, ctes);
                 if !cols.is_empty() {
                     out.push((
                         Table { name: alias_name.clone(), columns: cols },
@@ -394,12 +402,12 @@ fn resolve_expr(
 
 // ─── Derived table columns ────────────────────────────────────────────────────
 
-fn derived_cols(subquery: &SqlQuery, schema: &Schema) -> Vec<Column> {
+fn derived_cols(subquery: &SqlQuery, schema: &Schema, ctes: &[Table]) -> Vec<Column> {
     let SetExpr::Select(select) = subquery.body.as_ref() else {
         return vec![];
     };
 
-    let inner_tables = collect_from_tables(select, schema);
+    let inner_tables = collect_from_tables(select, schema, ctes);
     if inner_tables.is_empty() {
         return vec![];
     }
@@ -449,6 +457,18 @@ fn derived_cols(subquery: &SqlQuery, schema: &Schema) -> Vec<Column> {
         }
     }
     cols
+}
+
+fn build_cte_scope(with: Option<&With>, schema: &Schema) -> Vec<Table> {
+    let Some(with) = with else { return vec![] };
+    let mut ctes: Vec<Table> = Vec::new();
+    for cte in &with.cte_tables {
+        let cols = derived_cols(&cte.query, schema, &ctes);
+        if !cols.is_empty() {
+            ctes.push(Table { name: ident_to_str(&cte.alias.name), columns: cols });
+        }
+    }
+    ctes
 }
 
 // ─── Parameter resolution ─────────────────────────────────────────────────────
@@ -894,6 +914,58 @@ mod tests {
         let q = &parse_queries(sql, &make_join_schema()).unwrap()[0];
         let names: Vec<_> = q.result_columns.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names, ["id", "name", "title"]);
+    }
+
+    // ─── CTE (WITH) tests ─────────────────────────────────────────────────────
+
+    #[test]
+    fn cte_basic_resolves_columns() {
+        let sql = "-- name: GetRecentPosts :many\n\
+            WITH recent AS (SELECT id, title FROM posts)\n\
+            SELECT id, title FROM recent;";
+        let q = &parse_queries(sql, &make_join_schema()).unwrap()[0];
+        let names: Vec<_> = q.result_columns.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["id", "title"]);
+        assert_eq!(q.result_columns[0].sql_type, SqlType::BigInt);
+        assert_eq!(q.result_columns[1].sql_type, SqlType::Text);
+    }
+
+    #[test]
+    fn cte_param_in_outer_where() {
+        // $1 is in the outer WHERE, bound to a column from the CTE
+        let sql = "-- name: GetUserPosts :many\n\
+            WITH uposts AS (SELECT id, user_id, title FROM posts)\n\
+            SELECT id, title FROM uposts WHERE user_id = $1;";
+        let q = &parse_queries(sql, &make_join_schema()).unwrap()[0];
+        assert_eq!(q.params.len(), 1);
+        assert_eq!(q.params[0].name, "user_id");
+        assert_eq!(q.params[0].sql_type, SqlType::BigInt);
+    }
+
+    #[test]
+    fn cte_chained() {
+        // Second CTE references the first CTE
+        let sql = "-- name: GetTitles :many\n\
+            WITH base AS (SELECT id, title FROM posts),\n\
+                 titled AS (SELECT title FROM base)\n\
+            SELECT title FROM titled;";
+        let q = &parse_queries(sql, &make_join_schema()).unwrap()[0];
+        let names: Vec<_> = q.result_columns.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["title"]);
+        assert_eq!(q.result_columns[0].sql_type, SqlType::Text);
+    }
+
+    #[test]
+    fn cte_joined_with_schema_table() {
+        // CTE is JOINed with a real schema table
+        let sql = "-- name: GetUserPostTitles :many\n\
+            WITH uposts AS (SELECT user_id, title FROM posts)\n\
+            SELECT u.name, p.title FROM users u JOIN uposts p ON p.user_id = u.id;";
+        let q = &parse_queries(sql, &make_join_schema()).unwrap()[0];
+        let names: Vec<_> = q.result_columns.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["name", "title"]);
+        assert_eq!(q.result_columns[0].sql_type, SqlType::Text);
+        assert_eq!(q.result_columns[1].sql_type, SqlType::Text);
     }
 
     #[test]

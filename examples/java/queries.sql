@@ -26,3 +26,11 @@ SELECT u.name, u.email, pc.post_count
 FROM users u
 INNER JOIN (SELECT user_id, COUNT(*) AS post_count FROM posts GROUP BY user_id) pc
 ON u.id = pc.user_id;
+
+-- name: GetActiveAuthors :many
+WITH post_authors AS (
+    SELECT DISTINCT user_id FROM posts
+)
+SELECT u.id, u.name, u.email
+FROM users u
+JOIN post_authors pa ON pa.user_id = u.id;
