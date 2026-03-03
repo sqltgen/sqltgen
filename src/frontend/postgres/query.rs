@@ -118,7 +118,7 @@ fn build_select(ann: &Annotation, sql: &str, schema: &Schema) -> Query {
 
 fn extract_select_list(sql: &str) -> String {
     let upper = sql.to_uppercase();
-    let from_idx = find_word(&upper, "FROM").unwrap_or(upper.len());
+    let from_idx = find_top_level_word(&upper, "FROM").unwrap_or(upper.len());
     sql[6..from_idx].trim().to_string() // skip "SELECT"
 }
 
@@ -132,8 +132,8 @@ fn extract_query_tables<'s>(sql: &str, schema: &'s Schema) -> Vec<(&'s Table, Op
 
     loop {
         // Pick whichever of FROM / JOIN appears next
-        let from_hit = find_word(&upper[pos..], "FROM").map(|p| (pos + p, 4usize));
-        let join_hit = find_word(&upper[pos..], "JOIN").map(|p| (pos + p, 4usize));
+        let from_hit = find_top_level_word(&upper[pos..], "FROM").map(|p| (pos + p, 4usize));
+        let join_hit = find_top_level_word(&upper[pos..], "JOIN").map(|p| (pos + p, 4usize));
         let (kw_abs, kw_len) = match (from_hit, join_hit) {
             (None, None) => break,
             (Some(f), None) => f,
@@ -284,7 +284,7 @@ fn col_to_result(col: &Column) -> ResultColumn {
 
 fn extract_from_table(sql: &str) -> Option<String> {
     let upper = sql.to_uppercase();
-    let from_pos = find_word(&upper, "FROM")?;
+    let from_pos = find_top_level_word(&upper, "FROM")?;
     let after = sql[from_pos + 4..].trim_start();
     let name: String = after.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
     if name.is_empty() { None } else { Some(name.to_lowercase()) }
@@ -496,6 +496,46 @@ fn extract_parenthesised_list(sql: &str, start: usize) -> Vec<String> {
     buf.split(',').map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty()).collect()
 }
 
+/// Like [`find_word`] but skips content inside parenthesised subexpressions and
+/// single-quoted string literals, so keywords inside subqueries are invisible.
+fn find_top_level_word(upper: &str, keyword: &str) -> Option<usize> {
+    let klen = keyword.len();
+    let bytes = upper.as_bytes();
+    let mut i = 0;
+    let mut depth = 0usize;
+
+    while i < upper.len() {
+        match bytes[i] {
+            b'\'' => {
+                // Skip string literal, handling escaped '' pairs
+                i += 1;
+                while i < upper.len() {
+                    if bytes[i] == b'\'' {
+                        i += 1;
+                        if bytes.get(i) == Some(&b'\'') { i += 1; } else { break; }
+                    } else {
+                        i += 1;
+                    }
+                }
+            }
+            b'(' => { depth += 1; i += 1; }
+            b')' => { depth = depth.saturating_sub(1); i += 1; }
+            _ if depth == 0 => {
+                if upper[i..].starts_with(keyword) {
+                    let before_ok = i == 0
+                        || (!bytes[i - 1].is_ascii_alphanumeric() && bytes[i - 1] != b'_');
+                    let after_ok = i + klen >= upper.len()
+                        || (!bytes[i + klen].is_ascii_alphanumeric() && bytes[i + klen] != b'_');
+                    if before_ok && after_ok { return Some(i); }
+                }
+                i += 1;
+            }
+            _ => { i += 1; }
+        }
+    }
+    None
+}
+
 /// Returns index of word boundary match for `keyword` in `upper` (uppercase) string.
 fn find_word(upper: &str, keyword: &str) -> Option<usize> {
     let klen = keyword.len();
@@ -518,7 +558,7 @@ fn find_word(upper: &str, keyword: &str) -> Option<usize> {
 /// Extracts the next bare identifier word after a keyword.
 fn extract_word_after(sql: &str, keyword: &str) -> Option<String> {
     let upper = sql.to_uppercase();
-    let pos = find_word(&upper, keyword)?;
+    let pos = find_top_level_word(&upper, keyword)?;
     let after = sql[pos + keyword.len()..].trim_start();
     let word: String = after.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
     if word.is_empty() { None } else { Some(word.to_lowercase()) }
@@ -665,6 +705,43 @@ mod tests {
         assert_eq!(queries.len(), 3);
         let names: Vec<_> = queries.iter().map(|q| q.name.as_str()).collect();
         assert_eq!(names, ["GetUser", "ListUsers", "CreateUser"]);
+    }
+
+    // ─── Subquery tests ───────────────────────────────────────────────────────
+
+    #[test]
+    fn subquery_in_where_does_not_add_inner_table_to_scope() {
+        // posts is only referenced inside a subquery — it must not leak into the alias map
+        let sql = "-- name: GetUsersWithPosts :many\n\
+            SELECT u.id, u.name FROM users u WHERE u.id IN (SELECT user_id FROM posts);";
+        let q = &parse_queries(sql, &make_join_schema()).unwrap()[0];
+        let names: Vec<_> = q.result_columns.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["id", "name"]);
+        assert_eq!(q.params.len(), 0);
+    }
+
+    #[test]
+    fn scalar_subquery_in_select_does_not_truncate_outer_columns() {
+        // The inner FROM must not cut off the outer select list
+        let sql = "-- name: GetUserPostCount :many\n\
+            SELECT u.name, (SELECT COUNT(*) FROM posts p WHERE p.user_id = u.id) \
+            FROM users u;";
+        let q = &parse_queries(sql, &make_join_schema()).unwrap()[0];
+        // u.name must be resolved; the scalar subquery result is unresolvable but
+        // it must not prevent name from being in the result set
+        assert!(q.result_columns.iter().any(|c| c.name == "name"));
+    }
+
+    #[test]
+    fn subquery_param_in_where_resolves_from_outer_table() {
+        // $1 appears in the outer WHERE, bound to the outer table
+        let sql = "-- name: GetUser :one\n\
+            SELECT u.id, u.name FROM users u \
+            WHERE u.id = $1 AND u.id IN (SELECT user_id FROM posts);";
+        let q = &parse_queries(sql, &make_join_schema()).unwrap()[0];
+        assert_eq!(q.params.len(), 1);
+        assert_eq!(q.params[0].name, "id");
+        assert_eq!(q.params[0].sql_type, SqlType::BigInt);
     }
 
     // ─── JOIN tests ───────────────────────────────────────────────────────────
