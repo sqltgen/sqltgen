@@ -43,6 +43,9 @@ Legend: ✅ done · ⚠️ bug/incomplete · 🚧 stub · ❌ not started
 | `ALTER TABLE ADD [CONSTRAINT …] PRIMARY KEY` | ✅ | ❌ |
 | Other `ALTER TABLE` actions | ✅ (silently ignored) | ❌ |
 | JOIN queries (type inference) | ✅ qualified (`t.col`), unqualified, aliases, `SELECT *` | ❌ |
+| Subqueries in WHERE (`IN (SELECT …)`) | ✅ (SQL passes through; inner table leaks into alias map) | ❌ |
+| Derived tables (`FROM (SELECT …) alias`) | ✅ (SQL passes through; derived columns unresolvable) | ❌ |
+| Scalar subqueries in SELECT list | ✅ (SQL passes through; select-list truncated at inner FROM) | ❌ |
 | Multiple query files | ❌ | ❌ |
 
 ---
