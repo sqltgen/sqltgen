@@ -74,7 +74,7 @@ SQL files
 |---|---|---|
 | `java.rs` | ✅ | Record classes + `Queries` class with JDBC methods |
 | `kotlin.rs` | ✅ | Data classes + `Queries` object with JDBC methods |
-| `rust.rs` | 🚧 | Stub — `unimplemented!()` |
+| `rust.rs` | ✅ | `sqlx` async functions + `FromRow` structs; `mod.rs` generated |
 | `go.rs` | 🚧 | Stub — `unimplemented!()` |
 | `python.rs` | 🚧 | Stub — `unimplemented!()` |
 | `typescript.rs` | 🚧 | Stub — `unimplemented!()` |
@@ -95,9 +95,7 @@ SQL files
    tables); build a synthetic table per CTE and add it to scope before resolving the outer
    `SELECT`. Four tests: basic, param in inner/outer, chained CTEs, CTE joined with schema table.
 
-2. **Rust backend** — generate `sqlx` query functions (or plain `postgres` crate)
-
-3. **Go backend** — generate structs + `database/sql` functions
+2. **Go backend** — generate structs + `database/sql` functions
 
 ### Medium priority
 
