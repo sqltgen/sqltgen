@@ -34,7 +34,14 @@ Legend: ✅ done · ⚠️ bug/incomplete · 🚧 stub · ❌ not started
 | Query: `:one` / `:many` / `:exec` / `:execrows` | ✅ | ❌ |
 | Query: `$N` parameter inference | ✅ | ❌ |
 | Query: result column inference | ✅ | ❌ |
-| `ALTER TABLE` | ❌ (silently ignored) | ❌ |
+| `ALTER TABLE ADD COLUMN [IF NOT EXISTS]` | ✅ | ❌ |
+| `ALTER TABLE DROP COLUMN [IF EXISTS]` | ✅ | ❌ |
+| `ALTER TABLE ALTER COLUMN … SET/DROP NOT NULL` | ✅ | ❌ |
+| `ALTER TABLE ALTER COLUMN … TYPE / SET DATA TYPE` | ✅ | ❌ |
+| `ALTER TABLE RENAME COLUMN … TO …` | ✅ | ❌ |
+| `ALTER TABLE RENAME TO …` | ✅ | ❌ |
+| `ALTER TABLE ADD [CONSTRAINT …] PRIMARY KEY` | ✅ | ❌ |
+| Other `ALTER TABLE` actions | ✅ (silently ignored) | ❌ |
 | Multiple query files | ❌ | ❌ |
 
 ---

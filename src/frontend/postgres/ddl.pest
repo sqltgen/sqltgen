@@ -12,6 +12,7 @@ script = { SOI ~ statement* ~ EOI }
 
 statement = {
     create_table_stmt ~ ";"?
+  | alter_table_stmt ~ ";"?
   | other_stmt
 }
 
@@ -177,3 +178,71 @@ quoted_identifier = @{ "\"" ~ ("\"\"" | (!"\"" ~ ANY))* ~ "\"" }
 bare_identifier = @{ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_")* }
 
 NEWLINE = _{ "\r\n" | "\n" | "\r" }
+
+// ─── ALTER TABLE ─────────────────────────────────────────────────────────────
+
+alter_table_stmt = {
+    ^"ALTER" ~ ^"TABLE" ~ (^"IF" ~ ^"EXISTS")? ~ ^"ONLY"?
+    ~ table_ref
+    ~ alter_action ~ ("," ~ alter_action)*
+}
+
+alter_action = {
+    drop_column_action
+  | alter_column_action
+  | rename_table_action
+  | rename_column_action
+  | add_pk_action
+  | add_column_action
+  | other_alter_action
+}
+
+// ADD COLUMN [IF NOT EXISTS] col_def
+add_column_action = {
+    ^"ADD" ~ ^"COLUMN" ~ (^"IF" ~ ^"NOT" ~ ^"EXISTS")?
+    ~ column_def
+}
+
+// DROP COLUMN [IF EXISTS] col_name [RESTRICT | CASCADE]
+drop_column_action = {
+    ^"DROP" ~ ^"COLUMN" ~ (^"IF" ~ ^"EXISTS")?
+    ~ identifier
+    ~ (^"RESTRICT" | ^"CASCADE")?
+}
+
+// ALTER COLUMN col_name subaction
+alter_column_action = {
+    ^"ALTER" ~ ^"COLUMN" ~ identifier ~ alter_column_subaction
+}
+
+alter_column_subaction = {
+    set_not_null_action
+  | drop_not_null_action
+  | set_type_action
+  | other_alter_action
+}
+
+set_not_null_action  = { ^"SET" ~ ^"NOT" ~ ^"NULL" }
+drop_not_null_action = { ^"DROP" ~ ^"NOT" ~ ^"NULL" }
+
+// TYPE new_type  /  SET DATA TYPE new_type  [USING expr]
+set_type_action = { (^"SET" ~ ^"DATA")? ~ ^"TYPE" ~ data_type ~ using_clause? }
+using_clause    = { ^"USING" ~ using_expr }
+using_expr      = { using_token+ }
+using_token     = { "(" ~ using_token* ~ ")" | !("," | ";" | EOI) ~ ANY }
+
+// RENAME TO new_name  (must be tried before rename_column_action)
+rename_table_action = { ^"RENAME" ~ ^"TO" ~ identifier }
+
+// RENAME [COLUMN] old_name TO new_name
+rename_column_action = { ^"RENAME" ~ ^"COLUMN"? ~ identifier ~ ^"TO" ~ identifier }
+
+// ADD [CONSTRAINT name] PRIMARY KEY (col_list)
+add_pk_action = {
+    ^"ADD" ~ (^"CONSTRAINT" ~ identifier)? ~ ^"PRIMARY" ~ ^"KEY"
+    ~ "(" ~ identifier_list ~ ")"
+}
+
+// Catch-all: consume tokens up to the next top-level comma, semicolon, or end
+other_alter_action = { other_alter_token+ }
+other_alter_token  = { "(" ~ other_alter_token* ~ ")" | !("," | ";" | EOI) ~ ANY }
