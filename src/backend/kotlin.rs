@@ -43,6 +43,10 @@ impl Codegen for KotlinCodegen {
 
             for query in queries {
                 writeln!(src)?;
+                if infer_table(query, schema).is_none() && !query.result_columns.is_empty() {
+                    emit_row_class(&mut src, query)?;
+                    writeln!(src)?;
+                }
                 emit_kotlin_query(&mut src, query, schema)?;
             }
 
@@ -120,7 +124,25 @@ fn result_row_type(query: &Query, schema: &Schema) -> String {
     if let Some(table_name) = infer_table(query, schema) {
         return to_pascal_case(table_name);
     }
+    if !query.result_columns.is_empty() {
+        return row_class_name(&query.name);
+    }
     "Any".to_string()
+}
+
+fn row_class_name(query_name: &str) -> String {
+    format!("{}Row", to_pascal_case(query_name))
+}
+
+fn emit_row_class(src: &mut String, query: &Query) -> anyhow::Result<()> {
+    let name = row_class_name(&query.name);
+    writeln!(src, "    data class {name}(")?;
+    let fields: Vec<String> = query.result_columns.iter().map(|col| {
+        format!("        val {}: {}", to_camel_case(&col.name), kotlin_type(&col.sql_type, col.nullable))
+    }).collect();
+    writeln!(src, "{}", fields.join(",\n"))?;
+    writeln!(src, "    )")?;
+    Ok(())
 }
 
 fn infer_table<'a>(query: &Query, schema: &'a Schema) -> Option<&'a str> {
@@ -135,15 +157,11 @@ fn infer_table<'a>(query: &Query, schema: &'a Schema) -> Option<&'a str> {
 }
 
 fn emit_row_constructor(query: &Query, schema: &Schema) -> String {
-    if let Some(table_name) = infer_table(query, schema) {
-        let class = to_pascal_case(table_name);
-        let args: Vec<String> = query.result_columns.iter().enumerate().map(|(i, col)| {
-            format!("rs.{}({})", rs_getter(&col.sql_type), i + 1)
-        }).collect();
-        format!("{class}({})", args.join(", "))
-    } else {
-        "rs.getObject(1)".to_string()
-    }
+    let class = result_row_type(query, schema);
+    let args: Vec<String> = query.result_columns.iter().enumerate().map(|(i, col)| {
+        format!("rs.{}({})", rs_getter(&col.sql_type), i + 1)
+    }).collect();
+    format!("{class}({})", args.join(", "))
 }
 
 // ─── Type helpers ─────────────────────────────────────────────────────────────

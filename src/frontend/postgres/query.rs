@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::ir::{Column, Parameter, Query, QueryCmd, ResultColumn, Schema, SqlType, Table};
 
 /// Parses an annotated PostgreSQL query file into a list of [Query] models.
@@ -97,12 +99,13 @@ fn build_query(ann: &Annotation, sql: &str, schema: &Schema) -> anyhow::Result<Q
 // ─── SELECT ──────────────────────────────────────────────────────────────────
 
 fn build_select(ann: &Annotation, sql: &str, schema: &Schema) -> Query {
-    let table_name = match extract_from_table(sql) { Some(t) => t, None => return bare(ann, sql) };
-    let table = match find_table(schema, &table_name) { Some(t) => t, None => return bare(ann, sql) };
+    let query_tables = extract_query_tables(sql, schema);
+    if query_tables.is_empty() { return bare(ann, sql); }
 
+    let alias_map = build_alias_map(&query_tables);
     let select_list = extract_select_list(sql);
-    let result_columns = resolve_select_cols(&select_list, table);
-    let params = resolve_params(sql, table);
+    let result_columns = resolve_select_cols_multi(&select_list, &alias_map, &query_tables);
+    let params = resolve_params_multi(sql, &alias_map, &query_tables);
 
     Query {
         name: ann.name.clone(),
@@ -119,31 +122,156 @@ fn extract_select_list(sql: &str) -> String {
     sql[6..from_idx].trim().to_string() // skip "SELECT"
 }
 
-fn resolve_select_cols(select_list: &str, table: &Table) -> Vec<ResultColumn> {
+// ─── Multi-table helpers ──────────────────────────────────────────────────────
+
+/// Scan `FROM` and `JOIN` keywords and return all referenced tables with their aliases.
+fn extract_query_tables<'s>(sql: &str, schema: &'s Schema) -> Vec<(&'s Table, Option<String>)> {
+    let upper = sql.to_uppercase();
+    let mut result: Vec<(&'s Table, Option<String>)> = Vec::new();
+    let mut pos = 0;
+
+    loop {
+        // Pick whichever of FROM / JOIN appears next
+        let from_hit = find_word(&upper[pos..], "FROM").map(|p| (pos + p, 4usize));
+        let join_hit = find_word(&upper[pos..], "JOIN").map(|p| (pos + p, 4usize));
+        let (kw_abs, kw_len) = match (from_hit, join_hit) {
+            (None, None) => break,
+            (Some(f), None) => f,
+            (None, Some(j)) => j,
+            (Some(f), Some(j)) => if f.0 <= j.0 { f } else { j },
+        };
+        pos = kw_abs + 1; // advance past keyword start to avoid re-matching
+
+        let after_kw = sql[kw_abs + kw_len..].trim_start();
+        if after_kw.starts_with('(') { continue; } // skip subqueries
+
+        // Read table reference (handles schema.table)
+        let table_ref: String = after_kw.chars()
+            .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '.')
+            .collect();
+        if table_ref.is_empty() { continue; }
+
+        let table_name = table_ref.split('.').last().unwrap_or(&table_ref).to_lowercase();
+        let Some(table) = schema.tables.iter().find(|t| t.name == table_name) else { continue };
+
+        let after_table = after_kw[table_ref.len()..].trim_start();
+        let alias = read_alias(after_table);
+        result.push((table, alias));
+    }
+    result
+}
+
+/// Read an optional alias word (skipping AS), returning None for SQL keywords.
+fn read_alias(s: &str) -> Option<String> {
+    // Skip optional AS
+    let s = if s.len() >= 2
+        && s[..2].eq_ignore_ascii_case("AS")
+        && s.as_bytes().get(2).map_or(true, |b| !b.is_ascii_alphanumeric() && *b != b'_')
+    {
+        s[2..].trim_start()
+    } else {
+        s
+    };
+
+    let word: String = s.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+    if word.is_empty() { return None; }
+
+    const STOP: &[&str] = &[
+        "ON", "USING", "WHERE", "SET", "GROUP", "ORDER", "HAVING", "LIMIT",
+        "OFFSET", "INNER", "LEFT", "RIGHT", "FULL", "CROSS", "NATURAL", "JOIN",
+        "UNION", "INTERSECT", "EXCEPT", "RETURNING", "AND", "OR", "NOT",
+        "SELECT", "FROM", "AS",
+    ];
+    if STOP.contains(&word.to_uppercase().as_str()) { None } else { Some(word.to_lowercase()) }
+}
+
+/// Build a map from alias (and table name) to table reference.
+fn build_alias_map<'s>(tables: &[(&'s Table, Option<String>)]) -> HashMap<String, &'s Table> {
+    let mut map = HashMap::new();
+    for (table, alias) in tables {
+        map.insert(table.name.clone(), *table);
+        if let Some(a) = alias { map.insert(a.clone(), *table); }
+    }
+    map
+}
+
+/// Resolve SELECT list columns against multiple tables.
+fn resolve_select_cols_multi(
+    select_list: &str,
+    alias_map: &HashMap<String, &Table>,
+    all_tables: &[(&Table, Option<String>)],
+) -> Vec<ResultColumn> {
     let trimmed = select_list.trim();
     if trimmed == "*" {
-        return table.columns.iter().map(col_to_result).collect();
+        return all_tables.iter().flat_map(|(t, _)| t.columns.iter().map(col_to_result)).collect();
     }
-    trimmed
-        .split(',')
-        .filter_map(|expr| {
-            // Handle table.col and aliases (col AS alias)
-            let col_name = expr
-                .trim()
-                .split_whitespace()
-                .collect::<Vec<_>>()
-                .chunks(1) // just get first token before AS
-                .next()
-                .and_then(|c| c.first())
-                .copied()
-                .unwrap_or(expr.trim());
-            // strip table prefix
-            let col_name = col_name.rsplit('.').next().unwrap_or(col_name);
-            let col_name = col_name.trim_matches('"');
-            table.columns.iter().find(|c| c.name == col_name.to_lowercase())
+    trimmed.split(',').filter_map(|expr| {
+        let col_expr = expr.trim().split_whitespace().next().unwrap_or("").trim_matches('"');
+        if let Some(dot) = col_expr.find('.') {
+            // Qualified: alias.col
+            let qualifier = col_expr[..dot].to_lowercase();
+            let col_name  = col_expr[dot + 1..].trim_matches('"').to_lowercase();
+            alias_map.get(&qualifier)
+                .and_then(|t| t.columns.iter().find(|c| c.name == col_name))
                 .map(col_to_result)
-        })
-        .collect()
+        } else {
+            // Unqualified: first match across tables in FROM order
+            let col_name = col_expr.to_lowercase();
+            all_tables.iter().flat_map(|(t, _)| t.columns.iter())
+                .find(|c| c.name == col_name)
+                .map(col_to_result)
+        }
+    }).collect()
+}
+
+/// Resolve `$N` parameters using column references across multiple tables.
+fn resolve_params_multi(
+    sql: &str,
+    alias_map: &HashMap<String, &Table>,
+    all_tables: &[(&Table, Option<String>)],
+) -> Vec<Parameter> {
+    let count = count_params(sql);
+    if count == 0 { return vec![]; }
+
+    let mut mapping: HashMap<usize, (String, SqlType, bool)> = HashMap::new();
+    let mut pos = 0;
+    while let Some(eq_pos) = sql[pos..].find('=') {
+        let abs_eq = pos + eq_pos;
+        let before = sql[..abs_eq].trim_end();
+        let col_ref: String = before.chars().rev()
+            .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '.')
+            .collect::<String>().chars().rev().collect();
+
+        let after = sql[abs_eq + 1..].trim_start();
+        if after.starts_with('$') {
+            let idx_str: String = after[1..].chars().take_while(|c| c.is_ascii_digit()).collect();
+            if let Ok(idx) = idx_str.parse::<usize>() {
+                let col = if let Some(dot) = col_ref.find('.') {
+                    let qualifier = col_ref[..dot].to_lowercase();
+                    let col_name  = col_ref[dot + 1..].to_lowercase();
+                    alias_map.get(&qualifier)
+                        .and_then(|t| t.columns.iter().find(|c| c.name == col_name))
+                } else {
+                    let col_name = col_ref.to_lowercase();
+                    all_tables.iter().flat_map(|(t, _)| t.columns.iter())
+                        .find(|c| c.name == col_name)
+                };
+                if let Some(c) = col {
+                    mapping.entry(idx).or_insert_with(|| {
+                        (c.name.clone(), c.sql_type.clone(), c.nullable)
+                    });
+                }
+            }
+        }
+        pos = abs_eq + 1;
+    }
+
+    (1..=count).map(|idx| match mapping.get(&idx) {
+        Some((name, sql_type, nullable)) => Parameter {
+            index: idx, name: name.clone(), sql_type: sql_type.clone(), nullable: *nullable,
+        },
+        None => Parameter { index: idx, name: format!("param{idx}"), sql_type: SqlType::Text, nullable: false },
+    }).collect()
 }
 
 fn col_to_result(col: &Column) -> ResultColumn {
@@ -415,6 +543,28 @@ mod tests {
         }
     }
 
+    fn make_join_schema() -> Schema {
+        Schema {
+            tables: vec![
+                Table {
+                    name: "users".into(),
+                    columns: vec![
+                        Column { name: "id".into(),   sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
+                        Column { name: "name".into(), sql_type: SqlType::Text,   nullable: false, is_primary_key: false },
+                    ],
+                },
+                Table {
+                    name: "posts".into(),
+                    columns: vec![
+                        Column { name: "id".into(),      sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
+                        Column { name: "user_id".into(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: false },
+                        Column { name: "title".into(),   sql_type: SqlType::Text,   nullable: false, is_primary_key: false },
+                    ],
+                },
+            ],
+        }
+    }
+
     #[test]
     fn parses_one_annotation() {
         let sql = "-- name: GetUser :one\nSELECT id, name, email FROM users WHERE id = $1;";
@@ -515,6 +665,58 @@ mod tests {
         assert_eq!(queries.len(), 3);
         let names: Vec<_> = queries.iter().map(|q| q.name.as_str()).collect();
         assert_eq!(names, ["GetUser", "ListUsers", "CreateUser"]);
+    }
+
+    // ─── JOIN tests ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn join_resolves_qualified_columns() {
+        let sql = "-- name: GetUserPost :one\n\
+            SELECT u.id, u.name, p.title FROM users u INNER JOIN posts p ON p.user_id = u.id WHERE u.id = $1;";
+        let q = &parse_queries(sql, &make_join_schema()).unwrap()[0];
+        let names: Vec<_> = q.result_columns.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["id", "name", "title"]);
+        assert_eq!(q.result_columns[0].sql_type, SqlType::BigInt);
+        assert_eq!(q.result_columns[2].sql_type, SqlType::Text);
+    }
+
+    #[test]
+    fn join_resolves_unqualified_columns() {
+        let sql = "-- name: ListUserPosts :many\n\
+            SELECT name, title FROM users JOIN posts ON posts.user_id = users.id;";
+        let q = &parse_queries(sql, &make_join_schema()).unwrap()[0];
+        let names: Vec<_> = q.result_columns.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["name", "title"]);
+        assert_eq!(q.params.len(), 0);
+    }
+
+    #[test]
+    fn join_resolves_params_with_qualifier() {
+        let sql = "-- name: GetPostsByUser :many\n\
+            SELECT p.id, p.title FROM users u JOIN posts p ON p.user_id = u.id WHERE u.id = $1;";
+        let q = &parse_queries(sql, &make_join_schema()).unwrap()[0];
+        assert_eq!(q.params.len(), 1);
+        assert_eq!(q.params[0].name, "id");
+        assert_eq!(q.params[0].sql_type, SqlType::BigInt);
+    }
+
+    #[test]
+    fn join_select_star_returns_all_columns() {
+        let sql = "-- name: GetAll :many\n\
+            SELECT * FROM users u JOIN posts p ON p.user_id = u.id;";
+        let q = &parse_queries(sql, &make_join_schema()).unwrap()[0];
+        // users(2) + posts(3)
+        assert_eq!(q.result_columns.len(), 5);
+    }
+
+    #[test]
+    fn join_left_join_alias() {
+        let sql = "-- name: GetUserWithPost :one\n\
+            SELECT u.id, p.title FROM users AS u LEFT JOIN posts AS p ON p.user_id = u.id WHERE u.id = $1;";
+        let q = &parse_queries(sql, &make_join_schema()).unwrap()[0];
+        assert_eq!(q.result_columns.len(), 2);
+        assert_eq!(q.result_columns[1].name, "title");
+        assert_eq!(q.params[0].sql_type, SqlType::BigInt);
     }
 
     #[test]

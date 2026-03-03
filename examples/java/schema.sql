@@ -5,3 +5,10 @@ CREATE TABLE users (
 );
 
 ALTER TABLE users ADD COLUMN bio TEXT;
+
+CREATE TABLE posts (
+    id      BIGSERIAL PRIMARY KEY,
+    user_id BIGINT    NOT NULL REFERENCES users(id),
+    title   TEXT      NOT NULL,
+    body    TEXT
+);

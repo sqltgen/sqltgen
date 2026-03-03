@@ -19,31 +19,40 @@ public class Main {
         try (Connection conn = DriverManager.getConnection(url, "sa", "")) {
             createSchema(conn);
 
-            // Insert
+            // ── Users ────────────────────────────────────────────────────────
             Queries.createUser(conn, "Alice", "alice@example.com", "Loves hiking");
             Queries.createUser(conn, "Bob",   "bob@example.com",   null);
             Queries.createUser(conn, "Carol", "carol@example.com", "Software engineer");
             System.out.println("Inserted 3 users.");
 
-            // List all
             List<Users> all = Queries.listUsers(conn);
             System.out.println("\nAll users:");
             all.forEach(u -> System.out.println("  " + u));
 
-            // Fetch one by id
             Optional<Users> found = Queries.getUser(conn, 1L);
             found.ifPresentOrElse(
                 u  -> System.out.println("\nFetched user 1: " + u),
                 () -> System.out.println("\nUser 1 not found.")
             );
 
-            // Delete
             Queries.deleteUser(conn, 2L);
             System.out.println("\nDeleted user 2.");
 
-            // List again to confirm
-            System.out.println("\nRemaining users:");
-            Queries.listUsers(conn).forEach(u -> System.out.println("  " + u));
+            // ── Posts ────────────────────────────────────────────────────────
+            Queries.createPost(conn, 1L, "Hello World",     "My first post.");
+            Queries.createPost(conn, 1L, "Hiking the Alps", "What a trip!");
+            Queries.createPost(conn, 3L, "Rust vs Java",    "Both are great.");
+            System.out.println("\nInserted 3 posts.");
+
+            // Single-table query — returns Posts row type
+            System.out.println("\nPosts by Alice (user 1):");
+            Queries.listPostsByUser(conn, 1L)
+                   .forEach(p -> System.out.println("  " + p));
+
+            // JOIN query — returns ListPostsWithAuthorRow
+            System.out.println("\nAll posts with author:");
+            Queries.listPostsWithAuthor(conn)
+                   .forEach(p -> System.out.println("  " + p));
         }
     }
 
@@ -59,6 +68,15 @@ public class Main {
                 )
                 """);
             st.execute("ALTER TABLE users ADD COLUMN bio VARCHAR(1024)");
+            st.execute("""
+                CREATE TABLE posts (
+                    id      BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    user_id BIGINT       NOT NULL,
+                    title   VARCHAR(255) NOT NULL,
+                    body    VARCHAR(4096),
+                    FOREIGN KEY (user_id) REFERENCES users(id)
+                )
+                """);
         }
     }
 }

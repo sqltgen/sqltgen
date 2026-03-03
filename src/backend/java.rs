@@ -50,6 +50,10 @@ impl Codegen for JavaCodegen {
 
             for query in queries {
                 writeln!(src)?;
+                if infer_table(query, schema).is_none() && !query.result_columns.is_empty() {
+                    emit_row_record(&mut src, query)?;
+                    writeln!(src)?;
+                }
                 emit_java_query(&mut src, query, schema)?;
             }
 
@@ -126,12 +130,28 @@ fn emit_java_query(src: &mut String, query: &Query, schema: &Schema) -> anyhow::
 }
 
 fn result_row_type(query: &Query, schema: &Schema) -> String {
-    // Use the table record class if all result columns match a table
     if let Some(table_name) = infer_table(query, schema) {
         return to_pascal_case(table_name);
     }
-    // Fallback: inline array
+    if !query.result_columns.is_empty() {
+        return row_record_name(&query.name);
+    }
     "Object[]".to_string()
+}
+
+fn row_record_name(query_name: &str) -> String {
+    format!("{}Row", to_pascal_case(query_name))
+}
+
+fn emit_row_record(src: &mut String, query: &Query) -> anyhow::Result<()> {
+    let name = row_record_name(&query.name);
+    writeln!(src, "    public record {name}(")?;
+    let fields: Vec<String> = query.result_columns.iter().map(|col| {
+        format!("        {} {}", java_type(&col.sql_type, col.nullable), to_camel_case(&col.name))
+    }).collect();
+    writeln!(src, "{}", fields.join(",\n"))?;
+    writeln!(src, "    ) {{}}")?;
+    Ok(())
 }
 
 fn infer_table<'a>(query: &Query, schema: &'a Schema) -> Option<&'a str> {
@@ -147,18 +167,11 @@ fn infer_table<'a>(query: &Query, schema: &'a Schema) -> Option<&'a str> {
 }
 
 fn emit_row_constructor(query: &Query, schema: &Schema) -> String {
-    if let Some(table_name) = infer_table(query, schema) {
-        let class = to_pascal_case(table_name);
-        let args: Vec<String> = query.result_columns.iter().enumerate().map(|(i, col)| {
-            format!("rs.{}({})", rs_getter(&col.sql_type), i + 1)
-        }).collect();
-        format!("new {class}({})", args.join(", "))
-    } else {
-        let args: Vec<String> = query.result_columns.iter().enumerate().map(|(i, _)| {
-            format!("rs.getObject({})", i + 1)
-        }).collect();
-        format!("new Object[]{{{}}}", args.join(", "))
-    }
+    let class = result_row_type(query, schema);
+    let args: Vec<String> = query.result_columns.iter().enumerate().map(|(i, col)| {
+        format!("rs.{}({})", rs_getter(&col.sql_type), i + 1)
+    }).collect();
+    format!("new {class}({})", args.join(", "))
 }
 
 // ─── Type helpers ─────────────────────────────────────────────────────────────

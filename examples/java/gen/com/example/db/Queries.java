@@ -54,4 +54,53 @@ public final class Queries {
             ps.executeUpdate();
         }
     }
+
+    private static final String SQL_CREATEPOST =
+        "INSERT INTO posts (user_id, title, body) VALUES (?, ?, ?);";
+    public static void createPost(Connection conn, long userId, String title, String body) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(SQL_CREATEPOST)) {
+            ps.setLong(1, userId);
+            ps.setString(2, title);
+            ps.setString(3, body);
+            ps.executeUpdate();
+        }
+    }
+
+    public record ListPostsByUserRow(
+        long id,
+        String title,
+        String body
+    ) {}
+
+    private static final String SQL_LISTPOSTSBYUSER =
+        "SELECT p.id, p.title, p.body FROM posts p WHERE p.user_id = ?;";
+    public static List<ListPostsByUserRow> listPostsByUser(Connection conn, long userId) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(SQL_LISTPOSTSBYUSER)) {
+            ps.setLong(1, userId);
+            List<ListPostsByUserRow> rows = new ArrayList<>();
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) rows.add(new ListPostsByUserRow(rs.getLong(1), rs.getString(2), rs.getString(3)));
+            }
+            return rows;
+        }
+    }
+
+    public record ListPostsWithAuthorRow(
+        long id,
+        String title,
+        String name,
+        String email
+    ) {}
+
+    private static final String SQL_LISTPOSTSWITHAUTHOR =
+        "SELECT p.id, p.title, u.name, u.email FROM posts p INNER JOIN users u ON u.id = p.user_id;";
+    public static List<ListPostsWithAuthorRow> listPostsWithAuthor(Connection conn) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(SQL_LISTPOSTSWITHAUTHOR)) {
+            List<ListPostsWithAuthorRow> rows = new ArrayList<>();
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) rows.add(new ListPostsWithAuthorRow(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getString(4)));
+            }
+            return rows;
+        }
+    }
 }

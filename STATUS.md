@@ -42,7 +42,7 @@ Legend: ✅ done · ⚠️ bug/incomplete · 🚧 stub · ❌ not started
 | `ALTER TABLE RENAME TO …` | ✅ | ❌ |
 | `ALTER TABLE ADD [CONSTRAINT …] PRIMARY KEY` | ✅ | ❌ |
 | Other `ALTER TABLE` actions | ✅ (silently ignored) | ❌ |
-| JOIN queries (type inference) | ❌ (SQL passes through; params/result types not inferred) | ❌ |
+| JOIN queries (type inference) | ✅ qualified (`t.col`), unqualified, aliases, `SELECT *` | ❌ |
 | Multiple query files | ❌ | ❌ |
 
 ---
@@ -69,6 +69,7 @@ Legend: ✅ done · ⚠️ bug/incomplete · 🚧 stub · ❌ not started
 | `:execrows` | ✅ `long` | ✅ `Long` | 🚧 | 🚧 | 🚧 | 🚧 |
 | `$N` → `?` placeholder rewrite | ✅ | ⚠️ missing | 🚧 | 🚧 | 🚧 | 🚧 |
 | Table row-type inference | ✅ | ✅ | 🚧 | 🚧 | 🚧 | 🚧 |
+| Join row type (`{Query}Row` record) | ✅ | ✅ | 🚧 | 🚧 | 🚧 | 🚧 |
 
 ---
 
