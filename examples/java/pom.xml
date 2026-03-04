@@ -5,7 +5,7 @@
   <modelVersion>4.0.0</modelVersion>
 
   <groupId>com.example</groupId>
-  <artifactId>sqlt-java-example</artifactId>
+  <artifactId>sqltgen-java-example</artifactId>
   <version>1.0-SNAPSHOT</version>
 
   <properties>
@@ -31,7 +31,7 @@
 
   <build>
     <plugins>
-      <!-- Add both sqlt-generated source directories -->
+      <!-- Add both sqltgen-generated source directories -->
       <plugin>
         <groupId>org.codehaus.mojo</groupId>
         <artifactId>build-helper-maven-plugin</artifactId>

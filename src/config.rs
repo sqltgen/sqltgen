@@ -5,7 +5,7 @@ use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct SqltConfig {
+pub struct SqltgenConfig {
     pub version: String,
     pub engine: Engine,
     /// Path to the DDL schema file.
@@ -31,7 +31,7 @@ pub struct OutputConfig {
     pub package: String,
 }
 
-impl SqltConfig {
+impl SqltgenConfig {
     pub fn load(path: &Path) -> anyhow::Result<Self> {
         let text = std::fs::read_to_string(path)
             .with_context(|| format!("reading config file: {}", path.display()))?;
@@ -39,7 +39,7 @@ impl SqltConfig {
     }
 
     pub fn from_str(text: &str) -> anyhow::Result<Self> {
-        serde_json::from_str(text).context("parsing sqlt config JSON")
+        serde_json::from_str(text).context("parsing sqltgen config JSON")
     }
 }
 
@@ -60,7 +60,7 @@ mod tests {
 
     #[test]
     fn parses_sample_config() {
-        let cfg = SqltConfig::from_str(SAMPLE).unwrap();
+        let cfg = SqltgenConfig::from_str(SAMPLE).unwrap();
         assert_eq!(cfg.version, "1");
         assert_eq!(cfg.engine, Engine::Postgresql);
         assert_eq!(cfg.schema, "schema.sql");

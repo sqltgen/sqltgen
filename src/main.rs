@@ -9,11 +9,11 @@ use anyhow::Context;
 use clap::{Parser, Subcommand};
 
 use backend::Codegen;
-use config::{Engine, SqltConfig};
+use config::{Engine, SqltgenConfig};
 use frontend::{postgres::PostgresParser, sqlite::SqliteParser, DialectParser};
 
 #[derive(Parser)]
-#[command(name = "sqlt", about = "SQL-to-code generator")]
+#[command(name = "sqltgen", about = "SQL-to-code generator")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -21,10 +21,10 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Generate code from a sqlt config file
+    /// Generate code from a sqltgen config file
     Generate {
-        /// Path to the sqlt JSON config file
-        #[arg(long, short, default_value = "sqlt.json")]
+        /// Path to the sqltgen JSON config file
+        #[arg(long, short, default_value = "sqltgen.json")]
         config: PathBuf,
     },
 }
@@ -37,7 +37,7 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn run_generate(config_path: &Path) -> anyhow::Result<()> {
-    let cfg = SqltConfig::load(config_path)?;
+    let cfg = SqltgenConfig::load(config_path)?;
 
     let base_dir = config_path.parent().unwrap_or(Path::new("."));
 

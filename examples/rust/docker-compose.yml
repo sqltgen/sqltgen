@@ -2,15 +2,15 @@ services:
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: sqlt
-      POSTGRES_PASSWORD: sqlt
-      POSTGRES_DB: sqlt
+      POSTGRES_USER: sqltgen
+      POSTGRES_PASSWORD: sqltgen
+      POSTGRES_DB: sqltgen
     ports:
       - "5433:5432"
     volumes:
       - ../postgresql/schema.sql:/docker-entrypoint-initdb.d/schema.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U sqlt"]
+      test: ["CMD-SHELL", "pg_isready -U sqltgen"]
       interval: 2s
       timeout: 5s
       retries: 10

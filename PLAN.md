@@ -1,4 +1,4 @@
-# sqlt — implementation plan
+# sqltgen — implementation plan
 
 Multi-language SQL-to-code generator written in Rust.
 Inspired by [sqlc](https://sqlc.dev), using a 3-layer compiler architecture.
@@ -51,7 +51,7 @@ SQL files
 
 | Item | Status | Notes |
 |---|---|---|
-| `SqltConfig` struct + serde | ✅ | Flat per-file (one config per DB, not a list) |
+| `SqltgenConfig` struct + serde | ✅ | Flat per-file (one config per DB, not a list) |
 | `Engine` enum | ✅ | `postgresql`, `sqlite` |
 | `OutputConfig` (`out`, `package`) | ✅ | Keyed by language name in `gen` map |
 | Config file loading from path | ✅ | |
@@ -83,7 +83,7 @@ SQL files
 
 | Item | Status | Notes |
 |---|---|---|
-| `sqlt generate --config sqlt.json` | ✅ | clap derive; reads config, runs frontend + backend, writes files |
+| `sqltgen generate --config sqltgen.json` | ✅ | clap derive; reads config, runs frontend + backend, writes files |
 
 ---
 
@@ -113,4 +113,4 @@ SQL files
 2. **C / C++ / C# backends** — stubs to add later
 3. **Multiple query files** — allow `queries` to be a list of paths
 4. **Schema-qualified tables** — handle `schema.table` references in queries
-5. **`sqlt init`** subcommand — scaffold a starter `sqlt.json`
+5. **`sqltgen init`** subcommand — scaffold a starter `sqltgen.json`

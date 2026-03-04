@@ -1,10 +1,10 @@
 [package]
-name = "sqlt"
+name = "sqltgen"
 version = "0.1.0"
 edition = "2021"
 
 [[bin]]
-name = "sqlt"
+name = "sqltgen"
 path = "src/main.rs"
 
 [dependencies]

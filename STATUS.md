@@ -1,4 +1,4 @@
-# sqlt — feature status
+# sqltgen — feature status
 
 Legend: ✅ done · ⚠️ bug/incomplete · 🚧 stub · ❌ not started
 
