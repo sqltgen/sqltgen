@@ -6,7 +6,9 @@ use crate::backend::{Codegen, GeneratedFile};
 use crate::config::OutputConfig;
 use crate::ir::{Query, QueryCmd, Schema, SqlType};
 
-pub struct RustCodegen;
+pub struct RustCodegen {
+    pub sqlite: bool,
+}
 
 impl Codegen for RustCodegen {
     fn generate(
@@ -34,8 +36,9 @@ impl Codegen for RustCodegen {
 
         // queries.rs
         if !queries.is_empty() {
+            let pool_type = if self.sqlite { "SqlitePool" } else { "PgPool" };
             let mut src = String::new();
-            writeln!(src, "use sqlx::PgPool;")?;
+            writeln!(src, "use sqlx::{pool_type};")?;
             writeln!(src)?;
 
             // Import only table structs that are actually used as return types
@@ -61,7 +64,7 @@ impl Codegen for RustCodegen {
                 if i > 0 {
                     writeln!(src)?;
                 }
-                emit_rust_query(&mut src, query, schema)?;
+                emit_rust_query(&mut src, query, schema, pool_type)?;
             }
 
             let path = PathBuf::from(&config.out).join("queries.rs");
@@ -98,7 +101,7 @@ fn emit_row_struct(src: &mut String, query: &Query) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn emit_rust_query(src: &mut String, query: &Query, schema: &Schema) -> anyhow::Result<()> {
+fn emit_rust_query(src: &mut String, query: &Query, schema: &Schema, pool_type: &str) -> anyhow::Result<()> {
     let fn_name = to_snake_case(&query.name);
     let row_type = result_row_type(query, schema);
 
@@ -109,14 +112,14 @@ fn emit_rust_query(src: &mut String, query: &Query, schema: &Schema) -> anyhow::
         QueryCmd::ExecRows => "Result<u64, sqlx::Error>".to_string(),
     };
 
-    let params_sig: String = std::iter::once("pool: &PgPool".to_string())
+    let params_sig: String = std::iter::once(format!("pool: &{pool_type}"))
         .chain(query.params.iter().map(|p| {
             format!("{}: {}", to_snake_case(&p.name), rust_type(&p.sql_type, p.nullable))
         }))
         .collect::<Vec<_>>()
         .join(", ");
 
-    let sql = query.sql.replace('"', "\\\"").replace('\n', " ");
+    let sql = normalize_sql_for_sqlx(&query.sql).replace('"', "\\\"").replace('\n', " ");
 
     writeln!(src, "pub async fn {fn_name}({params_sig}) -> {return_type} {{")?;
 
@@ -175,6 +178,26 @@ fn infer_table<'a>(query: &Query, schema: &'a Schema) -> Option<&'a str> {
         }
     }
     None
+}
+
+// ─── SQL helpers ──────────────────────────────────────────────────────────────
+
+/// Convert SQLite `?N` positional placeholders to sqlx's anonymous `?`.
+/// PostgreSQL `$N` placeholders are left unchanged.
+fn normalize_sql_for_sqlx(sql: &str) -> String {
+    let mut out = String::with_capacity(sql.len());
+    let mut chars = sql.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '?' && chars.peek().map_or(false, |c| c.is_ascii_digit()) {
+            out.push('?');
+            while chars.peek().map_or(false, |c| c.is_ascii_digit()) {
+                chars.next();
+            }
+        } else {
+            out.push(ch);
+        }
+    }
+    out
 }
 
 // ─── Type mapping ─────────────────────────────────────────────────────────────

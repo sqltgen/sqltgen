@@ -1,4 +1,4 @@
-package com.example.db;
+package com.example.db.pg;
 
 public record Posts(
     long id,

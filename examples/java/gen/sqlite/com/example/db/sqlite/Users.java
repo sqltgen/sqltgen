@@ -1,7 +1,7 @@
-package com.example.db;
+package com.example.db.sqlite;
 
 public record Users(
-    long id,
+    int id,
     String name,
     String email,
     String bio

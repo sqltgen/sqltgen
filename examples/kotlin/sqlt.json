@@ -1,9 +1,0 @@
-{
-  "version": "1",
-  "engine": "postgresql",
-  "schema": "schema.sql",
-  "queries": "queries.sql",
-  "gen": {
-    "kotlin": { "out": "gen", "package": "com.example.db" }
-  }
-}

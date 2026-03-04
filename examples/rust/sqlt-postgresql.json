@@ -1,0 +1,9 @@
+{
+  "version": "1",
+  "engine": "postgresql",
+  "schema": "../postgresql/schema.sql",
+  "queries": "../postgresql/queries.sql",
+  "gen": {
+    "rust": { "out": "src/db/pg", "package": "" }
+  }
+}

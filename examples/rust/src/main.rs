@@ -1,51 +1,68 @@
 mod db;
 
-use db::queries;
+use db::pg::queries as pg;
+use db::sqlite::queries as sq;
+
+const SQLITE_SCHEMA: &str = include_str!("../../sqlite/schema.sql");
 
 #[tokio::main]
-async fn main() -> Result<(), sqlx::Error> {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenvy::dotenv().ok();
-    let url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-    let pool = sqlx::PgPool::connect(&url).await?;
 
-    // Seed some data
-    queries::create_user(&pool, "Alice".into(), "alice@example.com".into(), Some("loves Rust".into())).await?;
-    queries::create_user(&pool, "Bob".into(), "bob@example.com".into(), None).await?;
-    queries::create_post(&pool, 1, "Hello World".into(), Some("My first post".into())).await?;
-    queries::create_post(&pool, 1, "Second Post".into(), None).await?;
+    // ── PostgreSQL ────────────────────────────────────────────────────────────
+    let pg_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+    let pg_pool = sqlx::PgPool::connect(&pg_url).await?;
 
-    // Fetch one user
-    if let Some(u) = queries::get_user(&pool, 1).await? {
-        println!("get_user(1): {} <{}>  bio={:?}", u.name, u.email, u.bio);
+    pg::create_user(&pg_pool, "Alice".into(), "alice@example.com".into(), Some("loves Rust".into())).await?;
+    pg::create_user(&pg_pool, "Bob".into(), "bob@example.com".into(), None).await?;
+    pg::create_post(&pg_pool, 1, "Hello World".into(), Some("My first post".into())).await?;
+    pg::create_post(&pg_pool, 1, "Second Post".into(), None).await?;
+
+    if let Some(u) = pg::get_user(&pg_pool, 1).await? {
+        println!("[pg] get_user(1): {} <{}>  bio={:?}", u.name, u.email, u.bio);
     }
 
-    // List all users
-    let users = queries::list_users(&pool).await?;
-    println!("\nlist_users: {} row(s)", users.len());
-    for u in &users {
-        println!("  {} | {} | {:?}", u.id, u.name, u.bio);
+    let users = pg::list_users(&pg_pool).await?;
+    println!("[pg] list_users: {} row(s)", users.len());
+
+    let posts = pg::list_posts_by_user(&pg_pool, 1).await?;
+    println!("[pg] list_posts_by_user(1): {} row(s)", posts.len());
+
+    let joined = pg::list_posts_with_author(&pg_pool).await?;
+    println!("[pg] list_posts_with_author: {} row(s)", joined.len());
+
+    let authors = pg::get_active_authors(&pg_pool).await?;
+    println!("[pg] get_active_authors: {} row(s)", authors.len());
+
+    // ── SQLite (in-memory) ────────────────────────────────────────────────────
+    let sq_pool = sqlx::SqlitePool::connect("sqlite::memory:").await?;
+
+    for stmt in SQLITE_SCHEMA.split(';') {
+        let s = stmt.trim();
+        if !s.is_empty() {
+            sqlx::query(s).execute(&sq_pool).await?;
+        }
     }
 
-    // Posts by user 1
-    let posts = queries::list_posts_by_user(&pool, 1).await?;
-    println!("\nlist_posts_by_user(1): {} row(s)", posts.len());
-    for p in &posts {
-        println!("  {} | {}", p.id, p.title);
+    sq::create_user(&sq_pool, "Carol".into(), "carol@example.com".into(), Some("loves SQLite".into())).await?;
+    sq::create_user(&sq_pool, "Dave".into(), "dave@example.com".into(), None).await?;
+    sq::create_post(&sq_pool, 1, "SQLite Post".into(), Some("Written in SQLite".into())).await?;
+
+    if let Some(u) = sq::get_user(&sq_pool, 1).await? {
+        println!("[sqlite] get_user(1): {} <{}>  bio={:?}", u.name, u.email, u.bio);
     }
 
-    // JOIN query
-    let joined = queries::list_posts_with_author(&pool).await?;
-    println!("\nlist_posts_with_author: {} row(s)", joined.len());
-    for r in &joined {
-        println!("  \"{}\" by {}", r.title, r.name);
-    }
+    let users = sq::list_users(&sq_pool).await?;
+    println!("[sqlite] list_users: {} row(s)", users.len());
 
-    // CTE query
-    let authors = queries::get_active_authors(&pool).await?;
-    println!("\nget_active_authors: {} row(s)", authors.len());
-    for a in &authors {
-        println!("  {} <{}>", a.name, a.email);
-    }
+    let posts = sq::list_posts_by_user(&sq_pool, 1).await?;
+    println!("[sqlite] list_posts_by_user(1): {} row(s)", posts.len());
+
+    let joined = sq::list_posts_with_author(&sq_pool).await?;
+    println!("[sqlite] list_posts_with_author: {} row(s)", joined.len());
+
+    let authors = sq::get_active_authors(&sq_pool).await?;
+    println!("[sqlite] get_active_authors: {} row(s)", authors.len());
 
     Ok(())
 }

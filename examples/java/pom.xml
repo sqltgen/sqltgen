@@ -15,17 +15,23 @@
   </properties>
 
   <dependencies>
-    <!-- In-memory database for the demo (no PostgreSQL server needed) -->
+    <!-- H2 in-memory database — stands in for PostgreSQL in the demo -->
     <dependency>
       <groupId>com.h2database</groupId>
       <artifactId>h2</artifactId>
       <version>2.3.232</version>
     </dependency>
+    <!-- SQLite JDBC driver for the SQLite dialect demo -->
+    <dependency>
+      <groupId>org.xerial</groupId>
+      <artifactId>sqlite-jdbc</artifactId>
+      <version>3.49.1.0</version>
+    </dependency>
   </dependencies>
 
   <build>
     <plugins>
-      <!-- Add the sqlt-generated sources as a second source directory -->
+      <!-- Add both sqlt-generated source directories -->
       <plugin>
         <groupId>org.codehaus.mojo</groupId>
         <artifactId>build-helper-maven-plugin</artifactId>
@@ -37,7 +43,8 @@
             <goals><goal>add-source</goal></goals>
             <configuration>
               <sources>
-                <source>gen</source>
+                <source>gen/pg</source>
+                <source>gen/sqlite</source>
               </sources>
             </configuration>
           </execution>

@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-sqlx     = { version = "0.8", features = ["runtime-tokio-native-tls", "postgres", "uuid", "time", "json"] }
+sqlx     = { version = "0.8", features = ["runtime-tokio-native-tls", "postgres", "sqlite", "uuid", "time", "json"] }
 tokio    = { version = "1",   features = ["full"] }
 uuid     = { version = "1",   features = ["v4"] }
 time     = "0.3"

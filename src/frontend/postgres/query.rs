@@ -4,7 +4,7 @@ use sqlparser::ast::{
     Assignment, AssignmentTarget, BinaryOperator, Delete, Expr, FromTable, Insert,
     Query as SqlQuery, Select, SelectItem, SetExpr, Statement, TableFactor, Value, With,
 };
-use sqlparser::dialect::PostgreSqlDialect;
+use sqlparser::dialect::{Dialect, PostgreSqlDialect};
 use sqlparser::parser::Parser;
 
 use crate::frontend::postgres::schema::{ident_to_str, obj_name_to_str};
@@ -20,12 +20,20 @@ use crate::ir::{Column, Parameter, Query, QueryCmd, ResultColumn, Schema, SqlTyp
 ///
 /// Supported commands: `:one`, `:many`, `:exec`, `:execrows`
 pub fn parse_queries(sql: &str, schema: &Schema) -> anyhow::Result<Vec<Query>> {
+    parse_queries_with_dialect(&PostgreSqlDialect {}, sql, schema)
+}
+
+pub(crate) fn parse_queries_with_dialect(
+    dialect: &dyn Dialect,
+    sql: &str,
+    schema: &Schema,
+) -> anyhow::Result<Vec<Query>> {
     let blocks = split_into_blocks(sql);
     let queries = blocks
         .into_iter()
         .filter_map(|(ann, body)| {
             let body = body.trim().trim_end_matches(';').trim();
-            build_query(&ann, body, schema).ok()
+            build_query_with_dialect(dialect, &ann, body, schema).ok()
         })
         .collect();
     Ok(queries)
@@ -91,9 +99,13 @@ fn parse_annotation(line: &str) -> Option<Annotation> {
 
 // ─── Query building ──────────────────────────────────────────────────────────
 
-fn build_query(ann: &Annotation, sql: &str, schema: &Schema) -> anyhow::Result<Query> {
-    let dialect = PostgreSqlDialect {};
-    let stmts = match Parser::parse_sql(&dialect, sql) {
+fn build_query_with_dialect(
+    dialect: &dyn Dialect,
+    ann: &Annotation,
+    sql: &str,
+    schema: &Schema,
+) -> anyhow::Result<Query> {
+    let stmts = match Parser::parse_sql(dialect, sql) {
         Ok(s) if !s.is_empty() => s,
         _ => return Ok(bare(ann, sql)),
     };
@@ -586,7 +598,7 @@ fn count_params(sql: &str) -> usize {
     let mut max = 0usize;
     let mut chars = sql.chars().peekable();
     while let Some(c) = chars.next() {
-        if c == '$' {
+        if c == '$' || c == '?' {
             let digits: String = chars.by_ref().take_while(|ch| ch.is_ascii_digit()).collect();
             if let Ok(n) = digits.parse::<usize>() {
                 max = max.max(n);
@@ -597,7 +609,9 @@ fn count_params(sql: &str) -> usize {
 }
 
 fn placeholder_idx(s: &str) -> Option<usize> {
-    s.strip_prefix('$')?.parse().ok()
+    // $N (PostgreSQL) or ?N (SQLite)
+    let rest = s.strip_prefix('$').or_else(|| s.strip_prefix('?'))?;
+    rest.parse().ok()
 }
 
 #[cfg(test)]

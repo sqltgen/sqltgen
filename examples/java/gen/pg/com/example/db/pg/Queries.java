@@ -1,4 +1,4 @@
-package com.example.db;
+package com.example.db.pg;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;

@@ -169,7 +169,7 @@ fn jdbc_sql(sql: &str) -> String {
     let mut out = String::with_capacity(sql.len());
     let mut chars = sql.chars().peekable();
     while let Some(ch) = chars.next() {
-        if ch == '$' && chars.peek().map_or(false, |c| c.is_ascii_digit()) {
+        if (ch == '$' || ch == '?') && chars.peek().map_or(false, |c| c.is_ascii_digit()) {
             out.push('?');
             while chars.peek().map_or(false, |c| c.is_ascii_digit()) {
                 chars.next();

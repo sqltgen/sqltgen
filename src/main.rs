@@ -10,7 +10,7 @@ use clap::{Parser, Subcommand};
 
 use backend::Codegen;
 use config::{Engine, SqltConfig};
-use frontend::{postgres::PostgresParser, DialectParser};
+use frontend::{postgres::PostgresParser, sqlite::SqliteParser, DialectParser};
 
 #[derive(Parser)]
 #[command(name = "sqlt", about = "SQL-to-code generator")]
@@ -44,7 +44,7 @@ fn run_generate(config_path: &Path) -> anyhow::Result<()> {
     // Select dialect parser
     let parser: Box<dyn DialectParser> = match cfg.engine {
         Engine::Postgresql => Box::new(PostgresParser),
-        Engine::Sqlite => anyhow::bail!("SQLite engine is not yet implemented"),
+        Engine::Sqlite => Box::new(SqliteParser),
     };
 
     // Read and parse schema
@@ -64,7 +64,7 @@ fn run_generate(config_path: &Path) -> anyhow::Result<()> {
         let codegen: Box<dyn Codegen> = match lang.as_str() {
             "java"       => Box::new(backend::java::JavaCodegen),
             "kotlin"     => Box::new(backend::kotlin::KotlinCodegen),
-            "rust"       => Box::new(backend::rust::RustCodegen),
+            "rust"       => Box::new(backend::rust::RustCodegen { sqlite: matches!(cfg.engine, Engine::Sqlite) }),
             "go"         => Box::new(backend::go::GoCodegen),
             "python"     => Box::new(backend::python::PythonCodegen),
             "typescript" => Box::new(backend::typescript::TypeScriptCodegen),
