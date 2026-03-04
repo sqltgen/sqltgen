@@ -8,8 +8,8 @@ object Queries {
     fun createAuthor(conn: Connection, name: String, bio: String?, birthYear: Int?): Unit {
         conn.prepareStatement(SQL_CREATEAUTHOR).use { ps ->
             ps.setString(1, name)
-            ps.setString(2, bio)
-            ps.setInt(3, birthYear)
+            ps.setObject(2, bio)
+            ps.setObject(3, birthYear)
             ps.executeUpdate()
         }
     }
@@ -54,7 +54,7 @@ object Queries {
             ps.setLong(1, id)
             ps.executeQuery().use { rs ->
                 if (!rs.next()) return null
-                return Book(rs.getLong(1), rs.getLong(2), rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getObject(6))
+                return Book(rs.getLong(1), rs.getLong(2), rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getObject(6, java.time.LocalDate::class.java))
             }
         }
     }
@@ -65,7 +65,7 @@ object Queries {
             ps.setString(1, genre)
             val rows = mutableListOf<Book>()
             ps.executeQuery().use { rs ->
-                while (rs.next()) rows.add(Book(rs.getLong(1), rs.getLong(2), rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getObject(6)))
+                while (rs.next()) rows.add(Book(rs.getLong(1), rs.getLong(2), rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getObject(6, java.time.LocalDate::class.java)))
             }
             return rows
         }
@@ -114,7 +114,7 @@ object Queries {
         conn.prepareStatement(SQL_LISTBOOKSWITHAUTHOR).use { ps ->
             val rows = mutableListOf<ListBooksWithAuthorRow>()
             ps.executeQuery().use { rs ->
-                while (rs.next()) rows.add(ListBooksWithAuthorRow(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getBigDecimal(4), rs.getObject(5), rs.getString(6), rs.getString(7)))
+                while (rs.next()) rows.add(ListBooksWithAuthorRow(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getBigDecimal(4), rs.getObject(5, java.time.LocalDate::class.java), rs.getString(6), rs.getString(7)))
             }
             return rows
         }
@@ -125,7 +125,7 @@ object Queries {
         conn.prepareStatement(SQL_GETBOOKSNEVERORDERED).use { ps ->
             val rows = mutableListOf<Book>()
             ps.executeQuery().use { rs ->
-                while (rs.next()) rows.add(Book(rs.getLong(1), rs.getLong(2), rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getObject(6)))
+                while (rs.next()) rows.add(Book(rs.getLong(1), rs.getLong(2), rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getObject(6, java.time.LocalDate::class.java)))
             }
             return rows
         }

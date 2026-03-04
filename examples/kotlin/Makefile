@@ -6,7 +6,7 @@ generate:
 	$(SQLTGEN) generate --config sqltgen-postgresql.json
 	$(SQLTGEN) generate --config sqltgen-sqlite.json
 
-build:
+build: generate
 	mvn -q compile
 
 run: build

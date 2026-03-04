@@ -66,7 +66,7 @@ public final class Queries {
             ps.setLong(1, id);
             try (ResultSet rs = ps.executeQuery()) {
                 if (!rs.next()) return Optional.empty();
-                return Optional.of(new Book(rs.getLong(1), rs.getLong(2), rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getObject(6)));
+                return Optional.of(new Book(rs.getLong(1), rs.getLong(2), rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getObject(6, java.time.LocalDate.class)));
             }
         }
     }
@@ -78,7 +78,7 @@ public final class Queries {
             ps.setString(1, genre);
             List<Book> rows = new ArrayList<>();
             try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) rows.add(new Book(rs.getLong(1), rs.getLong(2), rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getObject(6)));
+                while (rs.next()) rows.add(new Book(rs.getLong(1), rs.getLong(2), rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getObject(6, java.time.LocalDate.class)));
             }
             return rows;
         }
@@ -131,7 +131,7 @@ public final class Queries {
         try (PreparedStatement ps = conn.prepareStatement(SQL_LISTBOOKSWITHAUTHOR)) {
             List<ListBooksWithAuthorRow> rows = new ArrayList<>();
             try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) rows.add(new ListBooksWithAuthorRow(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getBigDecimal(4), rs.getObject(5), rs.getString(6), rs.getString(7)));
+                while (rs.next()) rows.add(new ListBooksWithAuthorRow(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getBigDecimal(4), rs.getObject(5, java.time.LocalDate.class), rs.getString(6), rs.getString(7)));
             }
             return rows;
         }
@@ -143,7 +143,7 @@ public final class Queries {
         try (PreparedStatement ps = conn.prepareStatement(SQL_GETBOOKSNEVERORDERED)) {
             List<Book> rows = new ArrayList<>();
             try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) rows.add(new Book(rs.getLong(1), rs.getLong(2), rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getObject(6)));
+                while (rs.next()) rows.add(new Book(rs.getLong(1), rs.getLong(2), rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getObject(6, java.time.LocalDate.class)));
             }
             return rows;
         }

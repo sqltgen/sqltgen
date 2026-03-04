@@ -89,8 +89,12 @@ fn emit_kotlin_query(src: &mut String, query: &Query, schema: &Schema) -> anyhow
     writeln!(src, "        conn.prepareStatement({sql_const}).use {{ ps ->")?;
 
     for p in &query.params {
-        let setter = jdbc_setter(&p.sql_type);
-        writeln!(src, "            ps.{setter}({}, {})", p.index, to_camel_case(&p.name))?;
+        if p.nullable {
+            writeln!(src, "            ps.setObject({}, {})", p.index, to_camel_case(&p.name))?;
+        } else {
+            let setter = jdbc_setter(&p.sql_type);
+            writeln!(src, "            ps.{setter}({}, {})", p.index, to_camel_case(&p.name))?;
+        }
     }
 
     match query.cmd {
@@ -160,7 +164,7 @@ fn infer_table<'a>(query: &Query, schema: &'a Schema) -> Option<&'a str> {
 fn emit_row_constructor(query: &Query, schema: &Schema) -> String {
     let class = result_row_type(query, schema);
     let args: Vec<String> = query.result_columns.iter().enumerate().map(|(i, col)| {
-        format!("rs.{}({})", rs_getter(&col.sql_type), i + 1)
+        rs_read_expr(&col.sql_type, i + 1)
     }).collect();
     format!("{class}({})", args.join(", "))
 }
@@ -222,18 +226,23 @@ fn jdbc_setter(sql_type: &SqlType) -> &'static str {
     }
 }
 
-fn rs_getter(sql_type: &SqlType) -> &'static str {
+fn rs_read_expr(sql_type: &SqlType, idx: usize) -> String {
     match sql_type {
-        SqlType::Boolean               => "getBoolean",
-        SqlType::SmallInt              => "getShort",
-        SqlType::Integer               => "getInt",
-        SqlType::BigInt                => "getLong",
-        SqlType::Real                  => "getFloat",
-        SqlType::Double                => "getDouble",
-        SqlType::Decimal               => "getBigDecimal",
-        SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_) => "getString",
-        SqlType::Bytes                 => "getBytes",
-        _                              => "getObject",
+        SqlType::Boolean    => format!("rs.getBoolean({idx})"),
+        SqlType::SmallInt   => format!("rs.getShort({idx})"),
+        SqlType::Integer    => format!("rs.getInt({idx})"),
+        SqlType::BigInt     => format!("rs.getLong({idx})"),
+        SqlType::Real       => format!("rs.getFloat({idx})"),
+        SqlType::Double     => format!("rs.getDouble({idx})"),
+        SqlType::Decimal    => format!("rs.getBigDecimal({idx})"),
+        SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_) => format!("rs.getString({idx})"),
+        SqlType::Bytes      => format!("rs.getBytes({idx})"),
+        SqlType::Date       => format!("rs.getObject({idx}, java.time.LocalDate::class.java)"),
+        SqlType::Time       => format!("rs.getObject({idx}, java.time.LocalTime::class.java)"),
+        SqlType::Timestamp  => format!("rs.getObject({idx}, java.time.LocalDateTime::class.java)"),
+        SqlType::TimestampTz => format!("rs.getObject({idx}, java.time.OffsetDateTime::class.java)"),
+        SqlType::Uuid       => format!("rs.getObject({idx}, java.util.UUID::class.java)"),
+        _                   => format!("rs.getObject({idx})"),
     }
 }
 
