@@ -1,5 +1,8 @@
 #![allow(dead_code)]
 
-pub mod users;
-pub mod posts;
+pub mod author;
+pub mod book;
+pub mod customer;
+pub mod sale;
+pub mod sale_item;
 pub mod queries;

@@ -1,7 +1,7 @@
 {
   "version": "1",
   "engine": "postgresql",
-  "schema": "../common/postgresql/schema.sql",
+  "schema": "../common/postgresql/migrations",
   "queries": "../common/postgresql/queries.sql",
   "gen": {
     "rust": { "out": "src/db/pg", "package": "" }

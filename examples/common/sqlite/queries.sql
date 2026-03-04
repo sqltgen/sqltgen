@@ -1,36 +1,81 @@
--- name: GetUser :one
-SELECT id, name, email, bio FROM users WHERE id = ?1;
+-- name: CreateAuthor :exec
+INSERT INTO author (name, bio, birth_year)
+VALUES (?1, ?2, ?3);
 
--- name: ListUsers :many
-SELECT id, name, email, bio FROM users;
+-- name: GetAuthor :one
+SELECT id, name, bio, birth_year
+FROM author
+WHERE id = ?1;
 
--- name: CreateUser :exec
-INSERT INTO users (name, email, bio) VALUES (?1, ?2, ?3);
+-- name: ListAuthors :many
+SELECT id, name, bio, birth_year
+FROM author
+ORDER BY name;
 
--- name: DeleteUser :exec
-DELETE FROM users WHERE id = ?1;
+-- name: CreateBook :exec
+INSERT INTO book (author_id, title, genre, price, published_at)
+VALUES (?1, ?2, ?3, ?4, ?5);
 
--- name: CreatePost :exec
-INSERT INTO posts (user_id, title, body) VALUES (?1, ?2, ?3);
+-- name: GetBook :one
+SELECT id, author_id, title, genre, price, published_at
+FROM book
+WHERE id = ?1;
 
--- name: ListPostsByUser :many
-SELECT p.id, p.title, p.body FROM posts p WHERE p.user_id = ?1;
+-- name: ListBooksByGenre :many
+SELECT id, author_id, title, genre, price, published_at
+FROM book
+WHERE genre = ?1
+ORDER BY title;
 
--- name: ListPostsWithAuthor :many
-SELECT p.id, p.title, u.name, u.email
-FROM posts p
-INNER JOIN users u ON u.id = p.user_id;
+-- name: CreateCustomer :exec
+INSERT INTO customer (name, email)
+VALUES (?1, ?2);
 
--- name: ListUsersWithPostCount :many
-SELECT u.name, u.email, pc.post_count
-FROM users u
-INNER JOIN (SELECT user_id, COUNT(*) AS post_count FROM posts GROUP BY user_id) pc
-ON u.id = pc.user_id;
+-- name: CreateSale :exec
+INSERT INTO sale (customer_id)
+VALUES (?1);
 
--- name: GetActiveAuthors :many
-WITH post_authors AS (
-    SELECT DISTINCT user_id FROM posts
+-- name: AddSaleItem :exec
+INSERT INTO sale_item (sale_id, book_id, quantity, unit_price)
+VALUES (?1, ?2, ?3, ?4);
+
+-- name: ListBooksWithAuthor :many
+SELECT b.id, b.title, b.genre, b.price, b.published_at,
+       a.name AS author_name, a.bio AS author_bio
+FROM book b
+JOIN author a ON a.id = b.author_id
+ORDER BY b.title;
+
+-- name: GetBooksNeverOrdered :many
+SELECT b.id, b.author_id, b.title, b.genre, b.price, b.published_at
+FROM book b
+LEFT JOIN sale_item si ON si.book_id = b.id
+WHERE si.id IS NULL
+ORDER BY b.title;
+
+-- name: GetTopSellingBooks :many
+WITH book_sales AS (
+    SELECT book_id,
+           SUM(quantity) AS units_sold
+    FROM sale_item
+    GROUP BY book_id
 )
-SELECT u.id, u.name, u.email
-FROM users u
-JOIN post_authors pa ON pa.user_id = u.id;
+SELECT b.id, b.title, b.genre, b.price,
+       bs.units_sold
+FROM book b
+JOIN book_sales bs ON bs.book_id = b.id
+ORDER BY bs.units_sold DESC;
+
+-- name: GetBestCustomers :many
+WITH customer_spend AS (
+    SELECT s.customer_id,
+           SUM(si.quantity * si.unit_price) AS total_spent
+    FROM sale s
+    JOIN sale_item si ON si.sale_id = s.id
+    GROUP BY s.customer_id
+)
+SELECT c.id, c.name, c.email,
+       cs.total_spent
+FROM customer c
+JOIN customer_spend cs ON cs.customer_id = c.id
+ORDER BY cs.total_spent DESC;

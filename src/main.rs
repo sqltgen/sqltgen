@@ -36,6 +36,30 @@ fn main() -> anyhow::Result<()> {
     }
 }
 
+fn read_schema_ddl(path: &Path) -> anyhow::Result<String> {
+    if path.is_dir() {
+        let mut entries: Vec<_> = std::fs::read_dir(path)
+            .with_context(|| format!("reading schema directory: {}", path.display()))?
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| p.extension().map_or(false, |ext| ext == "sql"))
+            .collect();
+        entries.sort();
+        let mut ddl = String::new();
+        for entry in &entries {
+            ddl.push_str(
+                &std::fs::read_to_string(entry)
+                    .with_context(|| format!("reading schema file: {}", entry.display()))?,
+            );
+            ddl.push('\n');
+        }
+        Ok(ddl)
+    } else {
+        std::fs::read_to_string(path)
+            .with_context(|| format!("reading schema file: {}", path.display()))
+    }
+}
+
 fn run_generate(config_path: &Path) -> anyhow::Result<()> {
     let cfg = SqltgenConfig::load(config_path)?;
 
@@ -47,10 +71,9 @@ fn run_generate(config_path: &Path) -> anyhow::Result<()> {
         Engine::Sqlite => Box::new(SqliteParser),
     };
 
-    // Read and parse schema
+    // Read and parse schema (supports single file or directory of .sql files)
     let schema_path = base_dir.join(&cfg.schema);
-    let ddl = std::fs::read_to_string(&schema_path)
-        .with_context(|| format!("reading schema file: {}", schema_path.display()))?;
+    let ddl = read_schema_ddl(&schema_path)?;
     let schema = parser.parse_schema(&ddl)?;
 
     // Read and parse queries
