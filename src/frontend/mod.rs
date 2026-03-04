@@ -1,5 +1,6 @@
 pub mod postgres;
 pub mod sqlite;
+pub(crate) mod common;
 
 use crate::ir::{Query, Schema};
 

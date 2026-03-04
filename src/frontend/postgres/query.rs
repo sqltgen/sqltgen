@@ -7,7 +7,7 @@ use sqlparser::ast::{
 use sqlparser::dialect::{Dialect, PostgreSqlDialect};
 use sqlparser::parser::Parser;
 
-use crate::frontend::postgres::schema::{ident_to_str, obj_name_to_str};
+use crate::frontend::common::{ident_to_str, obj_name_to_str};
 use crate::ir::{Column, Parameter, Query, QueryCmd, ResultColumn, Schema, SqlType, Table};
 
 /// Parses an annotated PostgreSQL query file into a list of [Query] models.

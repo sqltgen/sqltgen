@@ -1,24 +1,24 @@
-use sqlparser::ast::{
-    AlterTableOperation, ColumnOption, Ident, ObjectName, Statement, TableConstraint,
-};
+use sqlparser::ast::{AlterTableOperation, ObjectName, Statement};
 use sqlparser::dialect::SQLiteDialect;
 use sqlparser::parser::Parser;
 
+use crate::frontend::common::{
+    build_column, build_create_table, ident_to_str, obj_name_to_str,
+};
 use crate::frontend::sqlite::typemap;
-use crate::ir::{Column, Schema, Table};
+use crate::ir::Schema;
 
 pub fn parse_schema(ddl: &str) -> anyhow::Result<Schema> {
     let dialect = SQLiteDialect {};
     let stmts = Parser::parse_sql(&dialect, ddl)
         .map_err(|e| anyhow::anyhow!("DDL parse error: {e}"))?;
 
-    let mut tables: Vec<Table> = Vec::new();
+    let mut tables = Vec::new();
 
     for stmt in stmts {
         match stmt {
             Statement::CreateTable(ct) => {
-                let table = build_create_table(&ct.name, &ct.columns, &ct.constraints);
-                tables.push(table);
+                tables.push(build_create_table(&ct.name, &ct.columns, &ct.constraints, typemap::map));
             }
             Statement::AlterTable { name, operations, .. } => {
                 apply_alter_table(&name, &operations, &mut tables);
@@ -30,66 +30,6 @@ pub fn parse_schema(ddl: &str) -> anyhow::Result<Schema> {
     Ok(Schema { tables })
 }
 
-// ─── CREATE TABLE ─────────────────────────────────────────────────────────────
-
-fn build_create_table(
-    name: &ObjectName,
-    column_defs: &[sqlparser::ast::ColumnDef],
-    constraints: &[TableConstraint],
-) -> Table {
-    let table_name = obj_name_to_str(name);
-
-    let mut pk_cols: Vec<String> = Vec::new();
-    for constraint in constraints {
-        pk_cols.extend(pk_columns_from_constraint(constraint));
-    }
-
-    let mut columns: Vec<Column> = Vec::new();
-    for col_def in column_defs {
-        columns.push(build_column(col_def));
-    }
-
-    for col in &mut columns {
-        if pk_cols.contains(&col.name) {
-            col.is_primary_key = true;
-            col.nullable = false;
-        }
-    }
-
-    Table { name: table_name, columns }
-}
-
-fn build_column(col_def: &sqlparser::ast::ColumnDef) -> Column {
-    let name = ident_to_str(&col_def.name);
-    let sql_type = typemap::map(&col_def.data_type);
-
-    let mut nullable = true;
-    let mut is_primary_key = false;
-
-    for opt_def in &col_def.options {
-        match &opt_def.option {
-            ColumnOption::NotNull => nullable = false,
-            ColumnOption::Null => nullable = true,
-            ColumnOption::Unique { is_primary, .. } if *is_primary => {
-                is_primary_key = true;
-                nullable = false;
-            }
-            _ => {}
-        }
-    }
-
-    Column { name, sql_type, nullable, is_primary_key }
-}
-
-fn pk_columns_from_constraint(tc: &TableConstraint) -> Vec<String> {
-    match tc {
-        TableConstraint::PrimaryKey { columns, .. } => {
-            columns.iter().map(ident_to_str).collect()
-        }
-        _ => vec![],
-    }
-}
-
 // ─── ALTER TABLE ─────────────────────────────────────────────────────────────
 // SQLite supports only: RENAME TO, RENAME COLUMN, ADD COLUMN.
 // Everything else is silently ignored.
@@ -97,7 +37,7 @@ fn pk_columns_from_constraint(tc: &TableConstraint) -> Vec<String> {
 fn apply_alter_table(
     name: &ObjectName,
     operations: &[AlterTableOperation],
-    tables: &mut Vec<Table>,
+    tables: &mut Vec<crate::ir::Table>,
 ) {
     let table_name = obj_name_to_str(name);
     let Some(idx) = tables.iter().position(|t| t.name == table_name) else {
@@ -108,7 +48,7 @@ fn apply_alter_table(
         let table = &mut tables[idx];
         match op {
             AlterTableOperation::AddColumn { column_def, .. } => {
-                table.columns.push(build_column(column_def));
+                table.columns.push(build_column(column_def, typemap::map));
             }
             AlterTableOperation::RenameColumn { old_column_name, new_column_name } => {
                 let old = ident_to_str(old_column_name);
@@ -123,20 +63,6 @@ fn apply_alter_table(
             _ => {}
         }
     }
-}
-
-// ─── Identifier helpers ───────────────────────────────────────────────────────
-
-pub(super) fn ident_to_str(ident: &Ident) -> String {
-    if ident.quote_style.is_some() {
-        ident.value.clone()
-    } else {
-        ident.value.to_lowercase()
-    }
-}
-
-pub(super) fn obj_name_to_str(name: &ObjectName) -> String {
-    name.0.last().map(ident_to_str).unwrap_or_default()
 }
 
 #[cfg(test)]
