@@ -1,8 +1,8 @@
 {
   "version": "1",
   "engine": "sqlite",
-  "schema": "../sqlite/schema.sql",
-  "queries": "../sqlite/queries.sql",
+  "schema": "../common/sqlite/schema.sql",
+  "queries": "../common/sqlite/queries.sql",
   "gen": {
     "kotlin": { "out": "gen/sqlite", "package": "com.example.db.sqlite" }
   }

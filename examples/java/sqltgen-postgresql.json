@@ -1,8 +1,8 @@
 {
     "version": "1",
     "engine": "postgresql",
-    "schema": "../postgresql/schema.sql",
-    "queries": "../postgresql/queries.sql",
+    "schema": "../common/postgresql/schema.sql",
+    "queries": "../common/postgresql/queries.sql",
     "gen": {
         "java": { "out": "gen/pg", "package": "com.example.db.pg" }
     }

@@ -3,7 +3,7 @@ mod db;
 use db::pg::queries as pg;
 use db::sqlite::queries as sq;
 
-const SQLITE_SCHEMA: &str = include_str!("../../sqlite/schema.sql");
+const SQLITE_SCHEMA: &str = include_str!("../../common/sqlite/schema.sql");
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

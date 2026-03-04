@@ -1277,7 +1277,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "sqlt-rust-example"
+name = "sqltgen-rust-example"
 version = "0.1.0"
 dependencies = [
  "dotenvy",
