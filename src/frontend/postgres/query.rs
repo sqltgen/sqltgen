@@ -1000,7 +1000,9 @@ mod tests {
         let q = &parse_queries(sql, &make_schema()).unwrap()[0];
         assert_eq!(q.params.len(), 2);
         assert_eq!(q.params[0].name, "name");
+        assert_eq!(q.params[0].sql_type, SqlType::Text);
         assert_eq!(q.params[1].name, "email");
+        assert_eq!(q.params[1].sql_type, SqlType::Text);
         assert_eq!(q.result_columns.len(), 4);
         let names: Vec<_> = q.result_columns.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names, ["id", "name", "email", "bio"]);
@@ -1015,6 +1017,7 @@ mod tests {
         assert_eq!(q.result_columns[0].name, "id");
         assert_eq!(q.result_columns[0].sql_type, SqlType::BigInt);
         assert_eq!(q.result_columns[1].name, "name");
+        assert_eq!(q.result_columns[1].sql_type, SqlType::Text);
     }
 
     #[test]
@@ -1058,5 +1061,7 @@ mod tests {
         assert_eq!(q.result_columns.len(), 2);
         assert_eq!(q.result_columns[0].name, "id");
         assert_eq!(q.result_columns[0].sql_type, SqlType::BigInt);
+        assert_eq!(q.result_columns[1].name, "name");
+        assert_eq!(q.result_columns[1].sql_type, SqlType::Text);
     }
 }
