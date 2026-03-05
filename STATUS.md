@@ -6,56 +6,58 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 
 ## Frontend — SQL parsing
 
-| Feature | PostgreSQL | SQLite |
-|---|:---:|:---:|
-| `CREATE TABLE` | ✅ | ✅ |
-| `IF NOT EXISTS` | ✅ | ✅ |
-| `NOT NULL` | ✅ | ✅ |
-| `PRIMARY KEY` (inline) | ✅ | ✅ |
-| `PRIMARY KEY` (table-level) | ✅ | ✅ |
-| `UNIQUE` (inline + table-level) | ✅ | ✅ |
-| `FOREIGN KEY` | ✅ (parsed, ignored) | ✅ (parsed, ignored) |
-| `DEFAULT` | ✅ (parsed, ignored) | ✅ (parsed, ignored) |
-| `GENERATED … AS IDENTITY` | ✅ (parsed, ignored) | — |
-| Multiple tables per file | ✅ | ✅ |
-| Schema from directory of migration files | ✅ | ✅ |
-| Type: boolean | ✅ | ✅ (INTEGER affinity) |
-| Type: smallint / int / bigint (+ serials) | ✅ | ✅ (INTEGER affinity) |
-| Type: real / double | ✅ | ✅ (REAL affinity) |
-| Type: decimal / numeric | ✅ | ✅ (DECIMAL → `Decimal`) |
-| Type: text / varchar / char | ✅ | ✅ (TEXT affinity) |
-| Type: bytea / blob | ✅ | ✅ (BLOB affinity) |
-| Type: date / time / timestamp / timestamptz | ✅ | ✅ (DATETIME → `Timestamp`) |
-| Type: interval | ✅ | — |
-| Type: uuid | ✅ | ✅ (TEXT affinity) |
-| Type: json / jsonb | ✅ | ✅ (TEXT affinity) |
-| Type: arrays (`type[]`) | ✅ | — |
-| Type: unknown → `Custom` | ✅ | ✅ |
-| Query: `-- name: X :cmd` annotation | ✅ | ✅ |
-| Query: `:one` / `:many` / `:exec` / `:execrows` | ✅ | ✅ |
-| Query: `$N` parameter inference | ✅ | — |
-| Query: `?N` parameter inference | — | ✅ |
-| Query: result column inference | ✅ | ✅ |
-| `RETURNING` on INSERT | ✅ | — |
-| `RETURNING` on UPDATE | ✅ | — |
-| `RETURNING` on DELETE | ✅ | — |
-| `ALTER TABLE ADD COLUMN [IF NOT EXISTS]` | ✅ | ✅ |
-| `ALTER TABLE DROP COLUMN [IF EXISTS]` | ✅ | — |
-| `ALTER TABLE ALTER COLUMN … SET/DROP NOT NULL` | ✅ | — |
-| `ALTER TABLE ALTER COLUMN … TYPE / SET DATA TYPE` | ✅ | — |
-| `ALTER TABLE RENAME COLUMN … TO …` | ✅ | ✅ |
-| `ALTER TABLE RENAME TO …` | ✅ | ✅ |
-| `ALTER TABLE ADD [CONSTRAINT …] PRIMARY KEY` | ✅ | — |
-| Other `ALTER TABLE` actions | ✅ (silently ignored) | ✅ (silently ignored) |
-| JOIN queries (type inference) | ✅ qualified, unqualified, aliases, `SELECT *` | ✅ |
-| Subqueries in WHERE (`IN (SELECT …)`) | ✅ | ✅ |
-| Derived tables (`FROM (SELECT …) alias`) | ✅ | ✅ |
-| Scalar subqueries in SELECT list | ✅ | ✅ |
-| CTE (`WITH` … `SELECT`) | ✅ chained, joined with schema tables | ✅ |
-| Multiple query files | ❌ | ❌ |
-| `UNION` / `INTERSECT` result columns | ❌ | ❌ |
-| `CAST(x AS type)` result type | ❌ | ❌ |
-| `HAVING` parameters | ❌ | ❌ |
+| Feature | PostgreSQL | SQLite | MySQL |
+|---|:---:|:---:|:---:|
+| `CREATE TABLE` | ✅ | ✅ | ✅ |
+| `IF NOT EXISTS` | ✅ | ✅ | ✅ |
+| `NOT NULL` | ✅ | ✅ | ✅ |
+| `PRIMARY KEY` (inline) | ✅ | ✅ | ✅ |
+| `PRIMARY KEY` (table-level) | ✅ | ✅ | ✅ |
+| `UNIQUE` (inline + table-level) | ✅ | ✅ | ✅ (parsed, ignored) |
+| `FOREIGN KEY` | ✅ (parsed, ignored) | ✅ (parsed, ignored) | ✅ (parsed, ignored) |
+| `DEFAULT` | ✅ (parsed, ignored) | ✅ (parsed, ignored) | ✅ (parsed, ignored) |
+| `AUTO_INCREMENT` | — | — | ✅ (parsed, ignored) |
+| `GENERATED … AS IDENTITY` | ✅ (parsed, ignored) | — | — |
+| Multiple tables per file | ✅ | ✅ | ✅ |
+| Schema from directory of migration files | ✅ | ✅ | ✅ |
+| Type: boolean | ✅ | ✅ (INTEGER affinity) | ✅ |
+| Type: smallint / int / bigint (+ serials / AUTO_INCREMENT) | ✅ | ✅ (INTEGER affinity) | ✅ (TINYINT/MEDIUMINT too) |
+| Type: real / double | ✅ | ✅ (REAL affinity) | ✅ (FLOAT=32-bit Real) |
+| Type: decimal / numeric | ✅ | ✅ (DECIMAL → `Decimal`) | ✅ |
+| Type: text / varchar / char | ✅ | ✅ (TEXT affinity) | ✅ |
+| Type: bytea / blob | ✅ | ✅ (BLOB affinity) | ✅ (TINYBLOB…LONGBLOB) |
+| Type: date / time / timestamp / timestamptz | ✅ | ✅ (DATETIME → `Timestamp`) | ✅ (DATETIME+TIMESTAMP → `Timestamp`) |
+| Type: interval | ✅ | — | — |
+| Type: uuid | ✅ | ✅ (TEXT affinity) | — |
+| Type: json / jsonb | ✅ | ✅ (TEXT affinity) | ✅ (JSON only) |
+| Type: enum / set | — | — | ✅ (→ `Text`) |
+| Type: arrays (`type[]`) | ✅ | — | — |
+| Type: unknown → `Custom` | ✅ | ✅ | ✅ |
+| Query: `-- name: X :cmd` annotation | ✅ | ✅ | ✅ |
+| Query: `:one` / `:many` / `:exec` / `:execrows` | ✅ | ✅ | ✅ |
+| Query: `$N` parameter inference | ✅ | — | ✅ (via GenericDialect; bare `?` planned) |
+| Query: `?N` parameter inference | — | ✅ | — |
+| Query: result column inference | ✅ | ✅ | ✅ |
+| `RETURNING` on INSERT | ✅ | — | — |
+| `RETURNING` on UPDATE | ✅ | — | — |
+| `RETURNING` on DELETE | ✅ | — | — |
+| `ALTER TABLE ADD COLUMN [IF NOT EXISTS]` | ✅ | ✅ | ✅ |
+| `ALTER TABLE DROP COLUMN [IF EXISTS]` | ✅ | — | ✅ |
+| `ALTER TABLE ALTER COLUMN … SET/DROP NOT NULL` | ✅ | — | ✅ |
+| `ALTER TABLE ALTER COLUMN … TYPE / SET DATA TYPE` | ✅ | — | ✅ |
+| `ALTER TABLE RENAME COLUMN … TO …` | ✅ | ✅ | ✅ |
+| `ALTER TABLE RENAME TO …` | ✅ | ✅ | ✅ |
+| `ALTER TABLE ADD [CONSTRAINT …] PRIMARY KEY` | ✅ | — | ✅ |
+| Other `ALTER TABLE` actions | ✅ (silently ignored) | ✅ (silently ignored) | ✅ (silently ignored) |
+| JOIN queries (type inference) | ✅ qualified, unqualified, aliases, `SELECT *` | ✅ | ✅ |
+| Subqueries in WHERE (`IN (SELECT …)`) | ✅ | ✅ | ✅ |
+| Derived tables (`FROM (SELECT …) alias`) | ✅ | ✅ | ✅ |
+| Scalar subqueries in SELECT list | ✅ | ✅ | ✅ |
+| CTE (`WITH` … `SELECT`) | ✅ chained, joined with schema tables | ✅ | ✅ |
+| Multiple query files | ❌ | ❌ | ❌ |
+| `UNION` / `INTERSECT` result columns | ❌ | ❌ | ❌ |
+| `CAST(x AS type)` result type | ❌ | ❌ | ❌ |
+| `HAVING` parameters | ❌ | ❌ | ❌ |
 
 ---
 
@@ -144,7 +146,10 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | SQLite DDL schema | 10 |
 | CTE | 4 |
 | Derived tables / subqueries | 8 |
-| **Total** | **85 (all passing)** |
+| MySQL typemap | 10 |
+| MySQL DDL schema | 13 |
+| MySQL query parser | 7 |
+| **Total** | **115 (all passing)** |
 
 ---
 

@@ -21,6 +21,7 @@ pub struct SqltgenConfig {
 pub enum Engine {
     Postgresql,
     Sqlite,
+    Mysql,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]

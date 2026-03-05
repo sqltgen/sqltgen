@@ -10,7 +10,7 @@ use clap::{Parser, Subcommand};
 
 use backend::Codegen;
 use config::{Engine, SqltgenConfig};
-use frontend::{postgres::PostgresParser, sqlite::SqliteParser, DialectParser};
+use frontend::{mysql::MysqlParser, postgres::PostgresParser, sqlite::SqliteParser, DialectParser};
 
 #[derive(Parser)]
 #[command(name = "sqltgen", about = "SQL-to-code generator")]
@@ -69,6 +69,7 @@ fn run_generate(config_path: &Path) -> anyhow::Result<()> {
     let parser: Box<dyn DialectParser> = match cfg.engine {
         Engine::Postgresql => Box::new(PostgresParser),
         Engine::Sqlite => Box::new(SqliteParser),
+        Engine::Mysql => Box::new(MysqlParser),
     };
 
     // Read and parse schema (supports single file or directory of .sql files)
