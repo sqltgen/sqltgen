@@ -4,87 +4,43 @@ import com.example.db.pg.Queries
 import java.math.BigDecimal
 import java.sql.Connection
 import java.sql.DriverManager
-import java.sql.Statement
 
 object PostgresqlDemo {
 
+    private const val PG_URL  = "jdbc:postgresql://localhost:5433/sqltgen"
+    private const val PG_USER = "sqltgen"
+    private const val PG_PASS = "sqltgen"
+
     fun run() {
-        // H2 in PostgreSQL-compatible mode stands in for PostgreSQL in this demo.
-        DriverManager.getConnection("jdbc:h2:mem:pg_demo;DB_CLOSE_DELAY=-1", "sa", "").use { conn ->
-            createSchema(conn)
+        DriverManager.getConnection(PG_URL, PG_USER, PG_PASS).use { conn ->
             seed(conn)
             query(conn)
         }
     }
 
-    private fun createSchema(conn: Connection) {
-        conn.createStatement().use { st: Statement ->
-            st.execute("""
-                CREATE TABLE author (
-                    id         BIGINT         AUTO_INCREMENT PRIMARY KEY,
-                    name       VARCHAR(255)   NOT NULL,
-                    bio        VARCHAR(1024),
-                    birth_year INTEGER
-                )""".trimIndent())
-            st.execute("""
-                CREATE TABLE book (
-                    id           BIGINT         AUTO_INCREMENT PRIMARY KEY,
-                    author_id    BIGINT         NOT NULL,
-                    title        VARCHAR(255)   NOT NULL,
-                    genre        VARCHAR(100)   NOT NULL,
-                    price        NUMERIC(10, 2) NOT NULL,
-                    published_at DATE,
-                    FOREIGN KEY (author_id) REFERENCES author(id)
-                )""".trimIndent())
-            st.execute("""
-                CREATE TABLE customer (
-                    id    BIGINT       AUTO_INCREMENT PRIMARY KEY,
-                    name  VARCHAR(255) NOT NULL,
-                    email VARCHAR(255) NOT NULL UNIQUE
-                )""".trimIndent())
-            st.execute("""
-                CREATE TABLE sale (
-                    id          BIGINT    AUTO_INCREMENT PRIMARY KEY,
-                    customer_id BIGINT    NOT NULL,
-                    ordered_at  TIMESTAMP NOT NULL DEFAULT NOW(),
-                    FOREIGN KEY (customer_id) REFERENCES customer(id)
-                )""".trimIndent())
-            st.execute("""
-                CREATE TABLE sale_item (
-                    id         BIGINT         AUTO_INCREMENT PRIMARY KEY,
-                    sale_id    BIGINT         NOT NULL,
-                    book_id    BIGINT         NOT NULL,
-                    quantity   INTEGER        NOT NULL,
-                    unit_price NUMERIC(10, 2) NOT NULL,
-                    FOREIGN KEY (sale_id) REFERENCES sale(id),
-                    FOREIGN KEY (book_id) REFERENCES book(id)
-                )""".trimIndent())
-        }
-    }
-
     private fun seed(conn: Connection) {
-        Queries.createAuthor(conn, "Ursula K. Le Guin", "Science fiction and fantasy author", 1929)
-        Queries.createAuthor(conn, "Frank Herbert",     "Author of the Dune series",           1920)
-        Queries.createAuthor(conn, "Isaac Asimov",      null,                                  1920)
-        println("[pg] inserted 3 authors")
+        val leGuin  = Queries.createAuthor(conn, "Ursula K. Le Guin", "Science fiction and fantasy author", 1929)!!
+        val herbert = Queries.createAuthor(conn, "Frank Herbert",     "Author of the Dune series",           1920)!!
+        val asimov  = Queries.createAuthor(conn, "Isaac Asimov",      null,                                  1920)!!
+        println("[pg] inserted 3 authors (ids: ${leGuin.id}, ${herbert.id}, ${asimov.id})")
 
-        Queries.createBook(conn, 1L, "The Left Hand of Darkness", "sci-fi", BigDecimal("12.99"), null)
-        Queries.createBook(conn, 1L, "The Dispossessed",           "sci-fi", BigDecimal("11.50"), null)
-        Queries.createBook(conn, 2L, "Dune",                       "sci-fi", BigDecimal("14.99"), null)
-        Queries.createBook(conn, 3L, "Foundation",                 "sci-fi", BigDecimal("10.99"), null)
-        Queries.createBook(conn, 3L, "The Caves of Steel",         "sci-fi", BigDecimal("9.99"),  null)
+        val lhod  = Queries.createBook(conn, leGuin.id,  "The Left Hand of Darkness", "sci-fi", BigDecimal("12.99"), null)!!
+        val disp  = Queries.createBook(conn, leGuin.id,  "The Dispossessed",           "sci-fi", BigDecimal("11.50"), null)!!
+        val dune  = Queries.createBook(conn, herbert.id, "Dune",                       "sci-fi", BigDecimal("14.99"), null)!!
+        val found = Queries.createBook(conn, asimov.id,  "Foundation",                 "sci-fi", BigDecimal("10.99"), null)!!
+        val caves = Queries.createBook(conn, asimov.id,  "The Caves of Steel",         "sci-fi", BigDecimal("9.99"),  null)!!
         println("[pg] inserted 5 books")
 
-        Queries.createCustomer(conn, "Alice", "alice@example.com")
-        Queries.createCustomer(conn, "Bob",   "bob@example.com")
+        val alice = Queries.createCustomer(conn, "Alice", "alice@example.com")!!
+        val bob   = Queries.createCustomer(conn, "Bob",   "bob@example.com")!!
         println("[pg] inserted 2 customers")
 
-        Queries.createSale(conn, 1L)
-        Queries.addSaleItem(conn, 1L, 3L, 2, BigDecimal("14.99"))
-        Queries.addSaleItem(conn, 1L, 4L, 1, BigDecimal("10.99"))
-        Queries.createSale(conn, 2L)
-        Queries.addSaleItem(conn, 2L, 3L, 1, BigDecimal("14.99"))
-        Queries.addSaleItem(conn, 2L, 1L, 1, BigDecimal("12.99"))
+        val sale1 = Queries.createSale(conn, alice.id)!!
+        Queries.addSaleItem(conn, sale1.id, dune.id,  2, BigDecimal("14.99"))
+        Queries.addSaleItem(conn, sale1.id, found.id, 1, BigDecimal("10.99"))
+        val sale2 = Queries.createSale(conn, bob.id)!!
+        Queries.addSaleItem(conn, sale2.id, dune.id, 1, BigDecimal("14.99"))
+        Queries.addSaleItem(conn, sale2.id, lhod.id, 1, BigDecimal("12.99"))
         println("[pg] inserted 2 sales with items")
     }
 
@@ -113,5 +69,12 @@ object PostgresqlDemo {
         Queries.getBestCustomers(conn).forEach { r ->
             println("  ${r.name} spent ${r.totalSpent}")
         }
+
+        // Demonstrate UPDATE RETURNING and DELETE RETURNING with a transient author
+        val temp = Queries.createAuthor(conn, "Temp Author", null, null)!!
+        Queries.updateAuthorBio(conn, "Updated via UPDATE RETURNING", temp.id)
+            ?.let { println("[pg] updateAuthorBio: updated \"${it.name}\" — bio: ${it.bio}") }
+        Queries.deleteAuthor(conn, temp.id)
+            ?.let { println("[pg] deleteAuthor: deleted \"${it.name}\" (id=${it.id})") }
     }
 }

@@ -12,13 +12,16 @@ public final class Queries {
     private Queries() {}
 
     private static final String SQL_CREATEAUTHOR =
-        "INSERT INTO author (name, bio, birth_year) VALUES (?, ?, ?);";
-    public static void createAuthor(Connection conn, String name, String bio, Integer birthYear) throws SQLException {
+        "INSERT INTO author (name, bio, birth_year) VALUES (?, ?, ?) RETURNING *;";
+    public static Optional<Author> createAuthor(Connection conn, String name, String bio, Integer birthYear) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_CREATEAUTHOR)) {
             ps.setString(1, name);
-            ps.setString(2, bio);
-            ps.setInt(3, birthYear);
-            ps.executeUpdate();
+            ps.setObject(2, bio);
+            ps.setObject(3, birthYear);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) return Optional.empty();
+                return Optional.of(new Author(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getInt(4)));
+            }
         }
     }
 
@@ -46,16 +49,49 @@ public final class Queries {
         }
     }
 
+    private static final String SQL_UPDATEAUTHORBIO =
+        "UPDATE author SET bio = ? WHERE id = ? RETURNING *;";
+    public static Optional<Author> updateAuthorBio(Connection conn, String bio, long id) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(SQL_UPDATEAUTHORBIO)) {
+            ps.setObject(1, bio);
+            ps.setLong(2, id);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) return Optional.empty();
+                return Optional.of(new Author(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getInt(4)));
+            }
+        }
+    }
+
+    public record DeleteAuthorRow(
+        long id,
+        String name
+    ) {}
+
+    private static final String SQL_DELETEAUTHOR =
+        "DELETE FROM author WHERE id = ? RETURNING id, name;";
+    public static Optional<DeleteAuthorRow> deleteAuthor(Connection conn, long id) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(SQL_DELETEAUTHOR)) {
+            ps.setLong(1, id);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) return Optional.empty();
+                return Optional.of(new DeleteAuthorRow(rs.getLong(1), rs.getString(2)));
+            }
+        }
+    }
+
     private static final String SQL_CREATEBOOK =
-        "INSERT INTO book (author_id, title, genre, price, published_at) VALUES (?, ?, ?, ?, ?);";
-    public static void createBook(Connection conn, long authorId, String title, String genre, java.math.BigDecimal price, java.time.LocalDate publishedAt) throws SQLException {
+        "INSERT INTO book (author_id, title, genre, price, published_at) VALUES (?, ?, ?, ?, ?) RETURNING *;";
+    public static Optional<Book> createBook(Connection conn, long authorId, String title, String genre, java.math.BigDecimal price, java.time.LocalDate publishedAt) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_CREATEBOOK)) {
             ps.setLong(1, authorId);
             ps.setString(2, title);
             ps.setString(3, genre);
             ps.setBigDecimal(4, price);
             ps.setObject(5, publishedAt);
-            ps.executeUpdate();
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) return Optional.empty();
+                return Optional.of(new Book(rs.getLong(1), rs.getLong(2), rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getObject(6, java.time.LocalDate.class)));
+            }
         }
     }
 
@@ -84,22 +120,36 @@ public final class Queries {
         }
     }
 
+    public record CreateCustomerRow(
+        long id
+    ) {}
+
     private static final String SQL_CREATECUSTOMER =
-        "INSERT INTO customer (name, email) VALUES (?, ?);";
-    public static void createCustomer(Connection conn, String name, String email) throws SQLException {
+        "INSERT INTO customer (name, email) VALUES (?, ?) RETURNING id;";
+    public static Optional<CreateCustomerRow> createCustomer(Connection conn, String name, String email) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_CREATECUSTOMER)) {
             ps.setString(1, name);
             ps.setString(2, email);
-            ps.executeUpdate();
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) return Optional.empty();
+                return Optional.of(new CreateCustomerRow(rs.getLong(1)));
+            }
         }
     }
 
+    public record CreateSaleRow(
+        long id
+    ) {}
+
     private static final String SQL_CREATESALE =
-        "INSERT INTO sale (customer_id) VALUES (?);";
-    public static void createSale(Connection conn, long customerId) throws SQLException {
+        "INSERT INTO sale (customer_id) VALUES (?) RETURNING id;";
+    public static Optional<CreateSaleRow> createSale(Connection conn, long customerId) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_CREATESALE)) {
             ps.setLong(1, customerId);
-            ps.executeUpdate();
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) return Optional.empty();
+                return Optional.of(new CreateSaleRow(rs.getLong(1)));
+            }
         }
     }
 

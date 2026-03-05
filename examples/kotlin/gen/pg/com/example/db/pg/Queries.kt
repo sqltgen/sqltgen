@@ -4,13 +4,16 @@ import java.sql.Connection
 
 object Queries {
 
-    private const val SQL_CREATEAUTHOR = "INSERT INTO author (name, bio, birth_year) VALUES (?, ?, ?);"
-    fun createAuthor(conn: Connection, name: String, bio: String?, birthYear: Int?): Unit {
+    private const val SQL_CREATEAUTHOR = "INSERT INTO author (name, bio, birth_year) VALUES (?, ?, ?) RETURNING *;"
+    fun createAuthor(conn: Connection, name: String, bio: String?, birthYear: Int?): Author? {
         conn.prepareStatement(SQL_CREATEAUTHOR).use { ps ->
             ps.setString(1, name)
             ps.setObject(2, bio)
             ps.setObject(3, birthYear)
-            ps.executeUpdate()
+            ps.executeQuery().use { rs ->
+                if (!rs.next()) return null
+                return Author(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getInt(4))
+            }
         }
     }
 
@@ -36,15 +39,46 @@ object Queries {
         }
     }
 
-    private const val SQL_CREATEBOOK = "INSERT INTO book (author_id, title, genre, price, published_at) VALUES (?, ?, ?, ?, ?);"
-    fun createBook(conn: Connection, authorId: Long, title: String, genre: String, price: java.math.BigDecimal, publishedAt: java.time.LocalDate?): Unit {
+    private const val SQL_UPDATEAUTHORBIO = "UPDATE author SET bio = ? WHERE id = ? RETURNING *;"
+    fun updateAuthorBio(conn: Connection, bio: String?, id: Long): Author? {
+        conn.prepareStatement(SQL_UPDATEAUTHORBIO).use { ps ->
+            ps.setObject(1, bio)
+            ps.setLong(2, id)
+            ps.executeQuery().use { rs ->
+                if (!rs.next()) return null
+                return Author(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getInt(4))
+            }
+        }
+    }
+
+    data class DeleteAuthorRow(
+        val id: Long,
+        val name: String
+    )
+
+    private const val SQL_DELETEAUTHOR = "DELETE FROM author WHERE id = ? RETURNING id, name;"
+    fun deleteAuthor(conn: Connection, id: Long): DeleteAuthorRow? {
+        conn.prepareStatement(SQL_DELETEAUTHOR).use { ps ->
+            ps.setLong(1, id)
+            ps.executeQuery().use { rs ->
+                if (!rs.next()) return null
+                return DeleteAuthorRow(rs.getLong(1), rs.getString(2))
+            }
+        }
+    }
+
+    private const val SQL_CREATEBOOK = "INSERT INTO book (author_id, title, genre, price, published_at) VALUES (?, ?, ?, ?, ?) RETURNING *;"
+    fun createBook(conn: Connection, authorId: Long, title: String, genre: String, price: java.math.BigDecimal, publishedAt: java.time.LocalDate?): Book? {
         conn.prepareStatement(SQL_CREATEBOOK).use { ps ->
             ps.setLong(1, authorId)
             ps.setString(2, title)
             ps.setString(3, genre)
             ps.setBigDecimal(4, price)
             ps.setObject(5, publishedAt)
-            ps.executeUpdate()
+            ps.executeQuery().use { rs ->
+                if (!rs.next()) return null
+                return Book(rs.getLong(1), rs.getLong(2), rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getObject(6, java.time.LocalDate::class.java))
+            }
         }
     }
 
@@ -71,20 +105,34 @@ object Queries {
         }
     }
 
-    private const val SQL_CREATECUSTOMER = "INSERT INTO customer (name, email) VALUES (?, ?);"
-    fun createCustomer(conn: Connection, name: String, email: String): Unit {
+    data class CreateCustomerRow(
+        val id: Long
+    )
+
+    private const val SQL_CREATECUSTOMER = "INSERT INTO customer (name, email) VALUES (?, ?) RETURNING id;"
+    fun createCustomer(conn: Connection, name: String, email: String): CreateCustomerRow? {
         conn.prepareStatement(SQL_CREATECUSTOMER).use { ps ->
             ps.setString(1, name)
             ps.setString(2, email)
-            ps.executeUpdate()
+            ps.executeQuery().use { rs ->
+                if (!rs.next()) return null
+                return CreateCustomerRow(rs.getLong(1))
+            }
         }
     }
 
-    private const val SQL_CREATESALE = "INSERT INTO sale (customer_id) VALUES (?);"
-    fun createSale(conn: Connection, customerId: Long): Unit {
+    data class CreateSaleRow(
+        val id: Long
+    )
+
+    private const val SQL_CREATESALE = "INSERT INTO sale (customer_id) VALUES (?) RETURNING id;"
+    fun createSale(conn: Connection, customerId: Long): CreateSaleRow? {
         conn.prepareStatement(SQL_CREATESALE).use { ps ->
             ps.setLong(1, customerId)
-            ps.executeUpdate()
+            ps.executeQuery().use { rs ->
+                if (!rs.next()) return null
+                return CreateSaleRow(rs.getLong(1))
+            }
         }
     }
 

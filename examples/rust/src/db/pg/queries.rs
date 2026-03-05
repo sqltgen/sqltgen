@@ -4,6 +4,22 @@ use super::author::Author;
 use super::book::Book;
 
 #[derive(Debug, sqlx::FromRow)]
+pub struct DeleteAuthorRow {
+    pub id: i64,
+    pub name: String,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct CreateCustomerRow {
+    pub id: i64,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct CreateSaleRow {
+    pub id: i64,
+}
+
+#[derive(Debug, sqlx::FromRow)]
 pub struct ListBooksWithAuthorRow {
     pub id: i64,
     pub title: String,
@@ -31,14 +47,13 @@ pub struct GetBestCustomersRow {
     pub total_spent: Option<serde_json::Value>,
 }
 
-pub async fn create_author(pool: &PgPool, name: String, bio: Option<String>, birth_year: Option<i32>) -> Result<(), sqlx::Error> {
-    sqlx::query("INSERT INTO author (name, bio, birth_year) VALUES ($1, $2, $3)")
+pub async fn create_author(pool: &PgPool, name: String, bio: Option<String>, birth_year: Option<i32>) -> Result<Option<Author>, sqlx::Error> {
+    sqlx::query_as::<_, Author>("INSERT INTO author (name, bio, birth_year) VALUES ($1, $2, $3) RETURNING *")
         .bind(name)
         .bind(bio)
         .bind(birth_year)
-        .execute(pool)
+        .fetch_optional(pool)
         .await
-        .map(|_| ())
 }
 
 pub async fn get_author(pool: &PgPool, id: i64) -> Result<Option<Author>, sqlx::Error> {
@@ -54,16 +69,30 @@ pub async fn list_authors(pool: &PgPool) -> Result<Vec<Author>, sqlx::Error> {
         .await
 }
 
-pub async fn create_book(pool: &PgPool, author_id: i64, title: String, genre: String, price: f64, published_at: Option<time::Date>) -> Result<(), sqlx::Error> {
-    sqlx::query("INSERT INTO book (author_id, title, genre, price, published_at) VALUES ($1, $2, $3, $4, $5)")
+pub async fn update_author_bio(pool: &PgPool, bio: Option<String>, id: i64) -> Result<Option<Author>, sqlx::Error> {
+    sqlx::query_as::<_, Author>("UPDATE author SET bio = $1 WHERE id = $2 RETURNING *")
+        .bind(bio)
+        .bind(id)
+        .fetch_optional(pool)
+        .await
+}
+
+pub async fn delete_author(pool: &PgPool, id: i64) -> Result<Option<DeleteAuthorRow>, sqlx::Error> {
+    sqlx::query_as::<_, DeleteAuthorRow>("DELETE FROM author WHERE id = $1 RETURNING id, name")
+        .bind(id)
+        .fetch_optional(pool)
+        .await
+}
+
+pub async fn create_book(pool: &PgPool, author_id: i64, title: String, genre: String, price: f64, published_at: Option<time::Date>) -> Result<Option<Book>, sqlx::Error> {
+    sqlx::query_as::<_, Book>("INSERT INTO book (author_id, title, genre, price, published_at) VALUES ($1, $2, $3, $4, $5) RETURNING *")
         .bind(author_id)
         .bind(title)
         .bind(genre)
         .bind(price)
         .bind(published_at)
-        .execute(pool)
+        .fetch_optional(pool)
         .await
-        .map(|_| ())
 }
 
 pub async fn get_book(pool: &PgPool, id: i64) -> Result<Option<Book>, sqlx::Error> {
@@ -80,21 +109,19 @@ pub async fn list_books_by_genre(pool: &PgPool, genre: String) -> Result<Vec<Boo
         .await
 }
 
-pub async fn create_customer(pool: &PgPool, name: String, email: String) -> Result<(), sqlx::Error> {
-    sqlx::query("INSERT INTO customer (name, email) VALUES ($1, $2)")
+pub async fn create_customer(pool: &PgPool, name: String, email: String) -> Result<Option<CreateCustomerRow>, sqlx::Error> {
+    sqlx::query_as::<_, CreateCustomerRow>("INSERT INTO customer (name, email) VALUES ($1, $2) RETURNING id")
         .bind(name)
         .bind(email)
-        .execute(pool)
+        .fetch_optional(pool)
         .await
-        .map(|_| ())
 }
 
-pub async fn create_sale(pool: &PgPool, customer_id: i64) -> Result<(), sqlx::Error> {
-    sqlx::query("INSERT INTO sale (customer_id) VALUES ($1)")
+pub async fn create_sale(pool: &PgPool, customer_id: i64) -> Result<Option<CreateSaleRow>, sqlx::Error> {
+    sqlx::query_as::<_, CreateSaleRow>("INSERT INTO sale (customer_id) VALUES ($1) RETURNING id")
         .bind(customer_id)
-        .execute(pool)
+        .fetch_optional(pool)
         .await
-        .map(|_| ())
 }
 
 pub async fn add_sale_item(pool: &PgPool, sale_id: i64, book_id: i64, quantity: i32, unit_price: f64) -> Result<(), sqlx::Error> {

@@ -1,6 +1,7 @@
--- name: CreateAuthor :exec
+-- name: CreateAuthor :one
 INSERT INTO author (name, bio, birth_year)
-VALUES ($1, $2, $3);
+VALUES ($1, $2, $3)
+RETURNING *;
 
 -- name: GetAuthor :one
 SELECT id, name, bio, birth_year
@@ -12,9 +13,18 @@ SELECT id, name, bio, birth_year
 FROM author
 ORDER BY name;
 
--- name: CreateBook :exec
+-- name: UpdateAuthorBio :one
+UPDATE author SET bio = $1 WHERE id = $2
+RETURNING *;
+
+-- name: DeleteAuthor :one
+DELETE FROM author WHERE id = $1
+RETURNING id, name;
+
+-- name: CreateBook :one
 INSERT INTO book (author_id, title, genre, price, published_at)
-VALUES ($1, $2, $3, $4, $5);
+VALUES ($1, $2, $3, $4, $5)
+RETURNING *;
 
 -- name: GetBook :one
 SELECT id, author_id, title, genre, price, published_at
@@ -27,13 +37,15 @@ FROM book
 WHERE genre = $1
 ORDER BY title;
 
--- name: CreateCustomer :exec
+-- name: CreateCustomer :one
 INSERT INTO customer (name, email)
-VALUES ($1, $2);
+VALUES ($1, $2)
+RETURNING id;
 
--- name: CreateSale :exec
+-- name: CreateSale :one
 INSERT INTO sale (customer_id)
-VALUES ($1);
+VALUES ($1)
+RETURNING id;
 
 -- name: AddSaleItem :exec
 INSERT INTO sale_item (sale_id, book_id, quantity, unit_price)

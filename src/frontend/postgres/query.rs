@@ -273,13 +273,15 @@ fn build_delete(ann: &Annotation, sql: &str, delete: &Delete, schema: &Schema) -
     }
 
     let params = build_params(mapping, count_params(sql));
+    let result_columns = delete.returning.as_deref()
+        .map_or(vec![], |items| resolve_returning(items, table));
 
     Query {
         name: ann.name.clone(),
         cmd: ann.cmd.clone(),
         sql: sql.to_string(),
         params,
-        result_columns: vec![],
+        result_columns,
     }
 }
 
@@ -987,5 +989,74 @@ mod tests {
         let sql = "-- name: ListUsers :many\nSELECT id, name FROM users;";
         let q = &parse_queries(sql, &make_schema()).unwrap()[0];
         assert!(!q.sql.ends_with(';'));
+    }
+
+    // ─── RETURNING tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn insert_returning_star() {
+        let sql = "-- name: CreateUser :one\n\
+            INSERT INTO users (name, email) VALUES ($1, $2) RETURNING *;";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        assert_eq!(q.params.len(), 2);
+        assert_eq!(q.params[0].name, "name");
+        assert_eq!(q.params[1].name, "email");
+        assert_eq!(q.result_columns.len(), 4);
+        let names: Vec<_> = q.result_columns.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["id", "name", "email", "bio"]);
+    }
+
+    #[test]
+    fn insert_returning_columns() {
+        let sql = "-- name: CreateUser :one\n\
+            INSERT INTO users (name, email) VALUES ($1, $2) RETURNING id, name;";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        assert_eq!(q.result_columns.len(), 2);
+        assert_eq!(q.result_columns[0].name, "id");
+        assert_eq!(q.result_columns[0].sql_type, SqlType::BigInt);
+        assert_eq!(q.result_columns[1].name, "name");
+    }
+
+    #[test]
+    fn update_returning_star() {
+        let sql = "-- name: UpdateUser :one\n\
+            UPDATE users SET name = $1 WHERE id = $2 RETURNING *;";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        assert_eq!(q.params.len(), 2);
+        assert_eq!(q.params[0].name, "name");
+        assert_eq!(q.params[1].name, "id");
+        assert_eq!(q.result_columns.len(), 4);
+    }
+
+    #[test]
+    fn update_returning_columns() {
+        let sql = "-- name: UpdateUser :one\n\
+            UPDATE users SET name = $1, email = $2 WHERE id = $3 RETURNING id, name, email;";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        assert_eq!(q.result_columns.len(), 3);
+        let names: Vec<_> = q.result_columns.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["id", "name", "email"]);
+    }
+
+    #[test]
+    fn delete_returning_star() {
+        let sql = "-- name: DeleteUser :one\n\
+            DELETE FROM users WHERE id = $1 RETURNING *;";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        assert_eq!(q.params.len(), 1);
+        assert_eq!(q.params[0].name, "id");
+        assert_eq!(q.result_columns.len(), 4);
+        let names: Vec<_> = q.result_columns.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["id", "name", "email", "bio"]);
+    }
+
+    #[test]
+    fn delete_returning_columns() {
+        let sql = "-- name: DeleteUser :one\n\
+            DELETE FROM users WHERE id = $1 RETURNING id, name;";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        assert_eq!(q.result_columns.len(), 2);
+        assert_eq!(q.result_columns[0].name, "id");
+        assert_eq!(q.result_columns[0].sql_type, SqlType::BigInt);
     }
 }

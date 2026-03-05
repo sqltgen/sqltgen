@@ -15,11 +15,11 @@
   </properties>
 
   <dependencies>
-    <!-- H2 in-memory database — stands in for PostgreSQL in the demo -->
+    <!-- PostgreSQL JDBC driver -->
     <dependency>
-      <groupId>com.h2database</groupId>
-      <artifactId>h2</artifactId>
-      <version>2.3.232</version>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <version>42.7.5</version>
     </dependency>
     <!-- SQLite JDBC driver for the SQLite dialect demo -->
     <dependency>

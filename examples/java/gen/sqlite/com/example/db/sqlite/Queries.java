@@ -16,8 +16,8 @@ public final class Queries {
     public static void createAuthor(Connection conn, String name, String bio, Integer birthYear) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_CREATEAUTHOR)) {
             ps.setString(1, name);
-            ps.setString(2, bio);
-            ps.setInt(3, birthYear);
+            ps.setObject(2, bio);
+            ps.setObject(3, birthYear);
             ps.executeUpdate();
         }
     }
@@ -54,7 +54,7 @@ public final class Queries {
             ps.setString(2, title);
             ps.setString(3, genre);
             ps.setBigDecimal(4, price);
-            ps.setString(5, publishedAt);
+            ps.setObject(5, publishedAt);
             ps.executeUpdate();
         }
     }
