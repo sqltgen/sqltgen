@@ -88,7 +88,14 @@ fn run_generate(config_path: &Path) -> anyhow::Result<()> {
         let codegen: Box<dyn Codegen> = match lang.as_str() {
             "java"       => Box::new(backend::java::JavaCodegen),
             "kotlin"     => Box::new(backend::kotlin::KotlinCodegen),
-            "rust"       => Box::new(backend::rust::RustCodegen { sqlite: matches!(cfg.engine, Engine::Sqlite) }),
+            "rust"       => {
+                let target = match cfg.engine {
+                    Engine::Sqlite     => backend::rust::RustTarget::Sqlite,
+                    Engine::Mysql      => backend::rust::RustTarget::Mysql,
+                    Engine::Postgresql => backend::rust::RustTarget::Postgres,
+                };
+                Box::new(backend::rust::RustCodegen { target })
+            }
             "go"         => Box::new(backend::go::GoCodegen),
             "python"     => Box::new(backend::python::PythonCodegen),
             "typescript" => Box::new(backend::typescript::TypeScriptCodegen),

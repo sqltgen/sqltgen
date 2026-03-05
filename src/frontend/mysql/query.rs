@@ -1,6 +1,7 @@
 use sqlparser::dialect::GenericDialect;
 
-use crate::ir::{Query, Schema};
+use crate::ir::{Query, Schema, SqlType};
+use crate::frontend::common::query::{parse_queries_with_config, ResolverConfig};
 
 /// Parses an annotated MySQL query file into a list of [Query] models.
 ///
@@ -11,7 +12,12 @@ use crate::ir::{Query, Schema};
 ///
 /// Future work: switch to proper bare `?` and named param (`:name` / `@name`) support.
 pub fn parse_queries(sql: &str, schema: &Schema) -> anyhow::Result<Vec<Query>> {
-    crate::frontend::postgres::query::parse_queries_with_dialect(&GenericDialect {}, sql, schema)
+    parse_queries_with_config(
+        &GenericDialect {},
+        sql,
+        schema,
+        &ResolverConfig { sum_integer_type: SqlType::Decimal },
+    )
 }
 
 #[cfg(test)]

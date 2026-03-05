@@ -1,5 +1,5 @@
 SQLTGEN := ../../../target/debug/sqltgen
-PG      := ../../common/postgresql
+DB      := ../../common/mysql
 
 .PHONY: clean generate build db-up db-down run
 
@@ -14,10 +14,10 @@ build:
 	cargo build
 
 db-up:
-	$(MAKE) -C $(PG) db-up
+	$(MAKE) -C $(DB) db-up
 
 db-down:
-	$(MAKE) -C $(PG) db-down
+	$(MAKE) -C $(DB) db-down
 
 run: generate db-up
 	cargo run; ret=$$?; $(MAKE) db-down; exit $$ret

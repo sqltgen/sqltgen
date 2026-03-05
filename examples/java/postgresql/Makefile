@@ -1,7 +1,11 @@
 SQLTGEN := ../../../target/debug/sqltgen
 PG      := ../../common/postgresql
 
-.PHONY: generate build db-up db-down run
+.PHONY: clean generate build db-up db-down run
+
+clean:
+	mvn -q clean
+	rm -rf gen
 
 generate:
 	$(SQLTGEN) generate --config sqltgen.json

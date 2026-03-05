@@ -1,0 +1,9 @@
+{
+  "version": "1",
+  "engine": "mysql",
+  "schema": "../../common/mysql/migrations",
+  "queries": "../../common/mysql/queries.sql",
+  "gen": {
+    "rust": { "out": "src/db", "package": "" }
+  }
+}

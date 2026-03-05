@@ -1,6 +1,10 @@
 SQLTGEN := ../../../target/debug/sqltgen
 
-.PHONY: generate build run
+.PHONY: clean generate build run
+
+clean:
+	mvn -q clean
+	rm -rf gen
 
 generate:
 	$(SQLTGEN) generate --config sqltgen.json
