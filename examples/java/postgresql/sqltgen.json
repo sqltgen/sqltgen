@@ -1,0 +1,9 @@
+{
+  "version": "1",
+  "engine": "postgresql",
+  "schema": "../../common/postgresql/migrations",
+  "queries": "../../common/postgresql/queries.sql",
+  "gen": {
+    "java": { "out": "gen", "package": "com.example.db" }
+  }
+}

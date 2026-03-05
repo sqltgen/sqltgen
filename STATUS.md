@@ -130,6 +130,7 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | Example project | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
 | PostgreSQL (real DB) | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
 | SQLite (in-memory) | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| MySQL (real DB) | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Makefile (`make run`) | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
 
 ---

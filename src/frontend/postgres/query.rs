@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 
 use sqlparser::ast::{
-    Assignment, AssignmentTarget, BinaryOperator, Delete, Expr, FromTable, Insert,
-    Query as SqlQuery, Select, SelectItem, SetExpr, Statement, TableFactor, Value, With,
+    Assignment, AssignmentTarget, BinaryOperator, Delete, Expr, FromTable, FunctionArg,
+    FunctionArgExpr, FunctionArguments, Insert, Query as SqlQuery, Select, SelectItem, SetExpr,
+    Statement, TableFactor, Value, With,
 };
 use sqlparser::dialect::{Dialect, PostgreSqlDialect};
 use sqlparser::parser::Parser;
@@ -388,6 +389,19 @@ fn resolve_projection(
     result
 }
 
+/// Returns the wider of two numeric SQL types (for arithmetic result type promotion).
+fn numeric_wider(a: &SqlType, b: &SqlType) -> SqlType {
+    use SqlType::*;
+    match (a, b) {
+        (Decimal, _) | (_, Decimal) => Decimal,
+        (Double, _) | (_, Double) => Double,
+        (Real, _) | (_, Real) => Real,
+        (BigInt, _) | (_, BigInt) => BigInt,
+        (Integer, _) | (_, Integer) => Integer,
+        _ => a.clone(),
+    }
+}
+
 fn resolve_expr(
     expr: &Expr,
     alias_map: &HashMap<String, &Table>,
@@ -409,6 +423,73 @@ fn resolve_expr(
                 .get(&qualifier)
                 .and_then(|t| t.columns.iter().find(|c| c.name == col_name))
                 .map(col_to_result)
+        }
+        Expr::BinaryOp { left, op, right }
+            if matches!(
+                op,
+                BinaryOperator::Plus
+                    | BinaryOperator::Minus
+                    | BinaryOperator::Multiply
+                    | BinaryOperator::Divide
+                    | BinaryOperator::Modulo
+            ) =>
+        {
+            match (
+                resolve_expr(left, alias_map, all_tables),
+                resolve_expr(right, alias_map, all_tables),
+            ) {
+                (Some(l), Some(r)) => Some(ResultColumn {
+                    name: l.name.clone(),
+                    sql_type: numeric_wider(&l.sql_type, &r.sql_type),
+                    nullable: l.nullable || r.nullable,
+                }),
+                (Some(l), None) => Some(l),
+                (None, Some(r)) => Some(r),
+                (None, None) => None,
+            }
+        }
+        Expr::Function(func) => {
+            let fname = func.name.0.last().map(ident_to_str).unwrap_or_default().to_uppercase();
+            match fname.as_str() {
+                "COUNT" => Some(ResultColumn {
+                    name: "count".into(),
+                    sql_type: SqlType::BigInt,
+                    nullable: false,
+                }),
+                "SUM" => {
+                    // SUM promotes integer types to BigInt to match PostgreSQL (and avoid
+                    // overflow in other databases). Result is always nullable.
+                    if let FunctionArguments::List(arg_list) = &func.args {
+                        if let Some(FunctionArg::Unnamed(FunctionArgExpr::Expr(inner))) =
+                            arg_list.args.first()
+                        {
+                            return resolve_expr(inner, alias_map, all_tables)
+                                .map(|rc| {
+                                    let promoted = match rc.sql_type {
+                                        SqlType::SmallInt | SqlType::Integer => SqlType::BigInt,
+                                        other => other,
+                                    };
+                                    ResultColumn { sql_type: promoted, nullable: true, ..rc }
+                                });
+                        }
+                    }
+                    None
+                }
+                "MIN" | "MAX" | "AVG" => {
+                    // Propagate the type of the first argument; result is always nullable
+                    // because aggregate functions return NULL when applied to an empty set.
+                    if let FunctionArguments::List(arg_list) = &func.args {
+                        if let Some(FunctionArg::Unnamed(FunctionArgExpr::Expr(inner))) =
+                            arg_list.args.first()
+                        {
+                            return resolve_expr(inner, alias_map, all_tables)
+                                .map(|rc| ResultColumn { nullable: true, ..rc });
+                        }
+                    }
+                    None
+                }
+                _ => None,
+            }
         }
         _ => None,
     }
@@ -886,8 +967,8 @@ mod tests {
     }
 
     #[test]
-    fn derived_table_unresolvable_expr_uses_alias() {
-        // COUNT(*) AS cnt — can't resolve type, but column is present with Custom type
+    fn derived_table_count_star_resolves_to_bigint() {
+        // COUNT(*) AS cnt — resolves to BigInt
         let sql = "-- name: GetCounts :many\n\
             SELECT a.name, b.cnt \
             FROM users a \
@@ -896,7 +977,7 @@ mod tests {
         let q = &parse_queries(sql, &make_join_schema()).unwrap()[0];
         let cnt = q.result_columns.iter().find(|c| c.name == "cnt");
         assert!(cnt.is_some());
-        assert!(matches!(cnt.unwrap().sql_type, SqlType::Custom(_)));
+        assert_eq!(cnt.unwrap().sql_type, SqlType::BigInt);
     }
 
     // ─── Qualified-wildcard tests (alias.*) ──────────────────────────────────

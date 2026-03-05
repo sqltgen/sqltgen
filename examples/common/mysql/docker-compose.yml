@@ -1,0 +1,17 @@
+services:
+  db:
+    image: mysql:8.0
+    environment:
+      MYSQL_DATABASE: sqltgen
+      MYSQL_USER: sqltgen
+      MYSQL_PASSWORD: sqltgen
+      MYSQL_ROOT_PASSWORD: sqltgen_root
+    ports:
+      - "3307:3306"
+    volumes:
+      - ./migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "sqltgen", "-psqltgen"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
