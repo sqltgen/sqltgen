@@ -1,6 +1,6 @@
 # sqltgen — feature status
 
-Legend: ✅ done · ⚠️ bug/incomplete · 🚧 stub · ❌ not started
+Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 
 ---
 
@@ -8,45 +8,54 @@ Legend: ✅ done · ⚠️ bug/incomplete · 🚧 stub · ❌ not started
 
 | Feature | PostgreSQL | SQLite |
 |---|:---:|:---:|
-| `CREATE TABLE` | ✅ | ❌ |
-| `IF NOT EXISTS` | ✅ | ❌ |
-| `NOT NULL` | ✅ | ❌ |
-| `PRIMARY KEY` (inline) | ✅ | ❌ |
-| `PRIMARY KEY` (table-level) | ✅ | ❌ |
-| `UNIQUE` (inline + table-level) | ✅ | ❌ |
-| `FOREIGN KEY` | ✅ (parsed, ignored) | ❌ |
-| `DEFAULT` | ✅ (parsed, ignored) | ❌ |
-| `GENERATED … AS IDENTITY` | ✅ (parsed, ignored) | ❌ |
-| Multiple tables per file | ✅ | ❌ |
-| Type: boolean | ✅ | ❌ |
-| Type: smallint / int / bigint (+ serials) | ✅ | ❌ |
-| Type: real / double | ✅ | ❌ |
-| Type: decimal / numeric | ✅ | ❌ |
-| Type: text / varchar / char | ✅ | ❌ |
-| Type: bytea | ✅ | ❌ |
-| Type: date / time / timestamp / timestamptz | ✅ | ❌ |
-| Type: interval | ✅ | ❌ |
-| Type: uuid | ✅ | ❌ |
-| Type: json / jsonb | ✅ | ❌ |
-| Type: arrays (`type[]`) | ✅ | ❌ |
-| Type: unknown → `Custom` | ✅ | ❌ |
-| Query: `-- name: X :cmd` annotation | ✅ | ❌ |
-| Query: `:one` / `:many` / `:exec` / `:execrows` | ✅ | ❌ |
-| Query: `$N` parameter inference | ✅ | ❌ |
-| Query: result column inference | ✅ | ❌ |
-| `ALTER TABLE ADD COLUMN [IF NOT EXISTS]` | ✅ | ❌ |
-| `ALTER TABLE DROP COLUMN [IF EXISTS]` | ✅ | ❌ |
-| `ALTER TABLE ALTER COLUMN … SET/DROP NOT NULL` | ✅ | ❌ |
-| `ALTER TABLE ALTER COLUMN … TYPE / SET DATA TYPE` | ✅ | ❌ |
-| `ALTER TABLE RENAME COLUMN … TO …` | ✅ | ❌ |
-| `ALTER TABLE RENAME TO …` | ✅ | ❌ |
-| `ALTER TABLE ADD [CONSTRAINT …] PRIMARY KEY` | ✅ | ❌ |
-| Other `ALTER TABLE` actions | ✅ (silently ignored) | ❌ |
-| JOIN queries (type inference) | ✅ qualified (`t.col`), unqualified, aliases, `SELECT *` | ❌ |
-| Subqueries in WHERE (`IN (SELECT …)`) | ✅ (SQL passes through; inner table leaks into alias map) | ❌ |
-| Derived tables (`FROM (SELECT …) alias`) | ✅ (SQL passes through; derived columns unresolvable) | ❌ |
-| Scalar subqueries in SELECT list | ✅ (SQL passes through; select-list truncated at inner FROM) | ❌ |
+| `CREATE TABLE` | ✅ | ✅ |
+| `IF NOT EXISTS` | ✅ | ✅ |
+| `NOT NULL` | ✅ | ✅ |
+| `PRIMARY KEY` (inline) | ✅ | ✅ |
+| `PRIMARY KEY` (table-level) | ✅ | ✅ |
+| `UNIQUE` (inline + table-level) | ✅ | ✅ |
+| `FOREIGN KEY` | ✅ (parsed, ignored) | ✅ (parsed, ignored) |
+| `DEFAULT` | ✅ (parsed, ignored) | ✅ (parsed, ignored) |
+| `GENERATED … AS IDENTITY` | ✅ (parsed, ignored) | — |
+| Multiple tables per file | ✅ | ✅ |
+| Schema from directory of migration files | ✅ | ✅ |
+| Type: boolean | ✅ | ✅ (INTEGER affinity) |
+| Type: smallint / int / bigint (+ serials) | ✅ | ✅ (INTEGER affinity) |
+| Type: real / double | ✅ | ✅ (REAL affinity) |
+| Type: decimal / numeric | ✅ | ✅ (DECIMAL → `Decimal`) |
+| Type: text / varchar / char | ✅ | ✅ (TEXT affinity) |
+| Type: bytea / blob | ✅ | ✅ (BLOB affinity) |
+| Type: date / time / timestamp / timestamptz | ✅ | ✅ (DATETIME → `Timestamp`) |
+| Type: interval | ✅ | — |
+| Type: uuid | ✅ | ✅ (TEXT affinity) |
+| Type: json / jsonb | ✅ | ✅ (TEXT affinity) |
+| Type: arrays (`type[]`) | ✅ | — |
+| Type: unknown → `Custom` | ✅ | ✅ |
+| Query: `-- name: X :cmd` annotation | ✅ | ✅ |
+| Query: `:one` / `:many` / `:exec` / `:execrows` | ✅ | ✅ |
+| Query: `$N` parameter inference | ✅ | — |
+| Query: `?N` parameter inference | — | ✅ |
+| Query: result column inference | ✅ | ✅ |
+| `RETURNING` on INSERT | ✅ | — |
+| `RETURNING` on UPDATE | ✅ | — |
+| `RETURNING` on DELETE | ✅ | — |
+| `ALTER TABLE ADD COLUMN [IF NOT EXISTS]` | ✅ | ✅ |
+| `ALTER TABLE DROP COLUMN [IF EXISTS]` | ✅ | — |
+| `ALTER TABLE ALTER COLUMN … SET/DROP NOT NULL` | ✅ | — |
+| `ALTER TABLE ALTER COLUMN … TYPE / SET DATA TYPE` | ✅ | — |
+| `ALTER TABLE RENAME COLUMN … TO …` | ✅ | ✅ |
+| `ALTER TABLE RENAME TO …` | ✅ | ✅ |
+| `ALTER TABLE ADD [CONSTRAINT …] PRIMARY KEY` | ✅ | — |
+| Other `ALTER TABLE` actions | ✅ (silently ignored) | ✅ (silently ignored) |
+| JOIN queries (type inference) | ✅ qualified, unqualified, aliases, `SELECT *` | ✅ |
+| Subqueries in WHERE (`IN (SELECT …)`) | ✅ | ✅ |
+| Derived tables (`FROM (SELECT …) alias`) | ✅ | ✅ |
+| Scalar subqueries in SELECT list | ✅ | ✅ |
+| CTE (`WITH` … `SELECT`) | ✅ chained, joined with schema tables | ✅ |
 | Multiple query files | ❌ | ❌ |
+| `UNION` / `INTERSECT` result columns | ❌ | ❌ |
+| `CAST(x AS type)` result type | ❌ | ❌ |
+| `HAVING` parameters | ❌ | ❌ |
 
 ---
 
@@ -54,11 +63,11 @@ Legend: ✅ done · ⚠️ bug/incomplete · 🚧 stub · ❌ not started
 
 | Feature | Java | Kotlin | Rust | Go | Python | TypeScript |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|
-| Row model generated | ✅ record | ✅ data class | 🚧 | 🚧 | 🚧 | 🚧 |
-| One file per table | ✅ | ✅ | 🚧 | 🚧 | 🚧 | 🚧 |
-| Nullable fields | ✅ | ✅ | 🚧 | 🚧 | 🚧 | 🚧 |
-| Array fields | ✅ `List<T>` | ✅ `List<T>` | 🚧 | 🚧 | 🚧 | 🚧 |
-| Package / namespace / module | ✅ | ✅ | 🚧 | 🚧 | 🚧 | 🚧 |
+| Row model generated | ✅ record | ✅ data class | ✅ `#[derive(FromRow)]` struct | 🚧 | 🚧 | 🚧 |
+| One file per table | ✅ | ✅ | ✅ | 🚧 | 🚧 | 🚧 |
+| Nullable fields | ✅ | ✅ | ✅ `Option<T>` | 🚧 | 🚧 | 🚧 |
+| Array fields | ✅ `List<T>` | ✅ `List<T>` | ✅ `Vec<T>` | 🚧 | 🚧 | 🚧 |
+| Package / namespace / module | ✅ | ✅ | ✅ `mod.rs` generated | 🚧 | 🚧 | 🚧 |
 
 ---
 
@@ -66,13 +75,15 @@ Legend: ✅ done · ⚠️ bug/incomplete · 🚧 stub · ❌ not started
 
 | Feature | Java | Kotlin | Rust | Go | Python | TypeScript |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|
-| `:one` | ✅ `Optional<T>` | ✅ `T?` | 🚧 | 🚧 | 🚧 | 🚧 |
-| `:many` | ✅ `List<T>` | ✅ `List<T>` | 🚧 | 🚧 | 🚧 | 🚧 |
-| `:exec` | ✅ `void` | ✅ `Unit` | 🚧 | 🚧 | 🚧 | 🚧 |
-| `:execrows` | ✅ `long` | ✅ `Long` | 🚧 | 🚧 | 🚧 | 🚧 |
-| `$N` → `?` placeholder rewrite | ✅ | ⚠️ missing | 🚧 | 🚧 | 🚧 | 🚧 |
-| Table row-type inference | ✅ | ✅ | 🚧 | 🚧 | 🚧 | 🚧 |
-| Join row type (`{Query}Row` record) | ✅ | ✅ | 🚧 | 🚧 | 🚧 | 🚧 |
+| `:one` | ✅ `Optional<T>` | ✅ `T?` | ✅ `Option<T>` | 🚧 | 🚧 | 🚧 |
+| `:many` | ✅ `List<T>` | ✅ `List<T>` | ✅ `Vec<T>` | 🚧 | 🚧 | 🚧 |
+| `:exec` | ✅ `void` | ✅ `Unit` | ✅ `()` | 🚧 | 🚧 | 🚧 |
+| `:execrows` | ✅ `long` | ✅ `Long` | ✅ `u64` | 🚧 | 🚧 | 🚧 |
+| `$N` / `?N` → `?` placeholder rewrite | ✅ | ✅ | ✅ | 🚧 | 🚧 | 🚧 |
+| Table row-type inference | ✅ | ✅ | ✅ | 🚧 | 🚧 | 🚧 |
+| Join / CTE / RETURNING row type | ✅ `{Query}Row` record | ✅ `{Query}Row` data class | ✅ `{Query}Row` struct | 🚧 | 🚧 | 🚧 |
+| Nullable params use `setObject` | ✅ | ✅ | — | 🚧 | 🚧 | 🚧 |
+| Typed result getters (Date, UUID…) | ✅ `getObject(n, T.class)` | ✅ `getObject(n, T::class.java)` | ✅ | 🚧 | 🚧 | 🚧 |
 
 ---
 
@@ -80,24 +91,24 @@ Legend: ✅ done · ⚠️ bug/incomplete · 🚧 stub · ❌ not started
 
 | `SqlType` | Java | Kotlin | Rust | Go | Python | TypeScript |
 |---|---|---|---|---|---|---|
-| `Boolean` | ✅ `boolean`/`Boolean` | ✅ `Boolean` | 🚧 | 🚧 | 🚧 | 🚧 |
-| `SmallInt` | ✅ `short`/`Short` | ✅ `Short` | 🚧 | 🚧 | 🚧 | 🚧 |
-| `Integer` | ✅ `int`/`Integer` | ✅ `Int` | 🚧 | 🚧 | 🚧 | 🚧 |
-| `BigInt` | ✅ `long`/`Long` | ✅ `Long` | 🚧 | 🚧 | 🚧 | 🚧 |
-| `Real` | ✅ `float`/`Float` | ✅ `Float` | 🚧 | 🚧 | 🚧 | 🚧 |
-| `Double` | ✅ `double`/`Double` | ✅ `Double` | 🚧 | 🚧 | 🚧 | 🚧 |
-| `Decimal` | ✅ `BigDecimal` | ✅ `BigDecimal` | 🚧 | 🚧 | 🚧 | 🚧 |
-| `Text`/`Char`/`VarChar` | ✅ `String` | ✅ `String` | 🚧 | 🚧 | 🚧 | 🚧 |
-| `Bytes` | ✅ `byte[]` | ✅ `ByteArray` | 🚧 | 🚧 | 🚧 | 🚧 |
-| `Date` | ✅ `LocalDate` | ✅ `LocalDate` | 🚧 | 🚧 | 🚧 | 🚧 |
-| `Time` | ✅ `LocalTime` | ✅ `LocalTime` | 🚧 | 🚧 | 🚧 | 🚧 |
-| `Timestamp` | ✅ `LocalDateTime` | ✅ `LocalDateTime` | 🚧 | 🚧 | 🚧 | 🚧 |
-| `TimestampTz` | ✅ `OffsetDateTime` | ✅ `OffsetDateTime` | 🚧 | 🚧 | 🚧 | 🚧 |
-| `Interval` | ✅ `String` | ✅ `String` | 🚧 | 🚧 | 🚧 | 🚧 |
-| `Uuid` | ✅ `UUID` | ✅ `UUID` | 🚧 | 🚧 | 🚧 | 🚧 |
-| `Json`/`Jsonb` | ✅ `String` | ✅ `String` | 🚧 | 🚧 | 🚧 | 🚧 |
-| `Array(T)` | ✅ `List<T>` | ✅ `List<T>` | 🚧 | 🚧 | 🚧 | 🚧 |
-| `Custom` | ✅ `Object` | ✅ `Any` | 🚧 | 🚧 | 🚧 | 🚧 |
+| `Boolean` | ✅ `boolean`/`Boolean` | ✅ `Boolean` | ✅ `bool` | 🚧 | 🚧 | 🚧 |
+| `SmallInt` | ✅ `short`/`Short` | ✅ `Short` | ✅ `i16` | 🚧 | 🚧 | 🚧 |
+| `Integer` | ✅ `int`/`Integer` | ✅ `Int` | ✅ `i32` | 🚧 | 🚧 | 🚧 |
+| `BigInt` | ✅ `long`/`Long` | ✅ `Long` | ✅ `i64` | 🚧 | 🚧 | 🚧 |
+| `Real` | ✅ `float`/`Float` | ✅ `Float` | ✅ `f32` | 🚧 | 🚧 | 🚧 |
+| `Double` | ✅ `double`/`Double` | ✅ `Double` | ✅ `f64` | 🚧 | 🚧 | 🚧 |
+| `Decimal` | ✅ `BigDecimal` | ✅ `BigDecimal` | ✅ `f64` | 🚧 | 🚧 | 🚧 |
+| `Text`/`Char`/`VarChar` | ✅ `String` | ✅ `String` | ✅ `String` | 🚧 | 🚧 | 🚧 |
+| `Bytes` | ✅ `byte[]` | ✅ `ByteArray` | ✅ `Vec<u8>` | 🚧 | 🚧 | 🚧 |
+| `Date` | ✅ `LocalDate` | ✅ `LocalDate` | ✅ `time::Date` | 🚧 | 🚧 | 🚧 |
+| `Time` | ✅ `LocalTime` | ✅ `LocalTime` | ✅ `time::Time` | 🚧 | 🚧 | 🚧 |
+| `Timestamp` | ✅ `LocalDateTime` | ✅ `LocalDateTime` | ✅ `time::PrimitiveDateTime` | 🚧 | 🚧 | 🚧 |
+| `TimestampTz` | ✅ `OffsetDateTime` | ✅ `OffsetDateTime` | ✅ `time::OffsetDateTime` | 🚧 | 🚧 | 🚧 |
+| `Interval` | ✅ `String` | ✅ `String` | ✅ `String` | 🚧 | 🚧 | 🚧 |
+| `Uuid` | ✅ `UUID` | ✅ `UUID` | ✅ `uuid::Uuid` | 🚧 | 🚧 | 🚧 |
+| `Json`/`Jsonb` | ✅ `String` | ✅ `String` | ✅ `serde_json::Value` | 🚧 | 🚧 | 🚧 |
+| `Array(T)` | ✅ `List<T>` | ✅ `List<T>` | ✅ `Vec<T>` | 🚧 | 🚧 | 🚧 |
+| `Custom` | ✅ `Object` | ✅ `Any` | ✅ `serde_json::Value` | 🚧 | 🚧 | 🚧 |
 
 ---
 
@@ -105,7 +116,7 @@ Legend: ✅ done · ⚠️ bug/incomplete · 🚧 stub · ❌ not started
 
 | | Java | Kotlin | Rust | Go | Python | TypeScript |
 |---|---|---|---|---|---|---|
-| Current target | JDBC | JDBC | — | — | — | — |
+| Current target | JDBC | JDBC | sqlx | — | — | — |
 | Planned target | JDBC | JDBC | sqlx | database/sql | psycopg3 | postgres.js |
 
 ---
@@ -114,4 +125,31 @@ Legend: ✅ done · ⚠️ bug/incomplete · 🚧 stub · ❌ not started
 
 | | Java | Kotlin | Rust | Go | Python | TypeScript |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|
-| Example project | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Example project | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| PostgreSQL (real DB) | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| SQLite (in-memory) | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| Makefile (`make run`) | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
+
+---
+
+## Test suite
+
+| Area | Tests |
+|---|---|
+| Config parsing | 1 |
+| PostgreSQL typemap | 12 |
+| PostgreSQL DDL schema | 22 |
+| PostgreSQL query parser (SELECT, INSERT, UPDATE, DELETE) | 28 |
+| PostgreSQL RETURNING | 6 |
+| SQLite DDL schema | 10 |
+| CTE | 4 |
+| Derived tables / subqueries | 8 |
+| **Total** | **85 (all passing)** |
+
+---
+
+## Open-source launch
+
+See `PLAN.md` → Roadmap section, and `memory/roadmap.md` for full distribution plan.
+
+Pending: license choice, docs (mdBook), CI/CD (cargo-dist), distribution channels.

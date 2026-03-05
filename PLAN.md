@@ -62,11 +62,12 @@ SQL files
 |---|---|---|
 | `DialectParser` trait | ✅ | `parse_schema`, `parse_queries` |
 | **PostgreSQL** | | |
-| `typemap.rs` — `DataType` → `SqlType` | ✅ | Matches sqlparser AST variants directly; 13 unit tests |
-| `schema.rs` — DDL parser → `Schema` | ✅ | sqlparser-rs AST; 19 unit tests |
-| `query.rs` — annotated query file parser | ✅ | SELECT/INSERT/UPDATE/DELETE + JOINs + subqueries + derived tables; 34 unit tests |
-| `query.rs` — CTE (`WITH`) support | ❌ | Planned next — see Remaining work |
-| **SQLite** | ❌ | Not started |
+| `typemap.rs` — `DataType` → `SqlType` | ✅ | Matches sqlparser AST variants directly; 12 unit tests |
+| `schema.rs` — DDL parser → `Schema` | ✅ | sqlparser-rs AST; 22 unit tests |
+| `query.rs` — annotated query file parser | ✅ | SELECT/INSERT/UPDATE/DELETE + JOINs + subqueries + derived tables + CTEs + RETURNING; 34+ unit tests |
+| `query.rs` — CTE (`WITH`) support | ✅ | Chained CTEs, CTEs joined with schema tables |
+| `query.rs` — RETURNING on INSERT/UPDATE/DELETE | ✅ | Resolves column types from table schema |
+| **SQLite** | ✅ | Full DialectParser impl; schema + query parsing; ?N parameters |
 
 ## Backend layer (`src/backend/`)
 
@@ -91,26 +92,32 @@ SQL files
 
 ### High priority
 
-1. **CTE support** (`WITH` clauses) — reuse `cols_from_subquery` (same pattern as derived
-   tables); build a synthetic table per CTE and add it to scope before resolving the outer
-   `SELECT`. Four tests: basic, param in inner/outer, chained CTEs, CTE joined with schema table.
-
-2. **Go backend** — generate structs + `database/sql` functions
+1. **Go backend** — generate structs + `database/sql` functions
+2. **Multiple query files** — allow `queries` to be a list of paths (currently single file only)
 
 ### Medium priority
 
 1. **`UNION` / `INTERSECT` result columns** — resolve from left branch of `SetExpr::SetOperation`
 2. **`CAST(x AS type)` result type** — call `typemap::map()` on the cast's `DataType`
 3. **`HAVING` params** — same `collect_params_from_expr` walk on `select.having`
-4. **Python backend** — generate dataclasses + `psycopg2` / `asyncpg` functions
-5. **TypeScript backend** — generate interfaces + `pg` / `postgres.js` functions
+4. **Python backend** — generate dataclasses + `psycopg3` functions
+5. **TypeScript backend** — generate interfaces + `postgres.js` functions
 6. **Better error messages** — surface parse errors with line numbers
-7. **Glob patterns** for `schema` and `queries` config fields (currently single file only)
+7. **Glob patterns** for `schema` and `queries` config fields
 
 ### Low priority / future
 
-1. **SQLite frontend** — `DialectParser` impl for SQLite DDL
-2. **C / C++ / C# backends** — stubs to add later
-3. **Multiple query files** — allow `queries` to be a list of paths
-4. **Schema-qualified tables** — handle `schema.table` references in queries
-5. **`sqltgen init`** subcommand — scaffold a starter `sqltgen.json`
+1. **C / C++ / C# backends** — stubs to add later
+2. **Schema-qualified tables** — handle `schema.table` references in queries
+3. **`sqltgen init`** subcommand — scaffold a starter `sqltgen.json`
+
+---
+
+## Open-source launch
+
+See `memory/roadmap.md` for the full distribution plan. Summary:
+
+- Phase 1: License (Apache-2.0 + MIT dual), CHANGELOG, CONTRIBUTING, README
+- Phase 2: CI/CD via cargo-dist (ci.yml, release.yml, docs.yml)
+- Phase 3: mdBook documentation at sqltgen.org
+- Phase 4: Distribution — crates.io, Homebrew, AUR, Scoop, .deb, .rpm
