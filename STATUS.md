@@ -65,11 +65,11 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 
 | Feature | Java | Kotlin | Rust | Go | Python | TypeScript |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|
-| Row model generated | ✅ record | ✅ data class | ✅ `#[derive(FromRow)]` struct | 🚧 | 🚧 | 🚧 |
-| One file per table | ✅ | ✅ | ✅ | 🚧 | 🚧 | 🚧 |
-| Nullable fields | ✅ | ✅ | ✅ `Option<T>` | 🚧 | 🚧 | 🚧 |
-| Array fields | ✅ `List<T>` | ✅ `List<T>` | ✅ `Vec<T>` | 🚧 | 🚧 | 🚧 |
-| Package / namespace / module | ✅ | ✅ | ✅ `mod.rs` generated | 🚧 | 🚧 | 🚧 |
+| Row model generated | ✅ record | ✅ data class | ✅ `#[derive(FromRow)]` struct | 🚧 | ✅ `@dataclass` | 🚧 |
+| One file per table | ✅ | ✅ | ✅ | 🚧 | ✅ | 🚧 |
+| Nullable fields | ✅ | ✅ | ✅ `Option<T>` | 🚧 | ✅ `T \| None` | 🚧 |
+| Array fields | ✅ `List<T>` | ✅ `List<T>` | ✅ `Vec<T>` | 🚧 | ✅ `list[T]` | 🚧 |
+| Package / namespace / module | ✅ | ✅ | ✅ `mod.rs` generated | 🚧 | ✅ `__init__.py` generated | 🚧 |
 
 ---
 
@@ -77,15 +77,15 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 
 | Feature | Java | Kotlin | Rust | Go | Python | TypeScript |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|
-| `:one` | ✅ `Optional<T>` | ✅ `T?` | ✅ `Option<T>` | 🚧 | 🚧 | 🚧 |
-| `:many` | ✅ `List<T>` | ✅ `List<T>` | ✅ `Vec<T>` | 🚧 | 🚧 | 🚧 |
-| `:exec` | ✅ `void` | ✅ `Unit` | ✅ `()` | 🚧 | 🚧 | 🚧 |
-| `:execrows` | ✅ `long` | ✅ `Long` | ✅ `u64` | 🚧 | 🚧 | 🚧 |
-| `$N` / `?N` → `?` placeholder rewrite | ✅ | ✅ | ✅ | 🚧 | 🚧 | 🚧 |
-| Table row-type inference | ✅ | ✅ | ✅ | 🚧 | 🚧 | 🚧 |
-| Join / CTE / RETURNING row type | ✅ `{Query}Row` record | ✅ `{Query}Row` data class | ✅ `{Query}Row` struct | 🚧 | 🚧 | 🚧 |
-| Nullable params use `setObject` | ✅ | ✅ | — | 🚧 | 🚧 | 🚧 |
-| Typed result getters (Date, UUID…) | ✅ `getObject(n, T.class)` | ✅ `getObject(n, T::class.java)` | ✅ | 🚧 | 🚧 | 🚧 |
+| `:one` | ✅ `Optional<T>` | ✅ `T?` | ✅ `Option<T>` | 🚧 | ✅ `T \| None` | 🚧 |
+| `:many` | ✅ `List<T>` | ✅ `List<T>` | ✅ `Vec<T>` | 🚧 | ✅ `list[T]` | 🚧 |
+| `:exec` | ✅ `void` | ✅ `Unit` | ✅ `()` | 🚧 | ✅ `None` | 🚧 |
+| `:execrows` | ✅ `long` | ✅ `Long` | ✅ `u64` | 🚧 | ✅ `int` | 🚧 |
+| `$N` / `?N` → `?` placeholder rewrite | ✅ | ✅ | ✅ | 🚧 | ✅ `→ %s` | 🚧 |
+| Table row-type inference | ✅ | ✅ | ✅ | 🚧 | ✅ | 🚧 |
+| Join / CTE / RETURNING row type | ✅ `{Query}Row` record | ✅ `{Query}Row` data class | ✅ `{Query}Row` struct | 🚧 | ✅ `{Query}Row` dataclass | 🚧 |
+| Nullable params use `setObject` | ✅ | ✅ | — | 🚧 | — | 🚧 |
+| Typed result getters (Date, UUID…) | ✅ `getObject(n, T.class)` | ✅ `getObject(n, T::class.java)` | ✅ | 🚧 | — positional unpacking | 🚧 |
 
 ---
 
@@ -93,24 +93,24 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 
 | `SqlType` | Java | Kotlin | Rust | Go | Python | TypeScript |
 |---|---|---|---|---|---|---|
-| `Boolean` | ✅ `boolean`/`Boolean` | ✅ `Boolean` | ✅ `bool` | 🚧 | 🚧 | 🚧 |
-| `SmallInt` | ✅ `short`/`Short` | ✅ `Short` | ✅ `i16` | 🚧 | 🚧 | 🚧 |
-| `Integer` | ✅ `int`/`Integer` | ✅ `Int` | ✅ `i32` | 🚧 | 🚧 | 🚧 |
-| `BigInt` | ✅ `long`/`Long` | ✅ `Long` | ✅ `i64` | 🚧 | 🚧 | 🚧 |
-| `Real` | ✅ `float`/`Float` | ✅ `Float` | ✅ `f32` | 🚧 | 🚧 | 🚧 |
-| `Double` | ✅ `double`/`Double` | ✅ `Double` | ✅ `f64` | 🚧 | 🚧 | 🚧 |
-| `Decimal` | ✅ `BigDecimal` | ✅ `BigDecimal` | ✅ `f64` | 🚧 | 🚧 | 🚧 |
-| `Text`/`Char`/`VarChar` | ✅ `String` | ✅ `String` | ✅ `String` | 🚧 | 🚧 | 🚧 |
-| `Bytes` | ✅ `byte[]` | ✅ `ByteArray` | ✅ `Vec<u8>` | 🚧 | 🚧 | 🚧 |
-| `Date` | ✅ `LocalDate` | ✅ `LocalDate` | ✅ `time::Date` | 🚧 | 🚧 | 🚧 |
-| `Time` | ✅ `LocalTime` | ✅ `LocalTime` | ✅ `time::Time` | 🚧 | 🚧 | 🚧 |
-| `Timestamp` | ✅ `LocalDateTime` | ✅ `LocalDateTime` | ✅ `time::PrimitiveDateTime` | 🚧 | 🚧 | 🚧 |
-| `TimestampTz` | ✅ `OffsetDateTime` | ✅ `OffsetDateTime` | ✅ `time::OffsetDateTime` | 🚧 | 🚧 | 🚧 |
-| `Interval` | ✅ `String` | ✅ `String` | ✅ `String` | 🚧 | 🚧 | 🚧 |
-| `Uuid` | ✅ `UUID` | ✅ `UUID` | ✅ `uuid::Uuid` | 🚧 | 🚧 | 🚧 |
-| `Json`/`Jsonb` | ✅ `String` | ✅ `String` | ✅ `serde_json::Value` | 🚧 | 🚧 | 🚧 |
-| `Array(T)` | ✅ `List<T>` | ✅ `List<T>` | ✅ `Vec<T>` | 🚧 | 🚧 | 🚧 |
-| `Custom` | ✅ `Object` | ✅ `Any` | ✅ `serde_json::Value` | 🚧 | 🚧 | 🚧 |
+| `Boolean` | ✅ `boolean`/`Boolean` | ✅ `Boolean` | ✅ `bool` | 🚧 | ✅ `bool` | 🚧 |
+| `SmallInt` | ✅ `short`/`Short` | ✅ `Short` | ✅ `i16` | 🚧 | ✅ `int` | 🚧 |
+| `Integer` | ✅ `int`/`Integer` | ✅ `Int` | ✅ `i32` | 🚧 | ✅ `int` | 🚧 |
+| `BigInt` | ✅ `long`/`Long` | ✅ `Long` | ✅ `i64` | 🚧 | ✅ `int` | 🚧 |
+| `Real` | ✅ `float`/`Float` | ✅ `Float` | ✅ `f32` | 🚧 | ✅ `float` | 🚧 |
+| `Double` | ✅ `double`/`Double` | ✅ `Double` | ✅ `f64` | 🚧 | ✅ `float` | 🚧 |
+| `Decimal` | ✅ `BigDecimal` | ✅ `BigDecimal` | ✅ `f64` | 🚧 | ✅ `decimal.Decimal` | 🚧 |
+| `Text`/`Char`/`VarChar` | ✅ `String` | ✅ `String` | ✅ `String` | 🚧 | ✅ `str` | 🚧 |
+| `Bytes` | ✅ `byte[]` | ✅ `ByteArray` | ✅ `Vec<u8>` | 🚧 | ✅ `bytes` | 🚧 |
+| `Date` | ✅ `LocalDate` | ✅ `LocalDate` | ✅ `time::Date` | 🚧 | ✅ `datetime.date` | 🚧 |
+| `Time` | ✅ `LocalTime` | ✅ `LocalTime` | ✅ `time::Time` | 🚧 | ✅ `datetime.time` | 🚧 |
+| `Timestamp` | ✅ `LocalDateTime` | ✅ `LocalDateTime` | ✅ `time::PrimitiveDateTime` | 🚧 | ✅ `datetime.datetime` | 🚧 |
+| `TimestampTz` | ✅ `OffsetDateTime` | ✅ `OffsetDateTime` | ✅ `time::OffsetDateTime` | 🚧 | ✅ `datetime.datetime` | 🚧 |
+| `Interval` | ✅ `String` | ✅ `String` | ✅ `String` | 🚧 | ✅ `datetime.timedelta` | 🚧 |
+| `Uuid` | ✅ `UUID` | ✅ `UUID` | ✅ `uuid::Uuid` | 🚧 | ✅ `uuid.UUID` | 🚧 |
+| `Json`/`Jsonb` | ✅ `String` | ✅ `String` | ✅ `serde_json::Value` | 🚧 | ✅ `Any` | 🚧 |
+| `Array(T)` | ✅ `List<T>` | ✅ `List<T>` | ✅ `Vec<T>` | 🚧 | ✅ `list[T]` | 🚧 |
+| `Custom` | ✅ `Object` | ✅ `Any` | ✅ `serde_json::Value` | 🚧 | ✅ `Any` | 🚧 |
 
 ---
 
@@ -118,7 +118,7 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 
 | | Java | Kotlin | Rust | Go | Python | TypeScript |
 |---|---|---|---|---|---|---|
-| Current target | JDBC | JDBC | sqlx | — | — | — |
+| Current target | JDBC | JDBC | sqlx | — | psycopg3 (psycopg) | — |
 | Planned target | JDBC | JDBC | sqlx | database/sql | psycopg3 | postgres.js |
 
 ---
