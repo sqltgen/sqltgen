@@ -35,8 +35,16 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | Type: unknown → `Custom` | ✅ | ✅ | ✅ |
 | Query: `-- name: X :cmd` annotation | ✅ | ✅ | ✅ |
 | Query: `:one` / `:many` / `:exec` / `:execrows` | ✅ | ✅ | ✅ |
+| Query: `:execresult` (return driver result object) | ❌ | ❌ | ❌ |
+| Query: `:execlastid` (return last insert ID) | ❌ | ❌ | ❌ |
+| Query: `:batchexec` / `:batchmany` / `:batchone` (batch ops) | ❌ | — | — |
+| Query: `:copyfrom` (bulk insert) | ❌ | — | — |
 | Query: `$N` parameter inference | ✅ | — | ✅ (via GenericDialect; bare `?` planned) |
 | Query: `?N` parameter inference | — | ✅ | — |
+| Query: named parameters (`@name` / inline macro) | ❌ | ❌ | ❌ |
+| Query: nullable named parameters (inline macro) | ❌ | ❌ | ❌ |
+| Query: result struct embedding (inline macro) | ❌ | ❌ | ❌ |
+| Query: dynamic IN clause expansion (inline macro) | ❌ | ❌ | ❌ |
 | Query: result column inference | ✅ | ✅ | ✅ |
 | `RETURNING` on INSERT | ✅ | — | — |
 | `RETURNING` on UPDATE | ✅ | — | — |
@@ -57,9 +65,12 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | Scalar subqueries in SELECT list | ✅ | ✅ | ✅ |
 | CTE (`WITH` … `SELECT`) | ✅ chained, joined with schema tables | ✅ | ✅ |
 | Multiple query files | ❌ | ❌ | ❌ |
+| Glob patterns for `schema` / `queries` paths | ❌ | ❌ | ❌ |
 | `UNION` / `INTERSECT` result columns | ❌ | ❌ | ❌ |
 | `CAST(x AS type)` result type | ❌ | ❌ | ❌ |
 | `HAVING` parameters | ❌ | ❌ | ❌ |
+| Schema-qualified table refs (`schema.table`) | ❌ | ❌ | ❌ |
+| `CREATE TYPE … AS ENUM` | ❌ | — | — |
 
 ---
 
@@ -72,6 +83,9 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | Nullable fields | ✅ | ✅ | ✅ `Option<T>` | 🚧 | ✅ `T \| None` | 🚧 |
 | Array fields | ✅ `List<T>` | ✅ `List<T>` | ✅ `Vec<T>` | 🚧 | ✅ `list[T]` | 🚧 |
 | Package / namespace / module | ✅ | ✅ | ✅ `mod.rs` generated | 🚧 | ✅ `__init__.py` generated | 🚧 |
+| Enum types (aliased string / sealed class) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| JSON serialization tags / annotations | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Struct embedding (nested row types) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 
 ---
 
@@ -83,11 +97,18 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | `:many` | ✅ `List<T>` | ✅ `List<T>` | ✅ `Vec<T>` | 🚧 | ✅ `list[T]` | 🚧 |
 | `:exec` | ✅ `void` | ✅ `Unit` | ✅ `()` | 🚧 | ✅ `None` | 🚧 |
 | `:execrows` | ✅ `long` | ✅ `Long` | ✅ `u64` | 🚧 | ✅ `int` | 🚧 |
+| `:execresult` (driver result object) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| `:execlastid` (last insert ID) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| `:batchexec` / `:batchmany` / `:batchone` | — | — | ❌ | ❌ | — | — |
+| `:copyfrom` (bulk insert) | ❌ | — | ❌ | ❌ | ❌ | — |
 | `$N` / `?N` → `?` placeholder rewrite | ✅ | ✅ | ✅ | 🚧 | ✅ `→ %s` | 🚧 |
+| Named params struct (`{Query}Params`) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Table row-type inference | ✅ | ✅ | ✅ | 🚧 | ✅ | 🚧 |
 | Join / CTE / RETURNING row type | ✅ `{Query}Row` record | ✅ `{Query}Row` data class | ✅ `{Query}Row` struct | 🚧 | ✅ `{Query}Row` dataclass | 🚧 |
 | Nullable params use `setObject` | ✅ | ✅ | — | 🚧 | — | 🚧 |
 | Typed result getters (Date, UUID…) | ✅ `getObject(n, T.class)` | ✅ `getObject(n, T::class.java)` | ✅ | 🚧 | — positional unpacking | 🚧 |
+| Transaction support (`with_tx`) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Querier interface / protocol / ABC | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 
 ---
 
@@ -113,6 +134,27 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | `Json`/`Jsonb` | ✅ `String` | ✅ `String` | ✅ `serde_json::Value` | 🚧 | ✅ `Any` | 🚧 |
 | `Array(T)` | ✅ `List<T>` | ✅ `List<T>` | ✅ `Vec<T>` | 🚧 | ✅ `list[T]` | 🚧 |
 | `Custom` | ✅ `Object` | ✅ `Any` | ✅ `serde_json::Value` | 🚧 | ✅ `Any` | 🚧 |
+| `Enum(name)` (aliased string / sealed class) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+
+---
+
+## Config features
+
+| Feature | Status | Notes |
+|---|:---:|---|
+| `engine` / `schema` / `queries` / `gen` | ✅ | Core config |
+| Schema from directory of migration files | ✅ | Loaded in lex order |
+| Multiple query files (list of paths) | ❌ | Currently single file only |
+| Glob patterns for `schema` / `queries` | ❌ | |
+| Type overrides (map DB type / column → custom type) | ❌ | Per-language override map in config |
+| Field / struct renaming | ❌ | `rename: { col: "FieldName" }` map in config |
+| Emit JSON tags / annotations on generated types | ❌ | |
+| Emit prepared query variants | ❌ | |
+| Emit querier interface | ❌ | |
+| Configurable strictness (warn vs. error) | ❌ | Per-project error level |
+| `query_parameter_limit` (params struct threshold) | ❌ | Emit params struct when > N params |
+| `emit_exact_table_names` (skip singularization) | ❌ | |
+| `sqltgen init` subcommand | ❌ | Scaffold a starter config |
 
 ---
 
