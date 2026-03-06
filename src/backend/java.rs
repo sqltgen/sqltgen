@@ -253,18 +253,279 @@ fn rs_read_expr(sql_type: &SqlType, idx: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ir::SqlType;
+    use crate::config::OutputConfig;
+    use crate::ir::{Column, Parameter, Query, QueryCmd, ResultColumn, Schema, SqlType, Table};
+
+    fn cfg() -> OutputConfig {
+        OutputConfig { out: "out".to_string(), package: String::new() }
+    }
+
+    fn cfg_pkg() -> OutputConfig {
+        OutputConfig { out: "out".to_string(), package: "com.example.db".to_string() }
+    }
+
+    fn get_file<'a>(files: &'a [GeneratedFile], name: &str) -> &'a str {
+        files.iter()
+            .find(|f| f.path.file_name().is_some_and(|n| n == name))
+            .unwrap_or_else(|| panic!("file {name:?} not found"))
+            .content.as_str()
+    }
+
+    fn user_table() -> Table {
+        Table {
+            name: "user".to_string(),
+            columns: vec![
+                Column { name: "id".to_string(),   sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
+                Column { name: "name".to_string(), sql_type: SqlType::Text,   nullable: false, is_primary_key: false },
+                Column { name: "bio".to_string(),  sql_type: SqlType::Text,   nullable: true,  is_primary_key: false },
+            ],
+        }
+    }
+
+    // ─── java_type ─────────────────────────────────────────────────────────
 
     #[test]
-    fn nullable_array_emits_nullable_annotation() {
-        let ty = java_type(&SqlType::Array(Box::new(SqlType::Text)), true);
-        assert_eq!(ty, "@Nullable java.util.List<String>");
+    fn test_java_type_boolean_non_nullable() {
+        assert_eq!(java_type(&SqlType::Boolean, false), "boolean");
     }
 
     #[test]
-    fn non_nullable_array_has_no_annotation() {
-        let ty = java_type(&SqlType::Array(Box::new(SqlType::Text)), false);
-        assert_eq!(ty, "java.util.List<String>");
+    fn test_java_type_boolean_nullable() {
+        assert_eq!(java_type(&SqlType::Boolean, true), "Boolean");
+    }
+
+    #[test]
+    fn test_java_type_integer_non_nullable() {
+        assert_eq!(java_type(&SqlType::Integer, false), "int");
+    }
+
+    #[test]
+    fn test_java_type_integer_nullable() {
+        assert_eq!(java_type(&SqlType::Integer, true), "Integer");
+    }
+
+    #[test]
+    fn test_java_type_bigint_non_nullable() {
+        assert_eq!(java_type(&SqlType::BigInt, false), "long");
+    }
+
+    #[test]
+    fn test_java_type_bigint_nullable() {
+        assert_eq!(java_type(&SqlType::BigInt, true), "Long");
+    }
+
+    #[test]
+    fn test_java_type_text_ignores_nullability() {
+        // String is a reference type — same in both cases
+        assert_eq!(java_type(&SqlType::Text, false), "String");
+        assert_eq!(java_type(&SqlType::Text, true), "String");
+    }
+
+    #[test]
+    fn test_java_type_decimal() {
+        assert_eq!(java_type(&SqlType::Decimal, false), "java.math.BigDecimal");
+    }
+
+    #[test]
+    fn test_java_type_temporal() {
+        assert_eq!(java_type(&SqlType::Date, false),        "java.time.LocalDate");
+        assert_eq!(java_type(&SqlType::Time, false),        "java.time.LocalTime");
+        assert_eq!(java_type(&SqlType::Timestamp, false),   "java.time.LocalDateTime");
+        assert_eq!(java_type(&SqlType::TimestampTz, false), "java.time.OffsetDateTime");
+    }
+
+    #[test]
+    fn test_java_type_uuid() {
+        assert_eq!(java_type(&SqlType::Uuid, false), "java.util.UUID");
+    }
+
+    #[test]
+    fn test_java_type_json() {
+        assert_eq!(java_type(&SqlType::Json, false),  "String");
+        assert_eq!(java_type(&SqlType::Jsonb, false), "String");
+    }
+
+    #[test]
+    fn test_java_type_array_non_nullable() {
+        assert_eq!(java_type(&SqlType::Array(Box::new(SqlType::Text)), false), "java.util.List<String>");
+    }
+
+    #[test]
+    fn test_java_type_array_nullable() {
+        assert_eq!(java_type(&SqlType::Array(Box::new(SqlType::Text)), true), "@Nullable java.util.List<String>");
+    }
+
+    #[test]
+    fn test_java_type_array_of_integers_uses_boxed_type() {
+        // Array elements must be boxed — List<int> is invalid Java
+        assert_eq!(java_type(&SqlType::Array(Box::new(SqlType::Integer)), false), "java.util.List<Integer>");
+    }
+
+    #[test]
+    fn test_java_type_custom() {
+        assert_eq!(java_type(&SqlType::Custom("citext".to_string()), false), "Object");
+    }
+
+    // ─── generate: table record ─────────────────────────────────────────────
+
+    #[test]
+    fn test_generate_table_record() {
+        let schema = Schema { tables: vec![user_table()] };
+        let files = JavaCodegen.generate(&schema, &[], &cfg()).unwrap();
+        let src = get_file(&files, "User.java");
+        assert!(src.contains("public record User("));
+        assert!(src.contains("long id"));
+        assert!(src.contains("String name"));
+        assert!(src.contains("String bio"));
+    }
+
+    #[test]
+    fn test_generate_package_declaration() {
+        let schema = Schema { tables: vec![user_table()] };
+        let files = JavaCodegen.generate(&schema, &[], &cfg_pkg()).unwrap();
+        let src = get_file(&files, "User.java");
+        assert!(src.contains("package com.example.db;"));
+    }
+
+    #[test]
+    fn test_generate_no_queries_produces_no_queries_file() {
+        let schema = Schema { tables: vec![user_table()] };
+        let files = JavaCodegen.generate(&schema, &[], &cfg()).unwrap();
+        assert_eq!(files.len(), 1);
+    }
+
+    // ─── generate: query commands ───────────────────────────────────────────
+
+    #[test]
+    fn test_generate_exec_query() {
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "DeleteUser".to_string(),
+            cmd: QueryCmd::Exec,
+            sql: "DELETE FROM user WHERE id = $1".to_string(),
+            params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            result_columns: vec![],
+        };
+        let files = JavaCodegen.generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "Queries.java");
+        assert!(src.contains("public static void deleteUser(Connection conn, long id)"));
+        assert!(src.contains("ps.executeUpdate();"));
+    }
+
+    #[test]
+    fn test_generate_execrows_query() {
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "DeleteUsers".to_string(),
+            cmd: QueryCmd::ExecRows,
+            sql: "DELETE FROM user WHERE active = $1".to_string(),
+            params: vec![Parameter { index: 1, name: "active".to_string(), sql_type: SqlType::Boolean, nullable: false }],
+            result_columns: vec![],
+        };
+        let files = JavaCodegen.generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "Queries.java");
+        assert!(src.contains("public static long deleteUsers("));
+        assert!(src.contains("return ps.executeUpdate();"));
+    }
+
+    #[test]
+    fn test_generate_one_query_infers_table_return_type() {
+        let schema = Schema { tables: vec![user_table()] };
+        let query = Query {
+            name: "GetUser".to_string(),
+            cmd: QueryCmd::One,
+            sql: "SELECT id, name, bio FROM user WHERE id = $1".to_string(),
+            params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            result_columns: vec![
+                ResultColumn { name: "id".to_string(),   sql_type: SqlType::BigInt, nullable: false },
+                ResultColumn { name: "name".to_string(), sql_type: SqlType::Text,   nullable: false },
+                ResultColumn { name: "bio".to_string(),  sql_type: SqlType::Text,   nullable: true },
+            ],
+        };
+        let files = JavaCodegen.generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "Queries.java");
+        assert!(src.contains("public static Optional<User> getUser("));
+        assert!(src.contains("if (!rs.next()) return Optional.empty();"));
+        assert!(src.contains("return Optional.of(new User("));
+    }
+
+    #[test]
+    fn test_generate_many_query_infers_table_return_type() {
+        let schema = Schema { tables: vec![user_table()] };
+        let query = Query {
+            name: "ListUsers".to_string(),
+            cmd: QueryCmd::Many,
+            sql: "SELECT id, name, bio FROM user".to_string(),
+            params: vec![],
+            result_columns: vec![
+                ResultColumn { name: "id".to_string(),   sql_type: SqlType::BigInt, nullable: false },
+                ResultColumn { name: "name".to_string(), sql_type: SqlType::Text,   nullable: false },
+                ResultColumn { name: "bio".to_string(),  sql_type: SqlType::Text,   nullable: true },
+            ],
+        };
+        let files = JavaCodegen.generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "Queries.java");
+        assert!(src.contains("public static List<User> listUsers(Connection conn)"));
+        assert!(src.contains("while (rs.next()) rows.add(new User("));
+        assert!(src.contains("return rows;"));
+    }
+
+    // ─── generate: SQL constant name ────────────────────────────────────────
+
+    #[test]
+    fn test_generate_sql_const_name_is_screaming_snake_case() {
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "GetUserById".to_string(),
+            cmd: QueryCmd::Exec,
+            sql: "DELETE FROM user WHERE id = $1".to_string(),
+            params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            result_columns: vec![],
+        };
+        let files = JavaCodegen.generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "Queries.java");
+        assert!(src.contains("SQL_GET_USER_BY_ID"));
+    }
+
+    // ─── generate: inline row record ────────────────────────────────────────
+
+    #[test]
+    fn test_generate_inline_row_record_for_partial_result() {
+        let schema = Schema { tables: vec![user_table()] };
+        let query = Query {
+            name: "GetUserName".to_string(),
+            cmd: QueryCmd::One,
+            sql: "SELECT name FROM user WHERE id = $1".to_string(),
+            params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            result_columns: vec![
+                ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
+            ],
+        };
+        let files = JavaCodegen.generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "Queries.java");
+        assert!(src.contains("public record GetUserNameRow("));
+        assert!(src.contains("Optional<GetUserNameRow>"));
+    }
+
+    // ─── generate: parameter binding ────────────────────────────────────────
+
+    #[test]
+    fn test_generate_nullable_param_uses_set_object() {
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "UpdateBio".to_string(),
+            cmd: QueryCmd::Exec,
+            sql: "UPDATE user SET bio = $1 WHERE id = $2".to_string(),
+            params: vec![
+                Parameter { index: 1, name: "bio".to_string(), sql_type: SqlType::Text,   nullable: true },
+                Parameter { index: 2, name: "id".to_string(),  sql_type: SqlType::BigInt, nullable: false },
+            ],
+            result_columns: vec![],
+        };
+        let files = JavaCodegen.generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "Queries.java");
+        assert!(src.contains("ps.setObject(1, bio)"));   // nullable → setObject
+        assert!(src.contains("ps.setLong(2, id)"));      // non-nullable → typed setter
     }
 }
 

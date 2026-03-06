@@ -257,3 +257,215 @@ fn rust_type(sql_type: &SqlType, nullable: bool, target: &RustTarget) -> String 
     if nullable { format!("Option<{base}>") } else { base }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::OutputConfig;
+    use crate::ir::{Column, Parameter, Query, QueryCmd, ResultColumn, Schema, SqlType, Table};
+
+    fn cfg() -> OutputConfig {
+        OutputConfig { out: "out".to_string(), package: String::new() }
+    }
+
+    fn get_file<'a>(files: &'a [GeneratedFile], name: &str) -> &'a str {
+        files.iter()
+            .find(|f| f.path.file_name().is_some_and(|n| n == name))
+            .unwrap_or_else(|| panic!("file {name:?} not found"))
+            .content.as_str()
+    }
+
+    fn pg() -> RustCodegen { RustCodegen { target: RustTarget::Postgres } }
+    fn sqlite() -> RustCodegen { RustCodegen { target: RustTarget::Sqlite } }
+
+    fn user_table() -> Table {
+        Table {
+            name: "user".to_string(),
+            columns: vec![
+                Column { name: "id".to_string(),   sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
+                Column { name: "name".to_string(), sql_type: SqlType::Text,   nullable: false, is_primary_key: false },
+                Column { name: "bio".to_string(),  sql_type: SqlType::Text,   nullable: true,  is_primary_key: false },
+            ],
+        }
+    }
+
+    // ─── generate: struct file ──────────────────────────────────────────────
+
+    #[test]
+    fn test_generate_table_struct() {
+        let schema = Schema { tables: vec![user_table()] };
+        let files = pg().generate(&schema, &[], &cfg()).unwrap();
+        let src = get_file(&files, "user.rs");
+        assert!(src.contains("#[derive(Debug, sqlx::FromRow)]"));
+        assert!(src.contains("pub struct User {"));
+        assert!(src.contains("pub id: i64,"));
+        assert!(src.contains("pub name: String,"));
+        assert!(src.contains("pub bio: Option<String>,"));
+    }
+
+    #[test]
+    fn test_generate_mod_file() {
+        let schema = Schema { tables: vec![user_table()] };
+        let query = Query {
+            name: "GetUser".to_string(),
+            cmd: QueryCmd::One,
+            sql: "SELECT id, name, bio FROM user WHERE id = $1".to_string(),
+            params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            result_columns: vec![
+                ResultColumn { name: "id".to_string(),   sql_type: SqlType::BigInt, nullable: false },
+                ResultColumn { name: "name".to_string(), sql_type: SqlType::Text,   nullable: false },
+                ResultColumn { name: "bio".to_string(),  sql_type: SqlType::Text,   nullable: true },
+            ],
+        };
+        let files = pg().generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "mod.rs");
+        assert!(src.contains("pub mod user;"));
+        assert!(src.contains("pub mod queries;"));
+    }
+
+    // ─── generate: pool type ────────────────────────────────────────────────
+
+    #[test]
+    fn test_generate_postgres_uses_pg_pool() {
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "DeleteUser".to_string(),
+            cmd: QueryCmd::Exec,
+            sql: "DELETE FROM user WHERE id = $1".to_string(),
+            params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            result_columns: vec![],
+        };
+        let files = pg().generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "queries.rs");
+        assert!(src.contains("use sqlx::PgPool;"));
+        assert!(src.contains("pool: &PgPool"));
+    }
+
+    #[test]
+    fn test_generate_sqlite_uses_sqlite_pool() {
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "DeleteUser".to_string(),
+            cmd: QueryCmd::Exec,
+            sql: "DELETE FROM user WHERE id = ?1".to_string(),
+            params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            result_columns: vec![],
+        };
+        let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "queries.rs");
+        assert!(src.contains("use sqlx::SqlitePool;"));
+        assert!(src.contains("pool: &SqlitePool"));
+    }
+
+    // ─── generate: query commands ───────────────────────────────────────────
+
+    #[test]
+    fn test_generate_exec_query() {
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "DeleteUser".to_string(),
+            cmd: QueryCmd::Exec,
+            sql: "DELETE FROM user WHERE id = $1".to_string(),
+            params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            result_columns: vec![],
+        };
+        let files = pg().generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "queries.rs");
+        assert!(src.contains("pub async fn delete_user(pool: &PgPool, id: i64) -> Result<(), sqlx::Error>"));
+        assert!(src.contains(".execute(pool)"));
+        assert!(src.contains(".map(|_| ())"));
+    }
+
+    #[test]
+    fn test_generate_execrows_query() {
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "DeleteUsers".to_string(),
+            cmd: QueryCmd::ExecRows,
+            sql: "DELETE FROM user WHERE active = $1".to_string(),
+            params: vec![Parameter { index: 1, name: "active".to_string(), sql_type: SqlType::Boolean, nullable: false }],
+            result_columns: vec![],
+        };
+        let files = pg().generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "queries.rs");
+        assert!(src.contains("pub async fn delete_users(pool: &PgPool, active: bool) -> Result<u64, sqlx::Error>"));
+        assert!(src.contains(".map(|r| r.rows_affected())"));
+    }
+
+    #[test]
+    fn test_generate_one_query_infers_table_return_type() {
+        let schema = Schema { tables: vec![user_table()] };
+        let query = Query {
+            name: "GetUser".to_string(),
+            cmd: QueryCmd::One,
+            sql: "SELECT id, name, bio FROM user WHERE id = $1".to_string(),
+            params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            result_columns: vec![
+                ResultColumn { name: "id".to_string(),   sql_type: SqlType::BigInt, nullable: false },
+                ResultColumn { name: "name".to_string(), sql_type: SqlType::Text,   nullable: false },
+                ResultColumn { name: "bio".to_string(),  sql_type: SqlType::Text,   nullable: true },
+            ],
+        };
+        let files = pg().generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "queries.rs");
+        assert!(src.contains("pub async fn get_user(pool: &PgPool, id: i64) -> Result<Option<User>, sqlx::Error>"));
+        assert!(src.contains(".fetch_optional(pool)"));
+    }
+
+    #[test]
+    fn test_generate_many_query_infers_table_return_type() {
+        let schema = Schema { tables: vec![user_table()] };
+        let query = Query {
+            name: "ListUsers".to_string(),
+            cmd: QueryCmd::Many,
+            sql: "SELECT id, name, bio FROM user".to_string(),
+            params: vec![],
+            result_columns: vec![
+                ResultColumn { name: "id".to_string(),   sql_type: SqlType::BigInt, nullable: false },
+                ResultColumn { name: "name".to_string(), sql_type: SqlType::Text,   nullable: false },
+                ResultColumn { name: "bio".to_string(),  sql_type: SqlType::Text,   nullable: true },
+            ],
+        };
+        let files = pg().generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "queries.rs");
+        assert!(src.contains("pub async fn list_users(pool: &PgPool) -> Result<Vec<User>, sqlx::Error>"));
+        assert!(src.contains(".fetch_all(pool)"));
+    }
+
+    // ─── generate: inline row struct ────────────────────────────────────────
+
+    #[test]
+    fn test_generate_inline_row_struct_for_partial_result() {
+        let schema = Schema { tables: vec![user_table()] };
+        let query = Query {
+            name: "GetUserName".to_string(),
+            cmd: QueryCmd::One,
+            sql: "SELECT name FROM user WHERE id = $1".to_string(),
+            params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            result_columns: vec![
+                ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
+            ],
+        };
+        let files = pg().generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "queries.rs");
+        assert!(src.contains("pub struct GetUserNameRow {"));
+        assert!(src.contains("Result<Option<GetUserNameRow>, sqlx::Error>"));
+    }
+
+    // ─── generate: SQLite placeholder rewriting ─────────────────────────────
+
+    #[test]
+    fn test_generate_sqlite_rewrites_placeholders() {
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "GetUser".to_string(),
+            cmd: QueryCmd::Exec,
+            sql: "DELETE FROM user WHERE id = ?1".to_string(),
+            params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            result_columns: vec![],
+        };
+        let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "queries.rs");
+        // ?1 should be rewritten to ? for sqlx sqlite
+        assert!(src.contains("\"DELETE FROM user WHERE id = ?\""));
+    }
+}

@@ -413,3 +413,288 @@ fn row_class_name(query_name: &str) -> String {
     format!("{}Row", to_pascal_case(query_name))
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::OutputConfig;
+    use crate::ir::{Column, Parameter, Query, QueryCmd, ResultColumn, Schema, SqlType, Table};
+
+    fn cfg() -> OutputConfig {
+        OutputConfig { out: "out".to_string(), package: String::new() }
+    }
+
+    fn get_file<'a>(files: &'a [GeneratedFile], name: &str) -> &'a str {
+        files.iter()
+            .find(|f| f.path.file_name().is_some_and(|n| n == name))
+            .unwrap_or_else(|| panic!("file {name:?} not found"))
+            .content.as_str()
+    }
+
+    fn pg() -> PythonCodegen { PythonCodegen { target: PythonTarget::Postgres } }
+    fn sq() -> PythonCodegen { PythonCodegen { target: PythonTarget::Sqlite } }
+
+    fn user_table() -> Table {
+        Table {
+            name: "user".to_string(),
+            columns: vec![
+                Column { name: "id".to_string(),   sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
+                Column { name: "name".to_string(), sql_type: SqlType::Text,   nullable: false, is_primary_key: false },
+                Column { name: "bio".to_string(),  sql_type: SqlType::Text,   nullable: true,  is_primary_key: false },
+            ],
+        }
+    }
+
+    // ─── generate: dataclass file ───────────────────────────────────────────
+
+    #[test]
+    fn test_generate_table_dataclass() {
+        let schema = Schema { tables: vec![user_table()] };
+        let files = pg().generate(&schema, &[], &cfg()).unwrap();
+        let src = get_file(&files, "user.py");
+        assert!(src.contains("@dataclasses.dataclass"));
+        assert!(src.contains("class User:"));
+        assert!(src.contains("id: int"));
+        assert!(src.contains("name: str"));
+        assert!(src.contains("bio: str | None"));
+    }
+
+    #[test]
+    fn test_generate_init_file_exports_tables_and_queries() {
+        let schema = Schema { tables: vec![user_table()] };
+        let query = Query {
+            name: "GetUser".to_string(),
+            cmd: QueryCmd::One,
+            sql: "SELECT id, name, bio FROM user WHERE id = $1".to_string(),
+            params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            result_columns: vec![
+                ResultColumn { name: "id".to_string(),   sql_type: SqlType::BigInt, nullable: false },
+                ResultColumn { name: "name".to_string(), sql_type: SqlType::Text,   nullable: false },
+                ResultColumn { name: "bio".to_string(),  sql_type: SqlType::Text,   nullable: true },
+            ],
+        };
+        let files = pg().generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "__init__.py");
+        assert!(src.contains("from .user import User"));
+        assert!(src.contains("from . import queries"));
+    }
+
+    // ─── generate: driver import ────────────────────────────────────────────
+
+    #[test]
+    fn test_generate_postgres_imports_psycopg() {
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "DeleteUser".to_string(),
+            cmd: QueryCmd::Exec,
+            sql: "DELETE FROM user WHERE id = $1".to_string(),
+            params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            result_columns: vec![],
+        };
+        let files = pg().generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "queries.py");
+        assert!(src.contains("import psycopg"));
+        assert!(!src.contains("import sqlite3"));
+    }
+
+    #[test]
+    fn test_generate_sqlite_imports_sqlite3() {
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "DeleteUser".to_string(),
+            cmd: QueryCmd::Exec,
+            sql: "DELETE FROM user WHERE id = ?1".to_string(),
+            params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            result_columns: vec![],
+        };
+        let files = sq().generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "queries.py");
+        assert!(src.contains("import sqlite3"));
+        assert!(!src.contains("import psycopg"));
+    }
+
+    // ─── generate: SQL constant name ────────────────────────────────────────
+
+    #[test]
+    fn test_generate_sql_const_name_is_screaming_snake_case() {
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "GetUserById".to_string(),
+            cmd: QueryCmd::Exec,
+            sql: "DELETE FROM user WHERE id = $1".to_string(),
+            params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            result_columns: vec![],
+        };
+        let files = pg().generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "queries.py");
+        assert!(src.contains("SQL_GET_USER_BY_ID"));
+    }
+
+    // ─── generate: query commands (psycopg) ─────────────────────────────────
+
+    #[test]
+    fn test_generate_psycopg_exec_query() {
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "DeleteUser".to_string(),
+            cmd: QueryCmd::Exec,
+            sql: "DELETE FROM user WHERE id = $1".to_string(),
+            params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            result_columns: vec![],
+        };
+        let files = pg().generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "queries.py");
+        assert!(src.contains("def delete_user(conn: psycopg.Connection, id: int) -> None:"));
+        assert!(src.contains("with conn.cursor() as cur:"));
+        assert!(src.contains("cur.execute(SQL_DELETE_USER, (id,))"));
+    }
+
+    #[test]
+    fn test_generate_psycopg_one_query_infers_table_return_type() {
+        let schema = Schema { tables: vec![user_table()] };
+        let query = Query {
+            name: "GetUser".to_string(),
+            cmd: QueryCmd::One,
+            sql: "SELECT id, name, bio FROM user WHERE id = $1".to_string(),
+            params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            result_columns: vec![
+                ResultColumn { name: "id".to_string(),   sql_type: SqlType::BigInt, nullable: false },
+                ResultColumn { name: "name".to_string(), sql_type: SqlType::Text,   nullable: false },
+                ResultColumn { name: "bio".to_string(),  sql_type: SqlType::Text,   nullable: true },
+            ],
+        };
+        let files = pg().generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "queries.py");
+        assert!(src.contains("def get_user(conn: psycopg.Connection, id: int) -> User | None:"));
+        assert!(src.contains("row = cur.fetchone()"));
+        assert!(src.contains("return User(*row)"));
+    }
+
+    #[test]
+    fn test_generate_psycopg_many_query_infers_table_return_type() {
+        let schema = Schema { tables: vec![user_table()] };
+        let query = Query {
+            name: "ListUsers".to_string(),
+            cmd: QueryCmd::Many,
+            sql: "SELECT id, name, bio FROM user".to_string(),
+            params: vec![],
+            result_columns: vec![
+                ResultColumn { name: "id".to_string(),   sql_type: SqlType::BigInt, nullable: false },
+                ResultColumn { name: "name".to_string(), sql_type: SqlType::Text,   nullable: false },
+                ResultColumn { name: "bio".to_string(),  sql_type: SqlType::Text,   nullable: true },
+            ],
+        };
+        let files = pg().generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "queries.py");
+        assert!(src.contains("def list_users(conn: psycopg.Connection) -> list[User]:"));
+        assert!(src.contains("return [User(*row) for row in cur.fetchall()]"));
+    }
+
+    #[test]
+    fn test_generate_psycopg_execrows_query() {
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "DeleteUsers".to_string(),
+            cmd: QueryCmd::ExecRows,
+            sql: "DELETE FROM user WHERE active = $1".to_string(),
+            params: vec![Parameter { index: 1, name: "active".to_string(), sql_type: SqlType::Boolean, nullable: false }],
+            result_columns: vec![],
+        };
+        let files = pg().generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "queries.py");
+        assert!(src.contains("def delete_users(conn: psycopg.Connection, active: bool) -> int:"));
+        assert!(src.contains("return cur.rowcount"));
+    }
+
+    // ─── generate: query commands (sqlite3) ─────────────────────────────────
+
+    #[test]
+    fn test_generate_sqlite_exec_query_uses_conn_execute() {
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "DeleteUser".to_string(),
+            cmd: QueryCmd::Exec,
+            sql: "DELETE FROM user WHERE id = ?1".to_string(),
+            params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            result_columns: vec![],
+        };
+        let files = sq().generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "queries.py");
+        assert!(src.contains("def delete_user(conn: sqlite3.Connection, id: int) -> None:"));
+        // sqlite3 uses conn.execute() directly — no cursor context manager
+        assert!(src.contains("conn.execute(SQL_DELETE_USER, (id,))"));
+        assert!(!src.contains("with conn.cursor()"));
+    }
+
+    #[test]
+    fn test_generate_sqlite_one_query_infers_table_return_type() {
+        let schema = Schema { tables: vec![user_table()] };
+        let query = Query {
+            name: "GetUser".to_string(),
+            cmd: QueryCmd::One,
+            sql: "SELECT id, name, bio FROM user WHERE id = ?1".to_string(),
+            params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            result_columns: vec![
+                ResultColumn { name: "id".to_string(),   sql_type: SqlType::BigInt, nullable: false },
+                ResultColumn { name: "name".to_string(), sql_type: SqlType::Text,   nullable: false },
+                ResultColumn { name: "bio".to_string(),  sql_type: SqlType::Text,   nullable: true },
+            ],
+        };
+        let files = sq().generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "queries.py");
+        assert!(src.contains("def get_user(conn: sqlite3.Connection, id: int) -> User | None:"));
+        assert!(src.contains("row = conn.execute(SQL_GET_USER, (id,)).fetchone()"));
+        assert!(src.contains("return User(*row)"));
+    }
+
+    // ─── generate: inline row dataclass ─────────────────────────────────────
+
+    #[test]
+    fn test_generate_inline_row_dataclass_for_partial_result() {
+        let schema = Schema { tables: vec![user_table()] };
+        let query = Query {
+            name: "GetUserName".to_string(),
+            cmd: QueryCmd::One,
+            sql: "SELECT name FROM user WHERE id = $1".to_string(),
+            params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            result_columns: vec![
+                ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
+            ],
+        };
+        let files = pg().generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "queries.py");
+        assert!(src.contains("class GetUserNameRow:"));
+        assert!(src.contains("GetUserNameRow | None"));
+    }
+
+    // ─── generate: placeholder rewriting ────────────────────────────────────
+
+    #[test]
+    fn test_generate_postgres_rewrites_placeholders_to_percent_s() {
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "GetUser".to_string(),
+            cmd: QueryCmd::Exec,
+            sql: "DELETE FROM user WHERE id = $1".to_string(),
+            params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            result_columns: vec![],
+        };
+        let files = pg().generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "queries.py");
+        assert!(src.contains("\"DELETE FROM user WHERE id = %s\""));
+    }
+
+    #[test]
+    fn test_generate_sqlite_rewrites_placeholders_to_question_mark() {
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "GetUser".to_string(),
+            cmd: QueryCmd::Exec,
+            sql: "DELETE FROM user WHERE id = ?1".to_string(),
+            params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            result_columns: vec![],
+        };
+        let files = sq().generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "queries.py");
+        assert!(src.contains("\"DELETE FROM user WHERE id = ?\""));
+    }
+}
