@@ -1,6 +1,9 @@
 use std::fmt::Write;
 use std::path::PathBuf;
 
+use crate::backend::common::{
+    emit_package, infer_table, jdbc_sql, sql_const_name, to_camel_case, to_pascal_case,
+};
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::OutputConfig;
 use crate::ir::{Query, QueryCmd, Schema, SqlType};
@@ -20,7 +23,7 @@ impl Codegen for JavaCodegen {
         for table in &schema.tables {
             let class_name = to_pascal_case(&table.name);
             let mut src = String::new();
-            emit_package(&mut src, &config.package);
+            emit_package(&mut src, &config.package, ";");
             writeln!(src, "public record {class_name}(")?;
             let params: Vec<String> = table.columns.iter().map(|col| {
                 let ty = java_type(&col.sql_type, col.nullable);
@@ -36,7 +39,7 @@ impl Codegen for JavaCodegen {
         // One Queries class with static methods
         if !queries.is_empty() {
             let mut src = String::new();
-            emit_package(&mut src, &config.package);
+            emit_package(&mut src, &config.package, ";");
             writeln!(src, "import java.sql.Connection;")?;
             writeln!(src, "import java.sql.PreparedStatement;")?;
             writeln!(src, "import java.sql.ResultSet;")?;
@@ -68,7 +71,7 @@ impl Codegen for JavaCodegen {
 }
 
 fn emit_java_query(src: &mut String, query: &Query, schema: &Schema) -> anyhow::Result<()> {
-    let sql_const = format!("SQL_{}", query.name.to_uppercase());
+    let sql_const = sql_const_name(&query.name);
     let sql = jdbc_sql(&query.sql);
     writeln!(src, "    private static final String {sql_const} =")?;
     writeln!(src, "        \"{};\";", sql.replace('\n', " ").replace('"', "\\\""))?;
@@ -158,18 +161,6 @@ fn emit_row_record(src: &mut String, query: &Query) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn infer_table<'a>(query: &Query, schema: &'a Schema) -> Option<&'a str> {
-    // If result columns exactly match a table's columns
-    for table in &schema.tables {
-        if table.columns.len() == query.result_columns.len()
-            && table.columns.iter().zip(&query.result_columns).all(|(a, b)| a.name == b.name)
-        {
-            return Some(&table.name);
-        }
-    }
-    None
-}
-
 fn emit_row_constructor(query: &Query, schema: &Schema) -> String {
     let class = result_row_type(query, schema);
     let args: Vec<String> = query.result_columns.iter().enumerate().map(|(i, col)| {
@@ -256,54 +247,7 @@ fn rs_read_expr(sql_type: &SqlType, idx: usize) -> String {
     }
 }
 
-// ─── SQL helpers ──────────────────────────────────────────────────────────────
-
-/// Replace PostgreSQL `$N` or SQLite `?N` placeholders with JDBC `?` markers.
-fn jdbc_sql(sql: &str) -> String {
-    let mut out = String::with_capacity(sql.len());
-    let mut chars = sql.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if (ch == '$' || ch == '?') && chars.peek().map_or(false, |c| c.is_ascii_digit()) {
-            out.push('?');
-            while chars.peek().map_or(false, |c| c.is_ascii_digit()) {
-                chars.next();
-            }
-        } else {
-            out.push(ch);
-        }
-    }
-    out
-}
-
-// ─── Name helpers ─────────────────────────────────────────────────────────────
-
-fn to_pascal_case(s: &str) -> String {
-    s.split('_')
-        .map(|w| {
-            let mut c = w.chars();
-            match c.next() {
-                None => String::new(),
-                Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
-            }
-        })
-        .collect()
-}
-
-fn to_camel_case(s: &str) -> String {
-    let pascal = to_pascal_case(s);
-    let mut c = pascal.chars();
-    match c.next() {
-        None => String::new(),
-        Some(f) => f.to_lowercase().collect::<String>() + c.as_str(),
-    }
-}
-
-fn emit_package(src: &mut String, package: &str) {
-    if !package.is_empty() {
-        writeln!(src, "package {package};").unwrap();
-        writeln!(src).unwrap();
-    }
-}
+// ─── Path helper ──────────────────────────────────────────────────────────────
 
 fn record_path(out: &str, package: &str, class_name: &str) -> PathBuf {
     let pkg_path = package.replace('.', "/");

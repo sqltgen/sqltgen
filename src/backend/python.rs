@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 use std::fmt::Write;
 use std::path::PathBuf;
 
+use crate::backend::common::{infer_table, sql_const_name, to_pascal_case, to_snake_case};
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::OutputConfig;
 use crate::ir::{Query, QueryCmd, Schema, SqlType};
@@ -398,21 +399,6 @@ fn rewrite_sql_sqlite(sql: &str) -> String {
 
 // ─── Row helpers ──────────────────────────────────────────────────────────────
 
-fn infer_table<'a>(query: &Query, schema: &'a Schema) -> Option<&'a str> {
-    for table in &schema.tables {
-        if table.columns.len() == query.result_columns.len()
-            && table
-                .columns
-                .iter()
-                .zip(&query.result_columns)
-                .all(|(a, b)| a.name == b.name)
-        {
-            return Some(&table.name);
-        }
-    }
-    None
-}
-
 fn result_row_type(query: &Query, schema: &Schema) -> String {
     if let Some(table_name) = infer_table(query, schema) {
         return to_pascal_case(table_name);
@@ -427,35 +413,3 @@ fn row_class_name(query_name: &str) -> String {
     format!("{}Row", to_pascal_case(query_name))
 }
 
-fn sql_const_name(query_name: &str) -> String {
-    format!("SQL_{}", to_snake_case(query_name).to_uppercase())
-}
-
-// ─── Name helpers ─────────────────────────────────────────────────────────────
-
-fn to_pascal_case(s: &str) -> String {
-    s.split('_')
-        .map(|w| {
-            let mut c = w.chars();
-            match c.next() {
-                None => String::new(),
-                Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
-            }
-        })
-        .collect()
-}
-
-fn to_snake_case(s: &str) -> String {
-    let mut out = String::new();
-    for (i, c) in s.chars().enumerate() {
-        if c.is_uppercase() {
-            if i > 0 {
-                out.push('_');
-            }
-            out.extend(c.to_lowercase());
-        } else {
-            out.push(c);
-        }
-    }
-    out
-}

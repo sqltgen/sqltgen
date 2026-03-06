@@ -1,3 +1,4 @@
+pub mod common;
 pub mod java;
 pub mod kotlin;
 pub mod rust;

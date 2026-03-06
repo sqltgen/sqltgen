@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::fmt::Write;
 use std::path::PathBuf;
 
+use crate::backend::common::{infer_table, to_pascal_case, to_snake_case};
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::OutputConfig;
 use crate::ir::{Query, QueryCmd, Schema, SqlType};
@@ -179,17 +180,6 @@ fn row_struct_name(query_name: &str) -> String {
     format!("{}Row", to_pascal_case(query_name))
 }
 
-fn infer_table<'a>(query: &Query, schema: &'a Schema) -> Option<&'a str> {
-    for table in &schema.tables {
-        if table.columns.len() == query.result_columns.len()
-            && table.columns.iter().zip(&query.result_columns).all(|(a, b)| a.name == b.name)
-        {
-            return Some(&table.name);
-        }
-    }
-    None
-}
-
 // ─── SQL helpers ──────────────────────────────────────────────────────────────
 
 /// Normalize SQL placeholders for the target driver:
@@ -267,32 +257,3 @@ fn rust_type(sql_type: &SqlType, nullable: bool, target: &RustTarget) -> String 
     if nullable { format!("Option<{base}>") } else { base }
 }
 
-// ─── Name helpers ─────────────────────────────────────────────────────────────
-
-fn to_pascal_case(s: &str) -> String {
-    s.split('_')
-        .map(|w| {
-            let mut c = w.chars();
-            match c.next() {
-                None    => String::new(),
-                Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
-            }
-        })
-        .collect()
-}
-
-/// PascalCase / camelCase → snake_case (column names already snake_case are unchanged).
-fn to_snake_case(s: &str) -> String {
-    let mut out = String::new();
-    for (i, c) in s.chars().enumerate() {
-        if c.is_uppercase() {
-            if i > 0 {
-                out.push('_');
-            }
-            out.extend(c.to_lowercase());
-        } else {
-            out.push(c);
-        }
-    }
-    out
-}
