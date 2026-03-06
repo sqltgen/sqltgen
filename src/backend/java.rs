@@ -164,7 +164,7 @@ fn emit_row_record(src: &mut String, query: &Query) -> anyhow::Result<()> {
 fn emit_row_constructor(query: &Query, schema: &Schema) -> String {
     let class = result_row_type(query, schema);
     let args: Vec<String> = query.result_columns.iter().enumerate().map(|(i, col)| {
-        rs_read_expr(&col.sql_type, i + 1)
+        rs_read_expr(&col.sql_type, col.nullable, i + 1)
     }).collect();
     format!("new {class}({})", args.join(", "))
 }
@@ -230,7 +230,21 @@ fn jdbc_setter(sql_type: &SqlType) -> &'static str {
     }
 }
 
-fn rs_read_expr(sql_type: &SqlType, idx: usize) -> String {
+fn rs_read_expr(sql_type: &SqlType, nullable: bool, idx: usize) -> String {
+    // Primitive getters (getInt, getBoolean, …) return 0/false for SQL NULL.
+    // For nullable primitive columns we must use getObject with the boxed type
+    // so that the result can be null, matching the @Nullable field declaration.
+    if nullable {
+        match sql_type {
+            SqlType::Boolean  => return format!("rs.getObject({idx}, Boolean.class)"),
+            SqlType::SmallInt => return format!("rs.getObject({idx}, Short.class)"),
+            SqlType::Integer  => return format!("rs.getObject({idx}, Integer.class)"),
+            SqlType::BigInt   => return format!("rs.getObject({idx}, Long.class)"),
+            SqlType::Real     => return format!("rs.getObject({idx}, Float.class)"),
+            SqlType::Double   => return format!("rs.getObject({idx}, Double.class)"),
+            _ => {} // reference types already return null naturally
+        }
+    }
     match sql_type {
         SqlType::Boolean    => format!("rs.getBoolean({idx})"),
         SqlType::SmallInt   => format!("rs.getShort({idx})"),
@@ -505,6 +519,44 @@ mod tests {
         let src = get_file(&files, "Queries.java");
         assert!(src.contains("public record GetUserNameRow("));
         assert!(src.contains("Optional<GetUserNameRow>"));
+    }
+
+    // ─── generate: nullable result column uses getObject ────────────────────
+
+    #[test]
+    fn test_generate_nullable_integer_result_uses_get_object() {
+        // rs.getInt returns 0 for NULL; nullable Integer columns must use getObject
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "GetCount".to_string(),
+            cmd: QueryCmd::One,
+            sql: "SELECT count FROM stats WHERE id = $1".to_string(),
+            params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            result_columns: vec![
+                ResultColumn { name: "count".to_string(), sql_type: SqlType::Integer, nullable: true },
+            ],
+        };
+        let files = JavaCodegen.generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "Queries.java");
+        assert!(src.contains("rs.getObject(1, Integer.class)"));
+        assert!(!src.contains("rs.getInt(1)"));
+    }
+
+    #[test]
+    fn test_generate_non_nullable_integer_result_uses_get_int() {
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "GetCount".to_string(),
+            cmd: QueryCmd::One,
+            sql: "SELECT count FROM stats WHERE id = $1".to_string(),
+            params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            result_columns: vec![
+                ResultColumn { name: "count".to_string(), sql_type: SqlType::Integer, nullable: false },
+            ],
+        };
+        let files = JavaCodegen.generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "Queries.java");
+        assert!(src.contains("rs.getInt(1)"));
     }
 
     // ─── generate: parameter binding ────────────────────────────────────────

@@ -156,7 +156,7 @@ fn emit_row_class(src: &mut String, query: &Query) -> anyhow::Result<()> {
 fn emit_row_constructor(query: &Query, schema: &Schema) -> String {
     let class = result_row_type(query, schema);
     let args: Vec<String> = query.result_columns.iter().enumerate().map(|(i, col)| {
-        rs_read_expr(&col.sql_type, i + 1)
+        rs_read_expr(&col.sql_type, col.nullable, i + 1)
     }).collect();
     format!("{class}({})", args.join(", "))
 }
@@ -205,7 +205,21 @@ fn jdbc_setter(sql_type: &SqlType) -> &'static str {
     }
 }
 
-fn rs_read_expr(sql_type: &SqlType, idx: usize) -> String {
+fn rs_read_expr(sql_type: &SqlType, nullable: bool, idx: usize) -> String {
+    // Primitive getters return 0/false for SQL NULL. For nullable primitive columns,
+    // use getObject with the Java boxed type so the result can be null,
+    // matching the nullable Kotlin type (e.g. Long? instead of Long).
+    if nullable {
+        match sql_type {
+            SqlType::Boolean  => return format!("rs.getObject({idx}, java.lang.Boolean::class.java)"),
+            SqlType::SmallInt => return format!("rs.getObject({idx}, java.lang.Short::class.java)"),
+            SqlType::Integer  => return format!("rs.getObject({idx}, java.lang.Integer::class.java)"),
+            SqlType::BigInt   => return format!("rs.getObject({idx}, java.lang.Long::class.java)"),
+            SqlType::Real     => return format!("rs.getObject({idx}, java.lang.Float::class.java)"),
+            SqlType::Double   => return format!("rs.getObject({idx}, java.lang.Double::class.java)"),
+            _ => {} // reference types already return null naturally
+        }
+    }
     match sql_type {
         SqlType::Boolean    => format!("rs.getBoolean({idx})"),
         SqlType::SmallInt   => format!("rs.getShort({idx})"),
@@ -487,6 +501,44 @@ mod tests {
         let src = get_file(&files, "Queries.kt");
         assert!(src.contains("data class GetUserNameRow("));
         assert!(src.contains("GetUserNameRow?"));
+    }
+
+    // ─── generate: nullable result column uses getObject ────────────────────
+
+    #[test]
+    fn test_generate_nullable_long_result_uses_get_object() {
+        // rs.getLong returns 0L for NULL; nullable Long? columns must use getObject
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "GetCount".to_string(),
+            cmd: QueryCmd::One,
+            sql: "SELECT count FROM stats WHERE id = $1".to_string(),
+            params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            result_columns: vec![
+                ResultColumn { name: "count".to_string(), sql_type: SqlType::BigInt, nullable: true },
+            ],
+        };
+        let files = KotlinCodegen.generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "Queries.kt");
+        assert!(src.contains("rs.getObject(1, java.lang.Long::class.java)"));
+        assert!(!src.contains("rs.getLong(1)"));
+    }
+
+    #[test]
+    fn test_generate_non_nullable_long_result_uses_get_long() {
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "GetCount".to_string(),
+            cmd: QueryCmd::One,
+            sql: "SELECT count FROM stats WHERE id = $1".to_string(),
+            params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            result_columns: vec![
+                ResultColumn { name: "count".to_string(), sql_type: SqlType::BigInt, nullable: false },
+            ],
+        };
+        let files = KotlinCodegen.generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "Queries.kt");
+        assert!(src.contains("rs.getLong(1)"));
     }
 
     // ─── generate: parameter binding ────────────────────────────────────────

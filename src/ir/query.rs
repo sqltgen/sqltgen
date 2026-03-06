@@ -37,6 +37,5 @@ pub struct Parameter {
 pub struct ResultColumn {
     pub name: String,
     pub sql_type: SqlType,
-    #[allow(dead_code)]
     pub nullable: bool,
 }
