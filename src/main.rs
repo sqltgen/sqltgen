@@ -42,7 +42,7 @@ fn read_schema_ddl(path: &Path) -> anyhow::Result<String> {
             .with_context(|| format!("reading schema directory: {}", path.display()))?
             .filter_map(|e| e.ok())
             .map(|e| e.path())
-            .filter(|p| p.extension().map_or(false, |ext| ext == "sql"))
+            .filter(|p| p.extension().is_some_and(|ext| ext == "sql"))
             .collect();
         entries.sort();
         let mut ddl = String::new();

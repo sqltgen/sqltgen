@@ -36,7 +36,7 @@ pub fn parse_schema(ddl: &str) -> anyhow::Result<Schema> {
 
 // ─── ALTER TABLE ─────────────────────────────────────────────────────────────
 
-fn apply_alter_table(name: &ObjectName, operations: &[AlterTableOperation], tables: &mut Vec<crate::ir::Table>) {
+fn apply_alter_table(name: &ObjectName, operations: &[AlterTableOperation], tables: &mut [crate::ir::Table]) {
     let table_name = obj_name_to_str(name);
     let Some(idx) = tables.iter().position(|t| t.name == table_name) else {
         return; // ALTER on unknown table — ignore

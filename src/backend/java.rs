@@ -219,7 +219,11 @@ pub fn java_type(sql_type: &SqlType, nullable: bool) -> String {
         SqlType::Json | SqlType::Jsonb => "String".into(),
         SqlType::Array(inner) => {
             let t = format!("java.util.List<{}>", java_type_boxed(inner));
-            return if nullable { format!("@Nullable {t}") } else { t };
+            if nullable {
+                format!("@Nullable {t}")
+            } else {
+                t
+            }
         },
         SqlType::Custom(_) => "Object".into(),
     }

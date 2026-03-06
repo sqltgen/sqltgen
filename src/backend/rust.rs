@@ -185,9 +185,9 @@ fn normalize_sql_for_sqlx(sql: &str, target: &RustTarget) -> String {
         match target {
             RustTarget::Sqlite => {
                 // Strip digits after `?`
-                if ch == '?' && chars.peek().map_or(false, |c| c.is_ascii_digit()) {
+                if ch == '?' && chars.peek().is_some_and(|c| c.is_ascii_digit()) {
                     out.push('?');
-                    while chars.peek().map_or(false, |c| c.is_ascii_digit()) {
+                    while chars.peek().is_some_and(|c| c.is_ascii_digit()) {
                         chars.next();
                     }
                 } else {
@@ -196,9 +196,9 @@ fn normalize_sql_for_sqlx(sql: &str, target: &RustTarget) -> String {
             },
             RustTarget::Mysql => {
                 // Replace `$N` with `?`
-                if ch == '$' && chars.peek().map_or(false, |c| c.is_ascii_digit()) {
+                if ch == '$' && chars.peek().is_some_and(|c| c.is_ascii_digit()) {
                     out.push('?');
-                    while chars.peek().map_or(false, |c| c.is_ascii_digit()) {
+                    while chars.peek().is_some_and(|c| c.is_ascii_digit()) {
                         chars.next();
                     }
                 } else {

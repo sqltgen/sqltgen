@@ -171,6 +171,7 @@ fn build_insert(ann: &Annotation, sql: &str, insert: &Insert, schema: &Schema, c
 
 // ─── UPDATE ──────────────────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 fn build_update(
     ann: &Annotation,
     sql: &str,
@@ -200,7 +201,7 @@ fn build_update(
             _ => continue,
         };
         if let Expr::Value(Value::Placeholder(p)) = &assignment.value {
-            if let Some(idx) = placeholder_idx(&p) {
+            if let Some(idx) = placeholder_idx(p) {
                 if let Some(col) = table.columns.iter().find(|c| c.name == col_name) {
                     mapping.entry(idx).or_insert((col.name.clone(), col.sql_type.clone(), col.nullable));
                 }
@@ -274,20 +275,18 @@ fn collect_table_factor(factor: &TableFactor, schema: &Schema, ctes: &[Table], o
                 out.push((t.clone(), alias_str));
             }
         },
-        TableFactor::Derived { subquery, alias, .. } => {
-            if let Some(a) = alias {
-                let alias_name = ident_to_str(&a.name);
-                let cols = derived_cols(subquery, schema, ctes, config);
-                if !cols.is_empty() {
-                    out.push((Table { name: alias_name.clone(), columns: cols }, Some(alias_name)));
-                }
+        TableFactor::Derived { subquery, alias: Some(a), .. } => {
+            let alias_name = ident_to_str(&a.name);
+            let cols = derived_cols(subquery, schema, ctes, config);
+            if !cols.is_empty() {
+                out.push((Table { name: alias_name.clone(), columns: cols }, Some(alias_name)));
             }
         },
         _ => {},
     }
 }
 
-fn build_alias_map<'a>(tables: &'a [(Table, Option<String>)]) -> HashMap<String, &'a Table> {
+fn build_alias_map(tables: &[(Table, Option<String>)]) -> HashMap<String, &Table> {
     let mut map = HashMap::new();
     for (table, alias) in tables {
         map.insert(table.name.clone(), table);
@@ -362,17 +361,17 @@ fn resolve_expr(expr: &Expr, alias_map: &HashMap<String, &Table>, all_tables: &[
             let col_name = ident_to_str(&parts[parts.len() - 1]);
             alias_map.get(&qualifier).and_then(|t| t.columns.iter().find(|c| c.name == col_name)).map(col_to_result)
         },
-        Expr::BinaryOp { left, op, right }
-            if matches!(op, BinaryOperator::Plus | BinaryOperator::Minus | BinaryOperator::Multiply | BinaryOperator::Divide | BinaryOperator::Modulo) =>
-        {
-            match (resolve_expr(left, alias_map, all_tables, config), resolve_expr(right, alias_map, all_tables, config)) {
-                (Some(l), Some(r)) => {
-                    Some(ResultColumn { name: l.name.clone(), sql_type: numeric_wider(&l.sql_type, &r.sql_type), nullable: l.nullable || r.nullable })
-                },
-                (Some(l), None) => Some(l),
-                (None, Some(r)) => Some(r),
-                (None, None) => None,
-            }
+        Expr::BinaryOp {
+            left,
+            op: BinaryOperator::Plus | BinaryOperator::Minus | BinaryOperator::Multiply | BinaryOperator::Divide | BinaryOperator::Modulo,
+            right,
+        } => match (resolve_expr(left, alias_map, all_tables, config), resolve_expr(right, alias_map, all_tables, config)) {
+            (Some(l), Some(r)) => {
+                Some(ResultColumn { name: l.name.clone(), sql_type: numeric_wider(&l.sql_type, &r.sql_type), nullable: l.nullable || r.nullable })
+            },
+            (Some(l), None) => Some(l),
+            (None, Some(r)) => Some(r),
+            (None, None) => None,
         },
         Expr::Function(func) => {
             let fname = func.name.0.last().map(ident_to_str).unwrap_or_default().to_uppercase();
