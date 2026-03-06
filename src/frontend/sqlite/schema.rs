@@ -3,7 +3,7 @@ use sqlparser::dialect::SQLiteDialect;
 use sqlparser::parser::Parser;
 
 use crate::frontend::common::{
-    build_column, build_create_table, ident_to_str, obj_name_to_str,
+    apply_drop_tables, build_column, build_create_table, ident_to_str, obj_name_to_str,
 };
 use crate::frontend::sqlite::typemap;
 use crate::ir::Schema;
@@ -24,10 +24,7 @@ pub fn parse_schema(ddl: &str) -> anyhow::Result<Schema> {
                 apply_alter_table(&name, &operations, &mut tables);
             }
             Statement::Drop { object_type: ObjectType::Table, names, .. } => {
-                for name in &names {
-                    let table_name = obj_name_to_str(name);
-                    tables.retain(|t| t.name != table_name);
-                }
+                apply_drop_tables(&names, &mut tables);
             }
             _ => {}
         }

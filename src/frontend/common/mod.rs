@@ -4,6 +4,14 @@ use sqlparser::ast::{ColumnDef, ColumnOption, DataType, Ident, ObjectName, Table
 
 use crate::ir::{Column, SqlType, Table};
 
+/// Removes tables named in a `DROP TABLE` statement.
+pub(crate) fn apply_drop_tables(names: &[ObjectName], tables: &mut Vec<Table>) {
+    for name in names {
+        let table_name = obj_name_to_str(name);
+        tables.retain(|t| t.name != table_name);
+    }
+}
+
 // ─── Identifier helpers ───────────────────────────────────────────────────────
 
 /// Converts an identifier to a string, preserving case for quoted identifiers
