@@ -46,6 +46,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let books = q::list_books_by_genre(&pool, "sci-fi".into()).await?;
     println!("[mysql] list_books_by_genre(sci-fi): {} row(s)", books.len());
 
+    let all_books = q::list_books_by_genre_or_all(&pool, "all".into()).await?;
+    println!("[mysql] list_books_by_genre_or_all(all): {} row(s) (repeated-param demo)", all_books.len());
+    let scifi2 = q::list_books_by_genre_or_all(&pool, "sci-fi".into()).await?;
+    println!("[mysql] list_books_by_genre_or_all(sci-fi): {} row(s)", scifi2.len());
+
     let with_author = q::list_books_with_author(&pool).await?;
     println!("[mysql] list_books_with_author:");
     for r in &with_author {

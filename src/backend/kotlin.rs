@@ -1,7 +1,7 @@
 use std::fmt::Write;
 use std::path::PathBuf;
 
-use crate::backend::common::{emit_package, infer_table, jdbc_sql, sql_const_name, to_camel_case, to_pascal_case};
+use crate::backend::common::{emit_package, infer_table, jdbc_bind_sequence, jdbc_setter, jdbc_sql, sql_const_name, to_camel_case, to_pascal_case};
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::OutputConfig;
 use crate::ir::{Query, QueryCmd, Schema, SqlType};
@@ -92,12 +92,12 @@ fn emit_kotlin_query(src: &mut String, query: &Query, schema: &Schema) -> anyhow
     writeln!(src, "    fun {}({params_sig}): {return_type} {{", to_camel_case(&query.name))?;
     writeln!(src, "        conn.prepareStatement({sql_const}).use {{ ps ->")?;
 
-    for p in &query.params {
+    for (jdbc_idx, p) in jdbc_bind_sequence(query) {
         if p.nullable {
-            writeln!(src, "            ps.setObject({}, {})", p.index, to_camel_case(&p.name))?;
+            writeln!(src, "            ps.setObject({jdbc_idx}, {})", to_camel_case(&p.name))?;
         } else {
             let setter = jdbc_setter(&p.sql_type);
-            writeln!(src, "            ps.{setter}({}, {})", p.index, to_camel_case(&p.name))?;
+            writeln!(src, "            ps.{setter}({jdbc_idx}, {})", to_camel_case(&p.name))?;
         }
     }
 
@@ -244,21 +244,6 @@ pub fn kotlin_type(sql_type: &SqlType, nullable: bool) -> String {
         format!("{base}?")
     } else {
         base.to_string()
-    }
-}
-
-fn jdbc_setter(sql_type: &SqlType) -> &'static str {
-    match sql_type {
-        SqlType::Boolean => "setBoolean",
-        SqlType::SmallInt => "setShort",
-        SqlType::Integer => "setInt",
-        SqlType::BigInt => "setLong",
-        SqlType::Real => "setFloat",
-        SqlType::Double => "setDouble",
-        SqlType::Decimal => "setBigDecimal",
-        SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_) => "setString",
-        SqlType::Bytes => "setBytes",
-        _ => "setObject",
     }
 }
 
@@ -678,6 +663,31 @@ mod tests {
         let src = get_file(&files, "QueriesDs.kt");
         assert!(src.contains("fun listUsers(): List<User> ="));
         assert!(src.contains("dataSource.connection.use { conn -> Queries.listUsers(conn) }"));
+    }
+
+    // ─── generate: repeated parameter binding ───────────────────────────────
+
+    #[test]
+    fn test_generate_repeated_param_emits_bind_per_occurrence() {
+        // $1 appears 4 times, $2 once — must emit 5 bind calls in SQL order
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "FindItems".to_string(),
+            cmd: QueryCmd::Many,
+            sql: "SELECT * FROM t WHERE a = $1 OR $1 = -1 AND b = $1 OR $1 = 0 AND c = $2".to_string(),
+            params: vec![
+                Parameter { index: 1, name: "accountId".to_string(), sql_type: SqlType::BigInt, nullable: false },
+                Parameter { index: 2, name: "inputData".to_string(), sql_type: SqlType::Text, nullable: false },
+            ],
+            result_columns: vec![],
+        };
+        let files = KotlinCodegen.generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "Queries.kt");
+        assert!(src.contains("ps.setLong(1, accountId)"));
+        assert!(src.contains("ps.setLong(2, accountId)"));
+        assert!(src.contains("ps.setLong(3, accountId)"));
+        assert!(src.contains("ps.setLong(4, accountId)"));
+        assert!(src.contains("ps.setString(5, inputData)"));
     }
 
     // ─── generate: parameter binding ────────────────────────────────────────

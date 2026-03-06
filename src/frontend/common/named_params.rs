@@ -176,19 +176,20 @@ fn parse_sql_type_str(s: &str) -> Option<SqlType> {
 
 // ─── SQL rewriting ────────────────────────────────────────────────────────────
 
-/// Removes `-- @name …` annotation lines from the SQL, preserving all other lines.
-fn strip_annotation_lines(sql: &str) -> String {
-    sql.lines()
-        .filter(|line| !is_param_annotation_line(line))
-        .collect::<Vec<_>>()
-        .join("\n")
+/// Removes all SQL line-comment lines (`-- …`) from the SQL body.
+///
+/// This covers both `-- @name` parameter annotation lines and plain `-- comment` lines.
+/// Annotation overrides must be extracted (via [`parse_param_annotations`]) before this
+/// is called, since they would be lost here. Plain comments must be stripped before the
+/// SQL is collapsed to a single line in codegen — a `--` at the start of a line becomes
+/// an end-of-string comment once newlines are replaced with spaces.
+pub(crate) fn strip_sql_comment_lines(sql: &str) -> String {
+    sql.lines().filter(|line| !line.trim().starts_with("--")).collect::<Vec<_>>().join("\n")
 }
 
-fn is_param_annotation_line(line: &str) -> bool {
-    match line.trim().strip_prefix("--") {
-        Some(rest) => rest.trim().starts_with('@'),
-        None => false,
-    }
+/// Convenience alias used internally; delegates to [`strip_sql_comment_lines`].
+fn strip_annotation_lines(sql: &str) -> String {
+    strip_sql_comment_lines(sql)
 }
 
 /// Scans `sql` for `@identifier` tokens outside comments and string literals,
@@ -350,6 +351,25 @@ mod tests {
         let (rewritten, _) = preprocess_named_params(sql).unwrap();
         assert!(!rewritten.contains("-- @user_id"));
         assert!(rewritten.contains("$1"));
+    }
+
+    #[test]
+    fn test_plain_comment_lines_stripped_from_output_sql() {
+        // Plain -- comments must be stripped so collapsing to a single line in codegen
+        // does not turn them into an end-of-string comment that eats the SQL.
+        let sql = "-- This query does something\nSELECT id FROM users WHERE id = @user_id";
+        let (rewritten, _) = preprocess_named_params(sql).unwrap();
+        assert!(!rewritten.contains("-- This"));
+        assert!(rewritten.contains("$1"));
+    }
+
+    #[test]
+    fn test_strip_sql_comment_lines_removes_all_comment_lines() {
+        let sql = "-- first comment\nSELECT 1\n-- second comment\nFROM t";
+        let out = strip_sql_comment_lines(sql);
+        assert!(!out.contains("--"));
+        assert!(out.contains("SELECT 1"));
+        assert!(out.contains("FROM t"));
     }
 
     #[test]

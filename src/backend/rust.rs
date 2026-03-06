@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::fmt::Write;
 use std::path::PathBuf;
 
-use crate::backend::common::{infer_table, to_pascal_case, to_snake_case};
+use crate::backend::common::{infer_table, positional_bind_names, to_pascal_case, to_snake_case};
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::OutputConfig;
 use crate::ir::{Query, QueryCmd, Schema, SqlType};
@@ -126,11 +126,18 @@ fn emit_rust_query(src: &mut String, query: &Query, schema: &Schema, pool_type: 
 
     writeln!(src, "pub async fn {fn_name}({params_sig}) -> {return_type} {{")?;
 
+    // Postgres $N is reference-by-number — one .bind() per unique param suffices.
+    // SQLite/MySQL normalize to ? (positional sequential) — bind once per occurrence.
+    let bind_names: Vec<&str> = match target {
+        RustTarget::Postgres => query.params.iter().map(|p| p.name.as_str()).collect(),
+        RustTarget::Sqlite | RustTarget::Mysql => positional_bind_names(query),
+    };
+
     match query.cmd {
         QueryCmd::Exec | QueryCmd::ExecRows => {
             writeln!(src, "    sqlx::query(\"{sql}\")")?;
-            for p in &query.params {
-                writeln!(src, "        .bind({})", to_snake_case(&p.name))?;
+            for name in &bind_names {
+                writeln!(src, "        .bind({})", to_snake_case(name))?;
             }
             writeln!(src, "        .execute(pool)")?;
             writeln!(src, "        .await")?;
@@ -142,8 +149,8 @@ fn emit_rust_query(src: &mut String, query: &Query, schema: &Schema, pool_type: 
         },
         QueryCmd::One | QueryCmd::Many => {
             writeln!(src, "    sqlx::query_as::<_, {row_type}>(\"{sql}\")")?;
-            for p in &query.params {
-                writeln!(src, "        .bind({})", to_snake_case(&p.name))?;
+            for name in &bind_names {
+                writeln!(src, "        .bind({})", to_snake_case(name))?;
             }
             if matches!(query.cmd, QueryCmd::One) {
                 writeln!(src, "        .fetch_optional(pool)")?;

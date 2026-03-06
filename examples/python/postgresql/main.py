@@ -44,6 +44,11 @@ def query(conn: psycopg.Connection) -> None:
     scifi = queries.list_books_by_genre(conn, "sci-fi")
     print(f"[pg] listBooksByGenre(sci-fi): {len(scifi)} row(s)")
 
+    all_books = queries.list_books_by_genre_or_all(conn, "all")
+    print(f"[pg] listBooksByGenreOrAll(all): {len(all_books)} row(s) (repeated-param demo)")
+    scifi2 = queries.list_books_by_genre_or_all(conn, "sci-fi")
+    print(f"[pg] listBooksByGenreOrAll(sci-fi): {len(scifi2)} row(s)")
+
     print("[pg] listBooksWithAuthor:")
     for r in queries.list_books_with_author(conn):
         print(f'  "{r.title}" by {r.author_name}')

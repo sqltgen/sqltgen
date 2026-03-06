@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 use std::fmt::Write;
 use std::path::PathBuf;
 
-use crate::backend::common::{infer_table, sql_const_name, to_pascal_case, to_snake_case};
+use crate::backend::common::{infer_table, positional_bind_names, sql_const_name, to_pascal_case, to_snake_case};
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::OutputConfig;
 use crate::ir::{Query, QueryCmd, Schema, SqlType};
@@ -248,12 +248,13 @@ fn emit_sqlite_query(src: &mut String, query: &Query, schema: &Schema, target: &
 
 fn build_execute_call(const_name: &str, query: &Query) -> String {
     if query.params.is_empty() {
-        format!("execute({const_name})")
-    } else {
-        let args: Vec<String> = query.params.iter().map(|p| to_snake_case(&p.name)).collect();
-        let tuple = if args.len() == 1 { format!("({},)", args[0]) } else { format!("({})", args.join(", ")) };
-        format!("execute({const_name}, {tuple})")
+        return format!("execute({const_name})");
     }
+    // Build args in SQL occurrence order so reused params appear multiple times,
+    // matching the positional %s / ? placeholders in the rewritten SQL.
+    let args: Vec<String> = positional_bind_names(query).iter().map(|&n| to_snake_case(n)).collect();
+    let tuple = if args.len() == 1 { format!("({},)", args[0]) } else { format!("({})", args.join(", ")) };
+    format!("execute({const_name}, {tuple})")
 }
 
 fn cursor_return_type(query: &Query, schema: &Schema) -> String {
@@ -789,6 +790,27 @@ mod tests {
         let src = get_file(&files, "doc.py");
         assert!(src.contains("data: str"));
         assert!(!src.contains("from typing import Any"));
+    }
+
+    // ─── generate: repeated parameter binding ───────────────────────────────
+
+    #[test]
+    fn test_generate_repeated_param_expands_tuple() {
+        // $1 appears 4 times, $2 once — tuple must have 5 entries
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "FindItems".to_string(),
+            cmd: QueryCmd::Exec,
+            sql: "DELETE FROM t WHERE a = $1 OR $1 = -1 AND b = $1 OR $1 = 0 AND c = $2".to_string(),
+            params: vec![
+                Parameter { index: 1, name: "accountId".to_string(), sql_type: SqlType::BigInt, nullable: false },
+                Parameter { index: 2, name: "inputData".to_string(), sql_type: SqlType::Text, nullable: false },
+            ],
+            result_columns: vec![],
+        };
+        let files = pg().generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "queries.py");
+        assert!(src.contains("(account_id, account_id, account_id, account_id, input_data)"));
     }
 
     // ─── generate: placeholder rewriting ────────────────────────────────────

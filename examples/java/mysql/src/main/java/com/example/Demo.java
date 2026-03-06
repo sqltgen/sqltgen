@@ -63,6 +63,11 @@ public class Demo {
         var scifi = q.listBooksByGenre("sci-fi");
         System.out.println("[mysql] listBooksByGenre(sci-fi): " + scifi.size() + " row(s)");
 
+        var allBooks = q.listBooksByGenreOrAll("all");
+        System.out.println("[mysql] listBooksByGenreOrAll(all): " + allBooks.size() + " row(s) (repeated-param demo)");
+        var scifi2 = q.listBooksByGenreOrAll("sci-fi");
+        System.out.println("[mysql] listBooksByGenreOrAll(sci-fi): " + scifi2.size() + " row(s)");
+
         System.out.println("[mysql] listBooksWithAuthor:");
         q.listBooksWithAuthor()
             .forEach(r -> System.out.println("  \"" + r.title() + "\" by " + r.authorName()));

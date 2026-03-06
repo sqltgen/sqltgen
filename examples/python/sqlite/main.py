@@ -50,6 +50,11 @@ def query(conn: sqlite3.Connection) -> None:
     scifi = queries.list_books_by_genre(conn, "sci-fi")
     print(f"[sqlite] listBooksByGenre(sci-fi): {len(scifi)} row(s)")
 
+    all_books = queries.list_books_by_genre_or_all(conn, "all")
+    print(f"[sqlite] listBooksByGenreOrAll(all): {len(all_books)} row(s) (repeated-param demo)")
+    scifi2 = queries.list_books_by_genre_or_all(conn, "sci-fi")
+    print(f"[sqlite] listBooksByGenreOrAll(sci-fi): {len(scifi2)} row(s)")
+
     print("[sqlite] listBooksWithAuthor:")
     for r in queries.list_books_with_author(conn):
         print(f'  "{r.title}" by {r.author_name}')

@@ -80,6 +80,11 @@ public class Demo {
         var scifi = q.listBooksByGenre("sci-fi");
         System.out.println("[sqlite] listBooksByGenre(sci-fi): " + scifi.size() + " row(s)");
 
+        var allBooks = q.listBooksByGenreOrAll("all");
+        System.out.println("[sqlite] listBooksByGenreOrAll(all): " + allBooks.size() + " row(s) (repeated-param demo)");
+        var scifi2 = q.listBooksByGenreOrAll("sci-fi");
+        System.out.println("[sqlite] listBooksByGenreOrAll(sci-fi): " + scifi2.size() + " row(s)");
+
         System.out.println("[sqlite] listBooksWithAuthor:");
         q.listBooksWithAuthor()
             .forEach(r -> System.out.println("  \"" + r.title() + "\" by " + r.authorName()));

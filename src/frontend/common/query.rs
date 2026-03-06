@@ -102,7 +102,9 @@ fn parse_annotation(line: &str) -> Option<Annotation> {
 fn build_query_with_dialect(dialect: &dyn Dialect, ann: &Annotation, sql: &str, schema: &Schema, config: &ResolverConfig) -> anyhow::Result<Query> {
     let (sql_buf, np) = match named_params::preprocess_named_params(sql) {
         Some((rewritten, params)) => (rewritten, params),
-        None => (sql.to_string(), vec![]),
+        // No named params: still strip comment lines so that the stored SQL can be
+        // safely collapsed to a single line in codegen (-- comments would eat the rest).
+        None => (named_params::strip_sql_comment_lines(sql), vec![]),
     };
     let sql = sql_buf.as_str();
 

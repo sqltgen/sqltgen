@@ -61,6 +61,12 @@ public final class QueriesDs {
         }
     }
 
+    public List<Book> listBooksByGenreOrAll(String genre) throws SQLException {
+        try (Connection conn = dataSource.getConnection()) {
+            return Queries.listBooksByGenreOrAll(conn, genre);
+        }
+    }
+
     public Optional<Queries.CreateCustomerRow> createCustomer(String name, String email) throws SQLException {
         try (Connection conn = dataSource.getConnection()) {
             return Queries.createCustomer(conn, name, email);

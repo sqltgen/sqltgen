@@ -18,6 +18,7 @@ SQL_DELETE_AUTHOR = "DELETE FROM author WHERE id = %s RETURNING id, name"
 SQL_CREATE_BOOK = "INSERT INTO book (author_id, title, genre, price, published_at) VALUES (%s, %s, %s, %s, %s) RETURNING *"
 SQL_GET_BOOK = "SELECT id, author_id, title, genre, price, published_at FROM book WHERE id = %s"
 SQL_LIST_BOOKS_BY_GENRE = "SELECT id, author_id, title, genre, price, published_at FROM book WHERE genre = %s ORDER BY title"
+SQL_LIST_BOOKS_BY_GENRE_OR_ALL = "SELECT id, author_id, title, genre, price, published_at FROM book WHERE %s = 'all' OR genre = %s ORDER BY title"
 SQL_CREATE_CUSTOMER = "INSERT INTO customer (name, email) VALUES (%s, %s) RETURNING id"
 SQL_CREATE_SALE = "INSERT INTO sale (customer_id) VALUES (%s) RETURNING id"
 SQL_ADD_SALE_ITEM = "INSERT INTO sale_item (sale_id, book_id, quantity, unit_price) VALUES (%s, %s, %s, %s)"
@@ -96,6 +97,12 @@ def get_book(conn: psycopg.Connection, id: int) -> Book | None:
 def list_books_by_genre(conn: psycopg.Connection, genre: str) -> list[Book]:
     with conn.cursor() as cur:
         cur.execute(SQL_LIST_BOOKS_BY_GENRE, (genre,))
+        return [Book(*row) for row in cur.fetchall()]
+
+
+def list_books_by_genre_or_all(conn: psycopg.Connection, genre: str) -> list[Book]:
+    with conn.cursor() as cur:
+        cur.execute(SQL_LIST_BOOKS_BY_GENRE_OR_ALL, (genre, genre))
         return [Book(*row) for row in cur.fetchall()]
 
 

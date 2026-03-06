@@ -27,6 +27,14 @@ FROM book
 WHERE genre = @genre
 ORDER BY title;
 
+-- name: ListBooksByGenreOrAll :many
+-- Pass 'all' as genre to return every book; any other value filters by that genre.
+-- The @genre param appears twice in the WHERE clause, exercising the bind-plan fix.
+SELECT id, author_id, title, genre, price, published_at
+FROM book
+WHERE @genre = 'all' OR genre = @genre
+ORDER BY title;
+
 -- name: CreateCustomer :exec
 INSERT INTO customer (name, email)
 VALUES (@name, @email);

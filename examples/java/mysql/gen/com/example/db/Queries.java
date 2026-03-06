@@ -103,6 +103,20 @@ public final class Queries {
         }
     }
 
+    private static final String SQL_LIST_BOOKS_BY_GENRE_OR_ALL =
+        "SELECT id, author_id, title, genre, price, published_at FROM book WHERE ? = 'all' OR genre = ? ORDER BY title;";
+    public static List<Book> listBooksByGenreOrAll(Connection conn, String genre) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(SQL_LIST_BOOKS_BY_GENRE_OR_ALL)) {
+            ps.setString(1, genre);
+            ps.setString(2, genre);
+            List<Book> rows = new ArrayList<>();
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) rows.add(new Book(rs.getLong(1), rs.getLong(2), rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getObject(6, java.time.LocalDate.class)));
+            }
+            return rows;
+        }
+    }
+
     private static final String SQL_CREATE_CUSTOMER =
         "INSERT INTO customer (name, email) VALUES (?, ?);";
     public static void createCustomer(Connection conn, String name, String email) throws SQLException {

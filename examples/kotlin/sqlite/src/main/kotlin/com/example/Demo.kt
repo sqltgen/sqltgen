@@ -77,6 +77,11 @@ object Demo {
         val scifi = q.listBooksByGenre("sci-fi")
         println("[sqlite] listBooksByGenre(sci-fi): ${scifi.size} row(s)")
 
+        val allBooks = q.listBooksByGenreOrAll("all")
+        println("[sqlite] listBooksByGenreOrAll(all): ${allBooks.size} row(s) (repeated-param demo)")
+        val scifi2 = q.listBooksByGenreOrAll("sci-fi")
+        println("[sqlite] listBooksByGenreOrAll(sci-fi): ${scifi2.size} row(s)")
+
         println("[sqlite] listBooksWithAuthor:")
         q.listBooksWithAuthor().forEach { r ->
             println("  \"${r.title}\" by ${r.authorName}")

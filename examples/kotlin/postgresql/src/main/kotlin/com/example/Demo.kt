@@ -54,6 +54,11 @@ object Demo {
         val scifi = q.listBooksByGenre("sci-fi")
         println("[pg] listBooksByGenre(sci-fi): ${scifi.size} row(s)")
 
+        val allBooks = q.listBooksByGenreOrAll("all")
+        println("[pg] listBooksByGenreOrAll(all): ${allBooks.size} row(s) (repeated-param demo)")
+        val scifi2 = q.listBooksByGenreOrAll("sci-fi")
+        println("[pg] listBooksByGenreOrAll(sci-fi): ${scifi2.size} row(s)")
+
         println("[pg] listBooksWithAuthor:")
         q.listBooksWithAuthor().forEach { r ->
             println("  \"${r.title}\" by ${r.authorName}")

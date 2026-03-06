@@ -15,6 +15,7 @@ SQL_LIST_AUTHORS = "SELECT id, name, bio, birth_year FROM author ORDER BY name"
 SQL_CREATE_BOOK = "INSERT INTO book (author_id, title, genre, price, published_at) VALUES (?, ?, ?, ?, ?)"
 SQL_GET_BOOK = "SELECT id, author_id, title, genre, price, published_at FROM book WHERE id = ?"
 SQL_LIST_BOOKS_BY_GENRE = "SELECT id, author_id, title, genre, price, published_at FROM book WHERE genre = ? ORDER BY title"
+SQL_LIST_BOOKS_BY_GENRE_OR_ALL = "SELECT id, author_id, title, genre, price, published_at FROM book WHERE ? = 'all' OR genre = ? ORDER BY title"
 SQL_CREATE_CUSTOMER = "INSERT INTO customer (name, email) VALUES (?, ?)"
 SQL_CREATE_SALE = "INSERT INTO sale (customer_id) VALUES (?)"
 SQL_ADD_SALE_ITEM = "INSERT INTO sale_item (sale_id, book_id, quantity, unit_price) VALUES (?, ?, ?, ?)"
@@ -52,6 +53,10 @@ def get_book(conn: sqlite3.Connection, id: int) -> Book | None:
 
 def list_books_by_genre(conn: sqlite3.Connection, genre: str) -> list[Book]:
     return [Book(*row) for row in conn.execute(SQL_LIST_BOOKS_BY_GENRE, (genre,)).fetchall()]
+
+
+def list_books_by_genre_or_all(conn: sqlite3.Connection, genre: str) -> list[Book]:
+    return [Book(*row) for row in conn.execute(SQL_LIST_BOOKS_BY_GENRE_OR_ALL, (genre, genre)).fetchall()]
 
 
 def create_customer(conn: sqlite3.Connection, name: str, email: str) -> None:

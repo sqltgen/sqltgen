@@ -47,6 +47,11 @@ def query(conn: mysql.connector.MySQLConnection) -> None:
     scifi = queries.list_books_by_genre(conn, "sci-fi")
     print(f"[mysql] listBooksByGenre(sci-fi): {len(scifi)} row(s)")
 
+    all_books = queries.list_books_by_genre_or_all(conn, "all")
+    print(f"[mysql] listBooksByGenreOrAll(all): {len(all_books)} row(s) (repeated-param demo)")
+    scifi2 = queries.list_books_by_genre_or_all(conn, "sci-fi")
+    print(f"[mysql] listBooksByGenreOrAll(sci-fi): {len(scifi2)} row(s)")
+
     print("[mysql] listBooksWithAuthor:")
     for r in queries.list_books_with_author(conn):
         print(f'  "{r.title}" by {r.author_name}')
