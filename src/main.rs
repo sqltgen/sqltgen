@@ -77,11 +77,15 @@ fn run_generate(config_path: &Path) -> anyhow::Result<()> {
     let ddl = read_schema_ddl(&schema_path)?;
     let schema = parser.parse_schema(&ddl)?;
 
-    // Read and parse queries
-    let queries_path = base_dir.join(&cfg.queries);
-    let queries_sql = std::fs::read_to_string(&queries_path)
-        .with_context(|| format!("reading queries file: {}", queries_path.display()))?;
-    let queries = parser.parse_queries(&queries_sql, &schema)?;
+    // Read and parse queries (supports multiple files / globs)
+    let query_paths = cfg.expand_queries(base_dir)?;
+    let mut queries = Vec::new();
+    for query_path in query_paths {
+        let queries_sql = std::fs::read_to_string(&query_path)
+            .with_context(|| format!("reading queries file: {}", query_path.display()))?;
+        let mut parsed = parser.parse_queries(&queries_sql, &schema)?;
+        queries.append(&mut parsed);
+    }
 
     // Run each configured codegen target
     for (lang, output_config) in &cfg.gen {

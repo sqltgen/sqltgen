@@ -64,8 +64,8 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | Derived tables (`FROM (SELECT …) alias`) | ✅ | ✅ | ✅ |
 | Scalar subqueries in SELECT list | ✅ | ✅ | ✅ |
 | CTE (`WITH` … `SELECT`) | ✅ chained, joined with schema tables | ✅ | ✅ |
-| Multiple query files | ❌ | ❌ | ❌ |
-| Glob patterns for `schema` / `queries` paths | ❌ | ❌ | ❌ |
+| Multiple query files | ✅ | ✅ | ✅ |
+| Glob patterns for `schema` / `queries` paths | ⚠️ queries only | ⚠️ queries only | ⚠️ queries only |
 | `UNION` / `INTERSECT` result columns | ❌ | ❌ | ❌ |
 | `CAST(x AS type)` result type | ❌ | ❌ | ❌ |
 | `HAVING` parameters | ❌ | ❌ | ❌ |
@@ -144,8 +144,8 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 |---|:---:|---|
 | `engine` / `schema` / `queries` / `gen` | ✅ | Core config |
 | Schema from directory of migration files | ✅ | Loaded in lex order |
-| Multiple query files (list of paths) | ❌ | Currently single file only |
-| Glob patterns for `schema` / `queries` | ❌ | |
+| Multiple query files (list of paths) | ✅ | Supports list of files and globs |
+| Glob patterns for `schema` / `queries` | ⚠️ | Queries only (schema still single file/dir) |
 | Type overrides (map DB type / column → custom type) | ❌ | Per-language override map in config |
 | Field / struct renaming | ❌ | `rename: { col: "FieldName" }` map in config |
 | Emit JSON tags / annotations on generated types | ❌ | |
