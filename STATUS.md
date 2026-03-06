@@ -118,7 +118,7 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 
 | | Java | Kotlin | Rust | Go | Python | TypeScript |
 |---|---|---|---|---|---|---|
-| Current target | JDBC | JDBC | sqlx | — | psycopg3 (psycopg) | — |
+| Current target | JDBC | JDBC | sqlx | — | psycopg3 (psycopg) / sqlite3 (stdlib) | — |
 | Planned target | JDBC | JDBC | sqlx | database/sql | psycopg3 | postgres.js |
 
 ---
@@ -129,7 +129,7 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 |---|:---:|:---:|:---:|:---:|:---:|:---:|
 | Example project | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ |
 | PostgreSQL (real DB) | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ |
-| SQLite (in-memory) | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| SQLite (in-memory) | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ |
 | MySQL (real DB) | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Makefile (`make run`) | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ |
 

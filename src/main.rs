@@ -97,7 +97,14 @@ fn run_generate(config_path: &Path) -> anyhow::Result<()> {
                 Box::new(backend::rust::RustCodegen { target })
             }
             "go"         => Box::new(backend::go::GoCodegen),
-            "python"     => Box::new(backend::python::PythonCodegen),
+            "python"     => {
+                let target = match cfg.engine {
+                    Engine::Sqlite     => backend::python::PythonTarget::Sqlite,
+                    Engine::Postgresql => backend::python::PythonTarget::Postgres,
+                    Engine::Mysql      => backend::python::PythonTarget::Postgres,
+                };
+                Box::new(backend::python::PythonCodegen { target })
+            }
             "typescript" => Box::new(backend::typescript::TypeScriptCodegen),
             other => anyhow::bail!("unknown codegen target: {other}"),
         };
