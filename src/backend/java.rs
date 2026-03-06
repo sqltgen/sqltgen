@@ -190,7 +190,10 @@ pub fn java_type(sql_type: &SqlType, nullable: bool) -> String {
         SqlType::Interval  => "String".into(),
         SqlType::Uuid      => "java.util.UUID".into(),
         SqlType::Json | SqlType::Jsonb => "String".into(),
-        SqlType::Array(inner) => format!("java.util.List<{}>", java_type_boxed(inner)),
+        SqlType::Array(inner) => {
+            let t = format!("java.util.List<{}>", java_type_boxed(inner));
+            return if nullable { format!("@Nullable {t}") } else { t };
+        }
         SqlType::Custom(_) => "Object".into(),
     }
 }
@@ -244,6 +247,24 @@ fn rs_read_expr(sql_type: &SqlType, idx: usize) -> String {
         SqlType::TimestampTz => format!("rs.getObject({idx}, java.time.OffsetDateTime.class)"),
         SqlType::Uuid       => format!("rs.getObject({idx}, java.util.UUID.class)"),
         _                   => format!("rs.getObject({idx})"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ir::SqlType;
+
+    #[test]
+    fn nullable_array_emits_nullable_annotation() {
+        let ty = java_type(&SqlType::Array(Box::new(SqlType::Text)), true);
+        assert_eq!(ty, "@Nullable java.util.List<String>");
+    }
+
+    #[test]
+    fn non_nullable_array_has_no_annotation() {
+        let ty = java_type(&SqlType::Array(Box::new(SqlType::Text)), false);
+        assert_eq!(ty, "java.util.List<String>");
     }
 }
 

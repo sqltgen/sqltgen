@@ -181,7 +181,10 @@ pub fn kotlin_type(sql_type: &SqlType, nullable: bool) -> String {
         SqlType::Interval  => "String",
         SqlType::Uuid      => "java.util.UUID",
         SqlType::Json | SqlType::Jsonb => "String",
-        SqlType::Array(inner) => return format!("List<{}>", kotlin_type(inner, false)),
+        SqlType::Array(inner) => {
+            let t = format!("List<{}>", kotlin_type(inner, false));
+            return if nullable { format!("{t}?") } else { t };
+        }
         SqlType::Custom(_) => "Any",
     };
     if nullable { format!("{base}?") } else { base.to_string() }
@@ -219,6 +222,24 @@ fn rs_read_expr(sql_type: &SqlType, idx: usize) -> String {
         SqlType::TimestampTz => format!("rs.getObject({idx}, java.time.OffsetDateTime::class.java)"),
         SqlType::Uuid       => format!("rs.getObject({idx}, java.util.UUID::class.java)"),
         _                   => format!("rs.getObject({idx})"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ir::SqlType;
+
+    #[test]
+    fn nullable_array_emits_question_mark() {
+        let ty = kotlin_type(&SqlType::Array(Box::new(SqlType::Text)), true);
+        assert_eq!(ty, "List<String>?");
+    }
+
+    #[test]
+    fn non_nullable_array_has_no_question_mark() {
+        let ty = kotlin_type(&SqlType::Array(Box::new(SqlType::Text)), false);
+        assert_eq!(ty, "List<String>");
     }
 }
 
