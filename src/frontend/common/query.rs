@@ -35,7 +35,13 @@ pub(crate) fn parse_queries_with_config(
         .into_iter()
         .filter_map(|(ann, body)| {
             let body = body.trim().trim_end_matches(';').trim();
-            build_query_with_dialect(dialect, &ann, body, schema, config).ok()
+            match build_query_with_dialect(dialect, &ann, body, schema, config) {
+                Ok(q) => Some(q),
+                Err(e) => {
+                    eprintln!("warning: cannot parse query {:?}: {e}", ann.name);
+                    None
+                }
+            }
         })
         .collect();
     Ok(queries)
