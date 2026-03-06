@@ -3,6 +3,7 @@ pub(crate) mod query;
 
 use sqlparser::ast::{ColumnDef, ColumnOption, DataType, Ident, ObjectName, TableConstraint};
 
+
 use crate::ir::{Column, SqlType, Table};
 
 /// Removes tables named in a `DROP TABLE` statement.
