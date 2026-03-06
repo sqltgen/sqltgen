@@ -12,7 +12,7 @@ object Queries {
             ps.setObject(3, birthYear)
             ps.executeQuery().use { rs ->
                 if (!rs.next()) return null
-                return Author(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getInt(4))
+                return Author(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getObject(4, java.lang.Integer::class.java)?.toInt())
             }
         }
     }
@@ -23,7 +23,7 @@ object Queries {
             ps.setLong(1, id)
             ps.executeQuery().use { rs ->
                 if (!rs.next()) return null
-                return Author(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getInt(4))
+                return Author(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getObject(4, java.lang.Integer::class.java)?.toInt())
             }
         }
     }
@@ -33,7 +33,7 @@ object Queries {
         conn.prepareStatement(SQL_LIST_AUTHORS).use { ps ->
             val rows = mutableListOf<Author>()
             ps.executeQuery().use { rs ->
-                while (rs.next()) rows.add(Author(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getInt(4)))
+                while (rs.next()) rows.add(Author(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getObject(4, java.lang.Integer::class.java)?.toInt()))
             }
             return rows
         }
@@ -46,7 +46,7 @@ object Queries {
             ps.setLong(2, id)
             ps.executeQuery().use { rs ->
                 if (!rs.next()) return null
-                return Author(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getInt(4))
+                return Author(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getObject(4, java.lang.Integer::class.java)?.toInt())
             }
         }
     }
@@ -192,7 +192,7 @@ object Queries {
         conn.prepareStatement(SQL_GET_TOP_SELLING_BOOKS).use { ps ->
             val rows = mutableListOf<GetTopSellingBooksRow>()
             ps.executeQuery().use { rs ->
-                while (rs.next()) rows.add(GetTopSellingBooksRow(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getBigDecimal(4), rs.getLong(5)))
+                while (rs.next()) rows.add(GetTopSellingBooksRow(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getBigDecimal(4), rs.getObject(5, java.lang.Long::class.java)?.toLong()))
             }
             return rows
         }

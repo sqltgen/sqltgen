@@ -1,11 +1,11 @@
 -- name: CreateAuthor :exec
 INSERT INTO author (name, bio, birth_year)
-VALUES ($1, $2, $3);
+VALUES (@name, @bio, @birth_year);
 
 -- name: GetAuthor :one
 SELECT id, name, bio, birth_year
 FROM author
-WHERE id = $1;
+WHERE id = @id;
 
 -- name: ListAuthors :many
 SELECT id, name, bio, birth_year
@@ -13,37 +13,38 @@ FROM author
 ORDER BY name;
 
 -- name: UpdateAuthorBio :exec
-UPDATE author SET bio = $1 WHERE id = $2;
+-- @bio null
+UPDATE author SET bio = @bio WHERE id = @id;
 
 -- name: DeleteAuthor :exec
-DELETE FROM author WHERE id = $1;
+DELETE FROM author WHERE id = @id;
 
 -- name: CreateBook :exec
 INSERT INTO book (author_id, title, genre, price, published_at)
-VALUES ($1, $2, $3, $4, $5);
+VALUES (@author_id, @title, @genre, @price, @published_at);
 
 -- name: GetBook :one
 SELECT id, author_id, title, genre, price, published_at
 FROM book
-WHERE id = $1;
+WHERE id = @id;
 
 -- name: ListBooksByGenre :many
 SELECT id, author_id, title, genre, price, published_at
 FROM book
-WHERE genre = $1
+WHERE genre = @genre
 ORDER BY title;
 
 -- name: CreateCustomer :exec
 INSERT INTO customer (name, email)
-VALUES ($1, $2);
+VALUES (@name, @email);
 
 -- name: CreateSale :exec
 INSERT INTO sale (customer_id)
-VALUES ($1);
+VALUES (@customer_id);
 
 -- name: AddSaleItem :exec
 INSERT INTO sale_item (sale_id, book_id, quantity, unit_price)
-VALUES ($1, $2, $3, $4);
+VALUES (@sale_id, @book_id, @quantity, @unit_price);
 
 -- name: ListBooksWithAuthor :many
 SELECT b.id, b.title, b.genre, b.price, b.published_at,

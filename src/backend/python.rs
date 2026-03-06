@@ -363,12 +363,12 @@ fn rewrite_sql_postgres(sql: &str) -> String {
     out
 }
 
-/// Strip digits after `?N` → `?` for sqlite3.
+/// Rewrite `?N` or `$N` → `?` for sqlite3.
 fn rewrite_sql_sqlite(sql: &str) -> String {
     let mut out = String::with_capacity(sql.len());
     let mut chars = sql.chars().peekable();
     while let Some(ch) = chars.next() {
-        if ch == '?' && chars.peek().is_some_and(|c| c.is_ascii_digit()) {
+        if (ch == '?' || ch == '$') && chars.peek().is_some_and(|c| c.is_ascii_digit()) {
             out.push('?');
             while chars.peek().is_some_and(|c| c.is_ascii_digit()) {
                 chars.next();

@@ -184,8 +184,8 @@ fn normalize_sql_for_sqlx(sql: &str, target: &RustTarget) -> String {
     while let Some(ch) = chars.next() {
         match target {
             RustTarget::Sqlite => {
-                // Strip digits after `?`
-                if ch == '?' && chars.peek().is_some_and(|c| c.is_ascii_digit()) {
+                // Rewrite `?N` or `$N` → `?` (sqlx sqlite uses bare `?`)
+                if (ch == '?' || ch == '$') && chars.peek().is_some_and(|c| c.is_ascii_digit()) {
                     out.push('?');
                     while chars.peek().is_some_and(|c| c.is_ascii_digit()) {
                         chars.next();

@@ -1,3 +1,4 @@
+pub(crate) mod named_params;
 pub(crate) mod query;
 
 use sqlparser::ast::{ColumnDef, ColumnOption, DataType, Ident, ObjectName, TableConstraint};

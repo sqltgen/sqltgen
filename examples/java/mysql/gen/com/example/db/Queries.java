@@ -29,7 +29,7 @@ public final class Queries {
             ps.setLong(1, id);
             try (ResultSet rs = ps.executeQuery()) {
                 if (!rs.next()) return Optional.empty();
-                return Optional.of(new Author(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getInt(4)));
+                return Optional.of(new Author(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getObject(4, Integer.class)));
             }
         }
     }
@@ -40,7 +40,7 @@ public final class Queries {
         try (PreparedStatement ps = conn.prepareStatement(SQL_LIST_AUTHORS)) {
             List<Author> rows = new ArrayList<>();
             try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) rows.add(new Author(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getInt(4)));
+                while (rs.next()) rows.add(new Author(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getObject(4, Integer.class)));
             }
             return rows;
         }

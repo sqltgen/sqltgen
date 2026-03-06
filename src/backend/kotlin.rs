@@ -207,12 +207,15 @@ fn rs_read_expr(sql_type: &SqlType, nullable: bool, idx: usize) -> String {
     // matching the nullable Kotlin type (e.g. Long? instead of Long).
     if nullable {
         match sql_type {
-            SqlType::Boolean => return format!("rs.getObject({idx}, java.lang.Boolean::class.java)"),
-            SqlType::SmallInt => return format!("rs.getObject({idx}, java.lang.Short::class.java)"),
-            SqlType::Integer => return format!("rs.getObject({idx}, java.lang.Integer::class.java)"),
-            SqlType::BigInt => return format!("rs.getObject({idx}, java.lang.Long::class.java)"),
-            SqlType::Real => return format!("rs.getObject({idx}, java.lang.Float::class.java)"),
-            SqlType::Double => return format!("rs.getObject({idx}, java.lang.Double::class.java)"),
+            // getObject returns a Java boxed type (platform type T!). Kotlin requires
+            // an explicit conversion to its nullable primitive (e.g. Int?) because the
+            // platform type is not automatically widened to the Kotlin nullable primitive.
+            SqlType::Boolean => return format!("rs.getObject({idx}, java.lang.Boolean::class.java) as Boolean?"),
+            SqlType::SmallInt => return format!("rs.getObject({idx}, java.lang.Short::class.java)?.toShort()"),
+            SqlType::Integer => return format!("rs.getObject({idx}, java.lang.Integer::class.java)?.toInt()"),
+            SqlType::BigInt => return format!("rs.getObject({idx}, java.lang.Long::class.java)?.toLong()"),
+            SqlType::Real => return format!("rs.getObject({idx}, java.lang.Float::class.java)?.toFloat()"),
+            SqlType::Double => return format!("rs.getObject({idx}, java.lang.Double::class.java)?.toDouble()"),
             _ => {}, // reference types already return null naturally
         }
     }
@@ -509,7 +512,7 @@ mod tests {
         };
         let files = KotlinCodegen.generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.kt");
-        assert!(src.contains("rs.getObject(1, java.lang.Long::class.java)"));
+        assert!(src.contains("rs.getObject(1, java.lang.Long::class.java)?.toLong()"));
         assert!(!src.contains("rs.getLong(1)"));
     }
 

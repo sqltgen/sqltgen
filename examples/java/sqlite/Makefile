@@ -7,6 +7,7 @@ clean:
 	rm -rf gen
 
 generate:
+	rm -rf gen
 	$(SQLTGEN) generate --config sqltgen.json
 
 build: generate

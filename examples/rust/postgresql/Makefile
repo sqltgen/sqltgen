@@ -8,6 +8,7 @@ clean:
 	rm -rf src/db
 
 generate:
+	rm -rf src/db
 	$(SQLTGEN) generate --config sqltgen.json
 
 build:

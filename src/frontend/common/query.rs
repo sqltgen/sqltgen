@@ -7,7 +7,7 @@ use sqlparser::ast::{
 use sqlparser::dialect::Dialect;
 use sqlparser::parser::Parser;
 
-use crate::frontend::common::{ident_to_str, obj_name_to_str};
+use crate::frontend::common::{ident_to_str, named_params, obj_name_to_str};
 use crate::ir::{Column, Parameter, Query, QueryCmd, ResultColumn, Schema, SqlType, Table};
 
 /// Dialect-agnostic type inference configuration.
@@ -100,12 +100,18 @@ fn parse_annotation(line: &str) -> Option<Annotation> {
 // ─── Query building ──────────────────────────────────────────────────────────
 
 fn build_query_with_dialect(dialect: &dyn Dialect, ann: &Annotation, sql: &str, schema: &Schema, config: &ResolverConfig) -> anyhow::Result<Query> {
+    let (sql_buf, np) = match named_params::preprocess_named_params(sql) {
+        Some((rewritten, params)) => (rewritten, params),
+        None => (sql.to_string(), vec![]),
+    };
+    let sql = sql_buf.as_str();
+
     let stmts = match Parser::parse_sql(dialect, sql) {
         Ok(s) if !s.is_empty() => s,
         _ => return Ok(bare(ann, sql)),
     };
 
-    let query = match &stmts[0] {
+    let mut query = match &stmts[0] {
         Statement::Query(q) => build_select(ann, sql, q, schema, config),
         Statement::Insert(ins) => build_insert(ann, sql, ins, schema, config),
         Statement::Update { table, assignments, selection, returning, .. } => {
@@ -114,6 +120,7 @@ fn build_query_with_dialect(dialect: &dyn Dialect, ann: &Annotation, sql: &str, 
         Statement::Delete(del) => build_delete(ann, sql, del, schema, config),
         _ => bare(ann, sql),
     };
+    named_params::apply_named_param_overrides(&mut query.params, &np);
     Ok(query)
 }
 
@@ -1030,5 +1037,55 @@ mod tests {
         assert_eq!(q.result_columns[0].sql_type, SqlType::BigInt);
         assert_eq!(q.result_columns[1].name, "name");
         assert_eq!(q.result_columns[1].sql_type, SqlType::Text);
+    }
+
+    // ─── Named param integration tests ────────────────────────────────────────
+
+    #[test]
+    fn test_named_param_select_type_inferred() {
+        let sql = "-- name: GetUser :one\nSELECT id, name FROM users WHERE id = @user_id;";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        assert_eq!(q.params.len(), 1);
+        assert_eq!(q.params[0].name, "user_id");
+        assert_eq!(q.params[0].sql_type, SqlType::BigInt);
+        assert_eq!(q.params[0].nullable, false);
+        assert!(q.sql.contains("$1"));
+        assert!(!q.sql.contains("@user_id"));
+    }
+
+    #[test]
+    fn test_named_param_repeated_becomes_one_param() {
+        let sql = "-- name: Test :exec\nUPDATE users SET name = @name WHERE name = @name;";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        assert_eq!(q.params.len(), 1);
+        assert_eq!(q.params[0].name, "name");
+        assert_eq!(q.sql.matches("$1").count(), 2);
+    }
+
+    #[test]
+    fn test_named_param_annotation_forces_nullable() {
+        let sql = "-- name: Test :many\n-- @bio null\nSELECT id FROM users WHERE bio = @bio;";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        assert_eq!(q.params[0].name, "bio");
+        assert_eq!(q.params[0].nullable, true);
+    }
+
+    #[test]
+    fn test_named_param_annotation_forces_type_and_not_null() {
+        let sql = "-- name: Test :many\n-- @bio text not null\nSELECT id FROM users WHERE bio = @bio;";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        assert_eq!(q.params[0].sql_type, SqlType::Text);
+        assert_eq!(q.params[0].nullable, false);
+    }
+
+    #[test]
+    fn test_named_param_update() {
+        let sql = "-- name: UpdateUser :exec\nUPDATE users SET name = @name WHERE id = @user_id;";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        assert_eq!(q.params.len(), 2);
+        assert_eq!(q.params[0].name, "name");
+        assert_eq!(q.params[0].sql_type, SqlType::Text);
+        assert_eq!(q.params[1].name, "user_id");
+        assert_eq!(q.params[1].sql_type, SqlType::BigInt);
     }
 }

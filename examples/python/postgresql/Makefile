@@ -3,13 +3,17 @@ PG      := ../../common/postgresql
 VENV    := .venv
 PYTHON  := $(VENV)/bin/python
 
-.PHONY: generate build db-up db-down run
+.PHONY: clean generate build db-up db-down run
 
 $(VENV):
 	python3 -m venv $(VENV)
 	$(PYTHON) -m pip install -q -r requirements.txt
 
+clean:
+	rm -rf gen $(VENV)
+
 generate:
+	rm -rf gen
 	$(SQLTGEN) generate --config sqltgen.json
 
 build: generate $(VENV)

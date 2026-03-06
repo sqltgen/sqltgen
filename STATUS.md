@@ -41,8 +41,8 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | Query: `:copyfrom` (bulk insert) | ❌ | — | — |
 | Query: `$N` parameter inference | ✅ | — | ✅ (via GenericDialect; bare `?` planned) |
 | Query: `?N` parameter inference | — | ✅ | — |
-| Query: named parameters (`@name` / inline macro) | ❌ | ❌ | ❌ |
-| Query: nullable named parameters (inline macro) | ❌ | ❌ | ❌ |
+| Query: named parameters (`@name` + `-- @name [type] [null\|not null]`) | ✅ | ✅ | ✅ |
+| Query: nullable named parameters (`-- @name null`) | ✅ | ✅ | ✅ |
 | Query: result struct embedding (inline macro) | ❌ | ❌ | ❌ |
 | Query: dynamic IN clause expansion (inline macro) | ❌ | ❌ | ❌ |
 | Query: result column inference | ✅ | ✅ | ✅ |
@@ -194,7 +194,9 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | MySQL typemap | 10 |
 | MySQL DDL schema | 13 |
 | MySQL query parser | 7 |
-| **Total** | **122 (all passing)** |
+| Named params (unit) | 10 |
+| Named params (integration) | 5 |
+| **Total** | **223 (all passing)** |
 
 ---
 

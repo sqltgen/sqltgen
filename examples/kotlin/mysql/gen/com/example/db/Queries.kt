@@ -20,7 +20,7 @@ object Queries {
             ps.setLong(1, id)
             ps.executeQuery().use { rs ->
                 if (!rs.next()) return null
-                return Author(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getInt(4))
+                return Author(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getObject(4, java.lang.Integer::class.java)?.toInt())
             }
         }
     }
@@ -30,7 +30,7 @@ object Queries {
         conn.prepareStatement(SQL_LIST_AUTHORS).use { ps ->
             val rows = mutableListOf<Author>()
             ps.executeQuery().use { rs ->
-                while (rs.next()) rows.add(Author(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getInt(4)))
+                while (rs.next()) rows.add(Author(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getObject(4, java.lang.Integer::class.java)?.toInt()))
             }
             return rows
         }

@@ -1,6 +1,6 @@
 SQLTGEN := ./target/debug/sqltgen
 
-.PHONY: all build test generate java kotlin rust run-all db-up db-down
+.PHONY: all build test generate java kotlin rust python run-all db-up db-down
 
 all: build test
 
@@ -21,6 +21,7 @@ generate: $(SQLTGEN)
 	$(MAKE) -C examples/java    generate
 	$(MAKE) -C examples/kotlin  generate
 	$(MAKE) -C examples/rust    generate
+	$(MAKE) -C examples/python  generate
 
 # ── Examples ──────────────────────────────────────────────────────────────────
 
@@ -33,7 +34,10 @@ kotlin: $(SQLTGEN)
 rust: $(SQLTGEN)
 	$(MAKE) -C examples/rust run
 
-run-all: java kotlin rust
+python: $(SQLTGEN)
+	$(MAKE) -C examples/python run
+
+run-all: java kotlin rust python
 
 # ── PostgreSQL database ───────────────────────────────────────────────────────
 
