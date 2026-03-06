@@ -32,9 +32,7 @@ pub(crate) fn obj_name_to_str(name: &ObjectName) -> String {
 /// Extracts PRIMARY KEY column names from a table-level constraint, if any.
 pub(crate) fn pk_columns_from_constraint(tc: &TableConstraint) -> Vec<String> {
     match tc {
-        TableConstraint::PrimaryKey { columns, .. } => {
-            columns.iter().map(ident_to_str).collect()
-        }
+        TableConstraint::PrimaryKey { columns, .. } => columns.iter().map(ident_to_str).collect(),
         _ => vec![],
     }
 }
@@ -45,10 +43,7 @@ pub(crate) fn pk_columns_from_constraint(tc: &TableConstraint) -> Vec<String> {
 ///
 /// `map_type` is the dialect-specific type mapper (e.g. `postgres::typemap::map`
 /// or `sqlite::typemap::map`).
-pub(crate) fn build_column(
-    col_def: &ColumnDef,
-    map_type: fn(&DataType) -> SqlType,
-) -> Column {
+pub(crate) fn build_column(col_def: &ColumnDef, map_type: fn(&DataType) -> SqlType) -> Column {
     let name = ident_to_str(&col_def.name);
     let sql_type = map_type(&col_def.data_type);
 
@@ -62,10 +57,10 @@ pub(crate) fn build_column(
             ColumnOption::Unique { is_primary, .. } if *is_primary => {
                 is_primary_key = true;
                 nullable = false;
-            }
+            },
             // GENERATED ALWAYS AS IDENTITY implies non-null (PostgreSQL; harmless on SQLite)
             ColumnOption::Generated { .. } => nullable = false,
-            _ => {}
+            _ => {},
         }
     }
 
@@ -75,12 +70,7 @@ pub(crate) fn build_column(
 /// Builds a [`Table`] from a `CREATE TABLE` AST node.
 ///
 /// `map_type` is passed through to [`build_column`].
-pub(crate) fn build_create_table(
-    name: &ObjectName,
-    column_defs: &[ColumnDef],
-    constraints: &[TableConstraint],
-    map_type: fn(&DataType) -> SqlType,
-) -> Table {
+pub(crate) fn build_create_table(name: &ObjectName, column_defs: &[ColumnDef], constraints: &[TableConstraint], map_type: fn(&DataType) -> SqlType) -> Table {
     let table_name = obj_name_to_str(name);
 
     // Collect table-level PRIMARY KEY column names
@@ -89,10 +79,7 @@ pub(crate) fn build_create_table(
         pk_cols.extend(pk_columns_from_constraint(constraint));
     }
 
-    let mut columns: Vec<Column> = column_defs
-        .iter()
-        .map(|col_def| build_column(col_def, map_type))
-        .collect();
+    let mut columns: Vec<Column> = column_defs.iter().map(|col_def| build_column(col_def, map_type)).collect();
 
     // Promote columns that appear in a table-level PRIMARY KEY
     for col in &mut columns {

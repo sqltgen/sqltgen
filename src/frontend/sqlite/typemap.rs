@@ -9,20 +9,13 @@ pub fn map(dt: &DataType) -> SqlType {
 
         DataType::Int2(_) | DataType::SmallInt(_) => SqlType::SmallInt,
 
-        DataType::Int(_)
-        | DataType::Int4(_)
-        | DataType::Integer(_)
-        | DataType::UnsignedInt(_)
-        | DataType::UnsignedInteger(_) => SqlType::Integer,
+        DataType::Int(_) | DataType::Int4(_) | DataType::Integer(_) | DataType::UnsignedInt(_) | DataType::UnsignedInteger(_) => SqlType::Integer,
 
         DataType::Int8(_) | DataType::BigInt(_) | DataType::UnsignedBigInt(_) => SqlType::BigInt,
 
         DataType::Real | DataType::Float4 => SqlType::Real,
 
-        DataType::Double
-        | DataType::DoublePrecision
-        | DataType::Float8
-        | DataType::Float64 => SqlType::Double,
+        DataType::Double | DataType::DoublePrecision | DataType::Float8 | DataType::Float64 => SqlType::Double,
 
         DataType::Float(_) => SqlType::Double,
 
@@ -35,9 +28,7 @@ pub fn map(dt: &DataType) -> SqlType {
         DataType::Char(_) | DataType::Character(_) => SqlType::Char(None),
 
         // SQLite uses BLOB for binary data
-        DataType::Blob(_) | DataType::Bytea | DataType::Varbinary(_) | DataType::Binary(_) => {
-            SqlType::Bytes
-        }
+        DataType::Blob(_) | DataType::Bytea | DataType::Varbinary(_) | DataType::Binary(_) => SqlType::Bytes,
 
         DataType::Date => SqlType::Date,
 
@@ -52,12 +43,7 @@ pub fn map(dt: &DataType) -> SqlType {
 }
 
 fn map_custom(name: &ObjectName) -> SqlType {
-    let upper = name
-        .0
-        .iter()
-        .map(|i| i.value.to_uppercase())
-        .collect::<Vec<_>>()
-        .join(".");
+    let upper = name.0.iter().map(|i| i.value.to_uppercase()).collect::<Vec<_>>().join(".");
     match upper.as_str() {
         "INT" | "INTEGER" | "INT4" => SqlType::Integer,
         "INT2" | "SMALLINT" | "TINYINT" => SqlType::SmallInt,

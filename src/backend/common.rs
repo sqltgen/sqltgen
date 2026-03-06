@@ -44,9 +44,7 @@ pub fn to_snake_case(s: &str) -> String {
 /// Check if a query's result columns exactly match a table's columns by name and count.
 pub fn infer_table<'a>(query: &Query, schema: &'a Schema) -> Option<&'a str> {
     for table in &schema.tables {
-        if table.columns.len() == query.result_columns.len()
-            && table.columns.iter().zip(&query.result_columns).all(|(a, b)| a.name == b.name)
-        {
+        if table.columns.len() == query.result_columns.len() && table.columns.iter().zip(&query.result_columns).all(|(a, b)| a.name == b.name) {
             return Some(&table.name);
         }
     }

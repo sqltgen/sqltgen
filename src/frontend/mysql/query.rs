@@ -1,7 +1,7 @@
 use sqlparser::dialect::GenericDialect;
 
-use crate::ir::{Query, Schema, SqlType};
 use crate::frontend::common::query::{parse_queries_with_config, ResolverConfig};
+use crate::ir::{Query, Schema, SqlType};
 
 /// Parses an annotated MySQL query file into a list of [Query] models.
 ///
@@ -12,12 +12,7 @@ use crate::frontend::common::query::{parse_queries_with_config, ResolverConfig};
 ///
 /// Future work: switch to proper bare `?` and named param (`:name` / `@name`) support.
 pub fn parse_queries(sql: &str, schema: &Schema) -> anyhow::Result<Vec<Query>> {
-    parse_queries_with_config(
-        &GenericDialect {},
-        sql,
-        schema,
-        &ResolverConfig { sum_integer_type: SqlType::Decimal },
-    )
+    parse_queries_with_config(&GenericDialect {}, sql, schema, &ResolverConfig { sum_integer_type: SqlType::Decimal })
 }
 
 #[cfg(test)]
@@ -30,30 +25,10 @@ mod tests {
             tables: vec![Table {
                 name: "users".into(),
                 columns: vec![
-                    Column {
-                        name: "id".into(),
-                        sql_type: SqlType::BigInt,
-                        nullable: false,
-                        is_primary_key: true,
-                    },
-                    Column {
-                        name: "name".into(),
-                        sql_type: SqlType::VarChar(None),
-                        nullable: false,
-                        is_primary_key: false,
-                    },
-                    Column {
-                        name: "email".into(),
-                        sql_type: SqlType::VarChar(None),
-                        nullable: false,
-                        is_primary_key: false,
-                    },
-                    Column {
-                        name: "bio".into(),
-                        sql_type: SqlType::Text,
-                        nullable: true,
-                        is_primary_key: false,
-                    },
+                    Column { name: "id".into(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
+                    Column { name: "name".into(), sql_type: SqlType::VarChar(None), nullable: false, is_primary_key: false },
+                    Column { name: "email".into(), sql_type: SqlType::VarChar(None), nullable: false, is_primary_key: false },
+                    Column { name: "bio".into(), sql_type: SqlType::Text, nullable: true, is_primary_key: false },
                 ],
             }],
         }
@@ -83,8 +58,7 @@ mod tests {
 
     #[test]
     fn parses_insert() {
-        let sql =
-            "-- name: CreateUser :exec\nINSERT INTO users (name, email) VALUES ($1, $2);";
+        let sql = "-- name: CreateUser :exec\nINSERT INTO users (name, email) VALUES ($1, $2);";
         let q = &parse_queries(sql, &make_schema()).unwrap()[0];
         assert_eq!(q.cmd, crate::ir::QueryCmd::Exec);
         assert_eq!(q.params.len(), 2);
@@ -95,8 +69,7 @@ mod tests {
 
     #[test]
     fn parses_update() {
-        let sql =
-            "-- name: UpdateUser :exec\nUPDATE users SET name = $1, email = $2 WHERE id = $3;";
+        let sql = "-- name: UpdateUser :exec\nUPDATE users SET name = $1, email = $2 WHERE id = $3;";
         let q = &parse_queries(sql, &make_schema()).unwrap()[0];
         assert_eq!(q.params.len(), 3);
         assert_eq!(q.params[0].name, "name");

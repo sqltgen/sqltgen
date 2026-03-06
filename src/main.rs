@@ -47,16 +47,12 @@ fn read_schema_ddl(path: &Path) -> anyhow::Result<String> {
         entries.sort();
         let mut ddl = String::new();
         for entry in &entries {
-            ddl.push_str(
-                &std::fs::read_to_string(entry)
-                    .with_context(|| format!("reading schema file: {}", entry.display()))?,
-            );
+            ddl.push_str(&std::fs::read_to_string(entry).with_context(|| format!("reading schema file: {}", entry.display()))?);
             ddl.push('\n');
         }
         Ok(ddl)
     } else {
-        std::fs::read_to_string(path)
-            .with_context(|| format!("reading schema file: {}", path.display()))
+        std::fs::read_to_string(path).with_context(|| format!("reading schema file: {}", path.display()))
     }
 }
 
@@ -81,8 +77,7 @@ fn run_generate(config_path: &Path) -> anyhow::Result<()> {
     let query_paths = cfg.expand_queries(base_dir)?;
     let mut queries = Vec::new();
     for query_path in query_paths {
-        let queries_sql = std::fs::read_to_string(&query_path)
-            .with_context(|| format!("reading queries file: {}", query_path.display()))?;
+        let queries_sql = std::fs::read_to_string(&query_path).with_context(|| format!("reading queries file: {}", query_path.display()))?;
         let mut parsed = parser.parse_queries(&queries_sql, &schema)?;
         queries.append(&mut parsed);
     }
@@ -90,25 +85,25 @@ fn run_generate(config_path: &Path) -> anyhow::Result<()> {
     // Run each configured codegen target
     for (lang, output_config) in &cfg.gen {
         let codegen: Box<dyn Codegen> = match lang.as_str() {
-            "java"       => Box::new(backend::java::JavaCodegen),
-            "kotlin"     => Box::new(backend::kotlin::KotlinCodegen),
-            "rust"       => {
+            "java" => Box::new(backend::java::JavaCodegen),
+            "kotlin" => Box::new(backend::kotlin::KotlinCodegen),
+            "rust" => {
                 let target = match cfg.engine {
-                    Engine::Sqlite     => backend::rust::RustTarget::Sqlite,
-                    Engine::Mysql      => backend::rust::RustTarget::Mysql,
+                    Engine::Sqlite => backend::rust::RustTarget::Sqlite,
+                    Engine::Mysql => backend::rust::RustTarget::Mysql,
                     Engine::Postgresql => backend::rust::RustTarget::Postgres,
                 };
                 Box::new(backend::rust::RustCodegen { target })
-            }
-            "go"         => Box::new(backend::go::GoCodegen),
-            "python"     => {
+            },
+            "go" => Box::new(backend::go::GoCodegen),
+            "python" => {
                 let target = match cfg.engine {
-                    Engine::Sqlite     => backend::python::PythonTarget::Sqlite,
+                    Engine::Sqlite => backend::python::PythonTarget::Sqlite,
                     Engine::Postgresql => backend::python::PythonTarget::Postgres,
-                    Engine::Mysql      => backend::python::PythonTarget::Mysql,
+                    Engine::Mysql => backend::python::PythonTarget::Mysql,
                 };
                 Box::new(backend::python::PythonCodegen { target })
-            }
+            },
             "typescript" => Box::new(backend::typescript::TypeScriptCodegen),
             other => anyhow::bail!("unknown codegen target: {other}"),
         };
@@ -118,11 +113,9 @@ fn run_generate(config_path: &Path) -> anyhow::Result<()> {
         for file in files {
             let dest = base_dir.join(&file.path);
             if let Some(parent) = dest.parent() {
-                std::fs::create_dir_all(parent)
-                    .with_context(|| format!("creating directory: {}", parent.display()))?;
+                std::fs::create_dir_all(parent).with_context(|| format!("creating directory: {}", parent.display()))?;
             }
-            std::fs::write(&dest, &file.content)
-                .with_context(|| format!("writing file: {}", dest.display()))?;
+            std::fs::write(&dest, &file.content).with_context(|| format!("writing file: {}", dest.display()))?;
             println!("wrote {}", dest.display());
         }
     }

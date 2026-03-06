@@ -1,9 +1,7 @@
 use std::fmt::Write;
 use std::path::PathBuf;
 
-use crate::backend::common::{
-    emit_package, infer_table, jdbc_sql, sql_const_name, to_camel_case, to_pascal_case,
-};
+use crate::backend::common::{emit_package, infer_table, jdbc_sql, sql_const_name, to_camel_case, to_pascal_case};
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::OutputConfig;
 use crate::ir::{Query, QueryCmd, Schema, SqlType};
@@ -11,12 +9,7 @@ use crate::ir::{Query, QueryCmd, Schema, SqlType};
 pub struct JavaCodegen;
 
 impl Codegen for JavaCodegen {
-    fn generate(
-        &self,
-        schema: &Schema,
-        queries: &[Query],
-        config: &OutputConfig,
-    ) -> anyhow::Result<Vec<GeneratedFile>> {
+    fn generate(&self, schema: &Schema, queries: &[Query], config: &OutputConfig) -> anyhow::Result<Vec<GeneratedFile>> {
         let mut files = Vec::new();
 
         // One record class per table
@@ -25,10 +18,14 @@ impl Codegen for JavaCodegen {
             let mut src = String::new();
             emit_package(&mut src, &config.package, ";");
             writeln!(src, "public record {class_name}(")?;
-            let params: Vec<String> = table.columns.iter().map(|col| {
-                let ty = java_type(&col.sql_type, col.nullable);
-                format!("    {} {}", ty, to_camel_case(&col.name))
-            }).collect();
+            let params: Vec<String> = table
+                .columns
+                .iter()
+                .map(|col| {
+                    let ty = java_type(&col.sql_type, col.nullable);
+                    format!("    {} {}", ty, to_camel_case(&col.name))
+                })
+                .collect();
             writeln!(src, "{}", params.join(",\n"))?;
             writeln!(src, ") {{}}")?;
 
@@ -80,19 +77,17 @@ fn emit_java_query(src: &mut String, query: &Query, schema: &Schema) -> anyhow::
         QueryCmd::One => {
             let row_type = result_row_type(query, schema);
             format!("Optional<{row_type}>")
-        }
+        },
         QueryCmd::Many => {
             let row_type = result_row_type(query, schema);
             format!("List<{row_type}>")
-        }
+        },
         QueryCmd::Exec => "void".to_string(),
         QueryCmd::ExecRows => "long".to_string(),
     };
 
     let params_sig: String = std::iter::once("Connection conn".to_string())
-        .chain(query.params.iter().map(|p| {
-            format!("{} {}", java_type(&p.sql_type, p.nullable), to_camel_case(&p.name))
-        }))
+        .chain(query.params.iter().map(|p| format!("{} {}", java_type(&p.sql_type, p.nullable), to_camel_case(&p.name))))
         .collect::<Vec<_>>()
         .join(", ");
 
@@ -111,16 +106,16 @@ fn emit_java_query(src: &mut String, query: &Query, schema: &Schema) -> anyhow::
     match query.cmd {
         QueryCmd::Exec => {
             writeln!(src, "            ps.executeUpdate();")?;
-        }
+        },
         QueryCmd::ExecRows => {
             writeln!(src, "            return ps.executeUpdate();")?;
-        }
+        },
         QueryCmd::One => {
             writeln!(src, "            try (ResultSet rs = ps.executeQuery()) {{")?;
             writeln!(src, "                if (!rs.next()) return Optional.empty();")?;
             writeln!(src, "                return Optional.of({});", emit_row_constructor(query, schema))?;
             writeln!(src, "            }}")?;
-        }
+        },
         QueryCmd::Many => {
             let row_type = result_row_type(query, schema);
             writeln!(src, "            List<{row_type}> rows = new ArrayList<>();")?;
@@ -128,7 +123,7 @@ fn emit_java_query(src: &mut String, query: &Query, schema: &Schema) -> anyhow::
             writeln!(src, "                while (rs.next()) rows.add({});", emit_row_constructor(query, schema))?;
             writeln!(src, "            }}")?;
             writeln!(src, "            return rows;")?;
-        }
+        },
     }
 
     writeln!(src, "        }}")?;
@@ -153,9 +148,8 @@ fn row_record_name(query_name: &str) -> String {
 fn emit_row_record(src: &mut String, query: &Query) -> anyhow::Result<()> {
     let name = row_record_name(&query.name);
     writeln!(src, "    public record {name}(")?;
-    let fields: Vec<String> = query.result_columns.iter().map(|col| {
-        format!("        {} {}", java_type(&col.sql_type, col.nullable), to_camel_case(&col.name))
-    }).collect();
+    let fields: Vec<String> =
+        query.result_columns.iter().map(|col| format!("        {} {}", java_type(&col.sql_type, col.nullable), to_camel_case(&col.name))).collect();
     writeln!(src, "{}", fields.join(",\n"))?;
     writeln!(src, "    ) {{}}")?;
     Ok(())
@@ -163,9 +157,7 @@ fn emit_row_record(src: &mut String, query: &Query) -> anyhow::Result<()> {
 
 fn emit_row_constructor(query: &Query, schema: &Schema) -> String {
     let class = result_row_type(query, schema);
-    let args: Vec<String> = query.result_columns.iter().enumerate().map(|(i, col)| {
-        rs_read_expr(&col.sql_type, col.nullable, i + 1)
-    }).collect();
+    let args: Vec<String> = query.result_columns.iter().enumerate().map(|(i, col)| rs_read_expr(&col.sql_type, col.nullable, i + 1)).collect();
     format!("new {class}({})", args.join(", "))
 }
 
@@ -173,60 +165,95 @@ fn emit_row_constructor(query: &Query, schema: &Schema) -> String {
 
 pub fn java_type(sql_type: &SqlType, nullable: bool) -> String {
     match sql_type {
-        SqlType::Boolean   => if nullable { "Boolean".into()  } else { "boolean".into() },
-        SqlType::SmallInt  => if nullable { "Short".into()    } else { "short".into() },
-        SqlType::Integer   => if nullable { "Integer".into()  } else { "int".into() },
-        SqlType::BigInt    => if nullable { "Long".into()     } else { "long".into() },
-        SqlType::Real      => if nullable { "Float".into()    } else { "float".into() },
-        SqlType::Double    => if nullable { "Double".into()   } else { "double".into() },
-        SqlType::Decimal   => "java.math.BigDecimal".into(),
-        SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_)
-                           => "String".into(),
-        SqlType::Bytes     => "byte[]".into(),
-        SqlType::Date      => "java.time.LocalDate".into(),
-        SqlType::Time      => "java.time.LocalTime".into(),
+        SqlType::Boolean => {
+            if nullable {
+                "Boolean".into()
+            } else {
+                "boolean".into()
+            }
+        },
+        SqlType::SmallInt => {
+            if nullable {
+                "Short".into()
+            } else {
+                "short".into()
+            }
+        },
+        SqlType::Integer => {
+            if nullable {
+                "Integer".into()
+            } else {
+                "int".into()
+            }
+        },
+        SqlType::BigInt => {
+            if nullable {
+                "Long".into()
+            } else {
+                "long".into()
+            }
+        },
+        SqlType::Real => {
+            if nullable {
+                "Float".into()
+            } else {
+                "float".into()
+            }
+        },
+        SqlType::Double => {
+            if nullable {
+                "Double".into()
+            } else {
+                "double".into()
+            }
+        },
+        SqlType::Decimal => "java.math.BigDecimal".into(),
+        SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_) => "String".into(),
+        SqlType::Bytes => "byte[]".into(),
+        SqlType::Date => "java.time.LocalDate".into(),
+        SqlType::Time => "java.time.LocalTime".into(),
         SqlType::Timestamp => "java.time.LocalDateTime".into(),
         SqlType::TimestampTz => "java.time.OffsetDateTime".into(),
-        SqlType::Interval  => "String".into(),
-        SqlType::Uuid      => "java.util.UUID".into(),
+        SqlType::Interval => "String".into(),
+        SqlType::Uuid => "java.util.UUID".into(),
         SqlType::Json | SqlType::Jsonb => "String".into(),
         SqlType::Array(inner) => {
             let t = format!("java.util.List<{}>", java_type_boxed(inner));
             return if nullable { format!("@Nullable {t}") } else { t };
-        }
+        },
         SqlType::Custom(_) => "Object".into(),
     }
 }
 
 fn java_type_boxed(sql_type: &SqlType) -> String {
     match sql_type {
-        SqlType::Boolean  => "Boolean".into(),
+        SqlType::Boolean => "Boolean".into(),
         SqlType::SmallInt => "Short".into(),
-        SqlType::Integer  => "Integer".into(),
-        SqlType::BigInt   => "Long".into(),
-        SqlType::Real     => "Float".into(),
-        SqlType::Double   => "Double".into(),
+        SqlType::Integer => "Integer".into(),
+        SqlType::BigInt => "Long".into(),
+        SqlType::Real => "Float".into(),
+        SqlType::Double => "Double".into(),
         other => java_type(other, false),
     }
 }
 
 fn jdbc_setter(sql_type: &SqlType) -> &'static str {
     match sql_type {
-        SqlType::Boolean               => "setBoolean",
-        SqlType::SmallInt              => "setShort",
-        SqlType::Integer               => "setInt",
-        SqlType::BigInt                => "setLong",
-        SqlType::Real                  => "setFloat",
-        SqlType::Double                => "setDouble",
-        SqlType::Decimal               => "setBigDecimal",
+        SqlType::Boolean => "setBoolean",
+        SqlType::SmallInt => "setShort",
+        SqlType::Integer => "setInt",
+        SqlType::BigInt => "setLong",
+        SqlType::Real => "setFloat",
+        SqlType::Double => "setDouble",
+        SqlType::Decimal => "setBigDecimal",
         SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_) => "setString",
-        SqlType::Bytes                 => "setBytes",
-        SqlType::Date                  => "setObject",
-        SqlType::Time                  => "setObject",
-        SqlType::Timestamp             => "setObject",
-        SqlType::TimestampTz           => "setObject",
-        SqlType::Uuid                  => "setObject",
-        _                              => "setObject",
+        SqlType::Bytes => "setBytes",
+        SqlType::Date => "setObject",
+        SqlType::Time => "setObject",
+        SqlType::Timestamp => "setObject",
+        SqlType::TimestampTz => "setObject",
+        SqlType::Uuid => "setObject",
+        _ => "setObject",
     }
 }
 
@@ -236,31 +263,31 @@ fn rs_read_expr(sql_type: &SqlType, nullable: bool, idx: usize) -> String {
     // so that the result can be null, matching the @Nullable field declaration.
     if nullable {
         match sql_type {
-            SqlType::Boolean  => return format!("rs.getObject({idx}, Boolean.class)"),
+            SqlType::Boolean => return format!("rs.getObject({idx}, Boolean.class)"),
             SqlType::SmallInt => return format!("rs.getObject({idx}, Short.class)"),
-            SqlType::Integer  => return format!("rs.getObject({idx}, Integer.class)"),
-            SqlType::BigInt   => return format!("rs.getObject({idx}, Long.class)"),
-            SqlType::Real     => return format!("rs.getObject({idx}, Float.class)"),
-            SqlType::Double   => return format!("rs.getObject({idx}, Double.class)"),
-            _ => {} // reference types already return null naturally
+            SqlType::Integer => return format!("rs.getObject({idx}, Integer.class)"),
+            SqlType::BigInt => return format!("rs.getObject({idx}, Long.class)"),
+            SqlType::Real => return format!("rs.getObject({idx}, Float.class)"),
+            SqlType::Double => return format!("rs.getObject({idx}, Double.class)"),
+            _ => {}, // reference types already return null naturally
         }
     }
     match sql_type {
-        SqlType::Boolean    => format!("rs.getBoolean({idx})"),
-        SqlType::SmallInt   => format!("rs.getShort({idx})"),
-        SqlType::Integer    => format!("rs.getInt({idx})"),
-        SqlType::BigInt     => format!("rs.getLong({idx})"),
-        SqlType::Real       => format!("rs.getFloat({idx})"),
-        SqlType::Double     => format!("rs.getDouble({idx})"),
-        SqlType::Decimal    => format!("rs.getBigDecimal({idx})"),
+        SqlType::Boolean => format!("rs.getBoolean({idx})"),
+        SqlType::SmallInt => format!("rs.getShort({idx})"),
+        SqlType::Integer => format!("rs.getInt({idx})"),
+        SqlType::BigInt => format!("rs.getLong({idx})"),
+        SqlType::Real => format!("rs.getFloat({idx})"),
+        SqlType::Double => format!("rs.getDouble({idx})"),
+        SqlType::Decimal => format!("rs.getBigDecimal({idx})"),
         SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_) => format!("rs.getString({idx})"),
-        SqlType::Bytes      => format!("rs.getBytes({idx})"),
-        SqlType::Date       => format!("rs.getObject({idx}, java.time.LocalDate.class)"),
-        SqlType::Time       => format!("rs.getObject({idx}, java.time.LocalTime.class)"),
-        SqlType::Timestamp  => format!("rs.getObject({idx}, java.time.LocalDateTime.class)"),
+        SqlType::Bytes => format!("rs.getBytes({idx})"),
+        SqlType::Date => format!("rs.getObject({idx}, java.time.LocalDate.class)"),
+        SqlType::Time => format!("rs.getObject({idx}, java.time.LocalTime.class)"),
+        SqlType::Timestamp => format!("rs.getObject({idx}, java.time.LocalDateTime.class)"),
         SqlType::TimestampTz => format!("rs.getObject({idx}, java.time.OffsetDateTime.class)"),
-        SqlType::Uuid       => format!("rs.getObject({idx}, java.util.UUID.class)"),
-        _                   => format!("rs.getObject({idx})"),
+        SqlType::Uuid => format!("rs.getObject({idx}, java.util.UUID.class)"),
+        _ => format!("rs.getObject({idx})"),
     }
 }
 
@@ -279,19 +306,16 @@ mod tests {
     }
 
     fn get_file<'a>(files: &'a [GeneratedFile], name: &str) -> &'a str {
-        files.iter()
-            .find(|f| f.path.file_name().is_some_and(|n| n == name))
-            .unwrap_or_else(|| panic!("file {name:?} not found"))
-            .content.as_str()
+        files.iter().find(|f| f.path.file_name().is_some_and(|n| n == name)).unwrap_or_else(|| panic!("file {name:?} not found")).content.as_str()
     }
 
     fn user_table() -> Table {
         Table {
             name: "user".to_string(),
             columns: vec![
-                Column { name: "id".to_string(),   sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
-                Column { name: "name".to_string(), sql_type: SqlType::Text,   nullable: false, is_primary_key: false },
-                Column { name: "bio".to_string(),  sql_type: SqlType::Text,   nullable: true,  is_primary_key: false },
+                Column { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
+                Column { name: "name".to_string(), sql_type: SqlType::Text, nullable: false, is_primary_key: false },
+                Column { name: "bio".to_string(), sql_type: SqlType::Text, nullable: true, is_primary_key: false },
             ],
         }
     }
@@ -342,9 +366,9 @@ mod tests {
 
     #[test]
     fn test_java_type_temporal() {
-        assert_eq!(java_type(&SqlType::Date, false),        "java.time.LocalDate");
-        assert_eq!(java_type(&SqlType::Time, false),        "java.time.LocalTime");
-        assert_eq!(java_type(&SqlType::Timestamp, false),   "java.time.LocalDateTime");
+        assert_eq!(java_type(&SqlType::Date, false), "java.time.LocalDate");
+        assert_eq!(java_type(&SqlType::Time, false), "java.time.LocalTime");
+        assert_eq!(java_type(&SqlType::Timestamp, false), "java.time.LocalDateTime");
         assert_eq!(java_type(&SqlType::TimestampTz, false), "java.time.OffsetDateTime");
     }
 
@@ -355,7 +379,7 @@ mod tests {
 
     #[test]
     fn test_java_type_json() {
-        assert_eq!(java_type(&SqlType::Json, false),  "String");
+        assert_eq!(java_type(&SqlType::Json, false), "String");
         assert_eq!(java_type(&SqlType::Jsonb, false), "String");
     }
 
@@ -451,9 +475,9 @@ mod tests {
             sql: "SELECT id, name, bio FROM user WHERE id = $1".to_string(),
             params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
             result_columns: vec![
-                ResultColumn { name: "id".to_string(),   sql_type: SqlType::BigInt, nullable: false },
-                ResultColumn { name: "name".to_string(), sql_type: SqlType::Text,   nullable: false },
-                ResultColumn { name: "bio".to_string(),  sql_type: SqlType::Text,   nullable: true },
+                ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false },
+                ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
+                ResultColumn { name: "bio".to_string(), sql_type: SqlType::Text, nullable: true },
             ],
         };
         let files = JavaCodegen.generate(&schema, &[query], &cfg()).unwrap();
@@ -472,9 +496,9 @@ mod tests {
             sql: "SELECT id, name, bio FROM user".to_string(),
             params: vec![],
             result_columns: vec![
-                ResultColumn { name: "id".to_string(),   sql_type: SqlType::BigInt, nullable: false },
-                ResultColumn { name: "name".to_string(), sql_type: SqlType::Text,   nullable: false },
-                ResultColumn { name: "bio".to_string(),  sql_type: SqlType::Text,   nullable: true },
+                ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false },
+                ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
+                ResultColumn { name: "bio".to_string(), sql_type: SqlType::Text, nullable: true },
             ],
         };
         let files = JavaCodegen.generate(&schema, &[query], &cfg()).unwrap();
@@ -511,9 +535,7 @@ mod tests {
             cmd: QueryCmd::One,
             sql: "SELECT name FROM user WHERE id = $1".to_string(),
             params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
-            result_columns: vec![
-                ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
-            ],
+            result_columns: vec![ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false }],
         };
         let files = JavaCodegen.generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.java");
@@ -532,9 +554,7 @@ mod tests {
             cmd: QueryCmd::One,
             sql: "SELECT count FROM stats WHERE id = $1".to_string(),
             params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
-            result_columns: vec![
-                ResultColumn { name: "count".to_string(), sql_type: SqlType::Integer, nullable: true },
-            ],
+            result_columns: vec![ResultColumn { name: "count".to_string(), sql_type: SqlType::Integer, nullable: true }],
         };
         let files = JavaCodegen.generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.java");
@@ -550,9 +570,7 @@ mod tests {
             cmd: QueryCmd::One,
             sql: "SELECT count FROM stats WHERE id = $1".to_string(),
             params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
-            result_columns: vec![
-                ResultColumn { name: "count".to_string(), sql_type: SqlType::Integer, nullable: false },
-            ],
+            result_columns: vec![ResultColumn { name: "count".to_string(), sql_type: SqlType::Integer, nullable: false }],
         };
         let files = JavaCodegen.generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.java");
@@ -569,15 +587,15 @@ mod tests {
             cmd: QueryCmd::Exec,
             sql: "UPDATE user SET bio = $1 WHERE id = $2".to_string(),
             params: vec![
-                Parameter { index: 1, name: "bio".to_string(), sql_type: SqlType::Text,   nullable: true },
-                Parameter { index: 2, name: "id".to_string(),  sql_type: SqlType::BigInt, nullable: false },
+                Parameter { index: 1, name: "bio".to_string(), sql_type: SqlType::Text, nullable: true },
+                Parameter { index: 2, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false },
             ],
             result_columns: vec![],
         };
         let files = JavaCodegen.generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.java");
-        assert!(src.contains("ps.setObject(1, bio)"));   // nullable → setObject
-        assert!(src.contains("ps.setLong(2, id)"));      // non-nullable → typed setter
+        assert!(src.contains("ps.setObject(1, bio)")); // nullable → setObject
+        assert!(src.contains("ps.setLong(2, id)")); // non-nullable → typed setter
     }
 }
 

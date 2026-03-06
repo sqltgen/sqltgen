@@ -1,0 +1,12 @@
+edition = "2021"
+max_width = 160
+use_small_heuristics = "Max"
+fn_call_width = 160
+attr_fn_like_width = 160
+struct_lit_width = 160
+struct_variant_width = 160
+array_width = 160
+chain_width = 160
+single_line_if_else_max_width = 160
+match_block_trailing_comma = true
+newline_style = "Unix"

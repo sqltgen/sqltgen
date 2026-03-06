@@ -1,9 +1,9 @@
 pub mod common;
+pub mod go;
 pub mod java;
 pub mod kotlin;
-pub mod rust;
-pub mod go;
 pub mod python;
+pub mod rust;
 pub mod typescript;
 
 use std::path::PathBuf;
@@ -17,10 +17,5 @@ pub struct GeneratedFile {
 }
 
 pub trait Codegen {
-    fn generate(
-        &self,
-        schema: &Schema,
-        queries: &[Query],
-        config: &OutputConfig,
-    ) -> anyhow::Result<Vec<GeneratedFile>>;
+    fn generate(&self, schema: &Schema, queries: &[Query], config: &OutputConfig) -> anyhow::Result<Vec<GeneratedFile>>;
 }

@@ -9,20 +9,13 @@ pub fn map(dt: &DataType) -> SqlType {
 
         DataType::Int2(_) | DataType::SmallInt(_) => SqlType::SmallInt,
 
-        DataType::Int(_)
-        | DataType::Int4(_)
-        | DataType::Integer(_)
-        | DataType::UnsignedInt(_)
-        | DataType::UnsignedInteger(_) => SqlType::Integer,
+        DataType::Int(_) | DataType::Int4(_) | DataType::Integer(_) | DataType::UnsignedInt(_) | DataType::UnsignedInteger(_) => SqlType::Integer,
 
         DataType::Int8(_) | DataType::BigInt(_) | DataType::UnsignedBigInt(_) => SqlType::BigInt,
 
         DataType::Real | DataType::Float4 => SqlType::Real,
 
-        DataType::Double
-        | DataType::DoublePrecision
-        | DataType::Float8
-        | DataType::Float64 => SqlType::Double,
+        DataType::Double | DataType::DoublePrecision | DataType::Float8 | DataType::Float64 => SqlType::Double,
 
         DataType::Float(_) => SqlType::Double,
 
@@ -30,9 +23,7 @@ pub fn map(dt: &DataType) -> SqlType {
 
         DataType::Text | DataType::Clob(_) => SqlType::Text,
 
-        DataType::Varchar(_) | DataType::CharacterVarying(_) | DataType::Nvarchar(_) => {
-            SqlType::VarChar(None)
-        }
+        DataType::Varchar(_) | DataType::CharacterVarying(_) | DataType::Nvarchar(_) => SqlType::VarChar(None),
 
         DataType::Char(_) | DataType::Character(_) => SqlType::Char(None),
 
@@ -40,12 +31,10 @@ pub fn map(dt: &DataType) -> SqlType {
 
         DataType::Date => SqlType::Date,
 
-        DataType::Time(_, TimezoneInfo::None)
-        | DataType::Time(_, TimezoneInfo::WithoutTimeZone) => SqlType::Time,
+        DataType::Time(_, TimezoneInfo::None) | DataType::Time(_, TimezoneInfo::WithoutTimeZone) => SqlType::Time,
         DataType::Time(_, _) => SqlType::TimestampTz,
 
-        DataType::Timestamp(_, TimezoneInfo::None)
-        | DataType::Timestamp(_, TimezoneInfo::WithoutTimeZone) => SqlType::Timestamp,
+        DataType::Timestamp(_, TimezoneInfo::None) | DataType::Timestamp(_, TimezoneInfo::WithoutTimeZone) => SqlType::Timestamp,
         DataType::Timestamp(_, _) => SqlType::TimestampTz,
 
         DataType::Interval => SqlType::Interval,
@@ -55,10 +44,9 @@ pub fn map(dt: &DataType) -> SqlType {
         DataType::JSON => SqlType::Json,
         DataType::JSONB => SqlType::Jsonb,
 
-        DataType::Array(ArrayElemTypeDef::SquareBracket(inner, _))
-        | DataType::Array(ArrayElemTypeDef::AngleBracket(inner)) => {
+        DataType::Array(ArrayElemTypeDef::SquareBracket(inner, _)) | DataType::Array(ArrayElemTypeDef::AngleBracket(inner)) => {
             SqlType::Array(Box::new(map(inner)))
-        }
+        },
         DataType::Array(_) => SqlType::Array(Box::new(SqlType::Text)),
 
         DataType::Custom(obj_name, _) => map_custom(obj_name),
@@ -68,12 +56,7 @@ pub fn map(dt: &DataType) -> SqlType {
 }
 
 fn map_custom(name: &ObjectName) -> SqlType {
-    let upper = name
-        .0
-        .iter()
-        .map(|i| i.value.to_uppercase())
-        .collect::<Vec<_>>()
-        .join(".");
+    let upper = name.0.iter().map(|i| i.value.to_uppercase()).collect::<Vec<_>>().join(".");
     match upper.as_str() {
         "BIGSERIAL" | "SERIAL8" => SqlType::BigInt,
         "SERIAL" | "SERIAL4" => SqlType::Integer,
@@ -101,10 +84,7 @@ mod tests {
     use sqlparser::ast::{CharacterLength, ExactNumberInfo, ObjectName};
 
     fn custom(name: &str) -> DataType {
-        DataType::Custom(
-            ObjectName(vec![sqlparser::ast::Ident::new(name)]),
-            vec![],
-        )
+        DataType::Custom(ObjectName(vec![sqlparser::ast::Ident::new(name)]), vec![])
     }
 
     #[test]
@@ -134,17 +114,8 @@ mod tests {
     #[test]
     fn text_types() {
         assert_eq!(map(&DataType::Text), SqlType::Text);
-        assert!(matches!(
-            map(&DataType::Varchar(Some(CharacterLength::IntegerLength {
-                length: 255,
-                unit: None
-            }))),
-            SqlType::VarChar(_)
-        ));
-        assert!(matches!(
-            map(&DataType::CharacterVarying(None)),
-            SqlType::VarChar(_)
-        ));
+        assert!(matches!(map(&DataType::Varchar(Some(CharacterLength::IntegerLength { length: 255, unit: None }))), SqlType::VarChar(_)));
+        assert!(matches!(map(&DataType::CharacterVarying(None)), SqlType::VarChar(_)));
         assert!(matches!(map(&DataType::Char(None)), SqlType::Char(_)));
     }
 
@@ -155,18 +126,9 @@ mod tests {
 
     #[test]
     fn timestamp_types() {
-        assert_eq!(
-            map(&DataType::Timestamp(None, TimezoneInfo::None)),
-            SqlType::Timestamp
-        );
-        assert_eq!(
-            map(&DataType::Timestamp(None, TimezoneInfo::WithoutTimeZone)),
-            SqlType::Timestamp
-        );
-        assert_eq!(
-            map(&DataType::Timestamp(None, TimezoneInfo::WithTimeZone)),
-            SqlType::TimestampTz
-        );
+        assert_eq!(map(&DataType::Timestamp(None, TimezoneInfo::None)), SqlType::Timestamp);
+        assert_eq!(map(&DataType::Timestamp(None, TimezoneInfo::WithoutTimeZone)), SqlType::Timestamp);
+        assert_eq!(map(&DataType::Timestamp(None, TimezoneInfo::WithTimeZone)), SqlType::TimestampTz);
         assert_eq!(map(&custom("TIMESTAMPTZ")), SqlType::TimestampTz);
     }
 
@@ -193,26 +155,14 @@ mod tests {
 
     #[test]
     fn numeric_type() {
-        assert_eq!(
-            map(&DataType::Numeric(ExactNumberInfo::PrecisionAndScale(10, 2))),
-            SqlType::Decimal
-        );
+        assert_eq!(map(&DataType::Numeric(ExactNumberInfo::PrecisionAndScale(10, 2))), SqlType::Decimal);
         assert_eq!(map(&DataType::Numeric(ExactNumberInfo::None)), SqlType::Decimal);
     }
 
     #[test]
     fn array_types() {
-        assert!(matches!(
-            map(&DataType::Array(ArrayElemTypeDef::SquareBracket(
-                Box::new(DataType::Text),
-                None
-            ))),
-            SqlType::Array(_)
-        ));
-        if let SqlType::Array(inner) = map(&DataType::Array(ArrayElemTypeDef::SquareBracket(
-            Box::new(DataType::Integer(None)),
-            None,
-        ))) {
+        assert!(matches!(map(&DataType::Array(ArrayElemTypeDef::SquareBracket(Box::new(DataType::Text), None))), SqlType::Array(_)));
+        if let SqlType::Array(inner) = map(&DataType::Array(ArrayElemTypeDef::SquareBracket(Box::new(DataType::Integer(None)), None))) {
             assert_eq!(*inner, SqlType::Integer);
         } else {
             panic!("expected Array");

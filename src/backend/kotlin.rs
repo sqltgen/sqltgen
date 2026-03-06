@@ -1,9 +1,7 @@
 use std::fmt::Write;
 use std::path::PathBuf;
 
-use crate::backend::common::{
-    emit_package, infer_table, jdbc_sql, sql_const_name, to_camel_case, to_pascal_case,
-};
+use crate::backend::common::{emit_package, infer_table, jdbc_sql, sql_const_name, to_camel_case, to_pascal_case};
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::OutputConfig;
 use crate::ir::{Query, QueryCmd, Schema, SqlType};
@@ -11,12 +9,7 @@ use crate::ir::{Query, QueryCmd, Schema, SqlType};
 pub struct KotlinCodegen;
 
 impl Codegen for KotlinCodegen {
-    fn generate(
-        &self,
-        schema: &Schema,
-        queries: &[Query],
-        config: &OutputConfig,
-    ) -> anyhow::Result<Vec<GeneratedFile>> {
+    fn generate(&self, schema: &Schema, queries: &[Query], config: &OutputConfig) -> anyhow::Result<Vec<GeneratedFile>> {
         let mut files = Vec::new();
 
         // One data class per table
@@ -25,10 +18,14 @@ impl Codegen for KotlinCodegen {
             let mut src = String::new();
             emit_package(&mut src, &config.package, "");
             writeln!(src, "data class {class_name}(")?;
-            let params: Vec<String> = table.columns.iter().map(|col| {
-                let ty = kotlin_type(&col.sql_type, col.nullable);
-                format!("    val {}: {}", to_camel_case(&col.name), ty)
-            }).collect();
+            let params: Vec<String> = table
+                .columns
+                .iter()
+                .map(|col| {
+                    let ty = kotlin_type(&col.sql_type, col.nullable);
+                    format!("    val {}: {}", to_camel_case(&col.name), ty)
+                })
+                .collect();
             writeln!(src, "{}", params.join(",\n"))?;
             writeln!(src, ")")?;
 
@@ -72,19 +69,17 @@ fn emit_kotlin_query(src: &mut String, query: &Query, schema: &Schema) -> anyhow
         QueryCmd::One => {
             let row_type = result_row_type(query, schema);
             format!("{row_type}?")
-        }
+        },
         QueryCmd::Many => {
             let row_type = result_row_type(query, schema);
             format!("List<{row_type}>")
-        }
+        },
         QueryCmd::Exec => "Unit".to_string(),
         QueryCmd::ExecRows => "Long".to_string(),
     };
 
     let params_sig: String = std::iter::once("conn: Connection".to_string())
-        .chain(query.params.iter().map(|p| {
-            format!("{}: {}", to_camel_case(&p.name), kotlin_type(&p.sql_type, p.nullable))
-        }))
+        .chain(query.params.iter().map(|p| format!("{}: {}", to_camel_case(&p.name), kotlin_type(&p.sql_type, p.nullable))))
         .collect::<Vec<_>>()
         .join(", ");
 
@@ -103,16 +98,16 @@ fn emit_kotlin_query(src: &mut String, query: &Query, schema: &Schema) -> anyhow
     match query.cmd {
         QueryCmd::Exec => {
             writeln!(src, "            ps.executeUpdate()")?;
-        }
+        },
         QueryCmd::ExecRows => {
             writeln!(src, "            return ps.executeUpdate().toLong()")?;
-        }
+        },
         QueryCmd::One => {
             writeln!(src, "            ps.executeQuery().use {{ rs ->")?;
             writeln!(src, "                if (!rs.next()) return null")?;
             writeln!(src, "                return {}", emit_row_constructor(query, schema))?;
             writeln!(src, "            }}")?;
-        }
+        },
         QueryCmd::Many => {
             let row_type = result_row_type(query, schema);
             writeln!(src, "            val rows = mutableListOf<{row_type}>()")?;
@@ -120,7 +115,7 @@ fn emit_kotlin_query(src: &mut String, query: &Query, schema: &Schema) -> anyhow
             writeln!(src, "                while (rs.next()) rows.add({})", emit_row_constructor(query, schema))?;
             writeln!(src, "            }}")?;
             writeln!(src, "            return rows")?;
-        }
+        },
     }
 
     writeln!(src, "        }}")?;
@@ -145,9 +140,8 @@ fn row_class_name(query_name: &str) -> String {
 fn emit_row_class(src: &mut String, query: &Query) -> anyhow::Result<()> {
     let name = row_class_name(&query.name);
     writeln!(src, "    data class {name}(")?;
-    let fields: Vec<String> = query.result_columns.iter().map(|col| {
-        format!("        val {}: {}", to_camel_case(&col.name), kotlin_type(&col.sql_type, col.nullable))
-    }).collect();
+    let fields: Vec<String> =
+        query.result_columns.iter().map(|col| format!("        val {}: {}", to_camel_case(&col.name), kotlin_type(&col.sql_type, col.nullable))).collect();
     writeln!(src, "{}", fields.join(",\n"))?;
     writeln!(src, "    )")?;
     Ok(())
@@ -155,9 +149,7 @@ fn emit_row_class(src: &mut String, query: &Query) -> anyhow::Result<()> {
 
 fn emit_row_constructor(query: &Query, schema: &Schema) -> String {
     let class = result_row_type(query, schema);
-    let args: Vec<String> = query.result_columns.iter().enumerate().map(|(i, col)| {
-        rs_read_expr(&col.sql_type, col.nullable, i + 1)
-    }).collect();
+    let args: Vec<String> = query.result_columns.iter().enumerate().map(|(i, col)| rs_read_expr(&col.sql_type, col.nullable, i + 1)).collect();
     format!("{class}({})", args.join(", "))
 }
 
@@ -165,43 +157,47 @@ fn emit_row_constructor(query: &Query, schema: &Schema) -> String {
 
 pub fn kotlin_type(sql_type: &SqlType, nullable: bool) -> String {
     let base = match sql_type {
-        SqlType::Boolean   => "Boolean",
-        SqlType::SmallInt  => "Short",
-        SqlType::Integer   => "Int",
-        SqlType::BigInt    => "Long",
-        SqlType::Real      => "Float",
-        SqlType::Double    => "Double",
-        SqlType::Decimal   => "java.math.BigDecimal",
+        SqlType::Boolean => "Boolean",
+        SqlType::SmallInt => "Short",
+        SqlType::Integer => "Int",
+        SqlType::BigInt => "Long",
+        SqlType::Real => "Float",
+        SqlType::Double => "Double",
+        SqlType::Decimal => "java.math.BigDecimal",
         SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_) => "String",
-        SqlType::Bytes     => "ByteArray",
-        SqlType::Date      => "java.time.LocalDate",
-        SqlType::Time      => "java.time.LocalTime",
+        SqlType::Bytes => "ByteArray",
+        SqlType::Date => "java.time.LocalDate",
+        SqlType::Time => "java.time.LocalTime",
         SqlType::Timestamp => "java.time.LocalDateTime",
         SqlType::TimestampTz => "java.time.OffsetDateTime",
-        SqlType::Interval  => "String",
-        SqlType::Uuid      => "java.util.UUID",
+        SqlType::Interval => "String",
+        SqlType::Uuid => "java.util.UUID",
         SqlType::Json | SqlType::Jsonb => "String",
         SqlType::Array(inner) => {
             let t = format!("List<{}>", kotlin_type(inner, false));
             return if nullable { format!("{t}?") } else { t };
-        }
+        },
         SqlType::Custom(_) => "Any",
     };
-    if nullable { format!("{base}?") } else { base.to_string() }
+    if nullable {
+        format!("{base}?")
+    } else {
+        base.to_string()
+    }
 }
 
 fn jdbc_setter(sql_type: &SqlType) -> &'static str {
     match sql_type {
-        SqlType::Boolean               => "setBoolean",
-        SqlType::SmallInt              => "setShort",
-        SqlType::Integer               => "setInt",
-        SqlType::BigInt                => "setLong",
-        SqlType::Real                  => "setFloat",
-        SqlType::Double                => "setDouble",
-        SqlType::Decimal               => "setBigDecimal",
+        SqlType::Boolean => "setBoolean",
+        SqlType::SmallInt => "setShort",
+        SqlType::Integer => "setInt",
+        SqlType::BigInt => "setLong",
+        SqlType::Real => "setFloat",
+        SqlType::Double => "setDouble",
+        SqlType::Decimal => "setBigDecimal",
         SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_) => "setString",
-        SqlType::Bytes                 => "setBytes",
-        _                              => "setObject",
+        SqlType::Bytes => "setBytes",
+        _ => "setObject",
     }
 }
 
@@ -211,31 +207,31 @@ fn rs_read_expr(sql_type: &SqlType, nullable: bool, idx: usize) -> String {
     // matching the nullable Kotlin type (e.g. Long? instead of Long).
     if nullable {
         match sql_type {
-            SqlType::Boolean  => return format!("rs.getObject({idx}, java.lang.Boolean::class.java)"),
+            SqlType::Boolean => return format!("rs.getObject({idx}, java.lang.Boolean::class.java)"),
             SqlType::SmallInt => return format!("rs.getObject({idx}, java.lang.Short::class.java)"),
-            SqlType::Integer  => return format!("rs.getObject({idx}, java.lang.Integer::class.java)"),
-            SqlType::BigInt   => return format!("rs.getObject({idx}, java.lang.Long::class.java)"),
-            SqlType::Real     => return format!("rs.getObject({idx}, java.lang.Float::class.java)"),
-            SqlType::Double   => return format!("rs.getObject({idx}, java.lang.Double::class.java)"),
-            _ => {} // reference types already return null naturally
+            SqlType::Integer => return format!("rs.getObject({idx}, java.lang.Integer::class.java)"),
+            SqlType::BigInt => return format!("rs.getObject({idx}, java.lang.Long::class.java)"),
+            SqlType::Real => return format!("rs.getObject({idx}, java.lang.Float::class.java)"),
+            SqlType::Double => return format!("rs.getObject({idx}, java.lang.Double::class.java)"),
+            _ => {}, // reference types already return null naturally
         }
     }
     match sql_type {
-        SqlType::Boolean    => format!("rs.getBoolean({idx})"),
-        SqlType::SmallInt   => format!("rs.getShort({idx})"),
-        SqlType::Integer    => format!("rs.getInt({idx})"),
-        SqlType::BigInt     => format!("rs.getLong({idx})"),
-        SqlType::Real       => format!("rs.getFloat({idx})"),
-        SqlType::Double     => format!("rs.getDouble({idx})"),
-        SqlType::Decimal    => format!("rs.getBigDecimal({idx})"),
+        SqlType::Boolean => format!("rs.getBoolean({idx})"),
+        SqlType::SmallInt => format!("rs.getShort({idx})"),
+        SqlType::Integer => format!("rs.getInt({idx})"),
+        SqlType::BigInt => format!("rs.getLong({idx})"),
+        SqlType::Real => format!("rs.getFloat({idx})"),
+        SqlType::Double => format!("rs.getDouble({idx})"),
+        SqlType::Decimal => format!("rs.getBigDecimal({idx})"),
         SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_) => format!("rs.getString({idx})"),
-        SqlType::Bytes      => format!("rs.getBytes({idx})"),
-        SqlType::Date       => format!("rs.getObject({idx}, java.time.LocalDate::class.java)"),
-        SqlType::Time       => format!("rs.getObject({idx}, java.time.LocalTime::class.java)"),
-        SqlType::Timestamp  => format!("rs.getObject({idx}, java.time.LocalDateTime::class.java)"),
+        SqlType::Bytes => format!("rs.getBytes({idx})"),
+        SqlType::Date => format!("rs.getObject({idx}, java.time.LocalDate::class.java)"),
+        SqlType::Time => format!("rs.getObject({idx}, java.time.LocalTime::class.java)"),
+        SqlType::Timestamp => format!("rs.getObject({idx}, java.time.LocalDateTime::class.java)"),
         SqlType::TimestampTz => format!("rs.getObject({idx}, java.time.OffsetDateTime::class.java)"),
-        SqlType::Uuid       => format!("rs.getObject({idx}, java.util.UUID::class.java)"),
-        _                   => format!("rs.getObject({idx})"),
+        SqlType::Uuid => format!("rs.getObject({idx}, java.util.UUID::class.java)"),
+        _ => format!("rs.getObject({idx})"),
     }
 }
 
@@ -254,19 +250,16 @@ mod tests {
     }
 
     fn get_file<'a>(files: &'a [GeneratedFile], name: &str) -> &'a str {
-        files.iter()
-            .find(|f| f.path.file_name().is_some_and(|n| n == name))
-            .unwrap_or_else(|| panic!("file {name:?} not found"))
-            .content.as_str()
+        files.iter().find(|f| f.path.file_name().is_some_and(|n| n == name)).unwrap_or_else(|| panic!("file {name:?} not found")).content.as_str()
     }
 
     fn user_table() -> Table {
         Table {
             name: "user".to_string(),
             columns: vec![
-                Column { name: "id".to_string(),   sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
-                Column { name: "name".to_string(), sql_type: SqlType::Text,   nullable: false, is_primary_key: false },
-                Column { name: "bio".to_string(),  sql_type: SqlType::Text,   nullable: true,  is_primary_key: false },
+                Column { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
+                Column { name: "name".to_string(), sql_type: SqlType::Text, nullable: false, is_primary_key: false },
+                Column { name: "bio".to_string(), sql_type: SqlType::Text, nullable: true, is_primary_key: false },
             ],
         }
     }
@@ -321,9 +314,9 @@ mod tests {
 
     #[test]
     fn test_kotlin_type_temporal() {
-        assert_eq!(kotlin_type(&SqlType::Date, false),        "java.time.LocalDate");
-        assert_eq!(kotlin_type(&SqlType::Time, false),        "java.time.LocalTime");
-        assert_eq!(kotlin_type(&SqlType::Timestamp, false),   "java.time.LocalDateTime");
+        assert_eq!(kotlin_type(&SqlType::Date, false), "java.time.LocalDate");
+        assert_eq!(kotlin_type(&SqlType::Time, false), "java.time.LocalTime");
+        assert_eq!(kotlin_type(&SqlType::Timestamp, false), "java.time.LocalDateTime");
         assert_eq!(kotlin_type(&SqlType::TimestampTz, false), "java.time.OffsetDateTime");
     }
 
@@ -334,7 +327,7 @@ mod tests {
 
     #[test]
     fn test_kotlin_type_json() {
-        assert_eq!(kotlin_type(&SqlType::Json, false),  "String");
+        assert_eq!(kotlin_type(&SqlType::Json, false), "String");
         assert_eq!(kotlin_type(&SqlType::Jsonb, false), "String");
     }
 
@@ -369,7 +362,7 @@ mod tests {
         assert!(src.contains("data class User("));
         assert!(src.contains("val id: Long"));
         assert!(src.contains("val name: String"));
-        assert!(src.contains("val bio: String?"));   // nullable → String?
+        assert!(src.contains("val bio: String?")); // nullable → String?
     }
 
     #[test]
@@ -432,9 +425,9 @@ mod tests {
             sql: "SELECT id, name, bio FROM user WHERE id = $1".to_string(),
             params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
             result_columns: vec![
-                ResultColumn { name: "id".to_string(),   sql_type: SqlType::BigInt, nullable: false },
-                ResultColumn { name: "name".to_string(), sql_type: SqlType::Text,   nullable: false },
-                ResultColumn { name: "bio".to_string(),  sql_type: SqlType::Text,   nullable: true },
+                ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false },
+                ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
+                ResultColumn { name: "bio".to_string(), sql_type: SqlType::Text, nullable: true },
             ],
         };
         let files = KotlinCodegen.generate(&schema, &[query], &cfg()).unwrap();
@@ -454,9 +447,9 @@ mod tests {
             sql: "SELECT id, name, bio FROM user".to_string(),
             params: vec![],
             result_columns: vec![
-                ResultColumn { name: "id".to_string(),   sql_type: SqlType::BigInt, nullable: false },
-                ResultColumn { name: "name".to_string(), sql_type: SqlType::Text,   nullable: false },
-                ResultColumn { name: "bio".to_string(),  sql_type: SqlType::Text,   nullable: true },
+                ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false },
+                ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
+                ResultColumn { name: "bio".to_string(), sql_type: SqlType::Text, nullable: true },
             ],
         };
         let files = KotlinCodegen.generate(&schema, &[query], &cfg()).unwrap();
@@ -493,9 +486,7 @@ mod tests {
             cmd: QueryCmd::One,
             sql: "SELECT name FROM user WHERE id = $1".to_string(),
             params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
-            result_columns: vec![
-                ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
-            ],
+            result_columns: vec![ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false }],
         };
         let files = KotlinCodegen.generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.kt");
@@ -514,9 +505,7 @@ mod tests {
             cmd: QueryCmd::One,
             sql: "SELECT count FROM stats WHERE id = $1".to_string(),
             params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
-            result_columns: vec![
-                ResultColumn { name: "count".to_string(), sql_type: SqlType::BigInt, nullable: true },
-            ],
+            result_columns: vec![ResultColumn { name: "count".to_string(), sql_type: SqlType::BigInt, nullable: true }],
         };
         let files = KotlinCodegen.generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.kt");
@@ -532,9 +521,7 @@ mod tests {
             cmd: QueryCmd::One,
             sql: "SELECT count FROM stats WHERE id = $1".to_string(),
             params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
-            result_columns: vec![
-                ResultColumn { name: "count".to_string(), sql_type: SqlType::BigInt, nullable: false },
-            ],
+            result_columns: vec![ResultColumn { name: "count".to_string(), sql_type: SqlType::BigInt, nullable: false }],
         };
         let files = KotlinCodegen.generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.kt");
@@ -551,15 +538,15 @@ mod tests {
             cmd: QueryCmd::Exec,
             sql: "UPDATE user SET bio = $1 WHERE id = $2".to_string(),
             params: vec![
-                Parameter { index: 1, name: "bio".to_string(), sql_type: SqlType::Text,   nullable: true },
-                Parameter { index: 2, name: "id".to_string(),  sql_type: SqlType::BigInt, nullable: false },
+                Parameter { index: 1, name: "bio".to_string(), sql_type: SqlType::Text, nullable: true },
+                Parameter { index: 2, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false },
             ],
             result_columns: vec![],
         };
         let files = KotlinCodegen.generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.kt");
-        assert!(src.contains("ps.setObject(1, bio)"));    // nullable → setObject
-        assert!(src.contains("ps.setLong(2, id)"));       // non-nullable → typed setter
+        assert!(src.contains("ps.setObject(1, bio)")); // nullable → setObject
+        assert!(src.contains("ps.setLong(2, id)")); // non-nullable → typed setter
     }
 }
 

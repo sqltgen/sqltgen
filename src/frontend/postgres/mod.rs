@@ -2,8 +2,8 @@ pub mod query;
 pub mod schema;
 pub mod typemap;
 
-use crate::ir::{Query, Schema};
 use crate::frontend::DialectParser;
+use crate::ir::{Query, Schema};
 
 pub struct PostgresParser;
 

@@ -2,10 +2,7 @@ use sqlparser::ast::{AlterColumnOperation, AlterTableOperation, ObjectName, Obje
 use sqlparser::dialect::PostgreSqlDialect;
 use sqlparser::parser::Parser;
 
-use crate::frontend::common::{
-    apply_drop_tables, build_column, build_create_table, ident_to_str, obj_name_to_str,
-    pk_columns_from_constraint,
-};
+use crate::frontend::common::{apply_drop_tables, build_column, build_create_table, ident_to_str, obj_name_to_str, pk_columns_from_constraint};
 use crate::frontend::postgres::typemap;
 use crate::ir::Schema;
 
@@ -15,8 +12,7 @@ use crate::ir::Schema;
 /// All other statements are silently ignored.
 pub fn parse_schema(ddl: &str) -> anyhow::Result<Schema> {
     let dialect = PostgreSqlDialect {};
-    let stmts = Parser::parse_sql(&dialect, ddl)
-        .map_err(|e| anyhow::anyhow!("DDL parse error: {e}"))?;
+    let stmts = Parser::parse_sql(&dialect, ddl).map_err(|e| anyhow::anyhow!("DDL parse error: {e}"))?;
 
     let mut tables = Vec::new();
 
@@ -24,14 +20,14 @@ pub fn parse_schema(ddl: &str) -> anyhow::Result<Schema> {
         match stmt {
             Statement::CreateTable(ct) => {
                 tables.push(build_create_table(&ct.name, &ct.columns, &ct.constraints, typemap::map));
-            }
+            },
             Statement::AlterTable { name, operations, .. } => {
                 apply_alter_table(&name, &operations, &mut tables);
-            }
+            },
             Statement::Drop { object_type: ObjectType::Table, names, .. } => {
                 apply_drop_tables(&names, &mut tables);
-            }
-            _ => {}
+            },
+            _ => {},
         }
     }
 
@@ -40,11 +36,7 @@ pub fn parse_schema(ddl: &str) -> anyhow::Result<Schema> {
 
 // ─── ALTER TABLE ─────────────────────────────────────────────────────────────
 
-fn apply_alter_table(
-    name: &ObjectName,
-    operations: &[AlterTableOperation],
-    tables: &mut Vec<crate::ir::Table>,
-) {
+fn apply_alter_table(name: &ObjectName, operations: &[AlterTableOperation], tables: &mut Vec<crate::ir::Table>) {
     let table_name = obj_name_to_str(name);
     let Some(idx) = tables.iter().position(|t| t.name == table_name) else {
         return; // ALTER on unknown table — ignore
@@ -55,11 +47,11 @@ fn apply_alter_table(
         match op {
             AlterTableOperation::AddColumn { column_def, .. } => {
                 table.columns.push(build_column(column_def, typemap::map));
-            }
+            },
             AlterTableOperation::DropColumn { column_name, .. } => {
                 let name = ident_to_str(column_name);
                 table.columns.retain(|c| c.name != name);
-            }
+            },
             AlterTableOperation::AlterColumn { column_name, op } => {
                 let col_name = ident_to_str(column_name);
                 if let Some(col) = table.columns.iter_mut().find(|c| c.name == col_name) {
@@ -68,21 +60,21 @@ fn apply_alter_table(
                         AlterColumnOperation::DropNotNull => col.nullable = true,
                         AlterColumnOperation::SetDataType { data_type, .. } => {
                             col.sql_type = typemap::map(data_type);
-                        }
-                        _ => {}
+                        },
+                        _ => {},
                     }
                 }
-            }
+            },
             AlterTableOperation::RenameColumn { old_column_name, new_column_name } => {
                 let old = ident_to_str(old_column_name);
                 let new = ident_to_str(new_column_name);
                 if let Some(col) = table.columns.iter_mut().find(|c| c.name == old) {
                     col.name = new;
                 }
-            }
+            },
             AlterTableOperation::RenameTable { table_name: new_name } => {
                 table.name = obj_name_to_str(new_name);
-            }
+            },
             AlterTableOperation::AddConstraint(constraint) => {
                 let pk_cols = pk_columns_from_constraint(constraint);
                 for col in table.columns.iter_mut() {
@@ -91,8 +83,8 @@ fn apply_alter_table(
                         col.nullable = false;
                     }
                 }
-            }
-            _ => {} // OWNER TO, ENABLE/DISABLE TRIGGER, etc.
+            },
+            _ => {}, // OWNER TO, ENABLE/DISABLE TRIGGER, etc.
         }
     }
 }

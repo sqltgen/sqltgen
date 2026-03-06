@@ -1,9 +1,8 @@
 use std::collections::HashMap;
 
 use sqlparser::ast::{
-    Assignment, AssignmentTarget, BinaryOperator, Delete, Expr, FromTable, FunctionArg,
-    FunctionArgExpr, FunctionArguments, Insert, Query as SqlQuery, Select, SelectItem, SetExpr,
-    Statement, TableFactor, Value, With,
+    Assignment, AssignmentTarget, BinaryOperator, Delete, Expr, FromTable, FunctionArg, FunctionArgExpr, FunctionArguments, Insert, Query as SqlQuery, Select,
+    SelectItem, SetExpr, Statement, TableFactor, Value, With,
 };
 use sqlparser::dialect::Dialect;
 use sqlparser::parser::Parser;
@@ -24,12 +23,7 @@ impl Default for ResolverConfig {
     }
 }
 
-pub(crate) fn parse_queries_with_config(
-    dialect: &dyn Dialect,
-    sql: &str,
-    schema: &Schema,
-    config: &ResolverConfig,
-) -> anyhow::Result<Vec<Query>> {
+pub(crate) fn parse_queries_with_config(dialect: &dyn Dialect, sql: &str, schema: &Schema, config: &ResolverConfig) -> anyhow::Result<Vec<Query>> {
     let blocks = split_into_blocks(sql);
     let queries = blocks
         .into_iter()
@@ -40,7 +34,7 @@ pub(crate) fn parse_queries_with_config(
                 Err(e) => {
                     eprintln!("warning: cannot parse query {:?}: {e}", ann.name);
                     None
-                }
+                },
             }
         })
         .collect();
@@ -71,11 +65,7 @@ fn split_into_blocks(sql: &str) -> Vec<(Annotation, String)> {
     blocks
 }
 
-fn flush_block(
-    current: &mut Option<Annotation>,
-    lines: &mut Vec<&str>,
-    out: &mut Vec<(Annotation, String)>,
-) {
+fn flush_block(current: &mut Option<Annotation>, lines: &mut Vec<&str>, out: &mut Vec<(Annotation, String)>) {
     if let Some(ann) = current.take() {
         let body = lines.join("\n");
         let body = body.trim().to_string();
@@ -95,25 +85,21 @@ fn parse_annotation(line: &str) -> Option<Annotation> {
     let name = parts.next()?.trim().to_string();
     let cmd_str = parts.next()?.trim().to_lowercase();
     let cmd = match cmd_str.as_str() {
-        "one"      => QueryCmd::One,
-        "many"     => QueryCmd::Many,
-        "exec"     => QueryCmd::Exec,
+        "one" => QueryCmd::One,
+        "many" => QueryCmd::Many,
+        "exec" => QueryCmd::Exec,
         "execrows" => QueryCmd::ExecRows,
-        _          => return None,
+        _ => return None,
     };
-    if name.is_empty() { return None; }
+    if name.is_empty() {
+        return None;
+    }
     Some(Annotation { name, cmd })
 }
 
 // ─── Query building ──────────────────────────────────────────────────────────
 
-fn build_query_with_dialect(
-    dialect: &dyn Dialect,
-    ann: &Annotation,
-    sql: &str,
-    schema: &Schema,
-    config: &ResolverConfig,
-) -> anyhow::Result<Query> {
+fn build_query_with_dialect(dialect: &dyn Dialect, ann: &Annotation, sql: &str, schema: &Schema, config: &ResolverConfig) -> anyhow::Result<Query> {
     let stmts = match Parser::parse_sql(dialect, sql) {
         Ok(s) if !s.is_empty() => s,
         _ => return Ok(bare(ann, sql)),
@@ -124,7 +110,7 @@ fn build_query_with_dialect(
         Statement::Insert(ins) => build_insert(ann, sql, ins, schema, config),
         Statement::Update { table, assignments, selection, returning, .. } => {
             build_update(ann, sql, table, assignments, selection.as_ref(), returning.as_ref(), schema, config)
-        }
+        },
         Statement::Delete(del) => build_delete(ann, sql, del, schema, config),
         _ => bare(ann, sql),
     };
@@ -154,13 +140,7 @@ fn build_select(ann: &Annotation, sql: &str, q: &SqlQuery, schema: &Schema, conf
         build_params(mapping, count_params(sql))
     };
 
-    Query {
-        name: ann.name.clone(),
-        cmd: ann.cmd.clone(),
-        sql: sql.to_string(),
-        params,
-        result_columns,
-    }
+    Query { name: ann.name.clone(), cmd: ann.cmd.clone(), sql: sql.to_string(), params, result_columns }
 }
 
 // ─── INSERT ──────────────────────────────────────────────────────────────────
@@ -176,24 +156,17 @@ fn build_insert(ann: &Annotation, sql: &str, insert: &Insert, schema: &Schema, c
 
     let params = (1..=count)
         .map(|idx| {
-            let (name, sql_type, nullable) =
-                match col_names.get(idx - 1).and_then(|n| table.columns.iter().find(|c| &c.name == n)) {
-                    Some(col) => (col.name.clone(), col.sql_type.clone(), col.nullable),
-                    None => (format!("param{idx}"), SqlType::Text, false),
-                };
+            let (name, sql_type, nullable) = match col_names.get(idx - 1).and_then(|n| table.columns.iter().find(|c| &c.name == n)) {
+                Some(col) => (col.name.clone(), col.sql_type.clone(), col.nullable),
+                None => (format!("param{idx}"), SqlType::Text, false),
+            };
             Parameter { index: idx, name, sql_type, nullable }
         })
         .collect();
 
     let result_columns = insert.returning.as_deref().map_or(vec![], |items| resolve_returning(items, table, config));
 
-    Query {
-        name: ann.name.clone(),
-        cmd: ann.cmd.clone(),
-        sql: sql.to_string(),
-        params,
-        result_columns,
-    }
+    Query { name: ann.name.clone(), cmd: ann.cmd.clone(), sql: sql.to_string(), params, result_columns }
 }
 
 // ─── UPDATE ──────────────────────────────────────────────────────────────────
@@ -223,9 +196,7 @@ fn build_update(
     // Parameters from SET clause: col = $N
     for assignment in assignments {
         let col_name = match &assignment.target {
-            AssignmentTarget::ColumnName(name) => {
-                name.0.last().map(ident_to_str).unwrap_or_default()
-            }
+            AssignmentTarget::ColumnName(name) => name.0.last().map(ident_to_str).unwrap_or_default(),
             _ => continue,
         };
         if let Expr::Value(Value::Placeholder(p)) = &assignment.value {
@@ -245,13 +216,7 @@ fn build_update(
     let params = build_params(mapping, count_params(sql));
     let result_columns = returning.map_or(vec![], |items| resolve_returning(items, table, config));
 
-    Query {
-        name: ann.name.clone(),
-        cmd: ann.cmd.clone(),
-        sql: sql.to_string(),
-        params,
-        result_columns,
-    }
+    Query { name: ann.name.clone(), cmd: ann.cmd.clone(), sql: sql.to_string(), params, result_columns }
 }
 
 // ─── DELETE ──────────────────────────────────────────────────────────────────
@@ -260,12 +225,10 @@ fn build_delete(ann: &Annotation, sql: &str, delete: &Delete, schema: &Schema, c
     let tables = match &delete.from {
         FromTable::WithFromKeyword(t) | FromTable::WithoutKeyword(t) => t,
     };
-    let table_name = tables
-        .first()
-        .and_then(|twj| match &twj.relation {
-            TableFactor::Table { name, .. } => Some(obj_name_to_str(name)),
-            _ => None,
-        });
+    let table_name = tables.first().and_then(|twj| match &twj.relation {
+        TableFactor::Table { name, .. } => Some(obj_name_to_str(name)),
+        _ => None,
+    });
 
     let Some(table_name) = table_name else {
         return bare(ann, sql);
@@ -283,26 +246,14 @@ fn build_delete(ann: &Annotation, sql: &str, delete: &Delete, schema: &Schema, c
     }
 
     let params = build_params(mapping, count_params(sql));
-    let result_columns = delete.returning.as_deref()
-        .map_or(vec![], |items| resolve_returning(items, table, config));
+    let result_columns = delete.returning.as_deref().map_or(vec![], |items| resolve_returning(items, table, config));
 
-    Query {
-        name: ann.name.clone(),
-        cmd: ann.cmd.clone(),
-        sql: sql.to_string(),
-        params,
-        result_columns,
-    }
+    Query { name: ann.name.clone(), cmd: ann.cmd.clone(), sql: sql.to_string(), params, result_columns }
 }
 
 // ─── Table collection ─────────────────────────────────────────────────────────
 
-fn collect_from_tables(
-    select: &Select,
-    schema: &Schema,
-    ctes: &[Table],
-    config: &ResolverConfig,
-) -> Vec<(Table, Option<String>)> {
+fn collect_from_tables(select: &Select, schema: &Schema, ctes: &[Table], config: &ResolverConfig) -> Vec<(Table, Option<String>)> {
     let mut tables = Vec::new();
     for twj in &select.from {
         collect_table_factor(&twj.relation, schema, ctes, &mut tables, config);
@@ -313,36 +264,26 @@ fn collect_from_tables(
     tables
 }
 
-fn collect_table_factor(
-    factor: &TableFactor,
-    schema: &Schema,
-    ctes: &[Table],
-    out: &mut Vec<(Table, Option<String>)>,
-    config: &ResolverConfig,
-) {
+fn collect_table_factor(factor: &TableFactor, schema: &Schema, ctes: &[Table], out: &mut Vec<(Table, Option<String>)>, config: &ResolverConfig) {
     match factor {
         TableFactor::Table { name, alias, .. } => {
             let table_name = obj_name_to_str(name);
-            let found = ctes.iter().find(|t| t.name == table_name)
-                .or_else(|| schema.tables.iter().find(|t| t.name == table_name));
+            let found = ctes.iter().find(|t| t.name == table_name).or_else(|| schema.tables.iter().find(|t| t.name == table_name));
             if let Some(t) = found {
                 let alias_str = alias.as_ref().map(|a| ident_to_str(&a.name));
                 out.push((t.clone(), alias_str));
             }
-        }
+        },
         TableFactor::Derived { subquery, alias, .. } => {
             if let Some(a) = alias {
                 let alias_name = ident_to_str(&a.name);
                 let cols = derived_cols(subquery, schema, ctes, config);
                 if !cols.is_empty() {
-                    out.push((
-                        Table { name: alias_name.clone(), columns: cols },
-                        Some(alias_name),
-                    ));
+                    out.push((Table { name: alias_name.clone(), columns: cols }, Some(alias_name)));
                 }
             }
-        }
-        _ => {}
+        },
+        _ => {},
     }
 }
 
@@ -372,30 +313,26 @@ fn resolve_projection(
                 for (t, _) in all_tables {
                     result.extend(t.columns.iter().map(col_to_result));
                 }
-            }
+            },
             SelectItem::QualifiedWildcard(name, _) => {
                 let qualifier = name.0.last().map(ident_to_str).unwrap_or_default();
                 if let Some(t) = alias_map.get(&qualifier) {
                     result.extend(t.columns.iter().map(col_to_result));
                 }
-            }
+            },
             SelectItem::UnnamedExpr(expr) => {
                 if let Some(rc) = resolve_expr(expr, alias_map, all_tables, config) {
                     result.push(rc);
                 }
                 // Unresolvable expr without alias (subquery, aggregate) — skip
-            }
+            },
             SelectItem::ExprWithAlias { expr, alias } => {
                 let name = ident_to_str(alias);
                 match resolve_expr(expr, alias_map, all_tables, config) {
                     Some(rc) => result.push(ResultColumn { name, ..rc }),
-                    None => result.push(ResultColumn {
-                        name,
-                        sql_type: SqlType::Custom("expr".into()),
-                        nullable: true,
-                    }),
+                    None => result.push(ResultColumn { name, sql_type: SqlType::Custom("expr".into()), nullable: true }),
                 }
-            }
+            },
         }
     }
     result
@@ -414,94 +351,60 @@ fn numeric_wider(a: &SqlType, b: &SqlType) -> SqlType {
     }
 }
 
-fn resolve_expr(
-    expr: &Expr,
-    alias_map: &HashMap<String, &Table>,
-    all_tables: &[(Table, Option<String>)],
-    config: &ResolverConfig,
-) -> Option<ResultColumn> {
+fn resolve_expr(expr: &Expr, alias_map: &HashMap<String, &Table>, all_tables: &[(Table, Option<String>)], config: &ResolverConfig) -> Option<ResultColumn> {
     match expr {
         Expr::Identifier(ident) => {
             let col_name = ident_to_str(ident);
-            all_tables
-                .iter()
-                .flat_map(|(t, _)| t.columns.iter())
-                .find(|c| c.name == col_name)
-                .map(col_to_result)
-        }
+            all_tables.iter().flat_map(|(t, _)| t.columns.iter()).find(|c| c.name == col_name).map(col_to_result)
+        },
         Expr::CompoundIdentifier(parts) if parts.len() >= 2 => {
             let qualifier = ident_to_str(&parts[parts.len() - 2]);
             let col_name = ident_to_str(&parts[parts.len() - 1]);
-            alias_map
-                .get(&qualifier)
-                .and_then(|t| t.columns.iter().find(|c| c.name == col_name))
-                .map(col_to_result)
-        }
+            alias_map.get(&qualifier).and_then(|t| t.columns.iter().find(|c| c.name == col_name)).map(col_to_result)
+        },
         Expr::BinaryOp { left, op, right }
-            if matches!(
-                op,
-                BinaryOperator::Plus
-                    | BinaryOperator::Minus
-                    | BinaryOperator::Multiply
-                    | BinaryOperator::Divide
-                    | BinaryOperator::Modulo
-            ) =>
+            if matches!(op, BinaryOperator::Plus | BinaryOperator::Minus | BinaryOperator::Multiply | BinaryOperator::Divide | BinaryOperator::Modulo) =>
         {
-            match (
-                resolve_expr(left, alias_map, all_tables, config),
-                resolve_expr(right, alias_map, all_tables, config),
-            ) {
-                (Some(l), Some(r)) => Some(ResultColumn {
-                    name: l.name.clone(),
-                    sql_type: numeric_wider(&l.sql_type, &r.sql_type),
-                    nullable: l.nullable || r.nullable,
-                }),
+            match (resolve_expr(left, alias_map, all_tables, config), resolve_expr(right, alias_map, all_tables, config)) {
+                (Some(l), Some(r)) => {
+                    Some(ResultColumn { name: l.name.clone(), sql_type: numeric_wider(&l.sql_type, &r.sql_type), nullable: l.nullable || r.nullable })
+                },
                 (Some(l), None) => Some(l),
                 (None, Some(r)) => Some(r),
                 (None, None) => None,
             }
-        }
+        },
         Expr::Function(func) => {
             let fname = func.name.0.last().map(ident_to_str).unwrap_or_default().to_uppercase();
             match fname.as_str() {
-                "COUNT" => Some(ResultColumn {
-                    name: "count".into(),
-                    sql_type: SqlType::BigInt,
-                    nullable: false,
-                }),
+                "COUNT" => Some(ResultColumn { name: "count".into(), sql_type: SqlType::BigInt, nullable: false }),
                 "SUM" => {
                     if let FunctionArguments::List(arg_list) = &func.args {
-                        if let Some(FunctionArg::Unnamed(FunctionArgExpr::Expr(inner))) =
-                            arg_list.args.first()
-                        {
-                            return resolve_expr(inner, alias_map, all_tables, config)
-                                .map(|rc| {
-                                    let promoted = match rc.sql_type {
-                                        SqlType::SmallInt | SqlType::Integer => config.sum_integer_type.clone(),
-                                        other => other,
-                                    };
-                                    ResultColumn { sql_type: promoted, nullable: true, ..rc }
-                                });
+                        if let Some(FunctionArg::Unnamed(FunctionArgExpr::Expr(inner))) = arg_list.args.first() {
+                            return resolve_expr(inner, alias_map, all_tables, config).map(|rc| {
+                                let promoted = match rc.sql_type {
+                                    SqlType::SmallInt | SqlType::Integer => config.sum_integer_type.clone(),
+                                    other => other,
+                                };
+                                ResultColumn { sql_type: promoted, nullable: true, ..rc }
+                            });
                         }
                     }
                     None
-                }
+                },
                 "MIN" | "MAX" | "AVG" => {
                     // Propagate the type of the first argument; result is always nullable
                     // because aggregate functions return NULL when applied to an empty set.
                     if let FunctionArguments::List(arg_list) = &func.args {
-                        if let Some(FunctionArg::Unnamed(FunctionArgExpr::Expr(inner))) =
-                            arg_list.args.first()
-                        {
-                            return resolve_expr(inner, alias_map, all_tables, config)
-                                .map(|rc| ResultColumn { nullable: true, ..rc });
+                        if let Some(FunctionArg::Unnamed(FunctionArgExpr::Expr(inner))) = arg_list.args.first() {
+                            return resolve_expr(inner, alias_map, all_tables, config).map(|rc| ResultColumn { nullable: true, ..rc });
                         }
                     }
                     None
-                }
+                },
                 _ => None,
             }
-        }
+        },
         _ => None,
     }
 }
@@ -526,40 +429,25 @@ fn derived_cols(subquery: &SqlQuery, schema: &Schema, ctes: &[Table], config: &R
                 for (t, _) in &inner_tables {
                     cols.extend(t.columns.iter().cloned());
                 }
-            }
+            },
             SelectItem::QualifiedWildcard(name, _) => {
                 let qualifier = name.0.last().map(ident_to_str).unwrap_or_default();
                 if let Some(t) = alias_map.get(&qualifier) {
                     cols.extend(t.columns.iter().cloned());
                 }
-            }
+            },
             SelectItem::UnnamedExpr(expr) => {
                 if let Some(rc) = resolve_expr(expr, &alias_map, &inner_tables, config) {
-                    cols.push(Column {
-                        name: rc.name,
-                        sql_type: rc.sql_type,
-                        nullable: rc.nullable,
-                        is_primary_key: false,
-                    });
+                    cols.push(Column { name: rc.name, sql_type: rc.sql_type, nullable: rc.nullable, is_primary_key: false });
                 }
-            }
+            },
             SelectItem::ExprWithAlias { expr, alias } => {
                 let alias_name = ident_to_str(alias);
                 match resolve_expr(expr, &alias_map, &inner_tables, config) {
-                    Some(rc) => cols.push(Column {
-                        name: alias_name,
-                        sql_type: rc.sql_type,
-                        nullable: rc.nullable,
-                        is_primary_key: false,
-                    }),
-                    None => cols.push(Column {
-                        name: alias_name,
-                        sql_type: SqlType::Custom("expr".into()),
-                        nullable: true,
-                        is_primary_key: false,
-                    }),
+                    Some(rc) => cols.push(Column { name: alias_name, sql_type: rc.sql_type, nullable: rc.nullable, is_primary_key: false }),
+                    None => cols.push(Column { name: alias_name, sql_type: SqlType::Custom("expr".into()), nullable: true, is_primary_key: false }),
                 }
-            }
+            },
         }
     }
     cols
@@ -610,36 +498,26 @@ fn collect_params_from_expr(
             }
             collect_params_from_expr(left, alias_map, all_tables, mapping);
             collect_params_from_expr(right, alias_map, all_tables, mapping);
-        }
+        },
         Expr::InSubquery { expr, .. } => {
             // Walk only the outer expression; do NOT recurse into the subquery
             collect_params_from_expr(expr, alias_map, all_tables, mapping);
-        }
+        },
         Expr::Nested(inner) => {
             collect_params_from_expr(inner, alias_map, all_tables, mapping);
-        }
+        },
         Expr::IsNull(inner) | Expr::IsNotNull(inner) => {
             collect_params_from_expr(inner, alias_map, all_tables, mapping);
-        }
-        _ => {}
+        },
+        _ => {},
     }
 }
 
 fn build_params(mapping: HashMap<usize, (String, SqlType, bool)>, count: usize) -> Vec<Parameter> {
     (1..=count)
         .map(|idx| match mapping.get(&idx) {
-            Some((name, sql_type, nullable)) => Parameter {
-                index: idx,
-                name: name.clone(),
-                sql_type: sql_type.clone(),
-                nullable: *nullable,
-            },
-            None => Parameter {
-                index: idx,
-                name: format!("param{idx}"),
-                sql_type: SqlType::Text,
-                nullable: false,
-            },
+            Some((name, sql_type, nullable)) => Parameter { index: idx, name: name.clone(), sql_type: sql_type.clone(), nullable: *nullable },
+            None => Parameter { index: idx, name: format!("param{idx}"), sql_type: SqlType::Text, nullable: false },
         })
         .collect()
 }
@@ -654,18 +532,18 @@ fn resolve_returning(items: &[SelectItem], table: &Table, config: &ResolverConfi
         match item {
             SelectItem::Wildcard(_) => {
                 result.extend(table.columns.iter().map(col_to_result));
-            }
+            },
             SelectItem::UnnamedExpr(expr) => {
                 if let Some(rc) = resolve_expr(expr, &alias_map, &all_tables, config) {
                     result.push(rc);
                 }
-            }
+            },
             SelectItem::ExprWithAlias { expr, alias } => {
                 if let Some(rc) = resolve_expr(expr, &alias_map, &all_tables, config) {
                     result.push(ResultColumn { name: ident_to_str(alias), ..rc });
                 }
-            }
-            _ => {}
+            },
+            _ => {},
         }
     }
     result
@@ -674,21 +552,11 @@ fn resolve_returning(items: &[SelectItem], table: &Table, config: &ResolverConfi
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
 fn col_to_result(col: &Column) -> ResultColumn {
-    ResultColumn {
-        name: col.name.clone(),
-        sql_type: col.sql_type.clone(),
-        nullable: col.nullable,
-    }
+    ResultColumn { name: col.name.clone(), sql_type: col.sql_type.clone(), nullable: col.nullable }
 }
 
 fn bare(ann: &Annotation, sql: &str) -> Query {
-    Query {
-        name: ann.name.clone(),
-        cmd: ann.cmd.clone(),
-        sql: sql.to_string(),
-        params: vec![],
-        result_columns: vec![],
-    }
+    Query { name: ann.name.clone(), cmd: ann.cmd.clone(), sql: sql.to_string(), params: vec![], result_columns: vec![] }
 }
 
 fn count_params(sql: &str) -> usize {
@@ -714,8 +582,8 @@ fn placeholder_idx(s: &str) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sqlparser::dialect::PostgreSqlDialect;
     use crate::ir::{Column, Schema, SqlType, Table};
+    use sqlparser::dialect::PostgreSqlDialect;
 
     fn parse_queries(sql: &str, schema: &Schema) -> anyhow::Result<Vec<Query>> {
         parse_queries_with_config(&PostgreSqlDialect {}, sql, schema, &ResolverConfig::default())
@@ -726,10 +594,10 @@ mod tests {
             tables: vec![Table {
                 name: "users".into(),
                 columns: vec![
-                    Column { name: "id".into(),    sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
-                    Column { name: "name".into(),  sql_type: SqlType::Text,   nullable: false, is_primary_key: false },
-                    Column { name: "email".into(), sql_type: SqlType::Text,   nullable: false, is_primary_key: false },
-                    Column { name: "bio".into(),   sql_type: SqlType::Text,   nullable: true,  is_primary_key: false },
+                    Column { name: "id".into(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
+                    Column { name: "name".into(), sql_type: SqlType::Text, nullable: false, is_primary_key: false },
+                    Column { name: "email".into(), sql_type: SqlType::Text, nullable: false, is_primary_key: false },
+                    Column { name: "bio".into(), sql_type: SqlType::Text, nullable: true, is_primary_key: false },
                 ],
             }],
         }
@@ -741,16 +609,16 @@ mod tests {
                 Table {
                     name: "users".into(),
                     columns: vec![
-                        Column { name: "id".into(),   sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
-                        Column { name: "name".into(), sql_type: SqlType::Text,   nullable: false, is_primary_key: false },
+                        Column { name: "id".into(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
+                        Column { name: "name".into(), sql_type: SqlType::Text, nullable: false, is_primary_key: false },
                     ],
                 },
                 Table {
                     name: "posts".into(),
                     columns: vec![
-                        Column { name: "id".into(),      sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
+                        Column { name: "id".into(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
                         Column { name: "user_id".into(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: false },
-                        Column { name: "title".into(),   sql_type: SqlType::Text,   nullable: false, is_primary_key: false },
+                        Column { name: "title".into(), sql_type: SqlType::Text, nullable: false, is_primary_key: false },
                     ],
                 },
             ],

@@ -42,8 +42,7 @@ pub struct OutputConfig {
 
 impl SqltgenConfig {
     pub fn load(path: &Path) -> anyhow::Result<Self> {
-        let text = std::fs::read_to_string(path)
-            .with_context(|| format!("reading config file: {}", path.display()))?;
+        let text = std::fs::read_to_string(path).with_context(|| format!("reading config file: {}", path.display()))?;
         Self::from_str(&text)
     }
 
@@ -58,9 +57,7 @@ impl SqltgenConfig {
             let pattern_path = base_dir.join(entry);
             let pattern = pattern_path.to_string_lossy().to_string();
             let mut matches = Vec::new();
-            for item in glob::glob(&pattern)
-                .with_context(|| format!("expanding glob pattern: {pattern}"))?
-            {
+            for item in glob::glob(&pattern).with_context(|| format!("expanding glob pattern: {pattern}"))? {
                 matches.push(item.with_context(|| format!("reading glob entry: {pattern}"))?);
             }
             if matches.is_empty() {
@@ -69,10 +66,7 @@ impl SqltgenConfig {
             matches.sort();
             for path in matches {
                 if path.is_dir() {
-                    bail!(
-                        "queries path is a directory: {} (use a glob like **/*.sql)",
-                        path.display()
-                    );
+                    bail!("queries path is a directory: {} (use a glob like **/*.sql)", path.display());
                 }
                 out.push(path);
             }
@@ -143,7 +137,7 @@ mod tests {
             QueryPaths::Single(_) => panic!("expected multiple queries paths"),
             QueryPaths::Many(paths) => {
                 assert_eq!(paths, vec!["queries/*.sql", "more.sql"]);
-            }
+            },
         }
     }
 
@@ -152,10 +146,7 @@ mod tests {
         let root = std::env::temp_dir().join(format!(
             "sqltgen_test_queries_{}_{}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
         ));
         std::fs::create_dir_all(root.join("queries")).unwrap();
         std::fs::write(root.join("queries/a.sql"), "-- name: A :one\nSELECT 1;").unwrap();
@@ -171,11 +162,7 @@ mod tests {
         };
 
         let paths = cfg.expand_queries(&root).unwrap();
-        let expected = vec![
-            root.join("queries/a.sql"),
-            root.join("queries/b.sql"),
-            root.join("more.sql"),
-        ];
+        let expected = vec![root.join("queries/a.sql"), root.join("queries/b.sql"), root.join("more.sql")];
         assert_eq!(paths, expected);
         std::fs::remove_dir_all(root).unwrap();
     }
