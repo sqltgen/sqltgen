@@ -1,4 +1,4 @@
-use sqlparser::ast::{AlterColumnOperation, AlterTableOperation, ObjectName, Statement};
+use sqlparser::ast::{AlterColumnOperation, AlterTableOperation, ObjectName, ObjectType, Statement};
 use sqlparser::dialect::MySqlDialect;
 use sqlparser::parser::Parser;
 
@@ -27,6 +27,12 @@ pub fn parse_schema(ddl: &str) -> anyhow::Result<Schema> {
             }
             Statement::AlterTable { name, operations, .. } => {
                 apply_alter_table(&name, &operations, &mut tables);
+            }
+            Statement::Drop { object_type: ObjectType::Table, names, .. } => {
+                for name in &names {
+                    let table_name = obj_name_to_str(name);
+                    tables.retain(|t| t.name != table_name);
+                }
             }
             _ => {}
         }
@@ -176,6 +182,29 @@ mod tests {
         let ddl = "CREATE TABLE IF NOT EXISTS tags (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, name VARCHAR(100) NOT NULL);";
         let schema = parse_schema(ddl).unwrap();
         assert_eq!(schema.tables[0].name, "tags");
+    }
+
+    #[test]
+    fn drop_table_removes_table() {
+        let ddl = "
+            CREATE TABLE users (id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) NOT NULL);
+            CREATE TABLE posts (id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY, title VARCHAR(255) NOT NULL);
+            DROP TABLE users;
+        ";
+        let schema = parse_schema(ddl).unwrap();
+        assert_eq!(schema.tables.len(), 1);
+        assert_eq!(schema.tables[0].name, "posts");
+    }
+
+    #[test]
+    fn drop_table_if_exists() {
+        let ddl = "
+            CREATE TABLE users (id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY);
+            DROP TABLE IF EXISTS users;
+            DROP TABLE IF EXISTS ghost;
+        ";
+        let schema = parse_schema(ddl).unwrap();
+        assert_eq!(schema.tables.len(), 0);
     }
 
     #[test]

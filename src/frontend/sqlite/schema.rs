@@ -1,4 +1,4 @@
-use sqlparser::ast::{AlterTableOperation, ObjectName, Statement};
+use sqlparser::ast::{AlterTableOperation, ObjectName, ObjectType, Statement};
 use sqlparser::dialect::SQLiteDialect;
 use sqlparser::parser::Parser;
 
@@ -22,6 +22,12 @@ pub fn parse_schema(ddl: &str) -> anyhow::Result<Schema> {
             }
             Statement::AlterTable { name, operations, .. } => {
                 apply_alter_table(&name, &operations, &mut tables);
+            }
+            Statement::Drop { object_type: ObjectType::Table, names, .. } => {
+                for name in &names {
+                    let table_name = obj_name_to_str(name);
+                    tables.retain(|t| t.name != table_name);
+                }
             }
             _ => {}
         }
@@ -175,6 +181,29 @@ mod tests {
         ";
         let schema = parse_schema(ddl).unwrap();
         assert_eq!(schema.tables[0].name, "accounts");
+    }
+
+    #[test]
+    fn drop_table_removes_table() {
+        let ddl = "
+            CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
+            CREATE TABLE posts (id INTEGER PRIMARY KEY, title TEXT NOT NULL);
+            DROP TABLE users;
+        ";
+        let schema = parse_schema(ddl).unwrap();
+        assert_eq!(schema.tables.len(), 1);
+        assert_eq!(schema.tables[0].name, "posts");
+    }
+
+    #[test]
+    fn drop_table_if_exists() {
+        let ddl = "
+            CREATE TABLE users (id INTEGER PRIMARY KEY);
+            DROP TABLE IF EXISTS users;
+            DROP TABLE IF EXISTS ghost;
+        ";
+        let schema = parse_schema(ddl).unwrap();
+        assert_eq!(schema.tables.len(), 0);
     }
 
     #[test]

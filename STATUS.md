@@ -41,6 +41,8 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | `RETURNING` on INSERT | ✅ | — | — |
 | `RETURNING` on UPDATE | ✅ | — | — |
 | `RETURNING` on DELETE | ✅ | — | — |
+| `DROP TABLE [IF EXISTS]` | ✅ | ✅ | ✅ |
+| `DROP TABLE` (multiple names) | ✅ | — | ✅ |
 | `ALTER TABLE ADD COLUMN [IF NOT EXISTS]` | ✅ | ✅ | ✅ |
 | `ALTER TABLE DROP COLUMN [IF EXISTS]` | ✅ | — | ✅ |
 | `ALTER TABLE ALTER COLUMN … SET/DROP NOT NULL` | ✅ | — | ✅ |
@@ -150,7 +152,7 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | MySQL typemap | 10 |
 | MySQL DDL schema | 13 |
 | MySQL query parser | 7 |
-| **Total** | **115 (all passing)** |
+| **Total** | **122 (all passing)** |
 
 ---
 

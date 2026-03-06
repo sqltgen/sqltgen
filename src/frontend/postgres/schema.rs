@@ -1,4 +1,4 @@
-use sqlparser::ast::{AlterColumnOperation, AlterTableOperation, ObjectName, Statement};
+use sqlparser::ast::{AlterColumnOperation, AlterTableOperation, ObjectName, ObjectType, Statement};
 use sqlparser::dialect::PostgreSqlDialect;
 use sqlparser::parser::Parser;
 
@@ -26,6 +26,12 @@ pub fn parse_schema(ddl: &str) -> anyhow::Result<Schema> {
             }
             Statement::AlterTable { name, operations, .. } => {
                 apply_alter_table(&name, &operations, &mut tables);
+            }
+            Statement::Drop { object_type: ObjectType::Table, names, .. } => {
+                for name in &names {
+                    let table_name = obj_name_to_str(name);
+                    tables.retain(|t| t.name != table_name);
+                }
             }
             _ => {}
         }
@@ -387,6 +393,42 @@ mod tests {
         "#;
         let schema = parse_schema(ddl).unwrap();
         assert_eq!(schema.tables[0].columns.len(), 1);
+    }
+
+    #[test]
+    fn drop_table_removes_table() {
+        let ddl = r#"
+            CREATE TABLE users (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL);
+            CREATE TABLE posts (id BIGSERIAL PRIMARY KEY, title TEXT NOT NULL);
+            DROP TABLE users;
+        "#;
+        let schema = parse_schema(ddl).unwrap();
+        assert_eq!(schema.tables.len(), 1);
+        assert_eq!(schema.tables[0].name, "posts");
+    }
+
+    #[test]
+    fn drop_table_if_exists() {
+        let ddl = r#"
+            CREATE TABLE users (id BIGSERIAL PRIMARY KEY);
+            DROP TABLE IF EXISTS users;
+            DROP TABLE IF EXISTS ghost;
+        "#;
+        let schema = parse_schema(ddl).unwrap();
+        assert_eq!(schema.tables.len(), 0);
+    }
+
+    #[test]
+    fn drop_table_multiple_names() {
+        let ddl = r#"
+            CREATE TABLE a (id BIGSERIAL PRIMARY KEY);
+            CREATE TABLE b (id BIGSERIAL PRIMARY KEY);
+            CREATE TABLE c (id BIGSERIAL PRIMARY KEY);
+            DROP TABLE a, b;
+        "#;
+        let schema = parse_schema(ddl).unwrap();
+        assert_eq!(schema.tables.len(), 1);
+        assert_eq!(schema.tables[0].name, "c");
     }
 
     #[test]
