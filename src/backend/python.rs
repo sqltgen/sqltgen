@@ -41,7 +41,7 @@ impl Codegen for PythonCodegen {
             writeln!(src, "@dataclasses.dataclass")?;
             writeln!(src, "class {class_name}:")?;
             for col in &table.columns {
-                let ty = python_type(&col.sql_type, col.nullable);
+                let ty = python_type(&col.sql_type, col.nullable, &self.target);
                 writeln!(src, "    {}: {}", col.name, ty)?;
             }
 
@@ -140,7 +140,7 @@ fn build_queries_file(queries: &[Query], schema: &Schema, target: &PythonTarget)
         writeln!(src)?;
         writeln!(src)?;
         if infer_table(query, schema).is_none() && !query.result_columns.is_empty() {
-            emit_row_dataclass(&mut src, query)?;
+            emit_row_dataclass(&mut src, query, target)?;
             writeln!(src)?;
             writeln!(src)?;
         }
@@ -150,12 +150,12 @@ fn build_queries_file(queries: &[Query], schema: &Schema, target: &PythonTarget)
     Ok(src)
 }
 
-fn emit_row_dataclass(src: &mut String, query: &Query) -> anyhow::Result<()> {
+fn emit_row_dataclass(src: &mut String, query: &Query, target: &PythonTarget) -> anyhow::Result<()> {
     let name = row_class_name(&query.name);
     writeln!(src, "@dataclasses.dataclass")?;
     writeln!(src, "class {name}:")?;
     for col in &query.result_columns {
-        let ty = python_type(&col.sql_type, col.nullable);
+        let ty = python_type(&col.sql_type, col.nullable, target);
         writeln!(src, "    {}: {}", col.name, ty)?;
     }
     Ok(())
@@ -163,22 +163,22 @@ fn emit_row_dataclass(src: &mut String, query: &Query) -> anyhow::Result<()> {
 
 fn emit_python_query(src: &mut String, query: &Query, schema: &Schema, target: &PythonTarget) -> anyhow::Result<()> {
     match target {
-        PythonTarget::Postgres => emit_cursor_query(src, query, schema, "psycopg.Connection"),
-        PythonTarget::Mysql => emit_cursor_query(src, query, schema, "mysql.connector.MySQLConnection"),
-        PythonTarget::Sqlite => emit_sqlite_query(src, query, schema),
+        PythonTarget::Postgres => emit_cursor_query(src, query, schema, "psycopg.Connection", target),
+        PythonTarget::Mysql => emit_cursor_query(src, query, schema, "mysql.connector.MySQLConnection", target),
+        PythonTarget::Sqlite => emit_sqlite_query(src, query, schema, target),
     }
 }
 
 /// Emits a query function using a cursor context manager (`with conn.cursor() as cur:`).
 /// Used by both the psycopg (Postgres) and mysql-connector-python (MySQL) targets,
 /// which share the same cursor API and `%s` placeholder style.
-fn emit_cursor_query(src: &mut String, query: &Query, schema: &Schema, conn_type: &str) -> anyhow::Result<()> {
+fn emit_cursor_query(src: &mut String, query: &Query, schema: &Schema, conn_type: &str, target: &PythonTarget) -> anyhow::Result<()> {
     let fn_name = to_snake_case(&query.name);
     let const_name = sql_const_name(&query.name);
     let return_type = cursor_return_type(query, schema);
 
     let params_sig: String = std::iter::once(format!("conn: {conn_type}"))
-        .chain(query.params.iter().map(|p| format!("{}: {}", to_snake_case(&p.name), python_type(&p.sql_type, p.nullable))))
+        .chain(query.params.iter().map(|p| format!("{}: {}", to_snake_case(&p.name), python_type(&p.sql_type, p.nullable, target))))
         .collect::<Vec<_>>()
         .join(", ");
 
@@ -209,13 +209,13 @@ fn emit_cursor_query(src: &mut String, query: &Query, schema: &Schema, conn_type
     Ok(())
 }
 
-fn emit_sqlite_query(src: &mut String, query: &Query, schema: &Schema) -> anyhow::Result<()> {
+fn emit_sqlite_query(src: &mut String, query: &Query, schema: &Schema, target: &PythonTarget) -> anyhow::Result<()> {
     let fn_name = to_snake_case(&query.name);
     let const_name = sql_const_name(&query.name);
     let return_type = sqlite_return_type(query, schema);
 
     let params_sig: String = std::iter::once("conn: sqlite3.Connection".to_string())
-        .chain(query.params.iter().map(|p| format!("{}: {}", to_snake_case(&p.name), python_type(&p.sql_type, p.nullable))))
+        .chain(query.params.iter().map(|p| format!("{}: {}", to_snake_case(&p.name), python_type(&p.sql_type, p.nullable, target))))
         .collect::<Vec<_>>()
         .join(", ");
 
@@ -271,7 +271,7 @@ fn sqlite_return_type(query: &Query, schema: &Schema) -> String {
 
 // ─── Type helpers ─────────────────────────────────────────────────────────────
 
-fn python_type(sql_type: &SqlType, nullable: bool) -> String {
+fn python_type(sql_type: &SqlType, nullable: bool, target: &PythonTarget) -> String {
     let base = match sql_type {
         SqlType::Boolean => "bool".to_string(),
         SqlType::SmallInt | SqlType::Integer | SqlType::BigInt => "int".to_string(),
@@ -284,9 +284,14 @@ fn python_type(sql_type: &SqlType, nullable: bool) -> String {
         SqlType::Timestamp | SqlType::TimestampTz => "datetime.datetime".to_string(),
         SqlType::Interval => "datetime.timedelta".to_string(),
         SqlType::Uuid => "uuid.UUID".to_string(),
-        SqlType::Json | SqlType::Jsonb => "Any".to_string(),
+        // psycopg3 automatically deserializes JSON/JSONB → Python objects.
+        // sqlite3 and mysql-connector return raw JSON text.
+        SqlType::Json | SqlType::Jsonb => match target {
+            PythonTarget::Postgres => "object".to_string(),
+            PythonTarget::Sqlite | PythonTarget::Mysql => "str".to_string(),
+        },
         SqlType::Array(inner) => {
-            let inner_ty = python_type(inner, false);
+            let inner_ty = python_type(inner, false, target);
             let list_ty = format!("list[{inner_ty}]");
             return if nullable { format!("{list_ty} | None") } else { list_ty };
         },
@@ -313,7 +318,9 @@ impl TypeImports {
             SqlType::Decimal => self.decimal = true,
             SqlType::Date | SqlType::Time | SqlType::Timestamp | SqlType::TimestampTz | SqlType::Interval => self.datetime = true,
             SqlType::Uuid => self.uuid = true,
-            SqlType::Json | SqlType::Jsonb | SqlType::Custom(_) => self.any_type = true,
+            // Json/Jsonb map to builtins (object or str) — no import needed
+            SqlType::Json | SqlType::Jsonb => {},
+            SqlType::Custom(_) => self.any_type = true,
             SqlType::Array(inner) => self.scan(inner),
             _ => {},
         }
@@ -733,6 +740,55 @@ mod tests {
         assert!(src.contains("def get_user(conn: mysql.connector.MySQLConnection, id: int) -> User | None:"));
         assert!(src.contains("row = cur.fetchone()"));
         assert!(src.contains("return User(*row)"));
+    }
+
+    // ─── generate: JSON type mapping ────────────────────────────────────────
+
+    #[test]
+    fn test_python_type_json_postgres_is_object() {
+        assert_eq!(python_type(&SqlType::Json, false, &PythonTarget::Postgres), "object");
+        assert_eq!(python_type(&SqlType::Jsonb, false, &PythonTarget::Postgres), "object");
+        assert_eq!(python_type(&SqlType::Json, true, &PythonTarget::Postgres), "object | None");
+    }
+
+    #[test]
+    fn test_python_type_json_sqlite_is_str() {
+        assert_eq!(python_type(&SqlType::Json, false, &PythonTarget::Sqlite), "str");
+        assert_eq!(python_type(&SqlType::Json, true, &PythonTarget::Sqlite), "str | None");
+    }
+
+    #[test]
+    fn test_python_type_json_mysql_is_str() {
+        assert_eq!(python_type(&SqlType::Json, false, &PythonTarget::Mysql), "str");
+        assert_eq!(python_type(&SqlType::Jsonb, false, &PythonTarget::Mysql), "str");
+    }
+
+    #[test]
+    fn test_generate_postgres_json_column_no_any_import() {
+        let schema = Schema {
+            tables: vec![Table {
+                name: "doc".to_string(),
+                columns: vec![Column { name: "data".to_string(), sql_type: SqlType::Json, nullable: false, is_primary_key: false }],
+            }],
+        };
+        let files = pg().generate(&schema, &[], &cfg()).unwrap();
+        let src = get_file(&files, "doc.py");
+        assert!(src.contains("data: object"));
+        assert!(!src.contains("from typing import Any"));
+    }
+
+    #[test]
+    fn test_generate_sqlite_json_column_no_any_import() {
+        let schema = Schema {
+            tables: vec![Table {
+                name: "doc".to_string(),
+                columns: vec![Column { name: "data".to_string(), sql_type: SqlType::Json, nullable: false, is_primary_key: false }],
+            }],
+        };
+        let files = sq().generate(&schema, &[], &cfg()).unwrap();
+        let src = get_file(&files, "doc.py");
+        assert!(src.contains("data: str"));
+        assert!(!src.contains("from typing import Any"));
     }
 
     // ─── generate: placeholder rewriting ────────────────────────────────────

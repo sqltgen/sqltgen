@@ -42,6 +42,15 @@ pub fn map(dt: &DataType) -> SqlType {
     }
 }
 
+/// Maps a SQLite custom type name string to [`SqlType`].
+/// Exposed for testing; callers should use [`map`] with a parsed [`DataType`].
+#[cfg(test)]
+fn map_custom_str(s: &str) -> SqlType {
+    use sqlparser::ast::Ident;
+    let name = ObjectName(vec![Ident::new(s)]);
+    map_custom(&name)
+}
+
 fn map_custom(name: &ObjectName) -> SqlType {
     let upper = name.0.iter().map(|i| i.value.to_uppercase()).collect::<Vec<_>>().join(".");
     match upper.as_str() {
@@ -57,6 +66,36 @@ fn map_custom(name: &ObjectName) -> SqlType {
         "DATE" => SqlType::Date,
         "TIME" => SqlType::Time,
         "DATETIME" | "TIMESTAMP" => SqlType::Timestamp,
+        "JSON" => SqlType::Json,
         _ => SqlType::Custom(upper.to_lowercase()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_map_custom_json_returns_json_type() {
+        assert_eq!(map_custom_str("JSON"), SqlType::Json);
+        assert_eq!(map_custom_str("json"), SqlType::Json);
+    }
+
+    #[test]
+    fn test_map_custom_integer_affinity() {
+        assert_eq!(map_custom_str("INTEGER"), SqlType::Integer);
+        assert_eq!(map_custom_str("INT"), SqlType::Integer);
+        assert_eq!(map_custom_str("BIGINT"), SqlType::BigInt);
+    }
+
+    #[test]
+    fn test_map_custom_text_affinity() {
+        assert_eq!(map_custom_str("TEXT"), SqlType::Text);
+        assert_eq!(map_custom_str("VARCHAR"), SqlType::Text);
+    }
+
+    #[test]
+    fn test_map_custom_unknown_falls_through() {
+        assert_eq!(map_custom_str("MYTYPE"), SqlType::Custom("mytype".to_string()));
     }
 }

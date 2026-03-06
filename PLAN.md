@@ -34,6 +34,7 @@ SQL files
 ## Status legend
 
 - ✅ Done and tested
+- ⚠️ Partial / known gaps
 - 🚧 Stub exists, not implemented
 - ❌ Not started
 
@@ -43,7 +44,7 @@ SQL files
 
 | File | Status | Notes |
 |---|---|---|
-| `types.rs` — `SqlType` enum | ✅ | Boolean, integers, floats, decimal, text, bytes, date/time, uuid, json, array, custom |
+| `types.rs` — `SqlType` enum | ✅ | Boolean, integers, floats, decimal, text, bytes, date/time, uuid, json/jsonb, array, custom |
 | `schema.rs` — `Schema`, `Table`, `Column` | ✅ | |
 | `query.rs` — `Query`, `QueryCmd`, `Parameter`, `ResultColumn` | ✅ | |
 
@@ -51,23 +52,25 @@ SQL files
 
 | Item | Status | Notes |
 |---|---|---|
-| `SqltgenConfig` struct + serde | ✅ | Flat per-file (one config per DB, not a list) |
-| `Engine` enum | ✅ | `postgresql`, `sqlite` |
+| `SqltgenConfig` struct + serde | ✅ | |
+| `Engine` enum | ✅ | `postgresql`, `sqlite`, `mysql` |
 | `OutputConfig` (`out`, `package`) | ✅ | Keyed by language name in `gen` map |
-| Config file loading from path | ✅ | |
+| Multiple query files (list of paths / globs) | ❌ | Currently single file only |
 
 ## Frontend layer (`src/frontend/`)
 
 | Item | Status | Notes |
 |---|---|---|
 | `DialectParser` trait | ✅ | `parse_schema`, `parse_queries` |
-| **PostgreSQL** | | |
-| `typemap.rs` — `DataType` → `SqlType` | ✅ | Matches sqlparser AST variants directly; 12 unit tests |
-| `schema.rs` — DDL parser → `Schema` | ✅ | sqlparser-rs AST; 22 unit tests |
-| `query.rs` — annotated query file parser | ✅ | SELECT/INSERT/UPDATE/DELETE + JOINs + subqueries + derived tables + CTEs + RETURNING; 34+ unit tests |
-| `query.rs` — CTE (`WITH`) support | ✅ | Chained CTEs, CTEs joined with schema tables |
-| `query.rs` — RETURNING on INSERT/UPDATE/DELETE | ✅ | Resolves column types from table schema |
-| **SQLite** | ✅ | Full DialectParser impl; schema + query parsing; ?N parameters |
+| Named params (`@name`, `-- @name [type] [null\|not null]`) | ✅ | `src/frontend/common/named_params.rs`; rewrites to `$N` before parsing |
+| **PostgreSQL** | ✅ | Full DDL + query parsing; 60+ tests |
+| `typemap.rs` | ✅ | Includes `JSON`, `JSONB` |
+| `schema.rs` | ✅ | CREATE/ALTER/DROP TABLE; 22 tests |
+| `query.rs` | ✅ | SELECT/INSERT/UPDATE/DELETE + JOINs + subqueries + derived tables + CTEs + RETURNING |
+| **SQLite** | ✅ | Full DialectParser; schema + query; `?N` and `$N` params |
+| `typemap.rs` | ⚠️ | `JSON` keyword not recognized — falls through to `TEXT` affinity |
+| **MySQL** | ✅ | Full DialectParser; schema + query; `$N` params; 30+ tests |
+| `typemap.rs` | ✅ | Includes `JSON`; no `JSONB` (MySQL doesn't have it) |
 
 ## Backend layer (`src/backend/`)
 
@@ -75,9 +78,9 @@ SQL files
 |---|---|---|
 | `java.rs` | ✅ | Record classes + `Queries` class with JDBC methods |
 | `kotlin.rs` | ✅ | Data classes + `Queries` object with JDBC methods |
-| `rust.rs` | ✅ | `sqlx` async functions + `FromRow` structs; `mod.rs` generated |
+| `rust.rs` | ✅ | `sqlx` async functions + `#[derive(FromRow)]` structs; `mod.rs` generated |
+| `python.rs` | ✅ | `@dataclass` models + psycopg3 / sqlite3 / mysql-connector functions |
 | `go.rs` | 🚧 | Stub — `unimplemented!()` |
-| `python.rs` | 🚧 | Stub — `unimplemented!()` |
 | `typescript.rs` | 🚧 | Stub — `unimplemented!()` |
 
 ## CLI (`src/main.rs`)
@@ -88,148 +91,93 @@ SQL files
 
 ---
 
+## JSON support
+
+sqltgen aims for excellent JSON support across all backends. Current state and gaps:
+
+| Area | Status | Notes |
+|---|---|---|
+| `JSON` / `JSONB` in IR | ✅ | Two distinct `SqlType` variants |
+| PostgreSQL `JSON` / `JSONB` parsing | ✅ | Both recognized |
+| MySQL `JSON` parsing | ✅ | No `JSONB` (MySQL doesn't have it) |
+| SQLite `JSON` parsing | ✅ | `JSON` keyword in `map_custom` → `SqlType::Json` |
+| Rust: `serde_json::Value` | ✅ | Correct and idiomatic for both JSON and JSONB |
+| Python psycopg3: JSON result type | ✅ | `object` (psycopg3 automatically deserializes to Python objects) |
+| Python sqlite3 / mysql: JSON result type | ✅ | `str` (drivers return raw JSON text) |
+| Java/Kotlin: JSON result type | ⚠️ | Mapped to `String` — correct at JDBC level but no Jackson/Gson integration |
+| `json[]` / `jsonb[]` arrays (PostgreSQL) | ❌ | Untested / likely unhandled |
+| Type overrides (e.g. `json → JsonNode`) | ❌ | Blocked on config type-override feature |
+
+### Planned improvements
+1. ~~**SQLite**: recognize `JSON` as a type keyword → `SqlType::Json`~~ ✅ Done
+2. ~~**Python**: `Any` → `object` for psycopg3 (already deserialized); `str` for sqlite3/mysql~~ ✅ Done
+3. **Java/Kotlin**: document the `String` limitation; unlock proper types via config type overrides
+4. **Arrays**: test and fix `json[]` / `jsonb[]` in PostgreSQL
+
+---
+
 ## Remaining work
 
 ### High priority
 
 1. **Go backend** — generate structs + `database/sql` functions
-2. **Multiple query files** — allow `queries` to be a list of paths (currently single file only)
+2. **Multiple query files** — allow `queries` to be a list of paths
 
 ### Medium priority
 
 1. **`UNION` / `INTERSECT` result columns** — resolve from left branch of `SetExpr::SetOperation`
 2. **`CAST(x AS type)` result type** — call `typemap::map()` on the cast's `DataType`
 3. **`HAVING` params** — same `collect_params_from_expr` walk on `select.having`
-4. **Python backend** — generate dataclasses + `psycopg3` functions
-5. **TypeScript backend** — generate interfaces + `postgres.js` functions
+4. **TypeScript backend** — generate interfaces + `postgres.js` functions
+5. **Type overrides config** — map a DB type or `table.column` to a custom target-language type
 6. **Better error messages** — surface parse errors with line numbers
 7. **Glob patterns** for `schema` and `queries` config fields
 
 ### Low priority / future
 
-1. **C / C++ / C# backends** — stubs to add later
-2. **Schema-qualified tables** — handle `schema.table` references in queries
-3. **`sqltgen init`** subcommand — scaffold a starter `sqltgen.json`
+1. **Querier interface** — emit an interface/protocol/ABC for the Queries type (testability)
+2. **Transaction support** — `with_tx(tx)` constructor on the Queries wrapper
+3. **Enum support** — `CREATE TYPE foo AS ENUM` → typed enum / sealed class / string alias
+4. **Field renaming config** — `rename: { db_col: "FieldName" }` map in config
+5. **JSON tags / serialization annotations** — emit Jackson/serde/dataclasses-json annotations
+6. **`query_parameter_limit`** — emit a params struct when a query has more than N parameters
+7. **Schema-qualified tables** — handle `schema.table` references in queries
+8. **`sqltgen init`** subcommand — scaffold a starter `sqltgen.json`
+9. **C / C++ / C# backends**
 
 ---
 
-## Features from sqlc not yet in sqltgen
+## Features from sqlc
 
-Identified by reading the [sqlc documentation](https://docs.sqlc.dev). Candidate features
-to implement, roughly ordered by expected user value.
+Identified from the [sqlc documentation](https://docs.sqlc.dev).
 
-### Query annotation commands (missing variants)
+### Query annotation commands
 
-| Command | Meaning | sqltgen status |
+| Command | Meaning | Status |
 |---|---|---|
-| `:execresult` | Returns the driver result object (affected rows + last insert ID) | ❌ |
+| `:one` / `:many` / `:exec` / `:execrows` | Core commands | ✅ |
+| `:execresult` | Returns driver result object (affected rows + last insert ID) | ❌ |
 | `:execlastid` | Returns only the last inserted ID | ❌ |
-| `:batchexec` | Batch execute — pgx/v5 only | ❌ |
-| `:batchmany` | Batch query returning multiple result sets — pgx/v5 only | ❌ |
-| `:batchone` | Batch single-row query — pgx/v5 only | ❌ |
-| `:copyfrom` | Bulk insert via `COPY FROM` — driver-specific | ❌ |
-
-Notes:
-- `:execresult` is the most broadly useful; `:execlastid` matters mainly for MySQL (no `RETURNING`).
-- Batch variants are pgx-specific and only relevant once a Go backend exists.
-- `:copyfrom` requires special driver support and is a niche feature.
+| `:batchexec` / `:batchmany` / `:batchone` | Batch ops — pgx/v5 only | ❌ |
+| `:copyfrom` | Bulk insert via `COPY FROM` | ❌ |
 
 ### sqlc macro functions
 
-sqlc embeds special function calls in SQL that are rewritten at parse time. sqltgen has
-none of these yet.
-
-#### `sqlc.arg(name)` / `@name` — named parameters
-Instead of positional `$1`/`?1`, the user writes `sqlc.arg(user_id)` or `@user_id`.
-The codegen emits a typed params struct with a meaningful field name rather than a
-positional argument. Useful when parameter positions are unclear from context (e.g. two
-`text` params with different semantics).
-
-- Frontend: rewrite `sqlc.arg(x)` / `@x` → positional placeholder; record name in `Parameter`
-- IR: `Parameter` already has `index`; add `Option<String> name`
-- Backend: emit a `{QueryName}Params` struct/record/dataclass when any param is named
-- `@name` shorthand works in PostgreSQL and SQLite; not in MySQL
-
-#### `sqlc.narg(name)` — explicitly nullable named parameter
-Same as `sqlc.arg()` but forces the parameter to be nullable regardless of schema inference.
-Useful for optional PATCH-style updates: `SET col = COALESCE(sqlc.narg(col), col)`.
-
-- IR: `Parameter.nullable` already exists; `sqlc.narg` sets it `true` unconditionally
-- Backend: nullable params already use `setObject` in Java/Kotlin — no backend changes needed
-
-#### `sqlc.embed(table)` — struct embedding in result types
-Instead of a flat `{Query}Row` with all columns mixed, `sqlc.embed(t)` groups columns
-from table `t` into a nested field of type `T` in the result struct.
-
-Example: `SELECT sqlc.embed(students), sqlc.embed(scores) FROM ...` emits:
-```
-struct ScoreRow { student: Student, score: TestScore }
-```
-rather than a flat struct with all columns.
-
-- Frontend: detect `sqlc.embed(t)` in SELECT list, replace with `t.*` for column
-  resolution, record which columns belong to which embedded table
-- IR: `ResultColumn` needs a way to carry the embedding group (e.g. `Option<String> embedded_table`)
-- Backend: group result columns by `embedded_table` and emit nested types
-
-#### `sqlc.slice(name)` — dynamic IN clause
-Generates a query with a variable-length parameter list for `IN (...)` at runtime.
-The placeholder expands to the correct number of `$N`/`?` at call time.
-
-- Most useful for JDBC and sqlite3 drivers (no native array params).
-  sqlx/pgx can use `= ANY($1)` with an array instead.
-- Requires runtime query rewriting in the generated code, not just at codegen time.
-- Lower priority; complex to implement correctly.
-
-### Config enhancements
-
-| Feature | Description |
-|---|---|
-| **Type overrides** | Map a DB type or specific `table.column` to a custom target-language type |
-| **Field renaming** | Rename a generated struct field or model name in config |
-| **JSON tags** | Emit JSON serialization annotations on generated structs/classes |
-| **Prepared queries** | Emit an additional prepared-statement version of each query |
-| **Querier interface** | Emit an interface/protocol/ABC for the Queries type (improves testability) |
-| **Strictness config** | Control error-vs-warning behavior per project (already planned above) |
-| **query_parameter_limit** | Emit a params struct when a query has more than N parameters |
-| **emit_exact_table_names** | Skip singularization — use the raw table name as the model name |
-
-Implementation notes:
-- **Type overrides** are high value for users with custom DB types (PostGIS, ltree, enums).
-  Requires a new config section and a type-override lookup step in each backend.
-- **Field renaming** is straightforward: a `rename: { db_col: "FieldName" }` map in config,
-  applied in the backend before emitting field names.
-- **Querier interface** is most relevant for Go and TypeScript (dependency injection / mocking).
-
-### Transaction support (`with_tx`)
-
-sqlc generates a `WithTx(tx)` method on the `Queries` struct so callers can reuse all
-generated query methods within a transaction without extra boilerplate.
-
-- Relevant for all backends. Each backend's `Queries` wrapper stores a connection/pool
-  reference; add a `with_tx(tx)` constructor that substitutes a transaction object.
-- Rust/sqlx: accept `&mut Transaction<'_, Db>` instead of `&Pool`
-- Java/Kotlin: accept `java.sql.Connection` (JDBC transactions are connection-scoped)
-- Python: psycopg3 connections have a transaction context manager
-
-### Enum support
-
-sqlc maps PostgreSQL `CREATE TYPE foo AS ENUM (...)` to a proper aliased string type
-(e.g. Go `type Foo string` with constants). sqltgen currently maps enums to `SqlType::Text`.
-
-- Frontend: detect `CREATE TYPE ... AS ENUM` in DDL, store enum definitions in `Schema`
-- IR: new `SqlType::Enum(String)` variant carrying the type name, or a separate `EnumDef`
-  collection in `Schema`
-- Backend: emit an enum / sealed class / string alias per enum type; use it wherever
-  that column type appears
+| Macro | Status | Notes |
+|---|---|---|
+| `sqlc.arg(name)` / `@name` — named params | ✅ | Implemented as `@name` with `-- @name [type] [null\|not null]` annotations |
+| `sqlc.narg(name)` — nullable named param | ✅ | Use `-- @name null` annotation |
+| `sqlc.embed(table)` — struct embedding | ❌ | Groups result columns into a nested type |
+| `sqlc.slice(name)` — dynamic IN clause | ❌ | Runtime query rewriting required |
 
 ---
 
 ## Open-source launch
 
-See `memory/roadmap.md` for the full distribution plan. Summary:
+See `RELEASE_ROADMAP.md` (in the parent directory) for the full plan. Summary:
 
-- Phase 1: License (Apache-2.0 + MIT dual), CHANGELOG, CONTRIBUTING, README
+- Phase 1: License (deferred — see roadmap), CHANGELOG, CONTRIBUTING, README
 - Phase 2: CI/CD via cargo-dist (ci.yml, release.yml, docs.yml)
-- Phase 3: mdBook documentation at sqltgen.org
+- Phase 3: mdBook documentation at docs.sqltgen.org; sqltgen.org redirects there
 - Phase 4: Distribution — crates.io, Homebrew, AUR, Scoop, .deb, .rpm
+- Phase 5 (future): Full landing page + WASM playground at sqltgen.org
