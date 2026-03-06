@@ -127,11 +127,11 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 
 | | Java | Kotlin | Rust | Go | Python | TypeScript |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|
-| Example project | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
-| PostgreSQL (real DB) | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| Example project | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ |
+| PostgreSQL (real DB) | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ |
 | SQLite (in-memory) | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
 | MySQL (real DB) | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
-| Makefile (`make run`) | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| Makefile (`make run`) | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ |
 
 ---
 
