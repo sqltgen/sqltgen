@@ -33,7 +33,7 @@ impl Codegen for KotlinCodegen {
             files.push(GeneratedFile { path, content: src });
         }
 
-        // One Queries object
+        // One Queries object (static-style) + one QueriesDs class backed by DataSource
         if !queries.is_empty() {
             let mut src = String::new();
             emit_package(&mut src, &config.package, "");
@@ -53,6 +53,12 @@ impl Codegen for KotlinCodegen {
             writeln!(src, "}}")?;
 
             let path = source_path(&config.out, &config.package, "Queries", "kt");
+            files.push(GeneratedFile { path, content: src });
+
+            let mut src = String::new();
+            emit_package(&mut src, &config.package, "");
+            emit_kotlin_queries_ds(&mut src, queries, schema)?;
+            let path = source_path(&config.out, &config.package, "QueriesDs", "kt");
             files.push(GeneratedFile { path, content: src });
         }
 
@@ -123,12 +129,67 @@ fn emit_kotlin_query(src: &mut String, query: &Query, schema: &Schema) -> anyhow
     Ok(())
 }
 
+/// Emits `QueriesDs.kt` — a DataSource-backed class that acquires a connection
+/// per call via `dataSource.connection.use { }` and delegates to `Queries`.
+fn emit_kotlin_queries_ds(src: &mut String, queries: &[Query], schema: &Schema) -> anyhow::Result<()> {
+    writeln!(src, "import javax.sql.DataSource")?;
+    writeln!(src)?;
+    writeln!(src, "class QueriesDs(private val dataSource: DataSource) {{")?;
+
+    for query in queries {
+        writeln!(src)?;
+        emit_kotlin_ds_method(src, query, schema)?;
+    }
+
+    writeln!(src, "}}")?;
+    Ok(())
+}
+
+/// Emits one method on `QueriesDs` that wraps the corresponding `Queries` method.
+fn emit_kotlin_ds_method(src: &mut String, query: &Query, schema: &Schema) -> anyhow::Result<()> {
+    // Inline row data classes are nested inside `object Queries` and must be qualified.
+    let row_type = ds_result_row_type(query, schema);
+    let return_type = match query.cmd {
+        QueryCmd::One => format!("{row_type}?"),
+        QueryCmd::Many => format!("List<{row_type}>"),
+        QueryCmd::Exec => "Unit".to_string(),
+        QueryCmd::ExecRows => "Long".to_string(),
+    };
+
+    let params_sig: String = query
+        .params
+        .iter()
+        .map(|p| format!("{}: {}", to_camel_case(&p.name), kotlin_type(&p.sql_type, p.nullable)))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let method_name = to_camel_case(&query.name);
+    let args: String = query.params.iter().map(|p| to_camel_case(&p.name)).collect::<Vec<_>>().join(", ");
+    let call_args = if args.is_empty() { "conn".to_string() } else { format!("conn, {args}") };
+
+    writeln!(src, "    fun {method_name}({params_sig}): {return_type} =")?;
+    writeln!(src, "        dataSource.connection.use {{ conn -> Queries.{method_name}({call_args}) }}")?;
+    Ok(())
+}
+
 fn result_row_type(query: &Query, schema: &Schema) -> String {
     if let Some(table_name) = infer_table(query, schema) {
         return to_pascal_case(table_name);
     }
     if !query.result_columns.is_empty() {
         return row_class_name(&query.name);
+    }
+    "Any".to_string()
+}
+
+/// Like [`result_row_type`], but qualifies inline row data classes as `Queries.XxxRow`
+/// because they are nested inside `object Queries` and must be referenced from `QueriesDs`.
+fn ds_result_row_type(query: &Query, schema: &Schema) -> String {
+    if let Some(table_name) = infer_table(query, schema) {
+        return to_pascal_case(table_name);
+    }
+    if !query.result_columns.is_empty() {
+        return format!("Queries.{}", row_class_name(&query.name));
     }
     "Any".to_string()
 }
@@ -529,6 +590,94 @@ mod tests {
         let files = KotlinCodegen.generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.kt");
         assert!(src.contains("rs.getLong(1)"));
+    }
+
+    // ─── generate: QueriesDs ────────────────────────────────────────────────
+
+    #[test]
+    fn test_generate_queries_ds_file_is_emitted() {
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "DeleteUser".to_string(),
+            cmd: QueryCmd::Exec,
+            sql: "DELETE FROM user WHERE id = $1".to_string(),
+            params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            result_columns: vec![],
+        };
+        let files = KotlinCodegen.generate(&schema, &[query], &cfg()).unwrap();
+        assert!(files.iter().any(|f| f.path.file_name().is_some_and(|n| n == "QueriesDs.kt")));
+    }
+
+    #[test]
+    fn test_generate_queries_ds_class_and_datasource_import() {
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "DeleteUser".to_string(),
+            cmd: QueryCmd::Exec,
+            sql: "DELETE FROM user WHERE id = $1".to_string(),
+            params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            result_columns: vec![],
+        };
+        let files = KotlinCodegen.generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "QueriesDs.kt");
+        assert!(src.contains("import javax.sql.DataSource"));
+        assert!(src.contains("class QueriesDs(private val dataSource: DataSource)"));
+    }
+
+    #[test]
+    fn test_generate_queries_ds_exec_method_delegates_via_use() {
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "DeleteUser".to_string(),
+            cmd: QueryCmd::Exec,
+            sql: "DELETE FROM user WHERE id = $1".to_string(),
+            params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            result_columns: vec![],
+        };
+        let files = KotlinCodegen.generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "QueriesDs.kt");
+        assert!(src.contains("fun deleteUser(id: Long): Unit ="));
+        assert!(src.contains("dataSource.connection.use { conn -> Queries.deleteUser(conn, id) }"));
+    }
+
+    #[test]
+    fn test_generate_queries_ds_one_method_returns_nullable() {
+        let schema = Schema { tables: vec![user_table()] };
+        let query = Query {
+            name: "GetUser".to_string(),
+            cmd: QueryCmd::One,
+            sql: "SELECT id, name, bio FROM user WHERE id = $1".to_string(),
+            params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            result_columns: vec![
+                ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false },
+                ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
+                ResultColumn { name: "bio".to_string(), sql_type: SqlType::Text, nullable: true },
+            ],
+        };
+        let files = KotlinCodegen.generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "QueriesDs.kt");
+        assert!(src.contains("fun getUser(id: Long): User? ="));
+        assert!(src.contains("dataSource.connection.use { conn -> Queries.getUser(conn, id) }"));
+    }
+
+    #[test]
+    fn test_generate_queries_ds_many_method_returns_list() {
+        let schema = Schema { tables: vec![user_table()] };
+        let query = Query {
+            name: "ListUsers".to_string(),
+            cmd: QueryCmd::Many,
+            sql: "SELECT id, name, bio FROM user".to_string(),
+            params: vec![],
+            result_columns: vec![
+                ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false },
+                ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
+                ResultColumn { name: "bio".to_string(), sql_type: SqlType::Text, nullable: true },
+            ],
+        };
+        let files = KotlinCodegen.generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "QueriesDs.kt");
+        assert!(src.contains("fun listUsers(): List<User> ="));
+        assert!(src.contains("dataSource.connection.use { conn -> Queries.listUsers(conn) }"));
     }
 
     // ─── generate: parameter binding ────────────────────────────────────────

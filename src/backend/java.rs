@@ -33,7 +33,7 @@ impl Codegen for JavaCodegen {
             files.push(GeneratedFile { path, content: src });
         }
 
-        // One Queries class with static methods
+        // One Queries class with static methods + one QueriesDs class backed by DataSource
         if !queries.is_empty() {
             let mut src = String::new();
             emit_package(&mut src, &config.package, ";");
@@ -60,6 +60,12 @@ impl Codegen for JavaCodegen {
             writeln!(src, "}}")?;
 
             let path = record_path(&config.out, &config.package, "Queries");
+            files.push(GeneratedFile { path, content: src });
+
+            let mut src = String::new();
+            emit_package(&mut src, &config.package, ";");
+            emit_java_queries_ds(&mut src, queries, schema)?;
+            let path = record_path(&config.out, &config.package, "QueriesDs");
             files.push(GeneratedFile { path, content: src });
         }
 
@@ -131,12 +137,89 @@ fn emit_java_query(src: &mut String, query: &Query, schema: &Schema) -> anyhow::
     Ok(())
 }
 
+/// Emits `QueriesDs.java` — a DataSource-backed wrapper that acquires a connection
+/// per call and delegates to the static methods in `Queries`.
+fn emit_java_queries_ds(src: &mut String, queries: &[Query], schema: &Schema) -> anyhow::Result<()> {
+    let has_one = queries.iter().any(|q| q.cmd == QueryCmd::One);
+    let has_many = queries.iter().any(|q| q.cmd == QueryCmd::Many);
+
+    writeln!(src, "import java.sql.Connection;")?;
+    writeln!(src, "import java.sql.SQLException;")?;
+    if has_many {
+        writeln!(src, "import java.util.List;")?;
+    }
+    if has_one {
+        writeln!(src, "import java.util.Optional;")?;
+    }
+    writeln!(src, "import javax.sql.DataSource;")?;
+    writeln!(src)?;
+    writeln!(src, "public final class QueriesDs {{")?;
+    writeln!(src, "    private final DataSource dataSource;")?;
+    writeln!(src)?;
+    writeln!(src, "    public QueriesDs(DataSource dataSource) {{")?;
+    writeln!(src, "        this.dataSource = dataSource;")?;
+    writeln!(src, "    }}")?;
+
+    for query in queries {
+        writeln!(src)?;
+        emit_java_ds_method(src, query, schema)?;
+    }
+
+    writeln!(src, "}}")?;
+    Ok(())
+}
+
+/// Emits one instance method on `QueriesDs` that wraps the corresponding static `Queries` method.
+fn emit_java_ds_method(src: &mut String, query: &Query, schema: &Schema) -> anyhow::Result<()> {
+    // Inline row records are inner types of `Queries` and must be qualified.
+    let row_type = ds_result_row_type(query, schema);
+    let return_type = match query.cmd {
+        QueryCmd::One => format!("Optional<{row_type}>"),
+        QueryCmd::Many => format!("List<{row_type}>"),
+        QueryCmd::Exec => "void".to_string(),
+        QueryCmd::ExecRows => "long".to_string(),
+    };
+
+    let params_sig: String = query
+        .params
+        .iter()
+        .map(|p| format!("{} {}", java_type(&p.sql_type, p.nullable), to_camel_case(&p.name)))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let method_name = to_camel_case(&query.name);
+    let args: String = query.params.iter().map(|p| to_camel_case(&p.name)).collect::<Vec<_>>().join(", ");
+    let call_args = if args.is_empty() { "conn".to_string() } else { format!("conn, {args}") };
+
+    writeln!(src, "    public {return_type} {method_name}({params_sig}) throws SQLException {{")?;
+    writeln!(src, "        try (Connection conn = dataSource.getConnection()) {{")?;
+    match query.cmd {
+        QueryCmd::Exec => writeln!(src, "            Queries.{method_name}({call_args});")?,
+        _ => writeln!(src, "            return Queries.{method_name}({call_args});")?,
+    }
+    writeln!(src, "        }}")?;
+    writeln!(src, "    }}")?;
+    Ok(())
+}
+
 fn result_row_type(query: &Query, schema: &Schema) -> String {
     if let Some(table_name) = infer_table(query, schema) {
         return to_pascal_case(table_name);
     }
     if !query.result_columns.is_empty() {
         return row_record_name(&query.name);
+    }
+    "Object[]".to_string()
+}
+
+/// Like [`result_row_type`], but qualifies inline row records as `Queries.XxxRow`
+/// because they are inner types of `Queries` and must be fully referenced from `QueriesDs`.
+fn ds_result_row_type(query: &Query, schema: &Schema) -> String {
+    if let Some(table_name) = infer_table(query, schema) {
+        return to_pascal_case(table_name);
+    }
+    if !query.result_columns.is_empty() {
+        return format!("Queries.{}", row_record_name(&query.name));
     }
     "Object[]".to_string()
 }
@@ -579,6 +662,99 @@ mod tests {
         let files = JavaCodegen.generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.java");
         assert!(src.contains("rs.getInt(1)"));
+    }
+
+    // ─── generate: QueriesDs ────────────────────────────────────────────────
+
+    #[test]
+    fn test_generate_queries_ds_file_is_emitted() {
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "DeleteUser".to_string(),
+            cmd: QueryCmd::Exec,
+            sql: "DELETE FROM user WHERE id = $1".to_string(),
+            params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            result_columns: vec![],
+        };
+        let files = JavaCodegen.generate(&schema, &[query], &cfg()).unwrap();
+        assert!(files.iter().any(|f| f.path.file_name().is_some_and(|n| n == "QueriesDs.java")));
+    }
+
+    #[test]
+    fn test_generate_queries_ds_constructor_and_datasource_import() {
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "DeleteUser".to_string(),
+            cmd: QueryCmd::Exec,
+            sql: "DELETE FROM user WHERE id = $1".to_string(),
+            params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            result_columns: vec![],
+        };
+        let files = JavaCodegen.generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "QueriesDs.java");
+        assert!(src.contains("import javax.sql.DataSource;"));
+        assert!(src.contains("public final class QueriesDs {"));
+        assert!(src.contains("private final DataSource dataSource;"));
+        assert!(src.contains("public QueriesDs(DataSource dataSource)"));
+    }
+
+    #[test]
+    fn test_generate_queries_ds_exec_method_delegates_to_queries() {
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "DeleteUser".to_string(),
+            cmd: QueryCmd::Exec,
+            sql: "DELETE FROM user WHERE id = $1".to_string(),
+            params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            result_columns: vec![],
+        };
+        let files = JavaCodegen.generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "QueriesDs.java");
+        assert!(src.contains("public void deleteUser(long id) throws SQLException"));
+        assert!(src.contains("try (Connection conn = dataSource.getConnection())"));
+        assert!(src.contains("Queries.deleteUser(conn, id);"));
+    }
+
+    #[test]
+    fn test_generate_queries_ds_one_method_returns_optional() {
+        let schema = Schema { tables: vec![user_table()] };
+        let query = Query {
+            name: "GetUser".to_string(),
+            cmd: QueryCmd::One,
+            sql: "SELECT id, name, bio FROM user WHERE id = $1".to_string(),
+            params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            result_columns: vec![
+                ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false },
+                ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
+                ResultColumn { name: "bio".to_string(), sql_type: SqlType::Text, nullable: true },
+            ],
+        };
+        let files = JavaCodegen.generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "QueriesDs.java");
+        assert!(src.contains("import java.util.Optional;"));
+        assert!(src.contains("public Optional<User> getUser(long id) throws SQLException"));
+        assert!(src.contains("return Queries.getUser(conn, id);"));
+    }
+
+    #[test]
+    fn test_generate_queries_ds_many_method_returns_list() {
+        let schema = Schema { tables: vec![user_table()] };
+        let query = Query {
+            name: "ListUsers".to_string(),
+            cmd: QueryCmd::Many,
+            sql: "SELECT id, name, bio FROM user".to_string(),
+            params: vec![],
+            result_columns: vec![
+                ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false },
+                ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
+                ResultColumn { name: "bio".to_string(), sql_type: SqlType::Text, nullable: true },
+            ],
+        };
+        let files = JavaCodegen.generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "QueriesDs.java");
+        assert!(src.contains("import java.util.List;"));
+        assert!(src.contains("public List<User> listUsers() throws SQLException"));
+        assert!(src.contains("return Queries.listUsers(conn);"));
     }
 
     // ─── generate: parameter binding ────────────────────────────────────────

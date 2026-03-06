@@ -1,20 +1,28 @@
 package com.example
 
-import com.example.db.Queries
+import com.example.db.QueriesDs
 import java.math.BigDecimal
 import java.nio.file.Files
 import java.nio.file.Path
 import java.sql.Connection
-import java.sql.DriverManager
 import java.sql.Statement
+import org.sqlite.SQLiteDataSource
 
 object Demo {
 
+    // file::memory:?cache=shared allows multiple connections to share the same
+    // in-memory database. The keeper connection in run() holds it open for the
+    // full demo lifetime so the data survives across QueriesDs method calls.
+    private const val SQLITE_URL = "jdbc:sqlite:file::memory:?cache=shared"
+
     fun run() {
-        DriverManager.getConnection("jdbc:sqlite::memory:").use { conn ->
-            applyMigrations(conn)
-            seed(conn)
-            query(conn)
+        val ds = SQLiteDataSource().apply { setUrl(SQLITE_URL) }
+        // Keep one connection open so the in-memory DB is not dropped between calls.
+        ds.connection.use { keeper ->
+            applyMigrations(keeper)
+            val q = QueriesDs(ds)
+            seed(q)
+            query(q)
         }
     }
 
@@ -36,55 +44,55 @@ object Demo {
         }
     }
 
-    private fun seed(conn: Connection) {
-        Queries.createAuthor(conn, "Ursula K. Le Guin", "Science fiction and fantasy author", 1929)
-        Queries.createAuthor(conn, "Frank Herbert",     "Author of the Dune series",           1920)
-        Queries.createAuthor(conn, "Isaac Asimov",      null,                                  1920)
+    private fun seed(q: QueriesDs) {
+        q.createAuthor("Ursula K. Le Guin", "Science fiction and fantasy author", 1929)
+        q.createAuthor("Frank Herbert",     "Author of the Dune series",           1920)
+        q.createAuthor("Isaac Asimov",      null,                                  1920)
         println("[sqlite] inserted 3 authors")
 
-        Queries.createBook(conn, 1, "The Left Hand of Darkness", "sci-fi", BigDecimal("12.99"), null)
-        Queries.createBook(conn, 1, "The Dispossessed",           "sci-fi", BigDecimal("11.50"), null)
-        Queries.createBook(conn, 2, "Dune",                       "sci-fi", BigDecimal("14.99"), null)
-        Queries.createBook(conn, 3, "Foundation",                 "sci-fi", BigDecimal("10.99"), null)
-        Queries.createBook(conn, 3, "The Caves of Steel",         "sci-fi", BigDecimal("9.99"),  null)
+        q.createBook(1, "The Left Hand of Darkness", "sci-fi", BigDecimal("12.99"), null)
+        q.createBook(1, "The Dispossessed",           "sci-fi", BigDecimal("11.50"), null)
+        q.createBook(2, "Dune",                       "sci-fi", BigDecimal("14.99"), null)
+        q.createBook(3, "Foundation",                 "sci-fi", BigDecimal("10.99"), null)
+        q.createBook(3, "The Caves of Steel",         "sci-fi", BigDecimal("9.99"),  null)
         println("[sqlite] inserted 5 books")
 
-        Queries.createCustomer(conn, "Carol", "carol@example.com")
-        Queries.createCustomer(conn, "Dave",  "dave@example.com")
+        q.createCustomer("Carol", "carol@example.com")
+        q.createCustomer("Dave",  "dave@example.com")
         println("[sqlite] inserted 2 customers")
 
-        Queries.createSale(conn, 1)
-        Queries.addSaleItem(conn, 1, 3, 2, BigDecimal("14.99"))
-        Queries.addSaleItem(conn, 1, 4, 1, BigDecimal("10.99"))
-        Queries.createSale(conn, 2)
-        Queries.addSaleItem(conn, 2, 3, 1, BigDecimal("14.99"))
-        Queries.addSaleItem(conn, 2, 1, 1, BigDecimal("12.99"))
+        q.createSale(1)
+        q.addSaleItem(1, 3, 2, BigDecimal("14.99"))
+        q.addSaleItem(1, 4, 1, BigDecimal("10.99"))
+        q.createSale(2)
+        q.addSaleItem(2, 3, 1, BigDecimal("14.99"))
+        q.addSaleItem(2, 1, 1, BigDecimal("12.99"))
         println("[sqlite] inserted 2 sales with items")
     }
 
-    private fun query(conn: Connection) {
-        val authors = Queries.listAuthors(conn)
+    private fun query(q: QueriesDs) {
+        val authors = q.listAuthors()
         println("[sqlite] listAuthors: ${authors.size} row(s)")
 
-        val scifi = Queries.listBooksByGenre(conn, "sci-fi")
+        val scifi = q.listBooksByGenre("sci-fi")
         println("[sqlite] listBooksByGenre(sci-fi): ${scifi.size} row(s)")
 
         println("[sqlite] listBooksWithAuthor:")
-        Queries.listBooksWithAuthor(conn).forEach { r ->
+        q.listBooksWithAuthor().forEach { r ->
             println("  \"${r.title}\" by ${r.authorName}")
         }
 
-        val neverOrdered = Queries.getBooksNeverOrdered(conn)
+        val neverOrdered = q.getBooksNeverOrdered()
         println("[sqlite] getBooksNeverOrdered: ${neverOrdered.size} book(s)")
         neverOrdered.forEach { println("  \"${it.title}\"") }
 
         println("[sqlite] getTopSellingBooks:")
-        Queries.getTopSellingBooks(conn).forEach { r ->
+        q.getTopSellingBooks().forEach { r ->
             println("  \"${r.title}\" sold ${r.unitsSold}")
         }
 
         println("[sqlite] getBestCustomers:")
-        Queries.getBestCustomers(conn).forEach { r ->
+        q.getBestCustomers().forEach { r ->
             println("  ${r.name} spent ${r.totalSpent}")
         }
     }
