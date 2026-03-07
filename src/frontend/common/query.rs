@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use sqlparser::ast::{
     Assignment, AssignmentTarget, BinaryOperator, Delete, Expr, FromTable, FunctionArg, FunctionArgExpr, FunctionArguments, Insert, Query as SqlQuery, Select,
-    SelectItem, SetExpr, Statement, TableFactor, Value, With,
+    SelectItem, SetExpr, Statement, TableFactor, TableWithJoins, Value, Values, With,
 };
 use sqlparser::dialect::Dialect;
 use sqlparser::parser::Parser;
@@ -134,26 +134,74 @@ fn build_query_with_dialect(dialect: &dyn Dialect, ann: &Annotation, sql: &str, 
 // ─── SELECT ──────────────────────────────────────────────────────────────────
 
 fn build_select(ann: &Annotation, sql: &str, q: &SqlQuery, schema: &Schema, config: &ResolverConfig) -> Query {
-    let SetExpr::Select(select) = q.body.as_ref() else {
-        return bare(ann, sql);
-    };
-
     let ctes = build_cte_scope(q.with.as_ref(), schema, config);
-    let all_tables = collect_from_tables(select, schema, &ctes, config);
+    match q.body.as_ref() {
+        SetExpr::Select(select) => build_select_body(ann, sql, q, select, schema, config, &ctes),
+        SetExpr::Insert(Statement::Insert(ins)) => build_query_from_insert(ann, sql, q, ins, schema, config),
+        SetExpr::Update(Statement::Update { table, assignments, selection, returning, .. }) => {
+            build_query_from_update(ann, sql, q, table, assignments, selection.as_ref(), returning.as_deref(), schema, config)
+        },
+        _ => bare(ann, sql),
+    }
+}
+
+/// Handle `Statement::Query` where the body is a plain `SELECT` (with optional CTEs).
+fn build_select_body(ann: &Annotation, sql: &str, q: &SqlQuery, select: &Select, schema: &Schema, config: &ResolverConfig, ctes: &[Table]) -> Query {
+    let all_tables = collect_from_tables(select, schema, ctes, config);
     if all_tables.is_empty() {
         return bare(ann, sql);
     }
     let alias_map = build_alias_map(&all_tables);
-
     let result_columns = resolve_projection(select, &alias_map, &all_tables, config);
     let params = {
         let mut mapping = HashMap::new();
+        collect_cte_params(q.with.as_ref(), schema, config, &mut mapping);
         if let Some(expr) = &select.selection {
-            collect_params_from_expr(expr, &alias_map, &all_tables, &mut mapping);
+            collect_params_from_expr(expr, &alias_map, &all_tables, schema, config, &mut mapping);
         }
         build_params(mapping, count_params(sql))
     };
+    Query { name: ann.name.clone(), cmd: ann.cmd.clone(), sql: sql.to_string(), params, result_columns }
+}
 
+/// Handle `Statement::Query` where the body is `INSERT … RETURNING` (data-modifying CTE pattern).
+fn build_query_from_insert(ann: &Annotation, sql: &str, q: &SqlQuery, ins: &Insert, schema: &Schema, config: &ResolverConfig) -> Query {
+    let mut mapping = HashMap::new();
+    collect_cte_params(q.with.as_ref(), schema, config, &mut mapping);
+    collect_insert_value_params(ins, schema, &mut mapping);
+    let params = build_params(mapping, count_params(sql));
+    let result_columns = schema
+        .tables
+        .iter()
+        .find(|t| t.name == obj_name_to_str(&ins.table_name))
+        .and_then(|t| ins.returning.as_deref().map(|items| resolve_returning(items, t, config)))
+        .unwrap_or_default();
+    Query { name: ann.name.clone(), cmd: ann.cmd.clone(), sql: sql.to_string(), params, result_columns }
+}
+
+/// Handle `Statement::Query` where the body is `UPDATE … RETURNING` (data-modifying CTE pattern).
+#[allow(clippy::too_many_arguments)]
+fn build_query_from_update(
+    ann: &Annotation,
+    sql: &str,
+    q: &SqlQuery,
+    table: &TableWithJoins,
+    assignments: &[Assignment],
+    selection: Option<&Expr>,
+    returning: Option<&[SelectItem]>,
+    schema: &Schema,
+    config: &ResolverConfig,
+) -> Query {
+    let mut mapping = HashMap::new();
+    collect_cte_params(q.with.as_ref(), schema, config, &mut mapping);
+    collect_update_params(table, assignments, selection, schema, config, &mut mapping);
+    let params = build_params(mapping, count_params(sql));
+    let table_name = match &table.relation {
+        TableFactor::Table { name, .. } => obj_name_to_str(name),
+        _ => return bare(ann, sql),
+    };
+    let result_columns =
+        schema.tables.iter().find(|t| t.name == table_name).and_then(|t| returning.map(|items| resolve_returning(items, t, config))).unwrap_or_default();
     Query { name: ann.name.clone(), cmd: ann.cmd.clone(), sql: sql.to_string(), params, result_columns }
 }
 
@@ -189,7 +237,7 @@ fn build_insert(ann: &Annotation, sql: &str, insert: &Insert, schema: &Schema, c
 fn build_update(
     ann: &Annotation,
     sql: &str,
-    table_with_joins: &sqlparser::ast::TableWithJoins,
+    table_with_joins: &TableWithJoins,
     assignments: &[Assignment],
     selection: Option<&Expr>,
     returning: Option<&Vec<SelectItem>>,
@@ -204,9 +252,33 @@ fn build_update(
         return bare(ann, sql);
     };
 
+    let mut mapping: HashMap<usize, (String, SqlType, bool)> = HashMap::new();
+    collect_update_params(table_with_joins, assignments, selection, schema, config, &mut mapping);
+    let params = build_params(mapping, count_params(sql));
+    let result_columns = returning.map_or(vec![], |items| resolve_returning(items, table, config));
+    Query { name: ann.name.clone(), cmd: ann.cmd.clone(), sql: sql.to_string(), params, result_columns }
+}
+
+/// Collect typed parameter mappings from an UPDATE statement's SET and WHERE clauses.
+///
+/// Shared by `build_update` (standalone UPDATE) and `build_query_from_update` (CTE-wrapped UPDATE).
+fn collect_update_params(
+    table_with_joins: &TableWithJoins,
+    assignments: &[Assignment],
+    selection: Option<&Expr>,
+    schema: &Schema,
+    config: &ResolverConfig,
+    mapping: &mut HashMap<usize, (String, SqlType, bool)>,
+) {
+    let table_name = match &table_with_joins.relation {
+        TableFactor::Table { name, .. } => obj_name_to_str(name),
+        _ => return,
+    };
+    let Some(table) = schema.tables.iter().find(|t| t.name == table_name) else {
+        return;
+    };
     let all_tables = vec![(table.clone(), None)];
     let alias_map = build_alias_map(&all_tables);
-    let mut mapping: HashMap<usize, (String, SqlType, bool)> = HashMap::new();
 
     // Parameters from SET clause: col = $N
     for assignment in assignments {
@@ -225,13 +297,8 @@ fn build_update(
 
     // Parameters from WHERE
     if let Some(expr) = selection {
-        collect_params_from_expr(expr, &alias_map, &all_tables, &mut mapping);
+        collect_params_from_expr(expr, &alias_map, &all_tables, schema, config, mapping);
     }
-
-    let params = build_params(mapping, count_params(sql));
-    let result_columns = returning.map_or(vec![], |items| resolve_returning(items, table, config));
-
-    Query { name: ann.name.clone(), cmd: ann.cmd.clone(), sql: sql.to_string(), params, result_columns }
 }
 
 // ─── DELETE ──────────────────────────────────────────────────────────────────
@@ -257,13 +324,77 @@ fn build_delete(ann: &Annotation, sql: &str, delete: &Delete, schema: &Schema, c
     let mut mapping = HashMap::new();
 
     if let Some(expr) = &delete.selection {
-        collect_params_from_expr(expr, &alias_map, &all_tables, &mut mapping);
+        collect_params_from_expr(expr, &alias_map, &all_tables, schema, config, &mut mapping);
     }
 
     let params = build_params(mapping, count_params(sql));
     let result_columns = delete.returning.as_deref().map_or(vec![], |items| resolve_returning(items, table, config));
 
     Query { name: ann.name.clone(), cmd: ann.cmd.clone(), sql: sql.to_string(), params, result_columns }
+}
+
+// ─── CTE parameter collection ────────────────────────────────────────────────
+
+/// Collect typed parameter mappings from the bodies of all CTEs in `with`.
+///
+/// Walks UPDATE and SELECT CTE bodies using schema column types for inference.
+/// INSERT CTE bodies are handled via `collect_insert_value_params`.
+/// This ensures parameters defined inside data-modifying CTEs receive correct
+/// types even when the outer query body provides no column context.
+fn collect_cte_params(with: Option<&With>, schema: &Schema, config: &ResolverConfig, mapping: &mut HashMap<usize, (String, SqlType, bool)>) {
+    let Some(with) = with else { return };
+    let mut local_ctes: Vec<Table> = Vec::new();
+    for cte in &with.cte_tables {
+        // Recurse into nested WITH clauses before processing this CTE's body.
+        collect_cte_params(cte.query.with.as_ref(), schema, config, mapping);
+        match cte.query.body.as_ref() {
+            SetExpr::Update(Statement::Update { table, assignments, selection, .. }) => {
+                collect_update_params(table, assignments, selection.as_ref(), schema, config, mapping);
+            },
+            SetExpr::Insert(Statement::Insert(ins)) => {
+                collect_insert_value_params(ins, schema, mapping);
+            },
+            SetExpr::Select(select) => {
+                let all_tables = collect_from_tables(select, schema, &local_ctes, config);
+                if !all_tables.is_empty() {
+                    let alias_map = build_alias_map(&all_tables);
+                    if let Some(expr) = &select.selection {
+                        collect_params_from_expr(expr, &alias_map, &all_tables, schema, config, mapping);
+                    }
+                }
+            },
+            _ => {},
+        }
+        // Register this CTE's output shape so later CTEs can reference it.
+        let cols = derived_cols(&cte.query, schema, &local_ctes, config);
+        if !cols.is_empty() {
+            local_ctes.push(Table { name: cte.alias.name.value.clone(), columns: cols });
+        }
+    }
+}
+
+/// Collect typed parameter mappings from an INSERT … VALUES statement.
+///
+/// Maps each positional `$N` placeholder in the VALUES rows to the column type
+/// it corresponds to, using the INSERT column list for position-to-column mapping.
+/// SELECT-source INSERTs are skipped since position semantics are ambiguous there.
+fn collect_insert_value_params(ins: &Insert, schema: &Schema, mapping: &mut HashMap<usize, (String, SqlType, bool)>) {
+    let table_name = obj_name_to_str(&ins.table_name);
+    let Some(table) = schema.tables.iter().find(|t| t.name == table_name) else { return };
+    let col_names: Vec<String> = ins.columns.iter().map(ident_to_str).collect();
+    let Some(source) = &ins.source else { return };
+    let SetExpr::Values(Values { rows, .. }) = source.body.as_ref() else { return };
+    for row in rows {
+        for (pos, val_expr) in row.iter().enumerate() {
+            if let Expr::Value(Value::Placeholder(p)) = val_expr {
+                if let Some(idx) = placeholder_idx(p) {
+                    if let Some(col) = col_names.get(pos).and_then(|n| table.columns.iter().find(|c| &c.name == n)) {
+                        mapping.entry(idx).or_insert((col.name.clone(), col.sql_type.clone(), col.nullable));
+                    }
+                }
+            }
+        }
+    }
 }
 
 // ─── Table collection ─────────────────────────────────────────────────────────
@@ -425,6 +556,40 @@ fn resolve_expr(expr: &Expr, alias_map: &HashMap<String, &Table>, all_tables: &[
 // ─── Derived table columns ────────────────────────────────────────────────────
 
 fn derived_cols(subquery: &SqlQuery, schema: &Schema, ctes: &[Table], config: &ResolverConfig) -> Vec<Column> {
+    // A CTE body may be INSERT … RETURNING or UPDATE … RETURNING (data-modifying CTE).
+    // In those cases the CTE output is the RETURNING clause, not a SELECT projection.
+    match subquery.body.as_ref() {
+        SetExpr::Insert(stmt) => {
+            if let Statement::Insert(ins) = stmt {
+                if let Some(table) = schema.tables.iter().find(|t| t.name == obj_name_to_str(&ins.table_name)) {
+                    if let Some(returning) = &ins.returning {
+                        return resolve_returning(returning, table, config)
+                            .into_iter()
+                            .map(|rc| Column { name: rc.name, sql_type: rc.sql_type, nullable: rc.nullable, is_primary_key: false })
+                            .collect();
+                    }
+                }
+            }
+            return vec![];
+        },
+        SetExpr::Update(stmt) => {
+            if let Statement::Update { table, returning, .. } = stmt {
+                if let TableFactor::Table { name, .. } = &table.relation {
+                    if let Some(t) = schema.tables.iter().find(|t| t.name == obj_name_to_str(name)) {
+                        if let Some(returning) = returning {
+                            return resolve_returning(returning, t, config)
+                                .into_iter()
+                                .map(|rc| Column { name: rc.name, sql_type: rc.sql_type, nullable: rc.nullable, is_primary_key: false })
+                                .collect();
+                        }
+                    }
+                }
+            }
+            return vec![];
+        },
+        _ => {},
+    }
+
     let SetExpr::Select(select) = subquery.body.as_ref() else {
         return vec![];
     };
@@ -484,45 +649,67 @@ fn collect_params_from_expr(
     expr: &Expr,
     alias_map: &HashMap<String, &Table>,
     all_tables: &[(Table, Option<String>)],
+    schema: &Schema,
+    config: &ResolverConfig,
     mapping: &mut HashMap<usize, (String, SqlType, bool)>,
 ) {
-    // Parameter resolution only looks up column types; no aggregate functions appear
-    // in WHERE/SET clauses, so a default ResolverConfig is safe here.
-    let cfg = ResolverConfig::default();
     match expr {
         Expr::BinaryOp { left, op, right } => {
-            if matches!(op, BinaryOperator::Eq) {
-                // col = $N
+            // Infer param type from any comparison: col = $N, col < $N, col > $N, etc.
+            if matches!(op, BinaryOperator::Eq | BinaryOperator::NotEq | BinaryOperator::Lt | BinaryOperator::LtEq | BinaryOperator::Gt | BinaryOperator::GtEq)
+            {
+                // col OP $N
                 if let Expr::Value(Value::Placeholder(p)) = &**right {
                     if let Some(idx) = placeholder_idx(p) {
-                        if let Some(rc) = resolve_expr(left, alias_map, all_tables, &cfg) {
+                        if let Some(rc) = resolve_expr(left, alias_map, all_tables, config) {
                             mapping.entry(idx).or_insert((rc.name, rc.sql_type, rc.nullable));
                         }
                     }
                 }
-                // $N = col (unusual)
+                // $N OP col
                 if let Expr::Value(Value::Placeholder(p)) = &**left {
                     if let Some(idx) = placeholder_idx(p) {
-                        if let Some(rc) = resolve_expr(right, alias_map, all_tables, &cfg) {
+                        if let Some(rc) = resolve_expr(right, alias_map, all_tables, config) {
                             mapping.entry(idx).or_insert((rc.name, rc.sql_type, rc.nullable));
                         }
                     }
                 }
             }
-            collect_params_from_expr(left, alias_map, all_tables, mapping);
-            collect_params_from_expr(right, alias_map, all_tables, mapping);
+            collect_params_from_expr(left, alias_map, all_tables, schema, config, mapping);
+            collect_params_from_expr(right, alias_map, all_tables, schema, config, mapping);
         },
-        Expr::InSubquery { expr, .. } => {
-            // Walk only the outer expression; do NOT recurse into the subquery
-            collect_params_from_expr(expr, alias_map, all_tables, mapping);
+        Expr::InSubquery { expr, subquery, .. } => {
+            collect_params_from_expr(expr, alias_map, all_tables, schema, config, mapping);
+            collect_params_from_subquery(subquery, schema, config, mapping);
+        },
+        Expr::Subquery(q) => {
+            collect_params_from_subquery(q, schema, config, mapping);
         },
         Expr::Nested(inner) => {
-            collect_params_from_expr(inner, alias_map, all_tables, mapping);
+            collect_params_from_expr(inner, alias_map, all_tables, schema, config, mapping);
         },
         Expr::IsNull(inner) | Expr::IsNotNull(inner) => {
-            collect_params_from_expr(inner, alias_map, all_tables, mapping);
+            collect_params_from_expr(inner, alias_map, all_tables, schema, config, mapping);
         },
         _ => {},
+    }
+}
+
+/// Recursively collect typed parameter mappings from a subquery.
+///
+/// Builds the subquery's FROM scope, recurses into any nested WITH clauses,
+/// and collects parameters from the WHERE clause. Handles both scalar
+/// subqueries (`Expr::Subquery`) and IN-subquery expressions.
+fn collect_params_from_subquery(q: &SqlQuery, schema: &Schema, config: &ResolverConfig, mapping: &mut HashMap<usize, (String, SqlType, bool)>) {
+    collect_cte_params(q.with.as_ref(), schema, config, mapping);
+    let SetExpr::Select(select) = q.body.as_ref() else { return };
+    let all_tables = collect_from_tables(select, schema, &[], config);
+    if all_tables.is_empty() {
+        return;
+    }
+    let alias_map = build_alias_map(&all_tables);
+    if let Some(expr) = &select.selection {
+        collect_params_from_expr(expr, &alias_map, &all_tables, schema, config, mapping);
     }
 }
 
@@ -969,6 +1156,85 @@ mod tests {
         assert_eq!(names, ["name", "title"]);
         assert_eq!(q.result_columns[0].sql_type, SqlType::Text);
         assert_eq!(q.result_columns[1].sql_type, SqlType::Text);
+    }
+
+    // ─── CTE DML tests ────────────────────────────────────────────────────────
+
+    fn make_inventory_schema() -> Schema {
+        Schema {
+            tables: vec![Table {
+                name: "inventory".into(),
+                columns: vec![
+                    Column { name: "sku".into(), sql_type: SqlType::Text, nullable: false, is_primary_key: true },
+                    Column { name: "qty".into(), sql_type: SqlType::Integer, nullable: false, is_primary_key: false },
+                ],
+            }],
+        }
+    }
+
+    #[test]
+    fn cte_update_body_params_are_typed_from_schema() {
+        // WITH up AS (UPDATE … SET qty=$1 WHERE sku=$2) INSERT …
+        // $1 and $2 should be typed from the UPDATE CTE body, not fallback Text.
+        let sql = "-- name: UpsertStock :one\n\
+            WITH up AS ( \
+                UPDATE inventory SET qty = $1 WHERE sku = $2 RETURNING sku, qty \
+            ) \
+            INSERT INTO inventory (sku, qty) SELECT $2, $1 \
+            WHERE NOT EXISTS (SELECT 1 FROM up) \
+            RETURNING sku, qty;";
+        let q = &parse_queries(sql, &make_inventory_schema()).unwrap()[0];
+        assert_eq!(q.params.len(), 2);
+        // $1 = qty, $2 = sku (first-appearance order from named-param rewrite / schema)
+        let qty_param = q.params.iter().find(|p| p.index == 1).unwrap();
+        let sku_param = q.params.iter().find(|p| p.index == 2).unwrap();
+        assert_eq!(qty_param.sql_type, SqlType::Integer, "$1 should be qty (Integer)");
+        assert_eq!(sku_param.sql_type, SqlType::Text, "$2 should be sku (Text)");
+    }
+
+    #[test]
+    fn cte_update_body_result_columns_from_insert_returning() {
+        // RETURNING on the outer INSERT should produce typed result columns.
+        let sql = "-- name: UpsertStock :one\n\
+            WITH up AS ( \
+                UPDATE inventory SET qty = $1 WHERE sku = $2 RETURNING sku, qty \
+            ) \
+            INSERT INTO inventory (sku, qty) SELECT $2, $1 \
+            WHERE NOT EXISTS (SELECT 1 FROM up) \
+            RETURNING sku, qty;";
+        let q = &parse_queries(sql, &make_inventory_schema()).unwrap()[0];
+        assert_eq!(q.result_columns.len(), 2);
+        assert_eq!(q.result_columns[0].name, "sku");
+        assert_eq!(q.result_columns[0].sql_type, SqlType::Text);
+        assert_eq!(q.result_columns[1].name, "qty");
+        assert_eq!(q.result_columns[1].sql_type, SqlType::Integer);
+    }
+
+    #[test]
+    fn cte_insert_returning_columns_flow_to_outer_select() {
+        // WITH inserted AS (INSERT … RETURNING …) SELECT * FROM inserted
+        // The outer SELECT * should expand to the RETURNING columns.
+        let sql = "-- name: CreateUser :one\n\
+            WITH ins AS (\
+                INSERT INTO users (name, email) VALUES ($1, $2) RETURNING id, name, email\
+            )\
+            SELECT * FROM ins;";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        assert_eq!(q.result_columns.len(), 3, "should have id, name, email from RETURNING");
+        let names: Vec<_> = q.result_columns.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["id", "name", "email"]);
+        assert_eq!(q.result_columns[0].sql_type, SqlType::BigInt);
+        assert_eq!(q.result_columns[1].sql_type, SqlType::Text);
+    }
+
+    #[test]
+    fn comparison_operator_infers_param_type() {
+        // col < $1 should produce the same type inference as col = $1
+        let sql = "-- name: GetRecentUsers :many\n\
+            SELECT id, name FROM users WHERE id < $1;";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        assert_eq!(q.params.len(), 1);
+        assert_eq!(q.params[0].sql_type, SqlType::BigInt);
     }
 
     #[test]
