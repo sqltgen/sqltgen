@@ -110,7 +110,11 @@ fn build_query_with_dialect(dialect: &dyn Dialect, ann: &Annotation, sql: &str, 
 
     let stmts = match Parser::parse_sql(dialect, sql) {
         Ok(s) if !s.is_empty() => s,
-        _ => return Ok(bare(ann, sql)),
+        _ => {
+            let mut query = bare(ann, sql);
+            named_params::apply_named_param_overrides(&mut query.params, &np);
+            return Ok(query);
+        },
     };
 
     let mut query = match &stmts[0] {
@@ -122,6 +126,7 @@ fn build_query_with_dialect(dialect: &dyn Dialect, ann: &Annotation, sql: &str, 
         Statement::Delete(del) => build_delete(ann, sql, del, schema, config),
         _ => bare(ann, sql),
     };
+
     named_params::apply_named_param_overrides(&mut query.params, &np);
     Ok(query)
 }
@@ -564,7 +569,13 @@ fn col_to_result(col: &Column) -> ResultColumn {
 }
 
 fn bare(ann: &Annotation, sql: &str) -> Query {
-    Query { name: ann.name.clone(), cmd: ann.cmd.clone(), sql: sql.to_string(), params: vec![], result_columns: vec![] }
+    Query {
+        name: ann.name.clone(),
+        cmd: ann.cmd.clone(),
+        sql: sql.to_string(),
+        params: build_params(HashMap::new(), count_params(sql)),
+        result_columns: vec![],
+    }
 }
 
 fn count_params(sql: &str) -> usize {
@@ -1089,5 +1100,48 @@ mod tests {
         assert_eq!(q.params[0].sql_type, SqlType::Text);
         assert_eq!(q.params[1].name, "user_id");
         assert_eq!(q.params[1].sql_type, SqlType::BigInt);
+    }
+
+    #[test]
+    fn execrows_cte_with_params_keeps_method_params_when_type_inference_fails() {
+        let sql = "-- name: ArchiveOldSessions :execrows\n\
+            with moved as (\n\
+              delete from sessions\n\
+              where created_at < @cutoff\n\
+                and (@tenant_id = -1 or tenant_id = @tenant_id)\n\
+              returning id, tenant_id\n\
+            )\n\
+            update tenants\n\
+            set active_sessions = active_sessions - 1\n\
+            from moved\n\
+            where tenants.id = moved.tenant_id;";
+
+        let schema = Schema {
+            tables: vec![
+                Table {
+                    name: "sessions".into(),
+                    columns: vec![
+                        Column { name: "id".into(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
+                        Column { name: "tenant_id".into(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: false },
+                        Column { name: "created_at".into(), sql_type: SqlType::Timestamp, nullable: false, is_primary_key: false },
+                    ],
+                },
+                Table {
+                    name: "tenants".into(),
+                    columns: vec![
+                        Column { name: "id".into(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
+                        Column { name: "active_sessions".into(), sql_type: SqlType::Integer, nullable: false, is_primary_key: false },
+                    ],
+                },
+            ],
+        };
+
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.cmd, QueryCmd::ExecRows);
+        assert_eq!(q.params.len(), 2);
+        assert_eq!(q.params[0].name, "cutoff");
+        assert_eq!(q.params[1].name, "tenant_id");
+        assert_eq!(q.sql.matches("$1").count(), 1);
+        assert_eq!(q.sql.matches("$2").count(), 2);
     }
 }
