@@ -59,6 +59,19 @@ object Queries {
         }
     }
 
+    private const val SQL_GET_BOOKS_BY_IDS = "SELECT id, author_id, title, genre, price, published_at FROM book WHERE id IN (SELECT value FROM json_each(?)) ORDER BY title;"
+    fun getBooksByIds(conn: Connection, ids: List<Long>): List<Book> {
+        val json = "[" + ids.joinToString(",") + "]"
+        conn.prepareStatement(SQL_GET_BOOKS_BY_IDS).use { ps ->
+            ps.setString(1, json)
+            val rows = mutableListOf<Book>()
+            ps.executeQuery().use { rs ->
+                while (rs.next()) rows.add(Book(rs.getInt(1), rs.getInt(2), rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getString(6)))
+            }
+            return rows
+        }
+    }
+
     private const val SQL_LIST_BOOKS_BY_GENRE = "SELECT id, author_id, title, genre, price, published_at FROM book WHERE genre = ? ORDER BY title;"
     fun listBooksByGenre(conn: Connection, genre: String): List<Book> {
         conn.prepareStatement(SQL_LIST_BOOKS_BY_GENRE).use { ps ->

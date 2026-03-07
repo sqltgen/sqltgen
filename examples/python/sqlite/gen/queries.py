@@ -14,6 +14,7 @@ SQL_GET_AUTHOR = "SELECT id, name, bio, birth_year FROM author WHERE id = ?"
 SQL_LIST_AUTHORS = "SELECT id, name, bio, birth_year FROM author ORDER BY name"
 SQL_CREATE_BOOK = "INSERT INTO book (author_id, title, genre, price, published_at) VALUES (?, ?, ?, ?, ?)"
 SQL_GET_BOOK = "SELECT id, author_id, title, genre, price, published_at FROM book WHERE id = ?"
+SQL_GET_BOOKS_BY_IDS = "SELECT id, author_id, title, genre, price, published_at FROM book WHERE id IN (SELECT value FROM json_each(?)) ORDER BY title"
 SQL_LIST_BOOKS_BY_GENRE = "SELECT id, author_id, title, genre, price, published_at FROM book WHERE genre = ? ORDER BY title"
 SQL_LIST_BOOKS_BY_GENRE_OR_ALL = "SELECT id, author_id, title, genre, price, published_at FROM book WHERE ? = 'all' OR genre = ? ORDER BY title"
 SQL_CREATE_CUSTOMER = "INSERT INTO customer (name, email) VALUES (?, ?)"
@@ -49,6 +50,13 @@ def get_book(conn: sqlite3.Connection, id: int) -> Book | None:
     if row is None:
         return None
     return Book(*row)
+
+
+def get_books_by_ids(conn: sqlite3.Connection, ids: list[int]) -> list[Book]:
+    import json
+    ids_json = json.dumps(ids)
+    cur = conn.execute(SQL_GET_BOOKS_BY_IDS, (ids_json,))
+    return [Book(*row) for row in cur.fetchall()]
 
 
 def list_books_by_genre(conn: sqlite3.Connection, genre: str) -> list[Book]:

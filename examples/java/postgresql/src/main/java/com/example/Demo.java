@@ -3,6 +3,7 @@ package com.example;
 import com.example.db.QueriesDs;
 
 import java.math.BigDecimal;
+import java.util.List;
 import org.postgresql.ds.PGSimpleDataSource;
 
 public class Demo {
@@ -50,6 +51,11 @@ public class Demo {
     private static void query(QueriesDs q) throws Exception {
         var authors = q.listAuthors();
         System.out.println("[pg] listAuthors: " + authors.size() + " row(s)");
+
+        // Book IDs are BIGSERIAL starting at 1 on a fresh DB; 1=Left Hand, 3=Dune.
+        var byIds = q.getBooksByIds(List.of(1L, 3L));
+        System.out.println("[pg] getBooksByIds([1,3]): " + byIds.size() + " row(s)");
+        byIds.forEach(b -> System.out.println("  \"" + b.title() + "\""));
 
         var scifi = q.listBooksByGenre("sci-fi");
         System.out.println("[pg] listBooksByGenre(sci-fi): " + scifi.size() + " row(s)");

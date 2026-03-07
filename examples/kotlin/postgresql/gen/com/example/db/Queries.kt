@@ -93,6 +93,19 @@ object Queries {
         }
     }
 
+    private const val SQL_GET_BOOKS_BY_IDS = "SELECT id, author_id, title, genre, price, published_at FROM book WHERE id = ANY(?) ORDER BY title;"
+    fun getBooksByIds(conn: Connection, ids: List<Long>): List<Book> {
+        val arr = conn.createArrayOf("bigint", ids.toTypedArray())
+        conn.prepareStatement(SQL_GET_BOOKS_BY_IDS).use { ps ->
+            ps.setArray(1, arr)
+            val rows = mutableListOf<Book>()
+            ps.executeQuery().use { rs ->
+                while (rs.next()) rows.add(Book(rs.getLong(1), rs.getLong(2), rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getObject(6, java.time.LocalDate::class.java)))
+            }
+            return rows
+        }
+    }
+
     private const val SQL_LIST_BOOKS_BY_GENRE = "SELECT id, author_id, title, genre, price, published_at FROM book WHERE genre = ? ORDER BY title;"
     fun listBooksByGenre(conn: Connection, genre: String): List<Book> {
         conn.prepareStatement(SQL_LIST_BOOKS_BY_GENRE).use { ps ->

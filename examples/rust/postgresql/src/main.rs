@@ -39,6 +39,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let authors = q::list_authors(&pool).await?;
     println!("[pg] list_authors: {} row(s)", authors.len());
 
+    // Book IDs are BIGSERIAL starting at 1 on a fresh DB; 1=Left Hand, 3=Dune.
+    let by_ids = q::get_books_by_ids(&pool, &[1, 3]).await?;
+    println!("[pg] get_books_by_ids([1,3]): {} row(s)", by_ids.len());
+    for b in &by_ids {
+        println!("  \"{}\"", b.title);
+    }
+
     let books = q::list_books_by_genre(&pool, "sci-fi".into()).await?;
     println!("[pg] list_books_by_genre(sci-fi): {} row(s)", books.len());
 

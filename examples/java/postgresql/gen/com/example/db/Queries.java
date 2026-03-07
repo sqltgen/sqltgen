@@ -107,6 +107,20 @@ public final class Queries {
         }
     }
 
+    private static final String SQL_GET_BOOKS_BY_IDS =
+        "SELECT id, author_id, title, genre, price, published_at FROM book WHERE id = ANY(?) ORDER BY title;";
+    public static List<Book> getBooksByIds(Connection conn, List<Long> ids) throws SQLException {
+        java.sql.Array arr = conn.createArrayOf("bigint", ids.toArray());
+        try (PreparedStatement ps = conn.prepareStatement(SQL_GET_BOOKS_BY_IDS)) {
+            ps.setArray(1, arr);
+            List<Book> rows = new ArrayList<>();
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) rows.add(new Book(rs.getLong(1), rs.getLong(2), rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getObject(6, java.time.LocalDate.class)));
+            }
+            return rows;
+        }
+    }
+
     private static final String SQL_LIST_BOOKS_BY_GENRE =
         "SELECT id, author_id, title, genre, price, published_at FROM book WHERE genre = ? ORDER BY title;";
     public static List<Book> listBooksByGenre(Connection conn, String genre) throws SQLException {

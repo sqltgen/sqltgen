@@ -71,6 +71,20 @@ public final class Queries {
         }
     }
 
+    private static final String SQL_GET_BOOKS_BY_IDS =
+        "SELECT id, author_id, title, genre, price, published_at FROM book WHERE id IN (SELECT value FROM json_each(?)) ORDER BY title;";
+    public static List<Book> getBooksByIds(Connection conn, List<Long> ids) throws SQLException {
+        String json = "[" + ids.stream().map(Object::toString).collect(java.util.stream.Collectors.joining(",")) + "]";
+        try (PreparedStatement ps = conn.prepareStatement(SQL_GET_BOOKS_BY_IDS)) {
+            ps.setString(1, json);
+            List<Book> rows = new ArrayList<>();
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) rows.add(new Book(rs.getInt(1), rs.getInt(2), rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getString(6)));
+            }
+            return rows;
+        }
+    }
+
     private static final String SQL_LIST_BOOKS_BY_GENRE =
         "SELECT id, author_id, title, genre, price, published_at FROM book WHERE genre = ? ORDER BY title;";
     public static List<Book> listBooksByGenre(Connection conn, String genre) throws SQLException {

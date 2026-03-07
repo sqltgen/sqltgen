@@ -55,6 +55,12 @@ public final class QueriesDs {
         }
     }
 
+    public List<Book> getBooksByIds(List<Long> ids) throws SQLException {
+        try (Connection conn = dataSource.getConnection()) {
+            return Queries.getBooksByIds(conn, ids);
+        }
+    }
+
     public List<Book> listBooksByGenre(String genre) throws SQLException {
         try (Connection conn = dataSource.getConnection()) {
             return Queries.listBooksByGenre(conn, genre);

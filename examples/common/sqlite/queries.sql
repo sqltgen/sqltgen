@@ -21,6 +21,13 @@ SELECT id, author_id, title, genre, price, published_at
 FROM book
 WHERE id = @id;
 
+-- name: GetBooksByIds :many
+-- @ids bigint[] not null
+SELECT id, author_id, title, genre, price, published_at
+FROM book
+WHERE id IN (@ids)
+ORDER BY title;
+
 -- name: ListBooksByGenre :many
 SELECT id, author_id, title, genre, price, published_at
 FROM book

@@ -3,7 +3,9 @@ mod db;
 use db::queries as q;
 use rust_decimal::Decimal;
 
-fn d(s: &str) -> Decimal { s.parse().unwrap() }
+fn d(s: &str) -> Decimal {
+    s.parse().unwrap()
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -20,15 +22,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Insert books (IDs 1–5)
     q::create_book(&pool, 1, "The Left Hand of Darkness".into(), "sci-fi".into(), d("12.99"), None).await?;
-    q::create_book(&pool, 1, "The Dispossessed".into(),           "sci-fi".into(), d("11.50"), None).await?;
-    q::create_book(&pool, 2, "Dune".into(),                       "sci-fi".into(), d("14.99"), None).await?;
-    q::create_book(&pool, 3, "Foundation".into(),                 "sci-fi".into(), d("10.99"), None).await?;
-    q::create_book(&pool, 3, "The Caves of Steel".into(),         "sci-fi".into(), d("9.99"),  None).await?;
+    q::create_book(&pool, 1, "The Dispossessed".into(), "sci-fi".into(), d("11.50"), None).await?;
+    q::create_book(&pool, 2, "Dune".into(), "sci-fi".into(), d("14.99"), None).await?;
+    q::create_book(&pool, 3, "Foundation".into(), "sci-fi".into(), d("10.99"), None).await?;
+    q::create_book(&pool, 3, "The Caves of Steel".into(), "sci-fi".into(), d("9.99"), None).await?;
     println!("[mysql] inserted 5 books");
 
     // Insert customers (IDs 1, 2)
     q::create_customer(&pool, "Alice".into(), "alice@example.com".into()).await?;
-    q::create_customer(&pool, "Bob".into(),   "bob@example.com".into()).await?;
+    q::create_customer(&pool, "Bob".into(), "bob@example.com".into()).await?;
     println!("[mysql] inserted 2 customers");
 
     // Insert sales and items (sale IDs 1, 2; book IDs: dune=3, found=4, lhod=1)

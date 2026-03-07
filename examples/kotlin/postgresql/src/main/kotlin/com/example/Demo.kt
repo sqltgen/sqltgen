@@ -51,6 +51,11 @@ object Demo {
         val authors = q.listAuthors()
         println("[pg] listAuthors: ${authors.size} row(s)")
 
+        // Book IDs are BIGSERIAL starting at 1 on a fresh DB; 1=Left Hand, 3=Dune.
+        val byIds = q.getBooksByIds(listOf(1L, 3L))
+        println("[pg] getBooksByIds([1,3]): ${byIds.size} row(s)")
+        byIds.forEach { println("  \"${it.title}\"") }
+
         val scifi = q.listBooksByGenre("sci-fi")
         println("[pg] listBooksByGenre(sci-fi): ${scifi.size} row(s)")
 

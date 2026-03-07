@@ -44,6 +44,12 @@ def query(conn: mysql.connector.MySQLConnection) -> None:
     authors = queries.list_authors(conn)
     print(f"[mysql] listAuthors: {len(authors)} row(s)")
 
+    # Books inserted in seed have IDs 1–5; 1=Left Hand, 3=Dune.
+    by_ids = queries.get_books_by_ids(conn, [1, 3])
+    print(f"[mysql] getBooksByIds([1,3]): {len(by_ids)} row(s)")
+    for b in by_ids:
+        print(f'  "{b.title}"')
+
     scifi = queries.list_books_by_genre(conn, "sci-fi")
     print(f"[mysql] listBooksByGenre(sci-fi): {len(scifi)} row(s)")
 

@@ -3,6 +3,7 @@ package com.example;
 import com.example.db.QueriesDs;
 
 import java.math.BigDecimal;
+import java.util.List;
 import com.mysql.cj.jdbc.MysqlDataSource;
 
 public class Demo {
@@ -59,6 +60,11 @@ public class Demo {
     private static void query(QueriesDs q) throws Exception {
         var authors = q.listAuthors();
         System.out.println("[mysql] listAuthors: " + authors.size() + " row(s)");
+
+        // Books inserted in seed have IDs 1–5; 1=Left Hand, 3=Dune.
+        var byIds = q.getBooksByIds(List.of(1L, 3L));
+        System.out.println("[mysql] getBooksByIds([1,3]): " + byIds.size() + " row(s)");
+        byIds.forEach(b -> System.out.println("  \"" + b.title() + "\""));
 
         var scifi = q.listBooksByGenre("sci-fi");
         System.out.println("[mysql] listBooksByGenre(sci-fi): " + scifi.size() + " row(s)");

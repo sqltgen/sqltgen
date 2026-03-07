@@ -77,6 +77,11 @@ public class Demo {
         var authors = q.listAuthors();
         System.out.println("[sqlite] listAuthors: " + authors.size() + " row(s)");
 
+        // Books inserted in seed have IDs 1–5; 1=Left Hand, 3=Dune.
+        var byIds = q.getBooksByIds(List.of(1L, 3L));
+        System.out.println("[sqlite] getBooksByIds([1,3]): " + byIds.size() + " row(s)");
+        byIds.forEach(b -> System.out.println("  \"" + b.title() + "\""));
+
         var scifi = q.listBooksByGenre("sci-fi");
         System.out.println("[sqlite] listBooksByGenre(sci-fi): " + scifi.size() + " row(s)");
 

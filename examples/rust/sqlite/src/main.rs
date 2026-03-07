@@ -47,6 +47,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let authors = q::list_authors(&pool).await?;
     println!("[sqlite] list_authors: {} row(s)", authors.len());
 
+    // Books inserted above have IDs 1–5; 1=Left Hand, 3=Dune.
+    let by_ids = q::get_books_by_ids(&pool, &[1, 3]).await?;
+    println!("[sqlite] get_books_by_ids([1,3]): {} row(s)", by_ids.len());
+    for b in &by_ids {
+        println!("  \"{}\"", b.title);
+    }
+
     let books = q::list_books_by_genre(&pool, "sci-fi".into()).await?;
     println!("[sqlite] list_books_by_genre(sci-fi): {} row(s)", books.len());
 

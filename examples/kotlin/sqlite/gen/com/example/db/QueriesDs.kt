@@ -19,6 +19,9 @@ class QueriesDs(private val dataSource: DataSource) {
     fun getBook(id: Int): Book? =
         dataSource.connection.use { conn -> Queries.getBook(conn, id) }
 
+    fun getBooksByIds(ids: List<Long>): List<Book> =
+        dataSource.connection.use { conn -> Queries.getBooksByIds(conn, ids) }
+
     fun listBooksByGenre(genre: String): List<Book> =
         dataSource.connection.use { conn -> Queries.listBooksByGenre(conn, genre) }
 

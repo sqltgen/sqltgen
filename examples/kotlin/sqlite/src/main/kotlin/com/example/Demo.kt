@@ -74,6 +74,11 @@ object Demo {
         val authors = q.listAuthors()
         println("[sqlite] listAuthors: ${authors.size} row(s)")
 
+        // Books inserted in seed have IDs 1–5; 1=Left Hand, 3=Dune.
+        val byIds = q.getBooksByIds(listOf(1L, 3L))
+        println("[sqlite] getBooksByIds([1,3]): ${byIds.size} row(s)")
+        byIds.forEach { println("  \"${it.title}\"") }
+
         val scifi = q.listBooksByGenre("sci-fi")
         println("[sqlite] listBooksByGenre(sci-fi): ${scifi.size} row(s)")
 
