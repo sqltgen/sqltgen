@@ -45,6 +45,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let authors = q::list_authors(&pool).await?;
     println!("[mysql] list_authors: {} row(s)", authors.len());
 
+    let by_ids = q::get_books_by_ids(&pool, &[1, 3]).await?;
+    println!("[mysql] get_books_by_ids([1,3]): {} row(s)", by_ids.len());
+    for b in &by_ids {
+        println!("  \"{}\"", b.title);
+    }
+
     let books = q::list_books_by_genre(&pool, "sci-fi".into()).await?;
     println!("[mysql] list_books_by_genre(sci-fi): {} row(s)", books.len());
 

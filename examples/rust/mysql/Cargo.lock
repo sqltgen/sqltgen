@@ -1477,7 +1477,6 @@ version = "0.1.0"
 dependencies = [
  "dotenvy",
  "rust_decimal",
- "serde_json",
  "sqlx",
  "time",
  "tokio",

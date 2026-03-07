@@ -197,13 +197,12 @@ fn emit_rust_list_query(
             });
             let sql = normalize_sql_for_sqlx(&rewritten, target).replace('"', "\\\"").replace('\n', " ");
             let lp_name = to_snake_case(&list_param.name);
-            writeln!(src, "    let {lp_name}_json = serde_json::to_string({lp_name}).expect(\"list serialisation\");")?;
-            // Build bind names: scalar params in order, replacing the list param with its json var.
+            writeln!(src, "    let {lp_name}_json = {};", json_list_expr(&lp_name, &list_param.sql_type))?;
             let bind_names: Vec<String> = query.params.iter().map(|p| if p.is_list { format!("{lp_name}_json") } else { to_snake_case(&p.name) }).collect();
             let bind_refs: Vec<&str> = bind_names.iter().map(|s| s.as_str()).collect();
             emit_rust_sqlx_call(src, query, &sql, &bind_refs, &row_type)
         },
-        (RustTarget::Sqlite, ListParamStrategy::Dynamic) => {
+        (RustTarget::Sqlite, ListParamStrategy::Dynamic) | (RustTarget::Mysql, ListParamStrategy::Dynamic) => {
             let (before, after) = split_at_in_clause(&query.sql, list_param.index).unwrap_or_else(|| (query.sql.clone(), String::new()));
             let lp_name = to_snake_case(&list_param.name);
             let before_esc = normalize_sql_for_sqlx(&before, target).replace('"', "\\\"").replace('\n', " ");
@@ -220,11 +219,47 @@ fn emit_rust_list_query(
             writeln!(src, "    q.{}.await", fetch_method(query))?;
             Ok(())
         },
-        // MySQL list params: not yet supported — treat as scalar.
-        (RustTarget::Mysql, _) => {
-            eprintln!("warning: list params not yet supported for MySQL Rust backend, treating as scalar");
-            emit_rust_scalar_query(src, query, row_type, target)
+        (RustTarget::Mysql, ListParamStrategy::Native) => {
+            let col_type = mysql_json_col_type(&list_param.sql_type);
+            let repl = format!("IN (SELECT value FROM JSON_TABLE(?,'$[*]' COLUMNS(value {col_type} PATH '$')) t)");
+            let rewritten = replace_list_in_clause(&query.sql, list_param.index, &repl).unwrap_or_else(|| {
+                eprintln!("warning: list param {} not found in IN clause, treating as scalar", list_param.name);
+                query.sql.clone()
+            });
+            let sql = normalize_sql_for_sqlx(&rewritten, target).replace('"', "\\\"").replace('\n', " ");
+            let lp_name = to_snake_case(&list_param.name);
+            writeln!(src, "    let {lp_name}_json = {};", json_list_expr(&lp_name, &list_param.sql_type))?;
+            let bind_names: Vec<String> = query.params.iter().map(|p| if p.is_list { format!("{lp_name}_json") } else { to_snake_case(&p.name) }).collect();
+            let bind_refs: Vec<&str> = bind_names.iter().map(|s| s.as_str()).collect();
+            emit_rust_sqlx_call(src, query, &sql, &bind_refs, &row_type)
         },
+    }
+}
+
+/// Generate inline Rust code that builds a JSON array string from a list parameter.
+///
+/// Produces an expression like `format!("[{}]", ids.iter().map(|x| ...).join(","))`.
+/// Avoids any dependency on serde_json by formatting each element inline.
+fn json_list_expr(lp_name: &str, sql_type: &SqlType) -> String {
+    let elem = match sql_type {
+        SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_) => r#"format!("\"{}\"", x.replace('\\', "\\\\").replace('"', "\\\""))"#.to_string(),
+        SqlType::Uuid => r#"format!("\"{}\"", x)"#.to_string(),
+        _ => "x.to_string()".to_string(),
+    };
+    format!(r#"format!("[{{}}]", {lp_name}.iter().map(|x| {elem}).collect::<Vec<_>>().join(","))"#)
+}
+
+/// Map a SqlType to the MySQL JSON_TABLE column type declaration.
+fn mysql_json_col_type(sql_type: &SqlType) -> &'static str {
+    match sql_type {
+        SqlType::Boolean => "BOOLEAN",
+        SqlType::SmallInt => "SMALLINT",
+        SqlType::Integer => "INT",
+        SqlType::BigInt => "BIGINT",
+        SqlType::Real => "FLOAT",
+        SqlType::Double => "DOUBLE",
+        SqlType::Decimal => "DECIMAL(38,10)",
+        _ => "CHAR(255)",
     }
 }
 
@@ -238,12 +273,9 @@ fn fetch_method(query: &Query) -> &'static str {
 }
 
 /// Build the `name: type` signature fragment for a single parameter.
-///
-/// MySQL does not support list params natively; the backend falls back to scalar,
-/// so MySQL list params use the scalar type in the signature.
 fn rust_param_sig(p: &Parameter, target: &RustTarget) -> String {
     let name = to_snake_case(&p.name);
-    if p.is_list && !matches!(target, RustTarget::Mysql) {
+    if p.is_list {
         let elem_ty = rust_type(&p.sql_type, false, target);
         format!("{name}: &[{elem_ty}]")
     } else {
@@ -400,7 +432,7 @@ fn rust_type(sql_type: &SqlType, nullable: bool, target: &RustTarget) -> String 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::OutputConfig;
+    use crate::config::{ListParamStrategy, OutputConfig};
     use crate::ir::{Column, Parameter, Query, QueryCmd, ResultColumn, Schema, SqlType, Table};
 
     fn cfg() -> OutputConfig {
@@ -416,6 +448,9 @@ mod tests {
     }
     fn sqlite() -> RustCodegen {
         RustCodegen { target: RustTarget::Sqlite }
+    }
+    fn mysql() -> RustCodegen {
+        RustCodegen { target: RustTarget::Mysql }
     }
 
     fn user_table() -> Table {
@@ -643,7 +678,45 @@ mod tests {
         let src = get_file(&files, "queries.rs");
         assert!(src.contains("ids: &[i64]"), "signature should use &[i64]");
         assert!(src.contains("json_each"), "SQLite native uses json_each");
-        assert!(src.contains("serde_json::to_string"), "SQLite native serialises to JSON");
+        assert!(src.contains("ids_json"), "should bind the json local variable");
+        assert!(!src.contains("serde_json"), "must not require serde_json");
+    }
+
+    #[test]
+    fn test_generate_mysql_native_list_param() {
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "GetByIds".to_string(),
+            cmd: QueryCmd::Many,
+            sql: "SELECT id FROM t WHERE id IN ($1)".to_string(),
+            params: vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
+            result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        };
+        let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: None };
+        let files = mysql().generate(&schema, &[query], &cfg).unwrap();
+        let src = get_file(&files, "queries.rs");
+        assert!(src.contains("ids: &[i64]"), "signature should use &[i64]");
+        assert!(src.contains("JSON_TABLE"), "MySQL native uses JSON_TABLE");
+        assert!(src.contains("ids_json"), "should bind the json local variable");
+        assert!(!src.contains("serde_json"), "must not require serde_json");
+    }
+
+    #[test]
+    fn test_generate_mysql_dynamic_list_param() {
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "GetByIds".to_string(),
+            cmd: QueryCmd::Many,
+            sql: "SELECT id FROM t WHERE id IN ($1)".to_string(),
+            params: vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
+            result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        };
+        let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(ListParamStrategy::Dynamic) };
+        let files = mysql().generate(&schema, &[query], &cfg).unwrap();
+        let src = get_file(&files, "queries.rs");
+        assert!(src.contains("ids: &[i64]"), "signature should use &[i64]");
+        assert!(src.contains("placeholders"), "dynamic strategy builds placeholders");
+        assert!(!src.contains("JSON_TABLE"), "dynamic strategy does not use JSON_TABLE");
     }
 
     // ─── generate: SQLite placeholder rewriting ─────────────────────────────
