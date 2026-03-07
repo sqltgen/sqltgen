@@ -20,9 +20,7 @@ use crate::ir::Schema;
 pub fn parse_schema(ddl: &str) -> anyhow::Result<Schema> {
     let dialect = PostgreSqlDialect {};
 
-    let tokens = Tokenizer::new(&dialect, ddl)
-        .tokenize_with_location()
-        .map_err(|e| anyhow::anyhow!("DDL tokenize error: {e}"))?;
+    let tokens = Tokenizer::new(&dialect, ddl).tokenize_with_location().map_err(|e| anyhow::anyhow!("DDL tokenize error: {e}"))?;
 
     let mut parser = Parser::new(&dialect).with_tokens_with_locations(tokens);
     let mut tables = Vec::new();

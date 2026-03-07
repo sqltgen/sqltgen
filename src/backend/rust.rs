@@ -1,11 +1,11 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 use std::path::PathBuf;
 
-use crate::backend::common::{infer_table, positional_bind_names, to_pascal_case, to_snake_case};
+use crate::backend::common::{infer_table, positional_bind_names, replace_list_in_clause, split_at_in_clause, to_pascal_case, to_snake_case};
 use crate::backend::{Codegen, GeneratedFile};
-use crate::config::OutputConfig;
-use crate::ir::{Query, QueryCmd, Schema, SqlType};
+use crate::config::{ListParamStrategy, OutputConfig};
+use crate::ir::{Parameter, Query, QueryCmd, Schema, SqlType};
 
 pub enum RustTarget {
     Postgres,
@@ -65,11 +65,12 @@ impl Codegen for RustCodegen {
             }
 
             // Query functions
+            let strategy = config.list_params.clone().unwrap_or_default();
             for (i, query) in queries.iter().enumerate() {
                 if i > 0 {
                     writeln!(src)?;
                 }
-                emit_rust_query(&mut src, query, schema, pool_type, &self.target)?;
+                emit_rust_query(&mut src, query, schema, pool_type, &self.target, &strategy)?;
             }
 
             let path = PathBuf::from(&config.out).join("queries.rs");
@@ -106,7 +107,7 @@ fn emit_row_struct(src: &mut String, query: &Query, target: &RustTarget) -> anyh
     Ok(())
 }
 
-fn emit_rust_query(src: &mut String, query: &Query, schema: &Schema, pool_type: &str, target: &RustTarget) -> anyhow::Result<()> {
+fn emit_rust_query(src: &mut String, query: &Query, schema: &Schema, pool_type: &str, target: &RustTarget, strategy: &ListParamStrategy) -> anyhow::Result<()> {
     let fn_name = to_snake_case(&query.name);
     let row_type = result_row_type(query, schema);
 
@@ -117,27 +118,167 @@ fn emit_rust_query(src: &mut String, query: &Query, schema: &Schema, pool_type: 
         QueryCmd::ExecRows => "Result<u64, sqlx::Error>".to_string(),
     };
 
-    let params_sig: String = std::iter::once(format!("pool: &{pool_type}"))
-        .chain(query.params.iter().map(|p| format!("{}: {}", to_snake_case(&p.name), rust_type(&p.sql_type, p.nullable, target))))
-        .collect::<Vec<_>>()
-        .join(", ");
-
-    let sql = normalize_sql_for_sqlx(&query.sql, target).replace('"', "\\\"").replace('\n', " ");
+    let params_sig: String =
+        std::iter::once(format!("pool: &{pool_type}")).chain(query.params.iter().map(|p| rust_param_sig(p, target))).collect::<Vec<_>>().join(", ");
 
     writeln!(src, "pub async fn {fn_name}({params_sig}) -> {return_type} {{")?;
 
+    let list_param = query.params.iter().find(|p| p.is_list);
+    if let Some(lp) = list_param {
+        emit_rust_list_query(src, query, row_type, target, strategy, lp)?;
+    } else {
+        emit_rust_scalar_query(src, query, row_type, target)?;
+    }
+
+    writeln!(src, "}}")?;
+    Ok(())
+}
+
+/// Emit the body for a query with no list parameters.
+fn emit_rust_scalar_query(src: &mut String, query: &Query, row_type: String, target: &RustTarget) -> anyhow::Result<()> {
+    let sql = normalize_sql_for_sqlx(&query.sql, target).replace('"', "\\\"").replace('\n', " ");
     // Postgres $N is reference-by-number — one .bind() per unique param suffices.
     // SQLite/MySQL normalize to ? (positional sequential) — bind once per occurrence.
     let bind_names: Vec<&str> = match target {
         RustTarget::Postgres => query.params.iter().map(|p| p.name.as_str()).collect(),
         RustTarget::Sqlite | RustTarget::Mysql => positional_bind_names(query),
     };
+    emit_rust_sqlx_call(src, query, &sql, &bind_names, &row_type)
+}
+
+/// Emit the body for a query that contains a list parameter.
+fn emit_rust_list_query(
+    src: &mut String,
+    query: &Query,
+    row_type: String,
+    target: &RustTarget,
+    strategy: &ListParamStrategy,
+    list_param: &Parameter,
+) -> anyhow::Result<()> {
+    let scalar_params: Vec<&Parameter> = query.params.iter().filter(|p| !p.is_list).collect();
+
+    match (target, strategy) {
+        (RustTarget::Postgres, ListParamStrategy::Native) => {
+            let repl = format!("= ANY(${})", list_param.index);
+            let rewritten = replace_list_in_clause(&query.sql, list_param.index, &repl).unwrap_or_else(|| {
+                eprintln!("warning: list param {} not found in IN clause, treating as scalar", list_param.name);
+                query.sql.clone()
+            });
+            let sql = rewritten.replace('"', "\\\"").replace('\n', " ");
+            let bind_names: Vec<&str> = query.params.iter().map(|p| p.name.as_str()).collect();
+            emit_rust_sqlx_call(src, query, &sql, &bind_names, &row_type)
+        },
+        (RustTarget::Postgres, ListParamStrategy::Dynamic) => {
+            let (before, after) = split_at_in_clause(&query.sql, list_param.index).unwrap_or_else(|| (query.sql.clone(), String::new()));
+            let lp_name = to_snake_case(&list_param.name);
+            let before_esc = before.replace('"', "\\\"").replace('\n', " ");
+            let after_esc = after.replace('"', "\\\"").replace('\n', " ");
+            // Other scalar params occupy indices 1..list_param.index-1; list elements start after.
+            let base = list_param.index;
+            writeln!(src, "    let placeholders: String = ({lp_name}).iter().enumerate()")?;
+            writeln!(src, "        .map(|(i, _)| format!(\"${{}}\", {base} + i))")?;
+            writeln!(src, "        .collect::<Vec<_>>().join(\", \");")?;
+            writeln!(src, "    let sql = format!(\"{before_esc}IN ({{placeholders}}){after_esc}\");")?;
+            writeln!(src, "    let mut q = sqlx::query_as::<_, {row_type}>(&sql);")?;
+            for sp in &scalar_params {
+                writeln!(src, "    q = q.bind({});", to_snake_case(&sp.name))?;
+            }
+            writeln!(src, "    for v in {lp_name} {{")?;
+            writeln!(src, "        q = q.bind(v);")?;
+            writeln!(src, "    }}")?;
+            writeln!(src, "    q.{}.await", fetch_method(query))?;
+            Ok(())
+        },
+        (RustTarget::Sqlite, ListParamStrategy::Native) => {
+            let repl = "IN (SELECT value FROM json_each(?))";
+            let rewritten = replace_list_in_clause(&query.sql, list_param.index, repl).unwrap_or_else(|| {
+                eprintln!("warning: list param {} not found in IN clause, treating as scalar", list_param.name);
+                query.sql.clone()
+            });
+            let sql = normalize_sql_for_sqlx(&rewritten, target).replace('"', "\\\"").replace('\n', " ");
+            let lp_name = to_snake_case(&list_param.name);
+            writeln!(src, "    let {lp_name}_json = serde_json::to_string({lp_name}).expect(\"list serialisation\");")?;
+            // Build bind names: scalar params in order, replacing the list param with its json var.
+            let bind_names: Vec<String> = query.params.iter().map(|p| if p.is_list { format!("{lp_name}_json") } else { to_snake_case(&p.name) }).collect();
+            let bind_refs: Vec<&str> = bind_names.iter().map(|s| s.as_str()).collect();
+            emit_rust_sqlx_call(src, query, &sql, &bind_refs, &row_type)
+        },
+        (RustTarget::Sqlite, ListParamStrategy::Dynamic) => {
+            let (before, after) = split_at_in_clause(&query.sql, list_param.index).unwrap_or_else(|| (query.sql.clone(), String::new()));
+            let lp_name = to_snake_case(&list_param.name);
+            let before_esc = normalize_sql_for_sqlx(&before, target).replace('"', "\\\"").replace('\n', " ");
+            let after_esc = normalize_sql_for_sqlx(&after, target).replace('"', "\\\"").replace('\n', " ");
+            writeln!(src, "    let placeholders = ({lp_name}).iter().map(|_| \"?\").collect::<Vec<_>>().join(\", \");")?;
+            writeln!(src, "    let sql = format!(\"{before_esc}IN ({{placeholders}}){after_esc}\");")?;
+            writeln!(src, "    let mut q = sqlx::query_as::<_, {row_type}>(&sql);")?;
+            for sp in &scalar_params {
+                writeln!(src, "    q = q.bind({});", to_snake_case(&sp.name))?;
+            }
+            writeln!(src, "    for v in {lp_name} {{")?;
+            writeln!(src, "        q = q.bind(v);")?;
+            writeln!(src, "    }}")?;
+            writeln!(src, "    q.{}.await", fetch_method(query))?;
+            Ok(())
+        },
+        // MySQL list params: not yet supported — treat as scalar.
+        (RustTarget::Mysql, _) => {
+            eprintln!("warning: list params not yet supported for MySQL Rust backend, treating as scalar");
+            emit_rust_scalar_query(src, query, row_type, target)
+        },
+    }
+}
+
+fn fetch_method(query: &Query) -> &'static str {
+    match query.cmd {
+        QueryCmd::One => "fetch_optional(pool)",
+        QueryCmd::Many => "fetch_all(pool)",
+        QueryCmd::Exec => "execute(pool).map(|_| ())",
+        QueryCmd::ExecRows => "execute(pool).map(|r| r.rows_affected())",
+    }
+}
+
+/// Build the `name: type` signature fragment for a single parameter.
+///
+/// MySQL does not support list params natively; the backend falls back to scalar,
+/// so MySQL list params use the scalar type in the signature.
+fn rust_param_sig(p: &Parameter, target: &RustTarget) -> String {
+    let name = to_snake_case(&p.name);
+    if p.is_list && !matches!(target, RustTarget::Mysql) {
+        let elem_ty = rust_type(&p.sql_type, false, target);
+        format!("{name}: &[{elem_ty}]")
+    } else {
+        format!("{name}: {}", rust_type(&p.sql_type, p.nullable, target))
+    }
+}
+
+/// Emit the sqlx query/query_as call with static SQL and a list of bind names.
+///
+/// When the same name appears multiple times (positional dialects like MySQL/SQLite
+/// that repeat binds for repeated params), all occurrences except the last are
+/// emitted with `.clone()` to avoid a move-before-use compile error.
+fn emit_rust_sqlx_call(src: &mut String, query: &Query, sql: &str, bind_names: &[&str], row_type: &str) -> anyhow::Result<()> {
+    // Count remaining occurrences so we know when to clone vs. move.
+    let mut remaining: HashMap<&str, usize> = HashMap::new();
+    for &name in bind_names {
+        *remaining.entry(name).or_insert(0) += 1;
+    }
+
+    let bind_expr = |name: &str, remaining: &mut HashMap<&str, usize>| -> String {
+        let snake = to_snake_case(name);
+        let count = remaining.get_mut(name).unwrap();
+        *count -= 1;
+        if *count > 0 {
+            format!("{snake}.clone()")
+        } else {
+            snake
+        }
+    };
 
     match query.cmd {
         QueryCmd::Exec | QueryCmd::ExecRows => {
             writeln!(src, "    sqlx::query(\"{sql}\")")?;
-            for name in &bind_names {
-                writeln!(src, "        .bind({})", to_snake_case(name))?;
+            for &name in bind_names {
+                writeln!(src, "        .bind({})", bind_expr(name, &mut remaining))?;
             }
             writeln!(src, "        .execute(pool)")?;
             writeln!(src, "        .await")?;
@@ -149,8 +290,8 @@ fn emit_rust_query(src: &mut String, query: &Query, schema: &Schema, pool_type: 
         },
         QueryCmd::One | QueryCmd::Many => {
             writeln!(src, "    sqlx::query_as::<_, {row_type}>(\"{sql}\")")?;
-            for name in &bind_names {
-                writeln!(src, "        .bind({})", to_snake_case(name))?;
+            for &name in bind_names {
+                writeln!(src, "        .bind({})", bind_expr(name, &mut remaining))?;
             }
             if matches!(query.cmd, QueryCmd::One) {
                 writeln!(src, "        .fetch_optional(pool)")?;
@@ -160,8 +301,6 @@ fn emit_rust_query(src: &mut String, query: &Query, schema: &Schema, pool_type: 
             writeln!(src, "        .await")?;
         },
     }
-
-    writeln!(src, "}}")?;
     Ok(())
 }
 
@@ -265,7 +404,7 @@ mod tests {
     use crate::ir::{Column, Parameter, Query, QueryCmd, ResultColumn, Schema, SqlType, Table};
 
     fn cfg() -> OutputConfig {
-        OutputConfig { out: "out".to_string(), package: String::new() }
+        OutputConfig { out: "out".to_string(), package: String::new(), list_params: None }
     }
 
     fn get_file<'a>(files: &'a [GeneratedFile], name: &str) -> &'a str {
@@ -311,7 +450,7 @@ mod tests {
             name: "GetUser".to_string(),
             cmd: QueryCmd::One,
             sql: "SELECT id, name, bio FROM user WHERE id = $1".to_string(),
-            params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
             result_columns: vec![
                 ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false },
                 ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
@@ -333,7 +472,7 @@ mod tests {
             name: "DeleteUser".to_string(),
             cmd: QueryCmd::Exec,
             sql: "DELETE FROM user WHERE id = $1".to_string(),
-            params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
             result_columns: vec![],
         };
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
@@ -349,7 +488,7 @@ mod tests {
             name: "DeleteUser".to_string(),
             cmd: QueryCmd::Exec,
             sql: "DELETE FROM user WHERE id = ?1".to_string(),
-            params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
             result_columns: vec![],
         };
         let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
@@ -367,7 +506,7 @@ mod tests {
             name: "DeleteUser".to_string(),
             cmd: QueryCmd::Exec,
             sql: "DELETE FROM user WHERE id = $1".to_string(),
-            params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
             result_columns: vec![],
         };
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
@@ -384,7 +523,7 @@ mod tests {
             name: "DeleteUsers".to_string(),
             cmd: QueryCmd::ExecRows,
             sql: "DELETE FROM user WHERE active = $1".to_string(),
-            params: vec![Parameter { index: 1, name: "active".to_string(), sql_type: SqlType::Boolean, nullable: false }],
+            params: vec![Parameter::scalar(1, "active", SqlType::Boolean, false)],
             result_columns: vec![],
         };
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
@@ -400,7 +539,7 @@ mod tests {
             name: "GetUser".to_string(),
             cmd: QueryCmd::One,
             sql: "SELECT id, name, bio FROM user WHERE id = $1".to_string(),
-            params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
             result_columns: vec![
                 ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false },
                 ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
@@ -442,13 +581,69 @@ mod tests {
             name: "GetUserName".to_string(),
             cmd: QueryCmd::One,
             sql: "SELECT name FROM user WHERE id = $1".to_string(),
-            params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
             result_columns: vec![ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false }],
         };
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.rs");
         assert!(src.contains("pub struct GetUserNameRow {"));
         assert!(src.contains("Result<Option<GetUserNameRow>, sqlx::Error>"));
+    }
+
+    // ─── generate: list params ──────────────────────────────────────────────
+
+    #[test]
+    fn test_generate_pg_native_list_param() {
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "GetByIds".to_string(),
+            cmd: QueryCmd::Many,
+            sql: "SELECT id FROM t WHERE id IN ($1)".to_string(),
+            params: vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
+            result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        };
+        let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: None };
+        let files = pg().generate(&schema, &[query], &cfg).unwrap();
+        let src = get_file(&files, "queries.rs");
+        assert!(src.contains("ids: &[i64]"), "signature should use &[i64]");
+        assert!(src.contains("= ANY($1)"), "PG native should rewrite to ANY");
+        assert!(!src.contains("IN ($1)"), "original IN clause should be gone");
+    }
+
+    #[test]
+    fn test_generate_pg_dynamic_list_param() {
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "GetByIds".to_string(),
+            cmd: QueryCmd::Many,
+            sql: "SELECT id FROM t WHERE id IN ($1)".to_string(),
+            params: vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
+            result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        };
+        let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic) };
+        let files = pg().generate(&schema, &[query], &cfg).unwrap();
+        let src = get_file(&files, "queries.rs");
+        assert!(src.contains("ids: &[i64]"), "signature should use &[i64]");
+        assert!(src.contains("placeholders"), "dynamic mode builds placeholders at runtime");
+        assert!(src.contains("for v in ids"), "dynamic mode binds each element");
+    }
+
+    #[test]
+    fn test_generate_sqlite_native_list_param() {
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "GetByIds".to_string(),
+            cmd: QueryCmd::Many,
+            sql: "SELECT id FROM t WHERE id IN ($1)".to_string(),
+            params: vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
+            result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        };
+        let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: None };
+        let files = sqlite().generate(&schema, &[query], &cfg).unwrap();
+        let src = get_file(&files, "queries.rs");
+        assert!(src.contains("ids: &[i64]"), "signature should use &[i64]");
+        assert!(src.contains("json_each"), "SQLite native uses json_each");
+        assert!(src.contains("serde_json::to_string"), "SQLite native serialises to JSON");
     }
 
     // ─── generate: SQLite placeholder rewriting ─────────────────────────────
@@ -460,7 +655,7 @@ mod tests {
             name: "GetUser".to_string(),
             cmd: QueryCmd::Exec,
             sql: "DELETE FROM user WHERE id = ?1".to_string(),
-            params: vec![Parameter { index: 1, name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
             result_columns: vec![],
         };
         let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();

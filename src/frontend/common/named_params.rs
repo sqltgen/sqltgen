@@ -17,6 +17,8 @@ pub(crate) struct NamedParam {
     pub sql_type: Option<SqlType>,
     /// Explicit nullability from a `-- @name [not] null` annotation, if provided.
     pub nullable: Option<bool>,
+    /// True when the annotation type had a `[]` suffix, e.g. `-- @ids bigint[] not null`.
+    pub is_list: bool,
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
@@ -48,17 +50,15 @@ pub(crate) fn preprocess_named_params(sql: &str) -> Option<(String, Vec<NamedPar
         }
     }
 
-    let name_to_index: HashMap<String, usize> =
-        param_names.iter().enumerate().map(|(i, n)| (n.clone(), i + 1)).collect();
+    let name_to_index: HashMap<String, usize> = param_names.iter().enumerate().map(|(i, n)| (n.clone(), i + 1)).collect();
 
     let rewritten = rewrite_named_params_in_sql(&stripped, &name_to_index);
 
     let ordered_params = param_names
         .into_iter()
         .map(|name| {
-            let (sql_type, nullable) =
-                overrides.get(&name).cloned().unwrap_or((None, None));
-            NamedParam { name, sql_type, nullable }
+            let (sql_type, nullable, is_list) = overrides.get(&name).cloned().unwrap_or((None, None, false));
+            NamedParam { name, sql_type, nullable, is_list }
         })
         .collect();
 
@@ -69,10 +69,7 @@ pub(crate) fn preprocess_named_params(sql: &str) -> Option<(String, Vec<NamedPar
 ///
 /// Call this after the standard type-inference pass. Each `NamedParam` at position `i`
 /// corresponds to `$(i+1)` in the rewritten SQL.
-pub(crate) fn apply_named_param_overrides(
-    params: &mut [Parameter],
-    named_params: &[NamedParam],
-) {
+pub(crate) fn apply_named_param_overrides(params: &mut [Parameter], named_params: &[NamedParam]) {
     for (i, np) in named_params.iter().enumerate() {
         let idx = i + 1;
         if let Some(param) = params.iter_mut().find(|p| p.index == idx) {
@@ -83,30 +80,33 @@ pub(crate) fn apply_named_param_overrides(
             if let Some(n) = np.nullable {
                 param.nullable = n;
             }
+            if np.is_list {
+                param.is_list = true;
+            }
         }
     }
 }
 
 // ─── Annotation parsing ───────────────────────────────────────────────────────
 
-/// `(type_override, nullable_override)` keyed by param name.
-type AnnotationMap = HashMap<String, (Option<SqlType>, Option<bool>)>;
+/// `(type_override, nullable_override, is_list)` keyed by param name.
+type AnnotationMap = HashMap<String, (Option<SqlType>, Option<bool>, bool)>;
 
 fn parse_param_annotations(sql: &str) -> AnnotationMap {
     let mut map = HashMap::new();
     for line in sql.lines() {
-        if let Some((name, sql_type, nullable)) = parse_annotation_line(line) {
-            map.insert(name, (sql_type, nullable));
+        if let Some((name, sql_type, nullable, is_list)) = parse_annotation_line(line) {
+            map.insert(name, (sql_type, nullable, is_list));
         }
     }
     map
 }
 
-/// Parses a single `-- @name [type] [null | not null]` line.
+/// Parses a single `-- @name [type[]] [null | not null]` line.
 ///
-/// Returns `(name, type_override, nullable_override)` or `None` if the line is
+/// Returns `(name, type_override, nullable_override, is_list)` or `None` if the line is
 /// not a param annotation.
-fn parse_annotation_line(line: &str) -> Option<(String, Option<SqlType>, Option<bool>)> {
+fn parse_annotation_line(line: &str) -> Option<(String, Option<SqlType>, Option<bool>, bool)> {
     let rest = line.trim().strip_prefix("--")?.trim();
     let rest = rest.strip_prefix('@')?;
     let mut parts = rest.splitn(2, char::is_whitespace);
@@ -114,12 +114,16 @@ fn parse_annotation_line(line: &str) -> Option<(String, Option<SqlType>, Option<
     if name.is_empty() {
         return None;
     }
-    let (sql_type, nullable) = parse_type_and_nullability(parts.next().unwrap_or("").trim());
-    Some((name, sql_type, nullable))
+    let (sql_type, nullable, is_list) = parse_type_and_nullability(parts.next().unwrap_or("").trim());
+    Some((name, sql_type, nullable, is_list))
 }
 
-/// Parses an optional type keyword and optional `[not] null` specifier from a remainder string.
-fn parse_type_and_nullability(s: &str) -> (Option<SqlType>, Option<bool>) {
+/// Parses an optional type keyword (with optional `[]` suffix) and optional `[not] null`
+/// specifier from a remainder string.
+///
+/// Returns `(sql_type, nullable, is_list)`. The `is_list` flag is `true` when the type
+/// token ends with `[]`, e.g. `bigint[]`.
+fn parse_type_and_nullability(s: &str) -> (Option<SqlType>, Option<bool>, bool) {
     let lower = s.to_lowercase();
     let tokens: Vec<&str> = lower.split_whitespace().collect();
 
@@ -132,6 +136,9 @@ fn parse_type_and_nullability(s: &str) -> (Option<SqlType>, Option<bool>) {
     };
 
     let type_str = type_tokens.join(" ");
+    // Strip a trailing `[]` to detect list params (e.g. `bigint[]`).
+    let (type_str, is_list) = if let Some(base) = type_str.strip_suffix("[]") { (base.trim().to_string(), true) } else { (type_str, false) };
+
     let sql_type = if type_str.is_empty() {
         None
     } else {
@@ -140,11 +147,11 @@ fn parse_type_and_nullability(s: &str) -> (Option<SqlType>, Option<bool>) {
             None => {
                 eprintln!("warning: unknown type {type_str:?} in param annotation, ignoring");
                 None
-            }
+            },
         }
     };
 
-    (sql_type, nullable)
+    (sql_type, nullable, is_list)
 }
 
 /// Maps a lowercase type keyword to a [`SqlType`].
@@ -204,23 +211,21 @@ fn collect_named_param_order(sql: &str) -> Vec<String> {
     while let Some(c) = chars.next() {
         match c {
             '\n' if in_line_comment => in_line_comment = false,
-            _ if in_line_comment => {}
+            _ if in_line_comment => {},
             '\'' if !in_string => in_string = true,
             '\'' if in_string => in_string = false,
-            _ if in_string => {}
+            _ if in_string => {},
             '-' if !in_line_comment && chars.peek() == Some(&'-') => {
                 chars.next();
                 in_line_comment = true;
-            }
+            },
             '@' => {
-                let name: String =
-                    std::iter::from_fn(|| chars.next_if(|ch| ch.is_alphanumeric() || *ch == '_'))
-                        .collect();
+                let name: String = std::iter::from_fn(|| chars.next_if(|ch| ch.is_alphanumeric() || *ch == '_')).collect();
                 if !name.is_empty() && seen.insert(name.clone()) {
                     names.push(name);
                 }
-            }
-            _ => {}
+            },
+            _ => {},
         }
     }
     names
@@ -240,32 +245,30 @@ fn rewrite_named_params_in_sql(sql: &str, name_to_index: &HashMap<String, usize>
             '\n' if in_line_comment => {
                 in_line_comment = false;
                 out.push(c);
-            }
+            },
             c if in_line_comment => out.push(c),
             '\'' if !in_string => {
                 in_string = true;
                 out.push(c);
-            }
+            },
             '\'' if in_string => {
                 in_string = false;
                 out.push(c);
-            }
+            },
             c if in_string => out.push(c),
             '-' if chars.peek() == Some(&'-') => {
                 in_line_comment = true;
                 out.push(c);
-            }
+            },
             '@' => {
-                let name: String =
-                    std::iter::from_fn(|| chars.next_if(|ch| ch.is_alphanumeric() || *ch == '_'))
-                        .collect();
+                let name: String = std::iter::from_fn(|| chars.next_if(|ch| ch.is_alphanumeric() || *ch == '_')).collect();
                 if let Some(&idx) = name_to_index.get(&name) {
                     out.push_str(&format!("${idx}"));
                 } else {
                     out.push('@');
                     out.push_str(&name);
                 }
-            }
+            },
             c => out.push(c),
         }
     }
@@ -374,13 +377,10 @@ mod tests {
 
     #[test]
     fn test_apply_named_param_overrides() {
-        let mut params = vec![
-            Parameter { index: 1, name: "param1".into(), sql_type: SqlType::Text, nullable: false },
-            Parameter { index: 2, name: "param2".into(), sql_type: SqlType::Text, nullable: false },
-        ];
+        let mut params = vec![Parameter::scalar(1, "param1", SqlType::Text, false), Parameter::scalar(2, "param2", SqlType::Text, false)];
         let named = vec![
-            NamedParam { name: "user_id".into(), sql_type: Some(SqlType::BigInt), nullable: Some(false) },
-            NamedParam { name: "bio".into(), sql_type: None, nullable: Some(true) },
+            NamedParam { name: "user_id".into(), sql_type: Some(SqlType::BigInt), nullable: Some(false), is_list: false },
+            NamedParam { name: "bio".into(), sql_type: None, nullable: Some(true), is_list: false },
         ];
         apply_named_param_overrides(&mut params, &named);
         assert_eq!(params[0].name, "user_id");
@@ -389,5 +389,30 @@ mod tests {
         assert_eq!(params[1].nullable, true);
         // sql_type not overridden when None
         assert_eq!(params[1].sql_type, SqlType::Text);
+    }
+
+    #[test]
+    fn test_annotation_list_suffix_sets_is_list() {
+        let sql = "-- @ids bigint[] not null\nSELECT * FROM t WHERE id IN (@ids)";
+        let (_, params) = preprocess_named_params(sql).unwrap();
+        assert_eq!(params[0].name, "ids");
+        assert_eq!(params[0].sql_type, Some(SqlType::BigInt));
+        assert_eq!(params[0].nullable, Some(false));
+        assert!(params[0].is_list);
+    }
+
+    #[test]
+    fn test_annotation_without_list_suffix_is_not_list() {
+        let sql = "-- @id bigint not null\nSELECT * FROM t WHERE id = @id";
+        let (_, params) = preprocess_named_params(sql).unwrap();
+        assert!(!params[0].is_list);
+    }
+
+    #[test]
+    fn test_apply_named_param_overrides_propagates_is_list() {
+        let mut params = vec![Parameter::scalar(1, "ids", SqlType::BigInt, false)];
+        let named = vec![NamedParam { name: "ids".into(), sql_type: Some(SqlType::BigInt), nullable: Some(false), is_list: true }];
+        apply_named_param_overrides(&mut params, &named);
+        assert!(params[0].is_list);
     }
 }

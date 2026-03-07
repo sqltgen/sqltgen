@@ -85,8 +85,22 @@ fn run_generate(config_path: &Path) -> anyhow::Result<()> {
     // Run each configured codegen target
     for (lang, output_config) in &cfg.gen {
         let codegen: Box<dyn Codegen> = match lang.as_str() {
-            "java" => Box::new(backend::java::JavaCodegen),
-            "kotlin" => Box::new(backend::kotlin::KotlinCodegen),
+            "java" => {
+                let target = match cfg.engine {
+                    Engine::Sqlite => backend::java::JavaTarget::Sqlite,
+                    Engine::Mysql => backend::java::JavaTarget::Mysql,
+                    Engine::Postgresql => backend::java::JavaTarget::Postgres,
+                };
+                Box::new(backend::java::JavaCodegen { target })
+            },
+            "kotlin" => {
+                let target = match cfg.engine {
+                    Engine::Sqlite => backend::kotlin::KotlinTarget::Sqlite,
+                    Engine::Mysql => backend::kotlin::KotlinTarget::Mysql,
+                    Engine::Postgresql => backend::kotlin::KotlinTarget::Postgres,
+                };
+                Box::new(backend::kotlin::KotlinCodegen { target })
+            },
             "rust" => {
                 let target = match cfg.engine {
                     Engine::Sqlite => backend::rust::RustTarget::Sqlite,

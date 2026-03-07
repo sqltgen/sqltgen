@@ -32,12 +32,33 @@ pub enum Engine {
     Mysql,
 }
 
+/// How variable-length list parameters (`-- @ids bigint[] not null`) are transmitted
+/// to the database in generated code.
+///
+/// `native` (default) uses a single bind per list param with an engine-specific SQL
+/// function to unpack it (`= ANY($N)` on PostgreSQL, `json_each` on SQLite,
+/// `JSON_TABLE` on MySQL).  `dynamic` builds `IN (?,?,…)` at call time with one bind
+/// per element.
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ListParamStrategy {
+    /// Engine-idiomatic single-bind approach (default).
+    #[default]
+    Native,
+    /// Runtime-expanded `IN (?,?,…)` with one bind per element.
+    Dynamic,
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct OutputConfig {
     /// Output root directory, e.g. "src/main/java".
     pub out: String,
     /// Package / module name, e.g. "com.example.db".
     pub package: String,
+    /// Strategy for list parameters (`-- @ids bigint[] not null`).
+    /// Defaults to `native` when omitted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub list_params: Option<ListParamStrategy>,
 }
 
 impl SqltgenConfig {

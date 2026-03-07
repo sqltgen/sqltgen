@@ -174,7 +174,7 @@ fn build_insert(ann: &Annotation, sql: &str, insert: &Insert, schema: &Schema, c
                 Some(col) => (col.name.clone(), col.sql_type.clone(), col.nullable),
                 None => (format!("param{idx}"), SqlType::Text, false),
             };
-            Parameter { index: idx, name, sql_type, nullable }
+            Parameter::scalar(idx, name, sql_type, nullable)
         })
         .collect();
 
@@ -529,8 +529,8 @@ fn collect_params_from_expr(
 fn build_params(mapping: HashMap<usize, (String, SqlType, bool)>, count: usize) -> Vec<Parameter> {
     (1..=count)
         .map(|idx| match mapping.get(&idx) {
-            Some((name, sql_type, nullable)) => Parameter { index: idx, name: name.clone(), sql_type: sql_type.clone(), nullable: *nullable },
-            None => Parameter { index: idx, name: format!("param{idx}"), sql_type: SqlType::Text, nullable: false },
+            Some((name, sql_type, nullable)) => Parameter::scalar(idx, name.clone(), sql_type.clone(), *nullable),
+            None => Parameter::scalar(idx, format!("param{idx}"), SqlType::Text, false),
         })
         .collect()
 }

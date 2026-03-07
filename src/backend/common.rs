@@ -132,11 +132,63 @@ pub fn jdbc_setter(sql_type: &SqlType) -> &'static str {
 /// slot is covered — unlike a naïve "one bind per unique param" approach.
 pub fn jdbc_bind_sequence<'a>(query: &'a Query) -> Vec<(usize, &'a Parameter)> {
     let by_idx: HashMap<usize, &'a Parameter> = query.params.iter().map(|p| (p.index, p)).collect();
-    jdbc_bind_plan(&query.sql)
-        .iter()
-        .enumerate()
-        .filter_map(|(slot, &param_idx)| by_idx.get(&param_idx).map(|p| (slot + 1, *p)))
-        .collect()
+    jdbc_bind_plan(&query.sql).iter().enumerate().filter_map(|(slot, &param_idx)| by_idx.get(&param_idx).map(|p| (slot + 1, *p))).collect()
+}
+
+/// Return the JDBC array type name for use with `conn.createArrayOf(typeName, …)`.
+///
+/// Required for PostgreSQL native list-param strategy in Java and Kotlin.
+pub fn jdbc_array_type_name(sql_type: &SqlType) -> &'static str {
+    match sql_type {
+        SqlType::SmallInt => "smallint",
+        SqlType::Integer => "integer",
+        SqlType::BigInt => "bigint",
+        SqlType::Real => "real",
+        SqlType::Double => "float8",
+        SqlType::Decimal => "numeric",
+        SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_) => "text",
+        SqlType::Boolean => "boolean",
+        SqlType::Date => "date",
+        SqlType::Time => "time",
+        SqlType::Timestamp => "timestamp",
+        SqlType::TimestampTz => "timestamptz",
+        SqlType::Uuid => "uuid",
+        SqlType::Bytes => "bytea",
+        _ => "text",
+    }
+}
+
+/// Find `IN ($N)` or `IN (?N)` for a list param and replace it with `replacement`.
+///
+/// Returns the rewritten SQL, or `None` if no matching pattern is found (the caller
+/// should then emit a warning and treat the parameter as scalar).
+pub fn replace_list_in_clause(sql: &str, param_index: usize, replacement: &str) -> Option<String> {
+    for pattern in &[format!("IN (${param_index})"), format!("IN (?{param_index})")] {
+        let lower_sql = sql.to_ascii_lowercase();
+        let lower_pat = pattern.to_ascii_lowercase();
+        if let Some(pos) = lower_sql.find(&lower_pat) {
+            let mut result = sql[..pos].to_string();
+            result.push_str(replacement);
+            result.push_str(&sql[pos + pattern.len()..]);
+            return Some(result);
+        }
+    }
+    None
+}
+
+/// Split SQL at an `IN ($N)` / `IN (?N)` clause for dynamic list-param expansion.
+///
+/// Returns `(sql_before, sql_after)` so generated code can assemble them around a
+/// runtime-built `IN (?,?,…)` fragment. Returns `None` if the pattern is not found.
+pub fn split_at_in_clause(sql: &str, param_index: usize) -> Option<(String, String)> {
+    for pattern in &[format!("IN (${param_index})"), format!("IN (?{param_index})")] {
+        let lower_sql = sql.to_ascii_lowercase();
+        let lower_pat = pattern.to_ascii_lowercase();
+        if let Some(pos) = lower_sql.find(&lower_pat) {
+            return Some((sql[..pos].to_string(), sql[pos + pattern.len()..].to_string()));
+        }
+    }
+    None
 }
 
 /// Resolve the bind plan to parameter names in SQL occurrence order.
@@ -195,8 +247,8 @@ mod tests {
 
     #[test]
     fn test_jdbc_bind_sequence_unique_params() {
-        let p1 = Parameter { index: 1, name: "a".to_string(), sql_type: SqlType::Integer, nullable: false };
-        let p2 = Parameter { index: 2, name: "b".to_string(), sql_type: SqlType::Text, nullable: false };
+        let p1 = Parameter::scalar(1, "a", SqlType::Integer, false);
+        let p2 = Parameter::scalar(2, "b", SqlType::Text, false);
         let q = make_query("WHERE a = $1 AND b = $2", vec![p1, p2]);
         let seq = jdbc_bind_sequence(&q);
         assert_eq!(seq.len(), 2);
@@ -209,7 +261,7 @@ mod tests {
     #[test]
     fn test_jdbc_bind_sequence_repeated_param_expands() {
         // $1 appears 3 times → 3 entries, all pointing to param "x"
-        let p = Parameter { index: 1, name: "x".to_string(), sql_type: SqlType::BigInt, nullable: false };
+        let p = Parameter::scalar(1, "x", SqlType::BigInt, false);
         let q = make_query("WHERE a = $1 OR b = $1 OR c = $1", vec![p]);
         let seq = jdbc_bind_sequence(&q);
         assert_eq!(seq.len(), 3);
@@ -221,8 +273,8 @@ mod tests {
 
     #[test]
     fn test_positional_bind_names_unique_params() {
-        let p1 = Parameter { index: 1, name: "alpha".to_string(), sql_type: SqlType::Integer, nullable: false };
-        let p2 = Parameter { index: 2, name: "beta".to_string(), sql_type: SqlType::Text, nullable: false };
+        let p1 = Parameter::scalar(1, "alpha", SqlType::Integer, false);
+        let p2 = Parameter::scalar(2, "beta", SqlType::Text, false);
         let q = make_query("WHERE a = $1 AND b = $2", vec![p1, p2]);
         assert_eq!(positional_bind_names(&q), vec!["alpha", "beta"]);
     }
@@ -230,7 +282,7 @@ mod tests {
     #[test]
     fn test_positional_bind_names_repeated_param_expands() {
         // $1 appears twice — two "genre" entries
-        let p = Parameter { index: 1, name: "genre".to_string(), sql_type: SqlType::Text, nullable: false };
+        let p = Parameter::scalar(1, "genre", SqlType::Text, false);
         let q = make_query("WHERE $1 = 'all' OR genre = $1", vec![p]);
         assert_eq!(positional_bind_names(&q), vec!["genre", "genre"]);
     }
@@ -264,5 +316,49 @@ mod tests {
     #[test]
     fn test_jdbc_bind_plan_multidigit_index() {
         assert_eq!(jdbc_bind_plan("WHERE a = $10 AND b = $2"), vec![10, 2]);
+    }
+
+    // ─── replace_list_in_clause ──────────────────────────────────────────────
+
+    #[test]
+    fn test_replace_list_in_clause_dollar_style() {
+        let sql = "SELECT * FROM t WHERE id IN ($1)";
+        let result = replace_list_in_clause(sql, 1, "= ANY($1)").unwrap();
+        assert_eq!(result, "SELECT * FROM t WHERE id = ANY($1)");
+    }
+
+    #[test]
+    fn test_replace_list_in_clause_question_style() {
+        let sql = "SELECT * FROM t WHERE id IN (?1)";
+        let result = replace_list_in_clause(sql, 1, "IN (SELECT value FROM json_each(?))").unwrap();
+        assert!(result.contains("json_each"));
+        assert!(!result.contains("IN (?1)"));
+    }
+
+    #[test]
+    fn test_replace_list_in_clause_returns_none_when_not_found() {
+        let sql = "SELECT * FROM t WHERE id = $1";
+        assert!(replace_list_in_clause(sql, 1, "= ANY($1)").is_none());
+    }
+
+    // ─── split_at_in_clause ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_split_at_in_clause_splits_correctly() {
+        let sql = "SELECT * FROM t WHERE id IN ($1) AND active = $2";
+        let (before, after) = split_at_in_clause(sql, 1).unwrap();
+        assert_eq!(before, "SELECT * FROM t WHERE id ");
+        assert_eq!(after, " AND active = $2");
+    }
+
+    // ─── jdbc_array_type_name ────────────────────────────────────────────────
+
+    #[test]
+    fn test_jdbc_array_type_name_primitives() {
+        assert_eq!(jdbc_array_type_name(&SqlType::BigInt), "bigint");
+        assert_eq!(jdbc_array_type_name(&SqlType::Integer), "integer");
+        assert_eq!(jdbc_array_type_name(&SqlType::Text), "text");
+        assert_eq!(jdbc_array_type_name(&SqlType::Boolean), "boolean");
+        assert_eq!(jdbc_array_type_name(&SqlType::Uuid), "uuid");
     }
 }

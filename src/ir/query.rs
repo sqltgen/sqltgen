@@ -31,6 +31,23 @@ pub struct Parameter {
     pub name: String,
     pub sql_type: SqlType,
     pub nullable: bool,
+    /// True when this parameter represents a variable-length list of values,
+    /// annotated with `-- @name type[] [not null]`.  The generated function
+    /// accepts a collection type; the SQL is rewritten per the configured strategy.
+    pub is_list: bool,
+}
+
+impl Parameter {
+    /// Construct a scalar (non-list) parameter.
+    pub fn scalar(index: usize, name: impl Into<String>, sql_type: SqlType, nullable: bool) -> Self {
+        Self { index, name: name.into(), sql_type, nullable, is_list: false }
+    }
+
+    /// Construct a list parameter (`-- @name type[] not null`).
+    #[allow(dead_code)]
+    pub fn list(index: usize, name: impl Into<String>, sql_type: SqlType, nullable: bool) -> Self {
+        Self { index, name: name.into(), sql_type, nullable, is_list: true }
+    }
 }
 
 #[derive(Debug, Clone)]
