@@ -1,15 +1,18 @@
 import decimal
 import os
+import secrets
+from pathlib import Path
 
 import mysql.connector
 
 from gen import queries
 
-DB_HOST = os.environ.get("MYSQL_HOST",     "127.0.0.1")
-DB_PORT = int(os.environ.get("MYSQL_PORT", "3307"))
-DB_USER = os.environ.get("MYSQL_USER",     "sqltgen")
-DB_PASS = os.environ.get("MYSQL_PASSWORD", "sqltgen")
-DB_NAME = os.environ.get("MYSQL_DATABASE", "sqltgen")
+_HOST      = os.environ.get("MYSQL_HOST",     "127.0.0.1")
+_PORT      = int(os.environ.get("MYSQL_PORT", "3307"))
+_USER      = os.environ.get("MYSQL_USER",     "sqltgen")
+_PASS      = os.environ.get("MYSQL_PASSWORD", "sqltgen")
+_ROOT_USER = "root"
+_ROOT_PASS = "sqltgen_root"
 
 
 def seed(conn: mysql.connector.MySQLConnection) -> None:
@@ -83,16 +86,64 @@ def query(conn: mysql.connector.MySQLConnection) -> None:
     conn.commit()
 
 
-def main() -> None:
+def run(db_name: str) -> None:
     conn = mysql.connector.connect(
-        host=DB_HOST, port=DB_PORT,
-        user=DB_USER, password=DB_PASS,
-        database=DB_NAME,
+        host=_HOST, port=_PORT,
+        user=_USER, password=_PASS,
+        database=db_name,
         autocommit=False,
     )
     seed(conn)
     query(conn)
     conn.close()
+
+
+def main() -> None:
+    migrations_dir = os.environ.get("MIGRATIONS_DIR")
+    if migrations_dir is None:
+        run(os.environ.get("MYSQL_DATABASE", "sqltgen"))
+        return
+
+    db_name = f"sqltgen_{secrets.token_hex(4)}"
+
+    # Use root to CREATE DATABASE and GRANT access to sqltgen user.
+    admin = mysql.connector.connect(
+        host=_HOST, port=_PORT,
+        user=_ROOT_USER, password=_ROOT_PASS,
+        autocommit=True,
+    )
+    try:
+        cur = admin.cursor()
+        cur.execute(f"CREATE DATABASE `{db_name}`")
+        cur.execute(f"GRANT ALL ON `{db_name}`.* TO '{_USER}'@'%'")
+        cur.close()
+
+        mig_conn = mysql.connector.connect(
+            host=_HOST, port=_PORT,
+            user=_USER, password=_PASS,
+            database=db_name,
+            autocommit=True,
+        )
+        try:
+            cur = mig_conn.cursor()
+            for f in sorted(Path(migrations_dir).glob("*.sql")):
+                for stmt in f.read_text().split(";"):
+                    stmt = stmt.strip()
+                    if stmt:
+                        cur.execute(stmt)
+            cur.close()
+        finally:
+            mig_conn.close()
+
+        run(db_name)
+    finally:
+        try:
+            cur = admin.cursor()
+            cur.execute(f"DROP DATABASE IF EXISTS `{db_name}`")
+            cur.close()
+        except Exception as e:
+            print(f"[mysql] warning: could not drop database {db_name}: {e}", flush=True)
+        admin.close()
 
 
 if __name__ == "__main__":

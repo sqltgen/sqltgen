@@ -9,7 +9,7 @@ services:
     ports:
       - "3307:3306"
     volumes:
-      - ./migrations:/docker-entrypoint-initdb.d
+      - ./grant-all.sql:/docker-entrypoint-initdb.d/00-grant-all.sql
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "sqltgen", "-psqltgen"]
       interval: 2s

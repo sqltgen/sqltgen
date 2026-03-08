@@ -1,14 +1,16 @@
 import decimal
 import os
+import secrets
+from pathlib import Path
 
 import psycopg
 
 from gen import queries
 
-DB_URL = os.environ.get(
-    "DATABASE_URL",
-    "postgresql://sqltgen:sqltgen@localhost:5433/sqltgen",
-)
+_HOST = "localhost"
+_PORT = 5433
+_USER = "sqltgen"
+_PASS = "sqltgen"
 
 
 def seed(conn: psycopg.Connection) -> None:
@@ -82,10 +84,43 @@ def query(conn: psycopg.Connection) -> None:
         print(f'[pg] deleteAuthor: deleted "{deleted.name}" (id={deleted.id})')
 
 
-def main() -> None:
-    with psycopg.connect(DB_URL, autocommit=True) as conn:
+def run(db_url: str) -> None:
+    with psycopg.connect(db_url, autocommit=True) as conn:
         seed(conn)
         query(conn)
+
+
+def main() -> None:
+    migrations_dir = os.environ.get("MIGRATIONS_DIR")
+    if migrations_dir is None:
+        db_url = os.environ.get(
+            "DATABASE_URL",
+            f"postgresql://{_USER}:{_PASS}@{_HOST}:{_PORT}/sqltgen",
+        )
+        run(db_url)
+        return
+
+    db_name   = f"sqltgen_{secrets.token_hex(4)}"
+    admin_url = f"postgresql://{_USER}:{_PASS}@{_HOST}:{_PORT}/postgres"
+    db_url    = f"postgresql://{_USER}:{_PASS}@{_HOST}:{_PORT}/{db_name}"
+
+    with psycopg.connect(admin_url, autocommit=True) as conn:
+        conn.execute(f'CREATE DATABASE "{db_name}"')
+    try:
+        migration_files = sorted(Path(migrations_dir).glob("*.sql"))
+        with psycopg.connect(db_url, autocommit=True) as conn:
+            for f in migration_files:
+                for stmt in f.read_text().split(";"):
+                    stmt = stmt.strip()
+                    if stmt:
+                        conn.execute(stmt)
+        run(db_url)
+    finally:
+        try:
+            with psycopg.connect(admin_url, autocommit=True) as conn:
+                conn.execute(f'DROP DATABASE IF EXISTS "{db_name}"')
+        except Exception as e:
+            print(f"[pg] warning: could not drop database {db_name}: {e}", flush=True)
 
 
 if __name__ == "__main__":

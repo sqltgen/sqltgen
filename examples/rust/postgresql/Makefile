@@ -1,7 +1,12 @@
-SQLTGEN := ../../../target/debug/sqltgen
-PG      := ../../common/postgresql
+SQLTGEN    := ../../../target/debug/sqltgen
+PG         := ../../common/postgresql
+MIGRATIONS := ../../common/postgresql/migrations
+PGHOST     := localhost
+PGPORT     := 5433
+PGUSER     := sqltgen
+PGPASS     := sqltgen
 
-.PHONY: clean generate build db-up db-down run
+.PHONY: clean generate build db-up db-down run run-shared
 
 clean:
 	cargo clean
@@ -20,5 +25,11 @@ db-up:
 db-down:
 	$(MAKE) -C $(PG) db-down
 
-run: generate db-up
-	cargo run; ret=$$?; $(MAKE) db-down; exit $$ret
+# run-shared: container already running (used by run-all).
+run-shared: generate
+	MIGRATIONS_DIR=$(MIGRATIONS) cargo run
+
+# run: standalone — starts its own container, runs, tears down.
+run: generate
+	$(MAKE) -C $(PG) db-up
+	@MIGRATIONS_DIR=$(MIGRATIONS) cargo run; ret=$$?; $(MAKE) -C $(PG) db-down || true; exit $$ret

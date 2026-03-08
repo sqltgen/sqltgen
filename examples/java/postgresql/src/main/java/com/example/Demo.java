@@ -8,13 +8,12 @@ import org.postgresql.ds.PGSimpleDataSource;
 
 public class Demo {
 
-    private static final String PG_URL  = "jdbc:postgresql://localhost:5433/sqltgen";
     private static final String PG_USER = "sqltgen";
     private static final String PG_PASS = "sqltgen";
 
-    public static void run() throws Exception {
+    public static void run(String url) throws Exception {
         PGSimpleDataSource ds = new PGSimpleDataSource();
-        ds.setURL(PG_URL);
+        ds.setURL(url);
         ds.setUser(PG_USER);
         ds.setPassword(PG_PASS);
         var q = new QueriesDs(ds);

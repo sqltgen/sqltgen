@@ -7,8 +7,6 @@ services:
       POSTGRES_DB: sqltgen
     ports:
       - "5433:5432"
-    volumes:
-      - ./migrations:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U sqltgen"]
       interval: 2s

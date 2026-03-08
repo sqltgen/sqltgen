@@ -1,6 +1,6 @@
 SQLTGEN := ./target/debug/sqltgen
 
-.PHONY: all build test generate java kotlin rust python run-all db-up db-down
+.PHONY: all build test generate java kotlin rust python run-all db-up db-down db-up-mysql db-down-mysql
 
 all: build test
 
@@ -37,7 +37,26 @@ rust: $(SQLTGEN)
 python: $(SQLTGEN)
 	$(MAKE) -C examples/python run
 
-run-all: java kotlin rust python
+run-all: $(SQLTGEN)
+	# PostgreSQL: one shared container, all four PG examples, then tear down
+	$(MAKE) -C examples/common/postgresql    db-up
+	$(MAKE) -C examples/java/postgresql      run-shared
+	$(MAKE) -C examples/kotlin/postgresql    run-shared
+	$(MAKE) -C examples/rust/postgresql      run-shared
+	$(MAKE) -C examples/python/postgresql    run-shared
+	$(MAKE) -C examples/common/postgresql    db-down
+	# MySQL: one shared container, all four MySQL examples, then tear down
+	$(MAKE) -C examples/common/mysql         db-up
+	$(MAKE) -C examples/java/mysql           run-shared
+	$(MAKE) -C examples/kotlin/mysql         run-shared
+	$(MAKE) -C examples/rust/mysql           run-shared
+	$(MAKE) -C examples/python/mysql         run-shared
+	$(MAKE) -C examples/common/mysql         db-down
+	# SQLite: no containers
+	$(MAKE) -C examples/java/sqlite          run
+	$(MAKE) -C examples/kotlin/sqlite        run
+	$(MAKE) -C examples/rust/sqlite          run
+	$(MAKE) -C examples/python/sqlite        run
 
 # ── PostgreSQL database ───────────────────────────────────────────────────────
 
@@ -46,3 +65,9 @@ db-up:
 
 db-down:
 	$(MAKE) -C examples/common/postgresql db-down
+
+db-up-mysql:
+	$(MAKE) -C examples/common/mysql db-up
+
+db-down-mysql:
+	$(MAKE) -C examples/common/mysql db-down

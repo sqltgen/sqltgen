@@ -6,16 +6,12 @@ import com.mysql.cj.jdbc.MysqlDataSource
 
 object Demo {
 
-    // MySQL container runs on 3307 to avoid conflicts with any local MySQL instance.
-    // allowPublicKeyRetrieval and useSSL=false are required by MySQL Connector/J 8+ for
-    // plain-password auth when connecting without a client certificate.
-    private const val MYSQL_URL  = "jdbc:mysql://localhost:3307/sqltgen?allowPublicKeyRetrieval=true&useSSL=false"
     private const val MYSQL_USER = "sqltgen"
     private const val MYSQL_PASS = "sqltgen"
 
-    fun run() {
+    fun run(url: String) {
         val ds = MysqlDataSource().apply {
-            setURL(MYSQL_URL)
+            setURL(url)
             setUser(MYSQL_USER)
             setPassword(MYSQL_PASS)
         }

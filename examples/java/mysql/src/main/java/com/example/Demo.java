@@ -8,16 +8,12 @@ import com.mysql.cj.jdbc.MysqlDataSource;
 
 public class Demo {
 
-    // MySQL container runs on 3307 to avoid conflicts with any local MySQL instance.
-    // allowPublicKeyRetrieval and useSSL=false are required by MySQL Connector/J 8+ for
-    // plain-password auth when connecting without a client certificate.
-    private static final String MYSQL_URL  = "jdbc:mysql://localhost:3307/sqltgen?allowPublicKeyRetrieval=true&useSSL=false";
     private static final String MYSQL_USER = "sqltgen";
     private static final String MYSQL_PASS = "sqltgen";
 
-    public static void run() throws Exception {
+    public static void run(String url) throws Exception {
         MysqlDataSource ds = new MysqlDataSource();
-        ds.setURL(MYSQL_URL);
+        ds.setURL(url);
         ds.setUser(MYSQL_USER);
         ds.setPassword(MYSQL_PASS);
         var q = new QueriesDs(ds);

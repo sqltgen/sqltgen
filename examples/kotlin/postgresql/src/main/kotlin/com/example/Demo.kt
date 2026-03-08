@@ -6,13 +6,12 @@ import org.postgresql.ds.PGSimpleDataSource
 
 object Demo {
 
-    private const val PG_URL  = "jdbc:postgresql://localhost:5433/sqltgen"
     private const val PG_USER = "sqltgen"
     private const val PG_PASS = "sqltgen"
 
-    fun run() {
+    fun run(url: String) {
         val ds = PGSimpleDataSource().apply {
-            setURL(PG_URL)
+            setURL(url)
             setUser(PG_USER)
             setPassword(PG_PASS)
         }

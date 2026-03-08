@@ -1,7 +1,12 @@
-SQLTGEN := ../../../target/debug/sqltgen
-DB      := ../../common/mysql
+SQLTGEN    := ../../../target/debug/sqltgen
+MYSQL      := ../../common/mysql
+MIGRATIONS := ../../common/mysql/migrations
+MYSQLHOST  := 127.0.0.1
+MYSQLPORT  := 3307
+MYSQLUSER  := sqltgen
+MYSQLPASS  := sqltgen
 
-.PHONY: clean generate build db-up db-down run
+.PHONY: clean generate build db-up db-down run run-shared
 
 clean:
 	cargo clean
@@ -15,10 +20,16 @@ build:
 	cargo build
 
 db-up:
-	$(MAKE) -C $(DB) db-up
+	$(MAKE) -C $(MYSQL) db-up
 
 db-down:
-	$(MAKE) -C $(DB) db-down
+	$(MAKE) -C $(MYSQL) db-down
 
-run: generate db-up
-	cargo run; ret=$$?; $(MAKE) db-down; exit $$ret
+# run-shared: container already running (used by run-all).
+run-shared: generate
+	MIGRATIONS_DIR=$(MIGRATIONS) cargo run
+
+# run: standalone — starts its own container, runs, tears down.
+run: generate
+	$(MAKE) -C $(MYSQL) db-up
+	@MIGRATIONS_DIR=$(MIGRATIONS) cargo run; ret=$$?; $(MAKE) -C $(MYSQL) db-down || true; exit $$ret
