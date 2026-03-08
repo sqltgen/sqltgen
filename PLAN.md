@@ -55,20 +55,20 @@ SQL files
 | `SqltgenConfig` struct + serde | ✅ | |
 | `Engine` enum | ✅ | `postgresql`, `sqlite`, `mysql` |
 | `OutputConfig` (`out`, `package`) | ✅ | Keyed by language name in `gen` map |
-| Multiple query files (list of paths / globs) | ❌ | Currently single file only |
+| Multiple query files (list of paths / globs) | ✅ | List of files and glob patterns; schema still single file/dir |
 
 ## Frontend layer (`src/frontend/`)
 
 | Item | Status | Notes |
 |---|---|---|
 | `DialectParser` trait | ✅ | `parse_schema`, `parse_queries` |
-| Named params (`@name`, `-- @name [type] [null\|not null]`) | ✅ | `src/frontend/common/named_params.rs`; rewrites to `$N` before parsing |
+| Named params (`@name`, `-- @name [type] [null\|not null]`) | ✅ | `src/frontend/common/named_params.rs`; rewrites to `$N` before parsing; `-- @name type[]` marks list params |
 | **PostgreSQL** | ✅ | Full DDL + query parsing; 60+ tests |
 | `typemap.rs` | ✅ | Includes `JSON`, `JSONB` |
 | `schema.rs` | ✅ | CREATE/ALTER/DROP TABLE; 22 tests |
 | `query.rs` | ✅ | SELECT/INSERT/UPDATE/DELETE + JOINs + subqueries + derived tables + CTEs + RETURNING |
 | **SQLite** | ✅ | Full DialectParser; schema + query; `?N` and `$N` params |
-| `typemap.rs` | ⚠️ | `JSON` keyword not recognized — falls through to `TEXT` affinity |
+| `typemap.rs` | ✅ | `JSON` recognized via `map_custom` → `SqlType::Json` |
 | **MySQL** | ✅ | Full DialectParser; schema + query; `$N` params; 30+ tests |
 | `typemap.rs` | ✅ | Includes `JSON`; no `JSONB` (MySQL doesn't have it) |
 
@@ -121,7 +121,6 @@ sqltgen aims for excellent JSON support across all backends. Current state and g
 ### High priority
 
 1. **Go backend** — generate structs + `database/sql` functions
-2. **Multiple query files** — allow `queries` to be a list of paths
 
 ### Medium priority
 

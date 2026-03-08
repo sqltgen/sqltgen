@@ -43,8 +43,9 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | Query: `?N` parameter inference | — | ✅ | — |
 | Query: named parameters (`@name` + `-- @name [type] [null\|not null]`) | ✅ | ✅ | ✅ |
 | Query: nullable named parameters (`-- @name null`) | ✅ | ✅ | ✅ |
+| Query: list/collection parameters (`IN (@ids)`, `-- @ids type[]`) | ✅ | ✅ | ✅ |
 | Query: result struct embedding (inline macro) | ❌ | ❌ | ❌ |
-| Query: dynamic IN clause expansion (inline macro) | ❌ | ❌ | ❌ |
+| Query: dynamic IN clause expansion (`sqlc.slice` macro) | ❌ | ❌ | ❌ |
 | Query: result column inference | ✅ | ✅ | ✅ |
 | `RETURNING` on INSERT | ✅ | — | — |
 | `RETURNING` on UPDATE | ✅ | — | — |
@@ -97,6 +98,7 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | `:many` | ✅ `List<T>` | ✅ `List<T>` | ✅ `Vec<T>` | 🚧 | ✅ `list[T]` | 🚧 |
 | `:exec` | ✅ `void` | ✅ `Unit` | ✅ `()` | 🚧 | ✅ `None` | 🚧 |
 | `:execrows` | ✅ `long` | ✅ `Long` | ✅ `u64` | 🚧 | ✅ `int` | 🚧 |
+| List params (`IN (@ids)`) native + dynamic | ✅ | ✅ | ✅ | 🚧 | ✅ | 🚧 |
 | `:execresult` (driver result object) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | `:execlastid` (last insert ID) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | `:batchexec` / `:batchmany` / `:batchone` | — | — | ❌ | ❌ | — | — |
@@ -181,22 +183,19 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 
 ## Test suite
 
-| Area | Tests |
+| Module | Tests |
 |---|---|
-| Config parsing | 1 |
-| PostgreSQL typemap | 12 |
-| PostgreSQL DDL schema | 22 |
-| PostgreSQL query parser (SELECT, INSERT, UPDATE, DELETE) | 28 |
-| PostgreSQL RETURNING | 6 |
-| SQLite DDL schema | 10 |
-| CTE | 4 |
-| Derived tables / subqueries | 8 |
-| MySQL typemap | 10 |
-| MySQL DDL schema | 13 |
-| MySQL query parser | 7 |
-| Named params (unit) | 10 |
-| Named params (integration) | 5 |
-| **Total** | **223 (all passing)** |
+| Config | 3 |
+| Frontend — PostgreSQL | 42 |
+| Frontend — SQLite | 16 |
+| Frontend — MySQL | 32 |
+| Frontend — common (query parser, CTEs, subqueries, named params, list params) | 63 |
+| Backend — Java | 36 |
+| Backend — Kotlin | 37 |
+| Backend — Rust | 15 |
+| Backend — Python | 28 |
+| Backend — common | 17 |
+| **Total** | **289 (all passing)** |
 
 ---
 
