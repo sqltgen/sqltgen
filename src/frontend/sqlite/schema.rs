@@ -1,4 +1,4 @@
-use sqlparser::ast::{AlterTableOperation, ObjectName, ObjectType, Statement};
+use sqlparser::ast::{AlterTableOperation, ObjectName, ObjectType, RenameTableNameKind, Statement};
 use sqlparser::dialect::SQLiteDialect;
 use sqlparser::parser::Parser;
 
@@ -17,8 +17,8 @@ pub fn parse_schema(ddl: &str) -> anyhow::Result<Schema> {
             Statement::CreateTable(ct) => {
                 tables.push(build_create_table(&ct.name, &ct.columns, &ct.constraints, typemap::map));
             },
-            Statement::AlterTable { name, operations, .. } => {
-                apply_alter_table(&name, &operations, &mut tables);
+            Statement::AlterTable(a) => {
+                apply_alter_table(&a.name, &a.operations, &mut tables);
             },
             Statement::Drop { object_type: ObjectType::Table, names, .. } => {
                 apply_drop_tables(&names, &mut tables);
@@ -54,7 +54,10 @@ fn apply_alter_table(name: &ObjectName, operations: &[AlterTableOperation], tabl
                 }
             },
             AlterTableOperation::RenameTable { table_name: new_name } => {
-                table.name = obj_name_to_str(new_name);
+                let obj_name = match new_name {
+                    RenameTableNameKind::As(n) | RenameTableNameKind::To(n) => n,
+                };
+                table.name = obj_name_to_str(obj_name);
             },
             _ => {},
         }

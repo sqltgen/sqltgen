@@ -13,16 +13,16 @@ pub fn map(dt: &DataType) -> SqlType {
         // TINYINT is 1-byte signed; map to SmallInt (use BOOLEAN/BOOL for booleans)
         DataType::TinyInt(_) | DataType::Int2(_) | DataType::SmallInt(_) => SqlType::SmallInt,
 
-        DataType::MediumInt(_) | DataType::Int(_) | DataType::Int4(_) | DataType::Integer(_) | DataType::UnsignedInt(_) | DataType::UnsignedInteger(_) => {
+        DataType::MediumInt(_) | DataType::Int(_) | DataType::Int4(_) | DataType::Integer(_) | DataType::Unsigned | DataType::UnsignedInteger => {
             SqlType::Integer
         },
 
-        DataType::Int8(_) | DataType::BigInt(_) | DataType::UnsignedBigInt(_) => SqlType::BigInt,
+        DataType::Int8(_) | DataType::BigInt(_) | DataType::BigIntUnsigned(_) => SqlType::BigInt,
 
         // MySQL FLOAT is 32-bit single-precision
         DataType::Float(_) | DataType::Real | DataType::Float4 => SqlType::Real,
 
-        DataType::Double | DataType::DoublePrecision | DataType::Float8 | DataType::Float64 => SqlType::Double,
+        DataType::Double(_) | DataType::DoublePrecision | DataType::Float8 | DataType::Float64 => SqlType::Double,
 
         DataType::Numeric(_) | DataType::Decimal(_) => SqlType::Decimal,
 
@@ -45,7 +45,7 @@ pub fn map(dt: &DataType) -> SqlType {
         DataType::JSON => SqlType::Json,
 
         // ENUM and SET are opaque strings at the application level
-        DataType::Enum(_) => SqlType::Text,
+        DataType::Enum(_, _) => SqlType::Text,
         DataType::Set(_) => SqlType::Text,
 
         DataType::Custom(name, _) => map_custom(name),
@@ -55,7 +55,9 @@ pub fn map(dt: &DataType) -> SqlType {
 }
 
 fn map_custom(name: &ObjectName) -> SqlType {
-    let upper = name.0.iter().map(|i| i.value.to_uppercase()).collect::<Vec<_>>().join(".");
+    use sqlparser::ast::ObjectNamePart;
+    let upper =
+        name.0.iter().filter_map(|p| if let ObjectNamePart::Identifier(i) = p { Some(i.value.to_uppercase()) } else { None }).collect::<Vec<_>>().join(".");
     match upper.as_str() {
         "TINYINT" | "INT1" => SqlType::SmallInt,
         "SMALLINT" | "INT2" => SqlType::SmallInt,
@@ -86,7 +88,7 @@ mod tests {
     use sqlparser::ast::{CharacterLength, ExactNumberInfo, TimezoneInfo};
 
     fn custom(name: &str) -> DataType {
-        DataType::Custom(ObjectName(vec![sqlparser::ast::Ident::new(name)]), vec![])
+        DataType::Custom(ObjectName::from(vec![sqlparser::ast::Ident::new(name)]), vec![])
     }
 
     #[test]
@@ -111,9 +113,9 @@ mod tests {
 
     #[test]
     fn float_types() {
-        assert_eq!(map(&DataType::Float(None)), SqlType::Real);
+        assert_eq!(map(&DataType::Float(sqlparser::ast::ExactNumberInfo::None)), SqlType::Real);
         assert_eq!(map(&DataType::Real), SqlType::Real);
-        assert_eq!(map(&DataType::Double), SqlType::Double);
+        assert_eq!(map(&DataType::Double(sqlparser::ast::ExactNumberInfo::None)), SqlType::Double);
         assert_eq!(map(&DataType::DoublePrecision), SqlType::Double);
     }
 

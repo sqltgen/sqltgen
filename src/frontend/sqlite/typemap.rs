@@ -9,13 +9,13 @@ pub fn map(dt: &DataType) -> SqlType {
 
         DataType::Int2(_) | DataType::SmallInt(_) => SqlType::SmallInt,
 
-        DataType::Int(_) | DataType::Int4(_) | DataType::Integer(_) | DataType::UnsignedInt(_) | DataType::UnsignedInteger(_) => SqlType::Integer,
+        DataType::Int(_) | DataType::Int4(_) | DataType::Integer(_) | DataType::Unsigned | DataType::UnsignedInteger => SqlType::Integer,
 
-        DataType::Int8(_) | DataType::BigInt(_) | DataType::UnsignedBigInt(_) => SqlType::BigInt,
+        DataType::Int8(_) | DataType::BigInt(_) | DataType::BigIntUnsigned(_) => SqlType::BigInt,
 
         DataType::Real | DataType::Float4 => SqlType::Real,
 
-        DataType::Double | DataType::DoublePrecision | DataType::Float8 | DataType::Float64 => SqlType::Double,
+        DataType::Double(_) | DataType::DoublePrecision | DataType::Float8 | DataType::Float64 => SqlType::Double,
 
         DataType::Float(_) => SqlType::Double,
 
@@ -47,12 +47,14 @@ pub fn map(dt: &DataType) -> SqlType {
 #[cfg(test)]
 fn map_custom_str(s: &str) -> SqlType {
     use sqlparser::ast::Ident;
-    let name = ObjectName(vec![Ident::new(s)]);
+    let name = ObjectName::from(vec![Ident::new(s)]);
     map_custom(&name)
 }
 
 fn map_custom(name: &ObjectName) -> SqlType {
-    let upper = name.0.iter().map(|i| i.value.to_uppercase()).collect::<Vec<_>>().join(".");
+    use sqlparser::ast::ObjectNamePart;
+    let upper =
+        name.0.iter().filter_map(|p| if let ObjectNamePart::Identifier(i) = p { Some(i.value.to_uppercase()) } else { None }).collect::<Vec<_>>().join(".");
     match upper.as_str() {
         "INT" | "INTEGER" | "INT4" => SqlType::Integer,
         "INT2" | "SMALLINT" | "TINYINT" => SqlType::SmallInt,

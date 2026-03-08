@@ -1,4 +1,4 @@
-use sqlparser::ast::{AlterColumnOperation, AlterTableOperation, ObjectName, ObjectType, Statement};
+use sqlparser::ast::{AlterColumnOperation, AlterTableOperation, ObjectName, ObjectType, RenameTableNameKind, Statement};
 use sqlparser::dialect::MySqlDialect;
 use sqlparser::parser::Parser;
 
@@ -17,8 +17,8 @@ pub fn parse_schema(ddl: &str) -> anyhow::Result<Schema> {
             Statement::CreateTable(ct) => {
                 tables.push(build_create_table(&ct.name, &ct.columns, &ct.constraints, typemap::map));
             },
-            Statement::AlterTable { name, operations, .. } => {
-                apply_alter_table(&name, &operations, &mut tables);
+            Statement::AlterTable(a) => {
+                apply_alter_table(&a.name, &a.operations, &mut tables);
             },
             Statement::Drop { object_type: ObjectType::Table, names, .. } => {
                 apply_drop_tables(&names, &mut tables);
@@ -47,9 +47,9 @@ fn apply_alter_table(name: &ObjectName, operations: &[AlterTableOperation], tabl
             AlterTableOperation::AddColumn { column_def, .. } => {
                 table.columns.push(build_column(column_def, typemap::map));
             },
-            AlterTableOperation::DropColumn { column_name, .. } => {
-                let name = ident_to_str(column_name);
-                table.columns.retain(|c| c.name != name);
+            AlterTableOperation::DropColumn { column_names, .. } => {
+                let names: Vec<String> = column_names.iter().map(ident_to_str).collect();
+                table.columns.retain(|c| !names.contains(&c.name));
             },
             AlterTableOperation::AlterColumn { column_name, op } => {
                 let col_name = ident_to_str(column_name);
@@ -72,9 +72,12 @@ fn apply_alter_table(name: &ObjectName, operations: &[AlterTableOperation], tabl
                 }
             },
             AlterTableOperation::RenameTable { table_name: new_name } => {
-                table.name = obj_name_to_str(new_name);
+                let obj_name = match new_name {
+                    RenameTableNameKind::As(n) | RenameTableNameKind::To(n) => n,
+                };
+                table.name = obj_name_to_str(obj_name);
             },
-            AlterTableOperation::AddConstraint(constraint) => {
+            AlterTableOperation::AddConstraint { constraint, .. } => {
                 let pk_cols = pk_columns_from_constraint(constraint);
                 for col in table.columns.iter_mut() {
                     if pk_cols.contains(&col.name) {

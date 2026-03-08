@@ -9,13 +9,13 @@ pub fn map(dt: &DataType) -> SqlType {
 
         DataType::Int2(_) | DataType::SmallInt(_) => SqlType::SmallInt,
 
-        DataType::Int(_) | DataType::Int4(_) | DataType::Integer(_) | DataType::UnsignedInt(_) | DataType::UnsignedInteger(_) => SqlType::Integer,
+        DataType::Int(_) | DataType::Int4(_) | DataType::Integer(_) | DataType::Unsigned | DataType::UnsignedInteger => SqlType::Integer,
 
-        DataType::Int8(_) | DataType::BigInt(_) | DataType::UnsignedBigInt(_) => SqlType::BigInt,
+        DataType::Int8(_) | DataType::BigInt(_) | DataType::BigIntUnsigned(_) => SqlType::BigInt,
 
         DataType::Real | DataType::Float4 => SqlType::Real,
 
-        DataType::Double | DataType::DoublePrecision | DataType::Float8 | DataType::Float64 => SqlType::Double,
+        DataType::Double(_) | DataType::DoublePrecision | DataType::Float8 | DataType::Float64 => SqlType::Double,
 
         DataType::Float(_) => SqlType::Double,
 
@@ -37,7 +37,7 @@ pub fn map(dt: &DataType) -> SqlType {
         DataType::Timestamp(_, TimezoneInfo::None) | DataType::Timestamp(_, TimezoneInfo::WithoutTimeZone) => SqlType::Timestamp,
         DataType::Timestamp(_, _) => SqlType::TimestampTz,
 
-        DataType::Interval => SqlType::Interval,
+        DataType::Interval { .. } => SqlType::Interval,
 
         DataType::Uuid => SqlType::Uuid,
 
@@ -56,7 +56,9 @@ pub fn map(dt: &DataType) -> SqlType {
 }
 
 fn map_custom(name: &ObjectName) -> SqlType {
-    let upper = name.0.iter().map(|i| i.value.to_uppercase()).collect::<Vec<_>>().join(".");
+    use sqlparser::ast::ObjectNamePart;
+    let upper =
+        name.0.iter().filter_map(|p| if let ObjectNamePart::Identifier(i) = p { Some(i.value.to_uppercase()) } else { None }).collect::<Vec<_>>().join(".");
     match upper.as_str() {
         "BIGSERIAL" | "SERIAL8" => SqlType::BigInt,
         "SERIAL" | "SERIAL4" => SqlType::Integer,
@@ -84,7 +86,7 @@ mod tests {
     use sqlparser::ast::{CharacterLength, ExactNumberInfo, ObjectName};
 
     fn custom(name: &str) -> DataType {
-        DataType::Custom(ObjectName(vec![sqlparser::ast::Ident::new(name)]), vec![])
+        DataType::Custom(ObjectName::from(vec![sqlparser::ast::Ident::new(name)]), vec![])
     }
 
     #[test]
@@ -172,7 +174,7 @@ mod tests {
     #[test]
     fn double_precision() {
         assert_eq!(map(&DataType::DoublePrecision), SqlType::Double);
-        assert_eq!(map(&DataType::Float(None)), SqlType::Double);
+        assert_eq!(map(&DataType::Float(sqlparser::ast::ExactNumberInfo::None)), SqlType::Double);
     }
 
     #[test]

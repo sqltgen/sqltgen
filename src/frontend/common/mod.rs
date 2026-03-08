@@ -1,7 +1,7 @@
 pub(crate) mod named_params;
 pub(crate) mod query;
 
-use sqlparser::ast::{ColumnDef, ColumnOption, DataType, Ident, ObjectName, TableConstraint};
+use sqlparser::ast::{ColumnDef, ColumnOption, DataType, Expr, Ident, ObjectName, ObjectNamePart, TableConstraint};
 
 use crate::ir::{Column, SqlType, Table};
 
@@ -27,13 +27,15 @@ pub(crate) fn ident_to_str(ident: &Ident) -> String {
 
 /// Returns the last component of a dotted name (e.g. `schema.table` → `table`).
 pub(crate) fn obj_name_to_str(name: &ObjectName) -> String {
-    name.0.last().map(ident_to_str).unwrap_or_default()
+    name.0.last().and_then(|p| if let ObjectNamePart::Identifier(i) = p { Some(ident_to_str(i)) } else { None }).unwrap_or_default()
 }
 
 /// Extracts PRIMARY KEY column names from a table-level constraint, if any.
 pub(crate) fn pk_columns_from_constraint(tc: &TableConstraint) -> Vec<String> {
     match tc {
-        TableConstraint::PrimaryKey { columns, .. } => columns.iter().map(ident_to_str).collect(),
+        TableConstraint::PrimaryKey(pk) => {
+            pk.columns.iter().filter_map(|ic| if let Expr::Identifier(ident) = &ic.column.expr { Some(ident_to_str(ident)) } else { None }).collect()
+        },
         _ => vec![],
     }
 }
@@ -55,7 +57,7 @@ pub(crate) fn build_column(col_def: &ColumnDef, map_type: fn(&DataType) -> SqlTy
         match &opt_def.option {
             ColumnOption::NotNull => nullable = false,
             ColumnOption::Null => nullable = true,
-            ColumnOption::Unique { is_primary, .. } if *is_primary => {
+            ColumnOption::PrimaryKey(_) => {
                 is_primary_key = true;
                 nullable = false;
             },

@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 
 use sqlparser::ast::{
-    Assignment, AssignmentTarget, BinaryOperator, Delete, Expr, FromTable, FunctionArg, FunctionArgExpr, FunctionArguments, Insert, Query as SqlQuery, Select,
-    SelectItem, SetExpr, Statement, TableFactor, TableWithJoins, Value, Values, With,
+    Assignment, AssignmentTarget, BinaryOperator, Delete, Expr, FromTable, FunctionArg, FunctionArgExpr, FunctionArguments, Insert, ObjectNamePart,
+    Query as SqlQuery, Select, SelectItem, SelectItemQualifiedWildcardKind, SetExpr, Statement, TableFactor, TableObject, TableWithJoins, Value, ValueWithSpan,
+    Values, With,
 };
 use sqlparser::dialect::Dialect;
 use sqlparser::parser::Parser;
@@ -20,6 +21,13 @@ pub(crate) struct ResolverConfig {
 impl Default for ResolverConfig {
     fn default() -> Self {
         Self { sum_integer_type: SqlType::BigInt }
+    }
+}
+
+fn insert_table_name(ins: &Insert) -> String {
+    match &ins.table {
+        TableObject::TableName(name) => obj_name_to_str(name),
+        _ => String::new(),
     }
 }
 
@@ -120,9 +128,7 @@ fn build_query_with_dialect(dialect: &dyn Dialect, ann: &Annotation, sql: &str, 
     let mut query = match &stmts[0] {
         Statement::Query(q) => build_select(ann, sql, q, schema, config),
         Statement::Insert(ins) => build_insert(ann, sql, ins, schema, config),
-        Statement::Update { table, assignments, selection, returning, .. } => {
-            build_update(ann, sql, table, assignments, selection.as_ref(), returning.as_ref(), schema, config)
-        },
+        Statement::Update(u) => build_update(ann, sql, &u.table, &u.assignments, u.selection.as_ref(), u.returning.as_ref(), schema, config),
         Statement::Delete(del) => build_delete(ann, sql, del, schema, config),
         _ => bare(ann, sql),
     };
@@ -138,8 +144,8 @@ fn build_select(ann: &Annotation, sql: &str, q: &SqlQuery, schema: &Schema, conf
     match q.body.as_ref() {
         SetExpr::Select(select) => build_select_body(ann, sql, q, select, schema, config, &ctes),
         SetExpr::Insert(Statement::Insert(ins)) => build_query_from_insert(ann, sql, q, ins, schema, config),
-        SetExpr::Update(Statement::Update { table, assignments, selection, returning, .. }) => {
-            build_query_from_update(ann, sql, q, table, assignments, selection.as_ref(), returning.as_deref(), schema, config)
+        SetExpr::Update(Statement::Update(u)) => {
+            build_query_from_update(ann, sql, q, &u.table, &u.assignments, u.selection.as_ref(), u.returning.as_deref(), schema, config)
         },
         _ => bare(ann, sql),
     }
@@ -173,7 +179,7 @@ fn build_query_from_insert(ann: &Annotation, sql: &str, q: &SqlQuery, ins: &Inse
     let result_columns = schema
         .tables
         .iter()
-        .find(|t| t.name == obj_name_to_str(&ins.table_name))
+        .find(|t| t.name == insert_table_name(ins))
         .and_then(|t| ins.returning.as_deref().map(|items| resolve_returning(items, t, config)))
         .unwrap_or_default();
     Query { name: ann.name.clone(), cmd: ann.cmd.clone(), sql: sql.to_string(), params, result_columns }
@@ -208,7 +214,7 @@ fn build_query_from_update(
 // ─── INSERT ──────────────────────────────────────────────────────────────────
 
 fn build_insert(ann: &Annotation, sql: &str, insert: &Insert, schema: &Schema, config: &ResolverConfig) -> Query {
-    let table_name = obj_name_to_str(&insert.table_name);
+    let table_name = insert_table_name(insert);
     let Some(table) = schema.tables.iter().find(|t| t.name == table_name) else {
         return bare(ann, sql);
     };
@@ -283,10 +289,12 @@ fn collect_update_params(
     // Parameters from SET clause: col = $N
     for assignment in assignments {
         let col_name = match &assignment.target {
-            AssignmentTarget::ColumnName(name) => name.0.last().map(ident_to_str).unwrap_or_default(),
+            AssignmentTarget::ColumnName(name) => {
+                name.0.last().and_then(|p| if let ObjectNamePart::Identifier(i) = p { Some(ident_to_str(i)) } else { None }).unwrap_or_default()
+            },
             _ => continue,
         };
-        if let Expr::Value(Value::Placeholder(p)) = &assignment.value {
+        if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = &assignment.value {
             if let Some(idx) = placeholder_idx(p) {
                 if let Some(col) = table.columns.iter().find(|c| c.name == col_name) {
                     mapping.entry(idx).or_insert((col.name.clone(), col.sql_type.clone(), col.nullable));
@@ -348,8 +356,8 @@ fn collect_cte_params(with: Option<&With>, schema: &Schema, config: &ResolverCon
         // Recurse into nested WITH clauses before processing this CTE's body.
         collect_cte_params(cte.query.with.as_ref(), schema, config, mapping);
         match cte.query.body.as_ref() {
-            SetExpr::Update(Statement::Update { table, assignments, selection, .. }) => {
-                collect_update_params(table, assignments, selection.as_ref(), schema, config, mapping);
+            SetExpr::Update(Statement::Update(u)) => {
+                collect_update_params(&u.table, &u.assignments, u.selection.as_ref(), schema, config, mapping);
             },
             SetExpr::Insert(Statement::Insert(ins)) => {
                 collect_insert_value_params(ins, schema, mapping);
@@ -379,14 +387,14 @@ fn collect_cte_params(with: Option<&With>, schema: &Schema, config: &ResolverCon
 /// it corresponds to, using the INSERT column list for position-to-column mapping.
 /// SELECT-source INSERTs are skipped since position semantics are ambiguous there.
 fn collect_insert_value_params(ins: &Insert, schema: &Schema, mapping: &mut HashMap<usize, (String, SqlType, bool)>) {
-    let table_name = obj_name_to_str(&ins.table_name);
+    let table_name = insert_table_name(ins);
     let Some(table) = schema.tables.iter().find(|t| t.name == table_name) else { return };
     let col_names: Vec<String> = ins.columns.iter().map(ident_to_str).collect();
     let Some(source) = &ins.source else { return };
     let SetExpr::Values(Values { rows, .. }) = source.body.as_ref() else { return };
     for row in rows {
         for (pos, val_expr) in row.iter().enumerate() {
-            if let Expr::Value(Value::Placeholder(p)) = val_expr {
+            if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = val_expr {
                 if let Some(idx) = placeholder_idx(p) {
                     if let Some(col) = col_names.get(pos).and_then(|n| table.columns.iter().find(|c| &c.name == n)) {
                         mapping.entry(idx).or_insert((col.name.clone(), col.sql_type.clone(), col.nullable));
@@ -458,12 +466,14 @@ fn resolve_projection(
                     result.extend(t.columns.iter().map(col_to_result));
                 }
             },
-            SelectItem::QualifiedWildcard(name, _) => {
-                let qualifier = name.0.last().map(ident_to_str).unwrap_or_default();
+            SelectItem::QualifiedWildcard(SelectItemQualifiedWildcardKind::ObjectName(name), _) => {
+                let qualifier =
+                    name.0.last().and_then(|p| if let ObjectNamePart::Identifier(i) = p { Some(ident_to_str(i)) } else { None }).unwrap_or_default();
                 if let Some(t) = alias_map.get(&qualifier) {
                     result.extend(t.columns.iter().map(col_to_result));
                 }
             },
+            SelectItem::QualifiedWildcard(SelectItemQualifiedWildcardKind::Expr(_), _) => {},
             SelectItem::UnnamedExpr(expr) => {
                 if let Some(rc) = resolve_expr(expr, alias_map, all_tables, config) {
                     result.push(rc);
@@ -519,7 +529,13 @@ fn resolve_expr(expr: &Expr, alias_map: &HashMap<String, &Table>, all_tables: &[
             (None, None) => None,
         },
         Expr::Function(func) => {
-            let fname = func.name.0.last().map(ident_to_str).unwrap_or_default().to_uppercase();
+            let fname = func
+                .name
+                .0
+                .last()
+                .and_then(|p| if let ObjectNamePart::Identifier(i) = p { Some(ident_to_str(i)) } else { None })
+                .unwrap_or_default()
+                .to_uppercase();
             match fname.as_str() {
                 "COUNT" => Some(ResultColumn { name: "count".into(), sql_type: SqlType::BigInt, nullable: false }),
                 "SUM" => {
@@ -561,7 +577,7 @@ fn derived_cols(subquery: &SqlQuery, schema: &Schema, ctes: &[Table], config: &R
     match subquery.body.as_ref() {
         SetExpr::Insert(stmt) => {
             if let Statement::Insert(ins) = stmt {
-                if let Some(table) = schema.tables.iter().find(|t| t.name == obj_name_to_str(&ins.table_name)) {
+                if let Some(table) = schema.tables.iter().find(|t| t.name == insert_table_name(ins)) {
                     if let Some(returning) = &ins.returning {
                         return resolve_returning(returning, table, config)
                             .into_iter()
@@ -573,10 +589,10 @@ fn derived_cols(subquery: &SqlQuery, schema: &Schema, ctes: &[Table], config: &R
             return vec![];
         },
         SetExpr::Update(stmt) => {
-            if let Statement::Update { table, returning, .. } = stmt {
-                if let TableFactor::Table { name, .. } = &table.relation {
+            if let Statement::Update(u) = stmt {
+                if let TableFactor::Table { name, .. } = &u.table.relation {
                     if let Some(t) = schema.tables.iter().find(|t| t.name == obj_name_to_str(name)) {
-                        if let Some(returning) = returning {
+                        if let Some(returning) = &u.returning {
                             return resolve_returning(returning, t, config)
                                 .into_iter()
                                 .map(|rc| Column { name: rc.name, sql_type: rc.sql_type, nullable: rc.nullable, is_primary_key: false })
@@ -608,12 +624,14 @@ fn derived_cols(subquery: &SqlQuery, schema: &Schema, ctes: &[Table], config: &R
                     cols.extend(t.columns.iter().cloned());
                 }
             },
-            SelectItem::QualifiedWildcard(name, _) => {
-                let qualifier = name.0.last().map(ident_to_str).unwrap_or_default();
+            SelectItem::QualifiedWildcard(SelectItemQualifiedWildcardKind::ObjectName(name), _) => {
+                let qualifier =
+                    name.0.last().and_then(|p| if let ObjectNamePart::Identifier(i) = p { Some(ident_to_str(i)) } else { None }).unwrap_or_default();
                 if let Some(t) = alias_map.get(&qualifier) {
                     cols.extend(t.columns.iter().cloned());
                 }
             },
+            SelectItem::QualifiedWildcard(SelectItemQualifiedWildcardKind::Expr(_), _) => {},
             SelectItem::UnnamedExpr(expr) => {
                 if let Some(rc) = resolve_expr(expr, &alias_map, &inner_tables, config) {
                     cols.push(Column { name: rc.name, sql_type: rc.sql_type, nullable: rc.nullable, is_primary_key: false });
@@ -659,7 +677,7 @@ fn collect_params_from_expr(
             if matches!(op, BinaryOperator::Eq | BinaryOperator::NotEq | BinaryOperator::Lt | BinaryOperator::LtEq | BinaryOperator::Gt | BinaryOperator::GtEq)
             {
                 // col OP $N
-                if let Expr::Value(Value::Placeholder(p)) = &**right {
+                if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = &**right {
                     if let Some(idx) = placeholder_idx(p) {
                         if let Some(rc) = resolve_expr(left, alias_map, all_tables, config) {
                             mapping.entry(idx).or_insert((rc.name, rc.sql_type, rc.nullable));
@@ -667,7 +685,7 @@ fn collect_params_from_expr(
                     }
                 }
                 // $N OP col
-                if let Expr::Value(Value::Placeholder(p)) = &**left {
+                if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = &**left {
                     if let Some(idx) = placeholder_idx(p) {
                         if let Some(rc) = resolve_expr(right, alias_map, all_tables, config) {
                             mapping.entry(idx).or_insert((rc.name, rc.sql_type, rc.nullable));
