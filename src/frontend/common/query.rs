@@ -345,8 +345,8 @@ fn build_delete(ann: &Annotation, sql: &str, delete: &Delete, schema: &Schema, c
 
 /// Collect typed parameter mappings from the bodies of all CTEs in `with`.
 ///
-/// Walks UPDATE and SELECT CTE bodies using schema column types for inference.
-/// INSERT CTE bodies are handled via `collect_insert_value_params`.
+/// Walks UPDATE, DELETE, and SELECT CTE bodies using schema column types for
+/// inference. INSERT CTE bodies are handled via `collect_insert_value_params`.
 /// This ensures parameters defined inside data-modifying CTEs receive correct
 /// types even when the outer query body provides no column context.
 fn collect_cte_params(with: Option<&With>, schema: &Schema, config: &ResolverConfig, mapping: &mut HashMap<usize, (String, SqlType, bool)>) {
@@ -358,6 +358,23 @@ fn collect_cte_params(with: Option<&With>, schema: &Schema, config: &ResolverCon
         match cte.query.body.as_ref() {
             SetExpr::Update(Statement::Update(u)) => {
                 collect_update_params(&u.table, &u.assignments, u.selection.as_ref(), schema, config, mapping);
+            },
+            SetExpr::Delete(Statement::Delete(del)) => {
+                let tables = match &del.from {
+                    FromTable::WithFromKeyword(t) | FromTable::WithoutKeyword(t) => t,
+                };
+                if let Some(table_name) = tables.first().and_then(|twj| match &twj.relation {
+                    TableFactor::Table { name, .. } => Some(obj_name_to_str(name)),
+                    _ => None,
+                }) {
+                    if let Some(table) = schema.tables.iter().find(|t| t.name == table_name) {
+                        let all_tables = vec![(table.clone(), None)];
+                        let alias_map = build_alias_map(&all_tables);
+                        if let Some(expr) = &del.selection {
+                            collect_params_from_expr(expr, &alias_map, &all_tables, schema, config, mapping);
+                        }
+                    }
+                }
             },
             SetExpr::Insert(Statement::Insert(ins)) => {
                 collect_insert_value_params(ins, schema, mapping);
@@ -593,6 +610,27 @@ fn derived_cols(subquery: &SqlQuery, schema: &Schema, ctes: &[Table], config: &R
                 if let TableFactor::Table { name, .. } = &u.table.relation {
                     if let Some(t) = schema.tables.iter().find(|t| t.name == obj_name_to_str(name)) {
                         if let Some(returning) = &u.returning {
+                            return resolve_returning(returning, t, config)
+                                .into_iter()
+                                .map(|rc| Column { name: rc.name, sql_type: rc.sql_type, nullable: rc.nullable, is_primary_key: false })
+                                .collect();
+                        }
+                    }
+                }
+            }
+            return vec![];
+        },
+        SetExpr::Delete(stmt) => {
+            if let Statement::Delete(del) = stmt {
+                let tables = match &del.from {
+                    FromTable::WithFromKeyword(t) | FromTable::WithoutKeyword(t) => t,
+                };
+                if let Some(table_name) = tables.first().and_then(|twj| match &twj.relation {
+                    TableFactor::Table { name, .. } => Some(obj_name_to_str(name)),
+                    _ => None,
+                }) {
+                    if let Some(t) = schema.tables.iter().find(|t| t.name == table_name) {
+                        if let Some(returning) = &del.returning {
                             return resolve_returning(returning, t, config)
                                 .into_iter()
                                 .map(|rc| Column { name: rc.name, sql_type: rc.sql_type, nullable: rc.nullable, is_primary_key: false })
@@ -1424,7 +1462,9 @@ mod tests {
         assert_eq!(q.cmd, QueryCmd::ExecRows);
         assert_eq!(q.params.len(), 2);
         assert_eq!(q.params[0].name, "cutoff");
+        assert_eq!(q.params[0].sql_type, SqlType::Timestamp, "cutoff should be typed from sessions.created_at");
         assert_eq!(q.params[1].name, "tenant_id");
+        assert_eq!(q.params[1].sql_type, SqlType::BigInt, "tenant_id should be typed from sessions.tenant_id");
         assert_eq!(q.sql.matches("$1").count(), 1);
         assert_eq!(q.sql.matches("$2").count(), 2);
     }
