@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use sqlparser::ast::{
-    Assignment, AssignmentTarget, BinaryOperator, Delete, Expr, FromTable, FunctionArg, FunctionArgExpr, FunctionArguments, Insert, ObjectNamePart,
-    Query as SqlQuery, Select, SelectItem, SelectItemQualifiedWildcardKind, SetExpr, Statement, TableFactor, TableObject, TableWithJoins, Value, ValueWithSpan,
-    Values, With,
+    Assignment, AssignmentTarget, BinaryOperator, Delete, Expr, FromTable, FunctionArg, FunctionArgExpr, FunctionArguments, Insert, JoinConstraint,
+    JoinOperator, LimitClause, ObjectNamePart, Query as SqlQuery, Select, SelectItem, SelectItemQualifiedWildcardKind, SetExpr, Statement, TableFactor,
+    TableObject, TableWithJoins, Value, ValueWithSpan, Values, With,
 };
 use sqlparser::dialect::Dialect;
 use sqlparser::parser::Parser;
@@ -162,9 +162,18 @@ fn build_select_body(ann: &Annotation, sql: &str, q: &SqlQuery, select: &Select,
     let params = {
         let mut mapping = HashMap::new();
         collect_cte_params(q.with.as_ref(), schema, config, &mut mapping);
+        // WHERE clause
         if let Some(expr) = &select.selection {
             collect_params_from_expr(expr, &alias_map, &all_tables, schema, config, &mut mapping);
         }
+        // JOIN ON conditions
+        collect_join_params(select, &alias_map, &all_tables, schema, config, &mut mapping);
+        // HAVING clause
+        if let Some(expr) = &select.having {
+            collect_params_from_expr(expr, &alias_map, &all_tables, schema, config, &mut mapping);
+        }
+        // LIMIT / OFFSET
+        collect_limit_offset_params(q, &mut mapping);
         build_params(mapping, count_params(sql))
     };
     Query { name: ann.name.clone(), cmd: ann.cmd.clone(), sql: sql.to_string(), params, result_columns }
@@ -386,6 +395,11 @@ fn collect_cte_params(with: Option<&With>, schema: &Schema, config: &ResolverCon
                     if let Some(expr) = &select.selection {
                         collect_params_from_expr(expr, &alias_map, &all_tables, schema, config, mapping);
                     }
+                    collect_join_params(select, &alias_map, &all_tables, schema, config, mapping);
+                    if let Some(expr) = &select.having {
+                        collect_params_from_expr(expr, &alias_map, &all_tables, schema, config, mapping);
+                    }
+                    collect_limit_offset_params(&cte.query, mapping);
                 }
             },
             _ => {},
@@ -747,6 +761,51 @@ fn collect_params_from_expr(
         Expr::IsNull(inner) | Expr::IsNotNull(inner) => {
             collect_params_from_expr(inner, alias_map, all_tables, schema, config, mapping);
         },
+        Expr::InList { expr, list, .. } => {
+            // col IN ($1, $2, …) — infer param type from the expression being tested
+            let resolved = resolve_expr(expr, alias_map, all_tables, config);
+            for item in list {
+                if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = item {
+                    if let Some(idx) = placeholder_idx(p) {
+                        if let Some(rc) = &resolved {
+                            mapping.entry(idx).or_insert((rc.name.clone(), rc.sql_type.clone(), rc.nullable));
+                        }
+                    }
+                }
+                collect_params_from_expr(item, alias_map, all_tables, schema, config, mapping);
+            }
+            collect_params_from_expr(expr, alias_map, all_tables, schema, config, mapping);
+        },
+        Expr::Between { expr, low, high, .. } => {
+            // col BETWEEN $1 AND $2 — infer both param types from the tested expression
+            let resolved = resolve_expr(expr, alias_map, all_tables, config);
+            for bound in [low.as_ref(), high.as_ref()] {
+                if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = bound {
+                    if let Some(idx) = placeholder_idx(p) {
+                        if let Some(rc) = &resolved {
+                            mapping.entry(idx).or_insert((rc.name.clone(), rc.sql_type.clone(), rc.nullable));
+                        }
+                    }
+                }
+                collect_params_from_expr(bound, alias_map, all_tables, schema, config, mapping);
+            }
+            collect_params_from_expr(expr, alias_map, all_tables, schema, config, mapping);
+        },
+        Expr::Like { expr, pattern, .. } | Expr::ILike { expr, pattern, .. } => {
+            // col LIKE $1 — infer param type from the column
+            if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = pattern.as_ref() {
+                if let Some(idx) = placeholder_idx(p) {
+                    if let Some(rc) = resolve_expr(expr, alias_map, all_tables, config) {
+                        mapping.entry(idx).or_insert((rc.name, rc.sql_type, rc.nullable));
+                    }
+                }
+            }
+            collect_params_from_expr(expr, alias_map, all_tables, schema, config, mapping);
+            collect_params_from_expr(pattern, alias_map, all_tables, schema, config, mapping);
+        },
+        Expr::UnaryOp { expr, .. } | Expr::Cast { expr, .. } => {
+            collect_params_from_expr(expr, alias_map, all_tables, schema, config, mapping);
+        },
         _ => {},
     }
 }
@@ -766,6 +825,68 @@ fn collect_params_from_subquery(q: &SqlQuery, schema: &Schema, config: &Resolver
     let alias_map = build_alias_map(&all_tables);
     if let Some(expr) = &select.selection {
         collect_params_from_expr(expr, &alias_map, &all_tables, schema, config, mapping);
+    }
+    collect_join_params(select, &alias_map, &all_tables, schema, config, mapping);
+    if let Some(expr) = &select.having {
+        collect_params_from_expr(expr, &alias_map, &all_tables, schema, config, mapping);
+    }
+    collect_limit_offset_params(q, mapping);
+}
+
+/// Collect typed parameter mappings from JOIN ON conditions.
+fn collect_join_params(
+    select: &Select,
+    alias_map: &HashMap<String, &Table>,
+    all_tables: &[(Table, Option<String>)],
+    schema: &Schema,
+    config: &ResolverConfig,
+    mapping: &mut HashMap<usize, (String, SqlType, bool)>,
+) {
+    for twj in &select.from {
+        for join in &twj.joins {
+            let constraint = match &join.join_operator {
+                JoinOperator::Join(c)
+                | JoinOperator::Inner(c)
+                | JoinOperator::Left(c)
+                | JoinOperator::LeftOuter(c)
+                | JoinOperator::Right(c)
+                | JoinOperator::RightOuter(c)
+                | JoinOperator::FullOuter(c)
+                | JoinOperator::CrossJoin(c)
+                | JoinOperator::Semi(c)
+                | JoinOperator::LeftSemi(c)
+                | JoinOperator::RightSemi(c)
+                | JoinOperator::LeftAnti(c)
+                | JoinOperator::RightAnti(c)
+                | JoinOperator::Anti(c)
+                | JoinOperator::StraightJoin(c) => c,
+                JoinOperator::CrossApply | JoinOperator::OuterApply => return,
+                JoinOperator::AsOf { constraint, .. } => constraint,
+            };
+            if let JoinConstraint::On(expr) = constraint {
+                collect_params_from_expr(expr, alias_map, all_tables, schema, config, mapping);
+            }
+        }
+    }
+}
+
+/// Collect parameter mappings from LIMIT and OFFSET expressions.
+///
+/// LIMIT/OFFSET params are always typed as `BigInt` since they control row counts.
+fn collect_limit_offset_params(q: &SqlQuery, mapping: &mut HashMap<usize, (String, SqlType, bool)>) {
+    if let Some(LimitClause::LimitOffset { limit, offset, .. }) = &q.limit_clause {
+        if let Some(Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. })) = limit {
+            if let Some(idx) = placeholder_idx(p) {
+                mapping.entry(idx).or_insert(("limit".into(), SqlType::BigInt, false));
+            }
+        }
+        if let Some(off) = offset {
+            if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = &off.value {
+                if let Some(idx) = placeholder_idx(p) {
+                    mapping.entry(idx).or_insert(("offset".into(), SqlType::BigInt, false));
+                }
+            }
+        }
     }
 }
 
@@ -1421,6 +1542,82 @@ mod tests {
         assert_eq!(q.params[0].name, "name");
         assert_eq!(q.params[0].sql_type, SqlType::Text);
         assert_eq!(q.params[1].name, "user_id");
+        assert_eq!(q.params[1].sql_type, SqlType::BigInt);
+    }
+
+    // ─── Parameter resolution in non-WHERE clauses ─────────────────────────
+
+    #[test]
+    fn param_in_join_on_clause_is_typed() {
+        // $1 in JOIN ON should be typed from the column it's compared to
+        let sql = "-- name: GetPostsByUser :many\n\
+            SELECT p.id, p.title FROM posts p JOIN users u ON u.id = p.user_id AND u.id = $1;";
+        let q = &parse_queries(sql, &make_join_schema()).unwrap()[0];
+        assert_eq!(q.params.len(), 1);
+        assert_eq!(q.params[0].name, "id");
+        assert_eq!(q.params[0].sql_type, SqlType::BigInt);
+    }
+
+    #[test]
+    fn param_in_in_list_is_typed() {
+        let sql = "-- name: GetUsers :many\n\
+            SELECT id, name FROM users WHERE id IN ($1, $2, $3);";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        assert_eq!(q.params.len(), 3);
+        assert_eq!(q.params[0].sql_type, SqlType::BigInt);
+        assert_eq!(q.params[1].sql_type, SqlType::BigInt);
+        assert_eq!(q.params[2].sql_type, SqlType::BigInt);
+    }
+
+    #[test]
+    fn param_in_between_is_typed() {
+        let sql = "-- name: GetUsers :many\n\
+            SELECT id, name FROM users WHERE id BETWEEN $1 AND $2;";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        assert_eq!(q.params.len(), 2);
+        assert_eq!(q.params[0].sql_type, SqlType::BigInt);
+        assert_eq!(q.params[1].sql_type, SqlType::BigInt);
+    }
+
+    #[test]
+    fn param_in_like_is_typed() {
+        let sql = "-- name: SearchUsers :many\n\
+            SELECT id, name FROM users WHERE name LIKE $1;";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        assert_eq!(q.params.len(), 1);
+        assert_eq!(q.params[0].sql_type, SqlType::Text);
+    }
+
+    #[test]
+    fn param_in_having_clause_is_typed() {
+        let schema = make_join_schema();
+        let sql = "-- name: GetActiveUsers :many\n\
+            SELECT u.id, u.name FROM users u JOIN posts p ON p.user_id = u.id \
+            GROUP BY u.id, u.name \
+            HAVING COUNT(*) > $1;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.params.len(), 1);
+        // COUNT(*) > $1 — the param is compared to a count (BigInt)
+        assert_eq!(q.params[0].sql_type, SqlType::BigInt);
+    }
+
+    #[test]
+    fn param_in_limit_is_typed() {
+        let sql = "-- name: ListUsers :many\n\
+            SELECT id, name FROM users LIMIT $1;";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        assert_eq!(q.params.len(), 1);
+        // LIMIT should produce BigInt (or Integer)
+        assert_eq!(q.params[0].sql_type, SqlType::BigInt);
+    }
+
+    #[test]
+    fn param_in_offset_is_typed() {
+        let sql = "-- name: ListUsers :many\n\
+            SELECT id, name FROM users LIMIT $1 OFFSET $2;";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        assert_eq!(q.params.len(), 2);
+        assert_eq!(q.params[0].sql_type, SqlType::BigInt);
         assert_eq!(q.params[1].sql_type, SqlType::BigInt);
     }
 
