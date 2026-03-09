@@ -191,6 +191,26 @@ pub fn split_at_in_clause(sql: &str, param_index: usize) -> Option<(String, Stri
     None
 }
 
+/// Return the MySQL `JSON_TABLE` column type keyword for a given SQL type.
+///
+/// Used when building `JSON_TABLE(?,'$[*]' COLUMNS(value T PATH '$'))` to extract
+/// typed elements from a JSON array. Numeric types map to their exact SQL counterparts;
+/// all other types (text, temporal, UUID, bytes, JSON, arrays, custom) fall back to
+/// `CHAR(255)`, which covers every non-numeric type that reasonably appears in an
+/// `IN` clause by extracting the raw string representation.
+pub fn mysql_json_table_col_type(sql_type: &SqlType) -> &'static str {
+    match sql_type {
+        SqlType::Boolean => "BOOLEAN",
+        SqlType::SmallInt => "SMALLINT",
+        SqlType::Integer => "INT",
+        SqlType::BigInt => "BIGINT",
+        SqlType::Real => "FLOAT",
+        SqlType::Double => "DOUBLE",
+        SqlType::Decimal => "DECIMAL(38,10)",
+        _ => "CHAR(255)",
+    }
+}
+
 /// Resolve the bind plan to parameter names in SQL occurrence order.
 ///
 /// For positional-sequential backends (SQLite sqlx, MySQL sqlx, Python sqlite3,

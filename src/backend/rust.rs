@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 use std::path::PathBuf;
 
-use crate::backend::common::{infer_table, positional_bind_names, replace_list_in_clause, split_at_in_clause, to_pascal_case, to_snake_case};
+use crate::backend::common::{infer_table, mysql_json_table_col_type, positional_bind_names, replace_list_in_clause, split_at_in_clause, to_pascal_case, to_snake_case};
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::{ListParamStrategy, OutputConfig};
 use crate::ir::{Parameter, Query, QueryCmd, Schema, SqlType};
@@ -220,7 +220,7 @@ fn emit_rust_list_query(
             Ok(())
         },
         (RustTarget::Mysql, ListParamStrategy::Native) => {
-            let col_type = mysql_json_col_type(&list_param.sql_type);
+            let col_type = mysql_json_table_col_type(&list_param.sql_type);
             let repl = format!("IN (SELECT value FROM JSON_TABLE(?,'$[*]' COLUMNS(value {col_type} PATH '$')) t)");
             let rewritten = replace_list_in_clause(&query.sql, list_param.index, &repl).unwrap_or_else(|| {
                 eprintln!("warning: list param {} not found in IN clause, treating as scalar", list_param.name);
@@ -247,20 +247,6 @@ fn json_list_expr(lp_name: &str, sql_type: &SqlType) -> String {
         _ => "x.to_string()".to_string(),
     };
     format!(r#"format!("[{{}}]", {lp_name}.iter().map(|x| {elem}).collect::<Vec<_>>().join(","))"#)
-}
-
-/// Map a SqlType to the MySQL JSON_TABLE column type declaration.
-fn mysql_json_col_type(sql_type: &SqlType) -> &'static str {
-    match sql_type {
-        SqlType::Boolean => "BOOLEAN",
-        SqlType::SmallInt => "SMALLINT",
-        SqlType::Integer => "INT",
-        SqlType::BigInt => "BIGINT",
-        SqlType::Real => "FLOAT",
-        SqlType::Double => "DOUBLE",
-        SqlType::Decimal => "DECIMAL(38,10)",
-        _ => "CHAR(255)",
-    }
 }
 
 fn fetch_method(query: &Query) -> &'static str {

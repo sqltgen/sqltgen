@@ -3,7 +3,8 @@ use std::fmt::Write;
 use std::path::PathBuf;
 
 use crate::backend::common::{
-    infer_table, jdbc_sql, positional_bind_names, replace_list_in_clause, split_at_in_clause, sql_const_name, to_camel_case, to_pascal_case,
+    infer_table, jdbc_sql, mysql_json_table_col_type, positional_bind_names, replace_list_in_clause, split_at_in_clause, sql_const_name, to_camel_case,
+    to_pascal_case,
 };
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::{ListParamStrategy, OutputConfig};
@@ -239,6 +240,7 @@ fn emit_sql_constants(src: &mut String, queries: &[Query], target: &JsTarget, st
             continue;
         }
         let const_name = sql_const_name(&query.name);
+        // NOTE: only one list parameter per query is currently supported.
         let base_sql = match query.params.iter().find(|p| p.is_list) {
             Some(lp) => rewrite_list_sql_native(&query.sql, lp, target),
             None => query.sql.clone(),
@@ -265,7 +267,7 @@ fn rewrite_list_sql_native(sql: &str, lp: &Parameter, target: &JsTarget) -> Stri
         JsTarget::Postgres => format!("= ANY(${})", lp.index),
         JsTarget::Sqlite => format!("IN (SELECT value FROM json_each(?{}))", lp.index),
         JsTarget::Mysql => {
-            let col_type = mysql_json_col_type(&lp.sql_type);
+            let col_type = mysql_json_table_col_type(&lp.sql_type);
             format!("IN (SELECT value FROM JSON_TABLE(?,'$[*]' COLUMNS(value {col_type} PATH '$')) t)")
         },
     };
@@ -273,19 +275,6 @@ fn rewrite_list_sql_native(sql: &str, lp: &Parameter, target: &JsTarget) -> Stri
         eprintln!("warning: list param '{}' not found in IN clause, treating as scalar", lp.name);
         sql.to_string()
     })
-}
-
-fn mysql_json_col_type(sql_type: &SqlType) -> &'static str {
-    match sql_type {
-        SqlType::Boolean => "BOOLEAN",
-        SqlType::SmallInt => "SMALLINT",
-        SqlType::Integer => "INT",
-        SqlType::BigInt => "BIGINT",
-        SqlType::Real => "FLOAT",
-        SqlType::Double => "DOUBLE",
-        SqlType::Decimal => "DECIMAL(38,10)",
-        _ => "CHAR(255)",
-    }
 }
 
 // ─── Query function emission ──────────────────────────────────────────────────
@@ -369,26 +358,35 @@ fn emit_pg_query(src: &mut String, query: &Query, schema: &Schema, output: &JsOu
     emit_jsdoc(src, "ClientBase", &params, &ret, output)?;
     emit_fn_open(src, &fn_name, "ClientBase", &params, &ret, output)?;
     let args = pg_params_array(query);
+    emit_pg_body(src, query, schema, &const_name, &args, output)?;
+    writeln!(src, "}}")?;
+    Ok(())
+}
+
+/// Emit the query body for a PostgreSQL function: the `db.query(...)` call and result handling.
+///
+/// Accepts either a SQL constant name (static query) or a runtime `sql` variable (dynamic list
+/// expansion) as `sql_expr`, and the pre-built params array string as `args`.
+fn emit_pg_body(src: &mut String, query: &Query, schema: &Schema, sql_expr: &str, args: &str, output: &JsOutput) -> anyhow::Result<()> {
     match query.cmd {
-        QueryCmd::Exec => writeln!(src, "  await db.query({const_name}, {args});")?,
+        QueryCmd::Exec => writeln!(src, "  await db.query({sql_expr}, {args});")?,
         QueryCmd::ExecRows => {
-            writeln!(src, "  const result = await db.query({const_name}, {args});")?;
+            writeln!(src, "  const result = await db.query({sql_expr}, {args});")?;
             writeln!(src, "  return result.rowCount ?? 0;")?;
         },
         QueryCmd::One => {
             let row = row_type_name(query, schema);
-            let call = pg_query_call(&const_name, &row, &args, output);
+            let call = pg_query_call(sql_expr, &row, args, output);
             writeln!(src, "  const result = await {call};")?;
             writeln!(src, "  return result.rows[0] ?? null;")?;
         },
         QueryCmd::Many => {
             let row = row_type_name(query, schema);
-            let call = pg_query_call(&const_name, &row, &args, output);
+            let call = pg_query_call(sql_expr, &row, args, output);
             writeln!(src, "  const result = await {call};")?;
             writeln!(src, "  return result.rows;")?;
         },
     }
-    writeln!(src, "}}")?;
     Ok(())
 }
 
@@ -401,6 +399,11 @@ fn pg_query_call(const_name: &str, row_type: &str, args: &str, output: &JsOutput
 }
 
 /// Build the `[p1, p2, ...]` params array for a pg query (unique params by index).
+///
+/// PostgreSQL uses `$N` reference-by-number, so each unique parameter index appears
+/// exactly once in the bound array regardless of how many times it is referenced in
+/// the SQL. Contrast with [`mysql_params_array`], which uses [`positional_bind_names`]
+/// to repeat values for every anonymous `?` occurrence.
 fn pg_params_array(query: &Query) -> String {
     let mut params: Vec<&Parameter> = query.params.iter().collect();
     params.sort_by_key(|p| p.index);
@@ -418,25 +421,9 @@ fn emit_pg_list_query(src: &mut String, query: &Query, schema: &Schema, output: 
     emit_fn_open(src, &fn_name, "ClientBase", &params, &ret, output)?;
     match strategy {
         ListParamStrategy::Native => {
-            // pg accepts a JS array directly for = ANY($N)
+            // pg accepts a JS array directly for = ANY($N); args layout unchanged.
             let args = pg_params_array(query);
-            let row = row_type_name(query, schema);
-            let call = pg_query_call(&const_name, &row, &args, output);
-            match query.cmd {
-                QueryCmd::Exec => writeln!(src, "  await db.query({const_name}, {args});")?,
-                QueryCmd::ExecRows => {
-                    writeln!(src, "  const result = await db.query({const_name}, {args});")?;
-                    writeln!(src, "  return result.rowCount ?? 0;")?;
-                },
-                QueryCmd::One => {
-                    writeln!(src, "  const result = await {call};")?;
-                    writeln!(src, "  return result.rows[0] ?? null;")?;
-                },
-                QueryCmd::Many => {
-                    writeln!(src, "  const result = await {call};")?;
-                    writeln!(src, "  return result.rows;")?;
-                },
-            }
+            emit_pg_body(src, query, schema, &const_name, &args, output)?;
         },
         ListParamStrategy::Dynamic => {
             let scalar_params: Vec<&Parameter> = query.params.iter().filter(|p| !p.is_list).collect();
@@ -496,13 +483,13 @@ fn emit_sqlite_query(src: &mut String, query: &Query, schema: &Schema, output: &
         },
         QueryCmd::One => {
             let row = row_type_name(query, schema);
-            let cast = sqlite_cast(&format!("{row} | undefined"), output);
+            let cast = ts_cast(&format!("{row} | undefined"), output);
             writeln!(src, "  const row = db.prepare({const_name}).get({args}){cast};")?;
             writeln!(src, "  return row ?? null;")?;
         },
         QueryCmd::Many => {
             let row = row_type_name(query, schema);
-            let cast = sqlite_cast(&format!("{row}[]"), output);
+            let cast = ts_cast(&format!("{row}[]"), output);
             writeln!(src, "  return db.prepare({const_name}).all({args}){cast};")?;
         },
     }
@@ -519,7 +506,10 @@ fn sqlite_spread_args(query: &Query) -> String {
 }
 
 /// Returns ` as Type` for TypeScript or empty string for JavaScript.
-fn sqlite_cast(ts_type: &str, output: &JsOutput) -> String {
+///
+/// Used for better-sqlite3 `.get()`/`.all()` return types and mysql2 row casts,
+/// both of which need an explicit `as T` only in TypeScript output.
+fn ts_cast(ts_type: &str, output: &JsOutput) -> String {
     match output {
         JsOutput::TypeScript => format!(" as {ts_type}"),
         JsOutput::JavaScript => String::new(),
@@ -596,13 +586,13 @@ fn emit_sqlite_body(src: &mut String, query: &Query, schema: &Schema, sql_expr: 
         },
         QueryCmd::One => {
             let row = row_type_name(query, schema);
-            let cast = sqlite_cast(&format!("{row} | undefined"), output);
+            let cast = ts_cast(&format!("{row} | undefined"), output);
             writeln!(src, "  const row = db.prepare({sql_expr}).get({args}){cast};")?;
             writeln!(src, "  return row ?? null;")?;
         },
         QueryCmd::Many => {
             let row = row_type_name(query, schema);
-            let cast = sqlite_cast(&format!("{row}[]"), output);
+            let cast = ts_cast(&format!("{row}[]"), output);
             writeln!(src, "  return db.prepare({sql_expr}).all({args}){cast};")?;
         },
     }
@@ -644,14 +634,14 @@ fn emit_mysql_body(src: &mut String, query: &Query, schema: &Schema, sql_expr: &
         QueryCmd::One => {
             let row = row_type_name(query, schema);
             let rdp = mysql_generic(output, "RowDataPacket[]");
-            let cast = mysql_cast(&format!("{row} | undefined"), output);
+            let cast = ts_cast(&format!("{row} | undefined"), output);
             writeln!(src, "  const [rows] = await db.execute{rdp}({sql_expr}, {args});")?;
             writeln!(src, "  return (rows[0]{cast}) ?? null;")?;
         },
         QueryCmd::Many => {
             let row = row_type_name(query, schema);
             let rdp = mysql_generic(output, "RowDataPacket[]");
-            let cast = mysql_cast(&format!("{row}[]"), output);
+            let cast = ts_cast(&format!("{row}[]"), output);
             writeln!(src, "  const [rows] = await db.execute{rdp}({sql_expr}, {args});")?;
             writeln!(src, "  return rows{cast};")?;
         },
@@ -663,14 +653,6 @@ fn emit_mysql_body(src: &mut String, query: &Query, schema: &Schema, sql_expr: &
 fn mysql_generic(output: &JsOutput, ts_type: &str) -> String {
     match output {
         JsOutput::TypeScript => format!("<{ts_type}>"),
-        JsOutput::JavaScript => String::new(),
-    }
-}
-
-/// Returns ` as Type` (TS) or empty string (JS) for a mysql2 type cast.
-fn mysql_cast(ts_type: &str, output: &JsOutput) -> String {
-    match output {
-        JsOutput::TypeScript => format!(" as {ts_type}"),
         JsOutput::JavaScript => String::new(),
     }
 }

@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 use std::fmt::Write;
 use std::path::PathBuf;
 
-use crate::backend::common::{infer_table, positional_bind_names, replace_list_in_clause, split_at_in_clause, sql_const_name, to_pascal_case, to_snake_case};
+use crate::backend::common::{infer_table, jdbc_sql, positional_bind_names, replace_list_in_clause, split_at_in_clause, sql_const_name, to_pascal_case, to_snake_case};
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::{ListParamStrategy, OutputConfig};
 use crate::ir::{Parameter, Query, QueryCmd, Schema, SqlType};
@@ -221,7 +221,7 @@ fn emit_cursor_query(src: &mut String, query: &Query, schema: &Schema, conn_type
 fn emit_sqlite_query(src: &mut String, query: &Query, schema: &Schema, target: &PythonTarget) -> anyhow::Result<()> {
     let fn_name = to_snake_case(&query.name);
     let const_name = sql_const_name(&query.name);
-    let return_type = sqlite_return_type(query, schema);
+    let return_type = cursor_return_type(query, schema);
 
     let params_sig: String = std::iter::once("conn: sqlite3.Connection".to_string())
         .chain(query.params.iter().map(|p| format!("{}: {}", to_snake_case(&p.name), python_type(&p.sql_type, p.nullable, target))))
@@ -323,8 +323,8 @@ fn emit_python_list_query(
         },
         (PythonTarget::Sqlite, ListParamStrategy::Dynamic) => {
             let (before_raw, after_raw) = split_at_in_clause(&query.sql, lp.index).unwrap_or_else(|| (query.sql.clone(), String::new()));
-            let before = rewrite_sql_sqlite(&before_raw).replace('"', "\\\"").replace('\n', " ");
-            let after = rewrite_sql_sqlite(&after_raw).replace('"', "\\\"").replace('\n', " ");
+            let before = jdbc_sql(&before_raw).replace('"', "\\\"").replace('\n', " ");
+            let after = jdbc_sql(&after_raw).replace('"', "\\\"").replace('\n', " ");
             let scalar_names: Vec<String> = scalar_params.iter().map(|p| to_snake_case(&p.name)).collect();
             let scalar_tuple = build_arg_tuple(&scalar_names);
             writeln!(src, "    placeholders = \", \".join([\"?\"] * len({lp_name}))")?;
@@ -428,10 +428,6 @@ fn cursor_return_type(query: &Query, schema: &Schema) -> String {
     }
 }
 
-fn sqlite_return_type(query: &Query, schema: &Schema) -> String {
-    cursor_return_type(query, schema)
-}
-
 // ─── Type helpers ─────────────────────────────────────────────────────────────
 
 fn python_type(sql_type: &SqlType, nullable: bool, target: &PythonTarget) -> String {
@@ -512,7 +508,7 @@ fn rewrite_sql(sql: &str, target: &PythonTarget) -> String {
     match target {
         // Both psycopg and mysql-connector-python use %s positional placeholders
         PythonTarget::Postgres | PythonTarget::Mysql => rewrite_sql_postgres(sql),
-        PythonTarget::Sqlite => rewrite_sql_sqlite(sql),
+        PythonTarget::Sqlite => jdbc_sql(sql),
     }
 }
 
@@ -523,23 +519,6 @@ fn rewrite_sql_postgres(sql: &str) -> String {
     while let Some(ch) = chars.next() {
         if (ch == '$' || ch == '?') && chars.peek().is_some_and(|c| c.is_ascii_digit()) {
             out.push_str("%s");
-            while chars.peek().is_some_and(|c| c.is_ascii_digit()) {
-                chars.next();
-            }
-        } else {
-            out.push(ch);
-        }
-    }
-    out
-}
-
-/// Rewrite `?N` or `$N` → `?` for sqlite3.
-fn rewrite_sql_sqlite(sql: &str) -> String {
-    let mut out = String::with_capacity(sql.len());
-    let mut chars = sql.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if (ch == '?' || ch == '$') && chars.peek().is_some_and(|c| c.is_ascii_digit()) {
-            out.push('?');
             while chars.peek().is_some_and(|c| c.is_ascii_digit()) {
                 chars.next();
             }

@@ -2,8 +2,8 @@ use std::fmt::Write;
 use std::path::PathBuf;
 
 use crate::backend::common::{
-    emit_package, infer_table, jdbc_array_type_name, jdbc_bind_sequence, jdbc_setter, jdbc_sql, replace_list_in_clause, split_at_in_clause, sql_const_name,
-    to_camel_case, to_pascal_case,
+    emit_package, infer_table, jdbc_array_type_name, jdbc_bind_sequence, jdbc_setter, jdbc_sql, mysql_json_table_col_type, replace_list_in_clause,
+    split_at_in_clause, sql_const_name, to_camel_case, to_pascal_case,
 };
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::{ListParamStrategy, OutputConfig};
@@ -199,7 +199,7 @@ fn emit_kotlin_list_query(
             writeln!(src, "    }}")?;
         },
         (KotlinTarget::Mysql, ListParamStrategy::Native) => {
-            let elem_type = mysql_json_table_type(&lp.sql_type);
+            let elem_type = mysql_json_table_col_type(&lp.sql_type);
             // Pass the full JSON array string as the JDBC ? — no CONCAT wrapping.
             let repl = format!("IN (SELECT value FROM JSON_TABLE(?,'$[*]' COLUMNS(value {elem_type} PATH '$')) t)");
             let sql = jdbc_sql(&replace_list_in_clause(&query.sql, lp.index, &repl).unwrap_or_else(|| query.sql.clone()));
@@ -254,20 +254,6 @@ fn kotlin_param_type(p: &Parameter) -> String {
         format!("List<{}>", kotlin_type(&p.sql_type, false))
     } else {
         kotlin_type(&p.sql_type, p.nullable)
-    }
-}
-
-/// Return the MySQL JSON_TABLE column type keyword for a given SQL type.
-fn mysql_json_table_type(sql_type: &SqlType) -> &'static str {
-    match sql_type {
-        SqlType::Boolean => "BOOLEAN",
-        SqlType::SmallInt => "SMALLINT",
-        SqlType::Integer => "INT",
-        SqlType::BigInt => "BIGINT",
-        SqlType::Real => "FLOAT",
-        SqlType::Double => "DOUBLE",
-        SqlType::Decimal => "DECIMAL(38,10)",
-        _ => "CHAR(255)",
     }
 }
 
