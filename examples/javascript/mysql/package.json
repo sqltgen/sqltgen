@@ -1,0 +1,12 @@
+{
+  "name": "sqltgen-example-javascript-mysql",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node main.js"
+  },
+  "dependencies": {
+    "mysql2": "^3.12.0"
+  }
+}

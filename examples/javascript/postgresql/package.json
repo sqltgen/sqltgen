@@ -1,0 +1,12 @@
+{
+  "name": "sqltgen-example-javascript-postgresql",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node main.js"
+  },
+  "dependencies": {
+    "pg": "^8.13.3"
+  }
+}

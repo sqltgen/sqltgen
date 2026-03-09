@@ -1,0 +1,12 @@
+{
+  "name": "sqltgen-example-javascript-sqlite",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node main.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.7.0"
+  }
+}
