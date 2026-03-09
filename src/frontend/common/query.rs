@@ -147,6 +147,7 @@ fn build_select(ann: &Annotation, sql: &str, q: &SqlQuery, schema: &Schema, conf
         SetExpr::Update(Statement::Update(u)) => {
             build_query_from_update(ann, sql, q, &u.table, &u.assignments, u.selection.as_ref(), u.returning.as_deref(), schema, config)
         },
+        SetExpr::SetOperation { .. } => build_set_operation(ann, sql, q, q.body.as_ref(), schema, config, &ctes),
         _ => bare(ann, sql),
     }
 }
@@ -162,25 +163,101 @@ fn build_select_body(ann: &Annotation, sql: &str, q: &SqlQuery, select: &Select,
     let params = {
         let mut mapping = HashMap::new();
         collect_cte_params(q.with.as_ref(), schema, config, &mut mapping);
-        // WHERE clause
-        if let Some(expr) = &select.selection {
-            collect_params_from_expr(expr, &alias_map, &all_tables, schema, config, &mut mapping);
-        }
-        // JOIN ON conditions
-        collect_join_params(select, &alias_map, &all_tables, schema, config, &mut mapping);
-        // HAVING clause
-        if let Some(expr) = &select.having {
-            collect_params_from_expr(expr, &alias_map, &all_tables, schema, config, &mut mapping);
-        }
+        collect_select_params(select, schema, config, ctes, &mut mapping);
         // LIMIT / OFFSET
         collect_limit_offset_params(q, &mut mapping);
         // ORDER BY expressions (CASE, function calls, etc. in ORDER BY)
         collect_order_by_params(q, &alias_map, &all_tables, schema, config, &mut mapping);
-        // Projection expressions (CASE, function calls, etc. in SELECT list)
-        collect_projection_params(select, &alias_map, &all_tables, schema, config, &mut mapping);
         build_params(mapping, count_params(sql))
     };
     Query { name: ann.name.clone(), cmd: ann.cmd.clone(), sql: sql.to_string(), params, result_columns }
+}
+
+/// Collect typed parameter mappings from a single `SELECT` clause.
+///
+/// Covers WHERE, JOIN ON, HAVING, and projection expressions. Shared by
+/// `build_select_body` (plain queries) and `collect_set_expr_params` (UNION branches).
+fn collect_select_params(select: &Select, schema: &Schema, config: &ResolverConfig, ctes: &[Table], mapping: &mut HashMap<usize, (String, SqlType, bool)>) {
+    let all_tables = collect_from_tables(select, schema, ctes, config);
+    if all_tables.is_empty() {
+        return;
+    }
+    let alias_map = build_alias_map(&all_tables);
+    if let Some(expr) = &select.selection {
+        collect_params_from_expr(expr, &alias_map, &all_tables, schema, config, mapping);
+    }
+    collect_join_params(select, &alias_map, &all_tables, schema, config, mapping);
+    if let Some(expr) = &select.having {
+        collect_params_from_expr(expr, &alias_map, &all_tables, schema, config, mapping);
+    }
+    collect_projection_params(select, &alias_map, &all_tables, schema, config, mapping);
+}
+
+/// Handle `Statement::Query` where the body is a set operation (UNION/INTERSECT/EXCEPT).
+///
+/// Result columns come from the leftmost SELECT branch (per SQL standard).
+/// Parameters are collected recursively from all branches.
+fn build_set_operation(ann: &Annotation, sql: &str, q: &SqlQuery, body: &SetExpr, schema: &Schema, config: &ResolverConfig, ctes: &[Table]) -> Query {
+    // Resolve result columns from the leftmost SELECT branch.
+    let result_columns = leftmost_select(body)
+        .map(|select| {
+            let all_tables = collect_from_tables(select, schema, ctes, config);
+            if all_tables.is_empty() {
+                return vec![];
+            }
+            let alias_map = build_alias_map(&all_tables);
+            resolve_projection(select, &alias_map, &all_tables, config)
+        })
+        .unwrap_or_default();
+
+    // Collect params from CTEs + all set-operation branches + LIMIT/OFFSET + ORDER BY.
+    let params = {
+        let mut mapping = HashMap::new();
+        collect_cte_params(q.with.as_ref(), schema, config, &mut mapping);
+        collect_set_expr_params(body, schema, config, ctes, &mut mapping);
+        collect_limit_offset_params(q, &mut mapping);
+        // ORDER BY needs the leftmost branch's table context for column type inference.
+        if let Some(select) = leftmost_select(body) {
+            let all_tables = collect_from_tables(select, schema, ctes, config);
+            if !all_tables.is_empty() {
+                let alias_map = build_alias_map(&all_tables);
+                collect_order_by_params(q, &alias_map, &all_tables, schema, config, &mut mapping);
+            }
+        }
+        build_params(mapping, count_params(sql))
+    };
+
+    Query { name: ann.name.clone(), cmd: ann.cmd.clone(), sql: sql.to_string(), params, result_columns }
+}
+
+/// Recursively extract the leftmost `Select` from a `SetExpr` tree.
+///
+/// For `UNION`/`INTERSECT`/`EXCEPT`, the SQL standard defines result column
+/// names from the first (leftmost) branch. This walks left until it finds a
+/// plain `SELECT`.
+fn leftmost_select(expr: &SetExpr) -> Option<&Select> {
+    match expr {
+        SetExpr::Select(select) => Some(select),
+        SetExpr::SetOperation { left, .. } => leftmost_select(left),
+        _ => None,
+    }
+}
+
+/// Recursively collect typed parameter mappings from all branches of a set operation.
+///
+/// Each `SELECT` branch gets its own table context for inference. Set operation
+/// nodes recurse into both left and right operands.
+fn collect_set_expr_params(expr: &SetExpr, schema: &Schema, config: &ResolverConfig, ctes: &[Table], mapping: &mut HashMap<usize, (String, SqlType, bool)>) {
+    match expr {
+        SetExpr::Select(select) => {
+            collect_select_params(select, schema, config, ctes, mapping);
+        },
+        SetExpr::SetOperation { left, right, .. } => {
+            collect_set_expr_params(left, schema, config, ctes, mapping);
+            collect_set_expr_params(right, schema, config, ctes, mapping);
+        },
+        _ => {},
+    }
 }
 
 /// Handle `Statement::Query` where the body is `INSERT … RETURNING` (data-modifying CTE pattern).
@@ -1868,5 +1945,123 @@ mod tests {
         assert_eq!(q.params.len(), 1);
         assert_eq!(q.params[0].name, "name");
         assert_eq!(q.params[0].sql_type, SqlType::Text);
+    }
+
+    // ─── Set operation (UNION/INTERSECT/EXCEPT) tests ────────────────────────
+
+    #[test]
+    fn union_all_produces_typed_result_columns() {
+        let schema = make_schema();
+        let sql = "-- name: UnionAll :many\n\
+            SELECT id, name FROM users WHERE id = $1\n\
+            UNION ALL\n\
+            SELECT id, name FROM users WHERE id = $2;";
+        let queries = parse_queries(sql, &schema).unwrap();
+        let q = &queries[0];
+        // Result columns come from the left branch
+        assert_eq!(q.result_columns.len(), 2);
+        assert_eq!(q.result_columns[0].name, "id");
+        assert_eq!(q.result_columns[0].sql_type, SqlType::BigInt);
+        assert_eq!(q.result_columns[1].name, "name");
+        assert_eq!(q.result_columns[1].sql_type, SqlType::Text);
+        // Params from both branches
+        assert_eq!(q.params.len(), 2);
+        assert_eq!(q.params[0].sql_type, SqlType::BigInt);
+        assert_eq!(q.params[1].sql_type, SqlType::BigInt);
+    }
+
+    #[test]
+    fn union_distinct_produces_typed_result_columns() {
+        let schema = make_schema();
+        let sql = "-- name: UnionDistinct :many\n\
+            SELECT id, name FROM users WHERE name = $1\n\
+            UNION\n\
+            SELECT id, name FROM users WHERE name = $2;";
+        let queries = parse_queries(sql, &schema).unwrap();
+        let q = &queries[0];
+        assert_eq!(q.result_columns.len(), 2);
+        assert_eq!(q.result_columns[0].name, "id");
+        assert_eq!(q.result_columns[1].name, "name");
+        assert_eq!(q.params.len(), 2);
+        assert_eq!(q.params[0].sql_type, SqlType::Text);
+        assert_eq!(q.params[1].sql_type, SqlType::Text);
+    }
+
+    #[test]
+    fn intersect_produces_typed_result_columns() {
+        let schema = make_schema();
+        let sql = "-- name: Intersect :many\n\
+            SELECT id, name FROM users WHERE id = $1\n\
+            INTERSECT\n\
+            SELECT id, name FROM users WHERE id = $2;";
+        let queries = parse_queries(sql, &schema).unwrap();
+        let q = &queries[0];
+        assert_eq!(q.result_columns.len(), 2);
+        assert_eq!(q.params.len(), 2);
+    }
+
+    #[test]
+    fn except_produces_typed_result_columns() {
+        let schema = make_schema();
+        let sql = "-- name: Except :many\n\
+            SELECT id, name FROM users WHERE id = $1\n\
+            EXCEPT\n\
+            SELECT id, name FROM users WHERE id = $2;";
+        let queries = parse_queries(sql, &schema).unwrap();
+        let q = &queries[0];
+        assert_eq!(q.result_columns.len(), 2);
+        assert_eq!(q.params.len(), 2);
+    }
+
+    #[test]
+    fn triple_union_all_collects_all_params() {
+        // Three branches chained: UNION ALL of UNION ALL
+        let schema = make_schema();
+        let sql = "-- name: TripleUnion :many\n\
+            SELECT id, name FROM users WHERE id = $1\n\
+            UNION ALL\n\
+            SELECT id, name FROM users WHERE id = $2\n\
+            UNION ALL\n\
+            SELECT id, name FROM users WHERE id = $3;";
+        let queries = parse_queries(sql, &schema).unwrap();
+        let q = &queries[0];
+        assert_eq!(q.result_columns.len(), 2);
+        assert_eq!(q.params.len(), 3);
+        assert_eq!(q.params[0].sql_type, SqlType::BigInt);
+        assert_eq!(q.params[1].sql_type, SqlType::BigInt);
+        assert_eq!(q.params[2].sql_type, SqlType::BigInt);
+    }
+
+    #[test]
+    fn union_all_with_join_infers_params() {
+        let schema = make_join_schema();
+        let sql = "-- name: UnionJoin :many\n\
+            SELECT u.id, u.name FROM users u JOIN posts p ON p.user_id = u.id WHERE p.id = $1\n\
+            UNION ALL\n\
+            SELECT u.id, u.name FROM users u WHERE u.id = $2;";
+        let queries = parse_queries(sql, &schema).unwrap();
+        let q = &queries[0];
+        assert_eq!(q.result_columns.len(), 2);
+        assert_eq!(q.params.len(), 2);
+        assert_eq!(q.params[0].name, "id");
+        assert_eq!(q.params[0].sql_type, SqlType::BigInt);
+        // Second param also resolves to "id" column, gets dedup suffix
+        assert_eq!(q.params[1].name, "id_2");
+        assert_eq!(q.params[1].sql_type, SqlType::BigInt);
+    }
+
+    #[test]
+    fn union_all_no_params_still_typed() {
+        let schema = make_schema();
+        let sql = "-- name: UnionNoParams :many\n\
+            SELECT id, name FROM users\n\
+            UNION ALL\n\
+            SELECT id, name FROM users;";
+        let queries = parse_queries(sql, &schema).unwrap();
+        let q = &queries[0];
+        assert_eq!(q.result_columns.len(), 2);
+        assert_eq!(q.result_columns[0].name, "id");
+        assert_eq!(q.result_columns[0].sql_type, SqlType::BigInt);
+        assert_eq!(q.params.len(), 0);
     }
 }
