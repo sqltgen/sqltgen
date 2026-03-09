@@ -2,8 +2,8 @@ use std::fmt::Write;
 use std::path::PathBuf;
 
 use crate::backend::common::{
-    emit_package, has_inline_rows, infer_row_type_name, infer_table, jdbc_bind_sequence, jdbc_setter, mysql_json_table_col_type, pg_array_type_name,
-    replace_list_in_clause, rewrite_to_anon_params, split_at_in_clause, sql_const_name, to_camel_case, to_pascal_case,
+    emit_package, has_inline_rows, infer_row_type_name, infer_table, jdbc_bind_sequence, jdbc_setter, mysql_json_table_col_type, needs_null_safe_getter,
+    pg_array_type_name, replace_list_in_clause, rewrite_to_anon_params, split_at_in_clause, sql_const_name, to_camel_case, to_pascal_case,
 };
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::{ListParamStrategy, OutputConfig};
@@ -452,16 +452,16 @@ fn rs_read_expr(sql_type: &SqlType, nullable: bool, idx: usize) -> String {
     // Primitive getters (getInt, getBoolean, …) return 0/false for SQL NULL.
     // For nullable primitive columns we must use getObject with the boxed type
     // so that the result can be null, matching the @Nullable field declaration.
-    if nullable {
-        match sql_type {
-            SqlType::Boolean => return format!("rs.getObject({idx}, Boolean.class)"),
-            SqlType::SmallInt => return format!("rs.getObject({idx}, Short.class)"),
-            SqlType::Integer => return format!("rs.getObject({idx}, Integer.class)"),
-            SqlType::BigInt => return format!("rs.getObject({idx}, Long.class)"),
-            SqlType::Real => return format!("rs.getObject({idx}, Float.class)"),
-            SqlType::Double => return format!("rs.getObject({idx}, Double.class)"),
-            _ => {}, // reference types already return null naturally
-        }
+    if nullable && needs_null_safe_getter(sql_type) {
+        return match sql_type {
+            SqlType::Boolean => format!("rs.getObject({idx}, Boolean.class)"),
+            SqlType::SmallInt => format!("rs.getObject({idx}, Short.class)"),
+            SqlType::Integer => format!("rs.getObject({idx}, Integer.class)"),
+            SqlType::BigInt => format!("rs.getObject({idx}, Long.class)"),
+            SqlType::Real => format!("rs.getObject({idx}, Float.class)"),
+            SqlType::Double => format!("rs.getObject({idx}, Double.class)"),
+            _ => unreachable!("needs_null_safe_getter returned true for non-primitive"),
+        };
     }
     match sql_type {
         SqlType::Boolean => format!("rs.getBoolean({idx})"),

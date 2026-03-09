@@ -73,6 +73,18 @@ pub fn has_inline_rows(query: &Query, schema: &Schema) -> bool {
     infer_table(query, schema).is_none() && !query.result_columns.is_empty()
 }
 
+/// True when a JDBC primitive getter would return `0`/`false` instead of `null` for
+/// a SQL `NULL` value — meaning a nullable column of this type needs `getObject()`
+/// with an explicit boxed class argument rather than the typed primitive getter.
+///
+/// The six JDBC primitive types (`getBoolean`, `getShort`, `getInt`, `getLong`,
+/// `getFloat`, `getDouble`) all have this behaviour. All other types (`getString`,
+/// `getBigDecimal`, `getBytes`, temporal types, …) already return `null` naturally
+/// and do not need special treatment.
+pub fn needs_null_safe_getter(sql_type: &SqlType) -> bool {
+    matches!(sql_type, SqlType::Boolean | SqlType::SmallInt | SqlType::Integer | SqlType::BigInt | SqlType::Real | SqlType::Double)
+}
+
 /// Check if a query's result columns exactly match a table's columns by name and count.
 pub fn infer_table<'a>(query: &Query, schema: &'a Schema) -> Option<&'a str> {
     for table in &schema.tables {
@@ -283,6 +295,29 @@ mod tests {
 
     fn make_result_cols(names: &[&str]) -> Vec<ResultColumn> {
         names.iter().map(|n| ResultColumn { name: n.to_string(), sql_type: SqlType::Text, nullable: false }).collect()
+    }
+
+    // ─── needs_null_safe_getter ───────────────────────────────────────────────
+
+    #[test]
+    fn test_needs_null_safe_getter_primitives_require_it() {
+        assert!(needs_null_safe_getter(&SqlType::Boolean));
+        assert!(needs_null_safe_getter(&SqlType::SmallInt));
+        assert!(needs_null_safe_getter(&SqlType::Integer));
+        assert!(needs_null_safe_getter(&SqlType::BigInt));
+        assert!(needs_null_safe_getter(&SqlType::Real));
+        assert!(needs_null_safe_getter(&SqlType::Double));
+    }
+
+    #[test]
+    fn test_needs_null_safe_getter_reference_types_do_not() {
+        assert!(!needs_null_safe_getter(&SqlType::Text));
+        assert!(!needs_null_safe_getter(&SqlType::Decimal));
+        assert!(!needs_null_safe_getter(&SqlType::Date));
+        assert!(!needs_null_safe_getter(&SqlType::Timestamp));
+        assert!(!needs_null_safe_getter(&SqlType::Uuid));
+        assert!(!needs_null_safe_getter(&SqlType::Json));
+        assert!(!needs_null_safe_getter(&SqlType::Bytes));
     }
 
     // ─── infer_row_type_name ──────────────────────────────────────────────────

@@ -2,8 +2,8 @@ use std::fmt::Write;
 use std::path::PathBuf;
 
 use crate::backend::common::{
-    emit_package, has_inline_rows, infer_row_type_name, infer_table, jdbc_bind_sequence, jdbc_setter, mysql_json_table_col_type, pg_array_type_name,
-    replace_list_in_clause, rewrite_to_anon_params, split_at_in_clause, sql_const_name, to_camel_case, to_pascal_case,
+    emit_package, has_inline_rows, infer_row_type_name, infer_table, jdbc_bind_sequence, jdbc_setter, mysql_json_table_col_type, needs_null_safe_getter,
+    pg_array_type_name, replace_list_in_clause, rewrite_to_anon_params, split_at_in_clause, sql_const_name, to_camel_case, to_pascal_case,
 };
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::{ListParamStrategy, OutputConfig};
@@ -368,19 +368,19 @@ fn rs_read_expr(sql_type: &SqlType, nullable: bool, idx: usize) -> String {
     // Primitive getters return 0/false for SQL NULL. For nullable primitive columns,
     // use getObject with the Java boxed type so the result can be null,
     // matching the nullable Kotlin type (e.g. Long? instead of Long).
-    if nullable {
-        match sql_type {
-            // getObject returns a Java boxed type (platform type T!). Kotlin requires
-            // an explicit conversion to its nullable primitive (e.g. Int?) because the
-            // platform type is not automatically widened to the Kotlin nullable primitive.
-            SqlType::Boolean => return format!("rs.getObject({idx}, java.lang.Boolean::class.java) as Boolean?"),
-            SqlType::SmallInt => return format!("rs.getObject({idx}, java.lang.Short::class.java)?.toShort()"),
-            SqlType::Integer => return format!("rs.getObject({idx}, java.lang.Integer::class.java)?.toInt()"),
-            SqlType::BigInt => return format!("rs.getObject({idx}, java.lang.Long::class.java)?.toLong()"),
-            SqlType::Real => return format!("rs.getObject({idx}, java.lang.Float::class.java)?.toFloat()"),
-            SqlType::Double => return format!("rs.getObject({idx}, java.lang.Double::class.java)?.toDouble()"),
-            _ => {}, // reference types already return null naturally
-        }
+    if nullable && needs_null_safe_getter(sql_type) {
+        // getObject returns a Java boxed type (platform type T!). Kotlin requires
+        // an explicit conversion to its nullable primitive (e.g. Int?) because the
+        // platform type is not automatically widened to the Kotlin nullable primitive.
+        return match sql_type {
+            SqlType::Boolean => format!("rs.getObject({idx}, java.lang.Boolean::class.java) as Boolean?"),
+            SqlType::SmallInt => format!("rs.getObject({idx}, java.lang.Short::class.java)?.toShort()"),
+            SqlType::Integer => format!("rs.getObject({idx}, java.lang.Integer::class.java)?.toInt()"),
+            SqlType::BigInt => format!("rs.getObject({idx}, java.lang.Long::class.java)?.toLong()"),
+            SqlType::Real => format!("rs.getObject({idx}, java.lang.Float::class.java)?.toFloat()"),
+            SqlType::Double => format!("rs.getObject({idx}, java.lang.Double::class.java)?.toDouble()"),
+            _ => unreachable!("needs_null_safe_getter returned true for non-primitive"),
+        };
     }
     match sql_type {
         SqlType::Boolean => format!("rs.getBoolean({idx})"),
