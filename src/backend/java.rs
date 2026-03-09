@@ -974,6 +974,117 @@ mod tests {
         assert!(!src.contains("JSON_TABLE"), "SQLite should not use MySQL JSON_TABLE");
         assert!(src.contains("ps.setString"), "should bind JSON string");
     }
+
+    // ─── Bug A: JSON escaping for text list params in native strategy ────────────
+
+    #[test]
+    #[ignore = "exposes bug A (task 023): fix before enabling"]
+    fn test_bug_a_sqlite_native_text_list_json_escaping() {
+        // Bug A: The SQLite/MySQL native strategy uses Object::toString for all
+        // element types. For Text params this produces bare unquoted strings —
+        // invalid JSON. This test fails until the root cause is fixed.
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "GetByTags".to_string(),
+            cmd: QueryCmd::Many,
+            sql: "SELECT id FROM t WHERE tag IN ($1)".to_string(),
+            params: vec![Parameter::list(1, "tags", SqlType::Text, false)],
+            result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        };
+        let files = JavaCodegen { target: JavaTarget::Sqlite }.generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "Queries.java");
+        // Object::toString on a String yields a bare value with no JSON quoting.
+        assert!(!src.contains("Object::toString"), "text list must not use Object::toString (produces bare strings)");
+        // The fix must wrap each element in \"...\" and escape special characters.
+        assert!(src.contains(r#""\"" + x"#), "each text element must be wrapped in JSON quotes");
+        assert!(src.contains(r#".replace("\\", "\\\\")"#), "backslashes in text values must be escaped");
+    }
+
+    #[test]
+    fn test_bug_a_numeric_list_no_quoting_needed() {
+        // Numeric types produce valid JSON via toString() — no per-element quoting
+        // is needed. Confirm the fix does not introduce unnecessary quoting for
+        // numeric list params.
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "GetByIds".to_string(),
+            cmd: QueryCmd::Many,
+            sql: "SELECT id FROM t WHERE id IN ($1)".to_string(),
+            params: vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
+            result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        };
+        let files = JavaCodegen { target: JavaTarget::Sqlite }.generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "Queries.java");
+        assert!(src.contains("json_each(?)"), "SQLite native should use json_each");
+        assert!(!src.contains(r#""\"" + x"#), "numeric list must not add per-element quoting");
+    }
+
+    // ─── Bug B: dynamic strategy binds scalars at wrong slot when scalar follows IN
+
+    #[test]
+    #[ignore = "exposes bug B (task 023): fix before enabling"]
+    fn test_bug_b_dynamic_scalar_after_in_binding_order() {
+        // Bug B: when a scalar param appears *after* the IN clause in the SQL, the
+        // Dynamic strategy incorrectly binds it at slot 1 (before list elements).
+        // Correct order: [list elements] + [scalar-after].
+        // This test fails until the root cause is fixed.
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "GetActiveByIds".to_string(),
+            cmd: QueryCmd::Many,
+            sql: "SELECT id FROM t WHERE id IN ($1) AND active = $2".to_string(),
+            params: vec![
+                Parameter::list(1, "ids", SqlType::BigInt, false),
+                Parameter::scalar(2, "active", SqlType::Boolean, false),
+            ],
+            result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        };
+        let cfg = OutputConfig {
+            out: "out".to_string(),
+            package: String::new(),
+            list_params: Some(crate::config::ListParamStrategy::Dynamic),
+        };
+        let files = JavaCodegen { target: JavaTarget::Postgres }.generate(&schema, &[query], &cfg).unwrap();
+        let src = get_file(&files, "Queries.java");
+        // Bug: active is incorrectly bound at slot 1 before the list elements.
+        assert!(!src.contains("ps.setBoolean(1, active)"), "active must not bind at slot 1 when it follows IN");
+        // Fix: the list binding loop must appear before the scalar-after binding.
+        let loop_pos = src.find("for (int i = 0; i <").expect("list binding loop not found");
+        let active_pos = src.find("setBoolean").expect("active binding not found");
+        assert!(loop_pos < active_pos, "list binding loop must precede the scalar-after binding");
+        // Fix: slot for active depends on the runtime list size.
+        assert!(src.contains("ids.size()"), "slot for active must be computed from ids.size() at runtime");
+    }
+
+    #[test]
+    fn test_bug_b_dynamic_scalar_before_in_no_regression() {
+        // When the scalar param appears *before* the IN clause, the current binding
+        // order is correct. Confirm the fix preserves this common pattern.
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "GetActiveByIds".to_string(),
+            cmd: QueryCmd::Many,
+            sql: "SELECT id FROM t WHERE active = $1 AND id IN ($2)".to_string(),
+            params: vec![
+                Parameter::scalar(1, "active", SqlType::Boolean, false),
+                Parameter::list(2, "ids", SqlType::BigInt, false),
+            ],
+            result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        };
+        let cfg = OutputConfig {
+            out: "out".to_string(),
+            package: String::new(),
+            list_params: Some(crate::config::ListParamStrategy::Dynamic),
+        };
+        let files = JavaCodegen { target: JavaTarget::Postgres }.generate(&schema, &[query], &cfg).unwrap();
+        let src = get_file(&files, "Queries.java");
+        // active is before IN in the SQL — must still bind at slot 1.
+        assert!(src.contains("ps.setBoolean(1, active)"), "scalar before IN must bind at slot 1");
+        // The scalar binding must precede the list loop.
+        let active_pos = src.find("ps.setBoolean(1, active)").unwrap();
+        let loop_pos = src.find("for (int i = 0; i <").expect("list binding loop not found");
+        assert!(active_pos < loop_pos, "before-scalar binding must precede the list binding loop");
+    }
 }
 
 // ─── Path helper ──────────────────────────────────────────────────────────────

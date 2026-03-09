@@ -2,8 +2,8 @@ use std::fmt::Write;
 use std::path::PathBuf;
 
 use crate::backend::common::{
-    emit_package, infer_table, jdbc_bind_sequence, jdbc_setter, mysql_json_table_col_type, pg_array_type_name, replace_list_in_clause,
-    rewrite_to_anon_params, split_at_in_clause, sql_const_name, to_camel_case, to_pascal_case,
+    emit_package, infer_table, jdbc_bind_sequence, jdbc_setter, mysql_json_table_col_type, pg_array_type_name, replace_list_in_clause, rewrite_to_anon_params,
+    split_at_in_clause, sql_const_name, to_camel_case, to_pascal_case,
 };
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::{ListParamStrategy, OutputConfig};
@@ -884,6 +884,103 @@ mod tests {
         assert!(src.contains("json_each(?)"), "SQLite native should use json_each");
         assert!(!src.contains("JSON_TABLE"), "SQLite should not use MySQL JSON_TABLE");
         assert!(src.contains("ps.setString"), "should bind JSON string");
+    }
+
+    // ─── Bug A: JSON escaping for text list params in native strategy ────────────
+
+    #[test]
+    #[ignore = "exposes bug A (task 023): fix before enabling"]
+    fn test_bug_a_sqlite_native_text_list_json_escaping() {
+        // Bug A: The SQLite/MySQL native strategy uses joinToString(",") with no
+        // transform for all element types. For Text params this produces bare
+        // unquoted strings — invalid JSON. This test fails until fixed.
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "GetByTags".to_string(),
+            cmd: QueryCmd::Many,
+            sql: "SELECT id FROM t WHERE tag IN ($1)".to_string(),
+            params: vec![Parameter::list(1, "tags", SqlType::Text, false)],
+            result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        };
+        let files = KotlinCodegen { target: KotlinTarget::Sqlite }.generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "Queries.kt");
+        // Bare joinToString(",") produces unquoted strings — invalid JSON for Text.
+        assert!(!src.contains(r#"joinToString(",") + "]""#), "text list must not use bare joinToString (produces unquoted strings)");
+        // The fix must use a transform lambda that wraps each element in \"...\"
+        // and escapes special characters.
+        assert!(src.contains(r#"joinToString(",") {"#), "text list must use joinToString with a transform lambda");
+        assert!(src.contains(r#".replace("\\", "\\\\")"#), "backslashes in text values must be escaped");
+    }
+
+    #[test]
+    fn test_bug_a_numeric_list_no_quoting_needed() {
+        // Numeric types produce valid JSON via toString() — no per-element quoting
+        // is needed. Confirm the fix does not add a quoting lambda for numeric types.
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "GetByIds".to_string(),
+            cmd: QueryCmd::Many,
+            sql: "SELECT id FROM t WHERE id IN ($1)".to_string(),
+            params: vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
+            result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        };
+        let files = KotlinCodegen { target: KotlinTarget::Sqlite }.generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "Queries.kt");
+        assert!(src.contains("json_each(?)"), "SQLite native should use json_each");
+        assert!(!src.contains(r#"joinToString(",") {"#), "numeric list must not add a per-element quoting lambda");
+    }
+
+    // ─── Bug B: dynamic strategy binds scalars at wrong slot when scalar follows IN
+
+    #[test]
+    #[ignore = "exposes bug B (task 023): fix before enabling"]
+    fn test_bug_b_dynamic_scalar_after_in_binding_order() {
+        // Bug B: when a scalar param appears *after* the IN clause in the SQL, the
+        // Dynamic strategy incorrectly binds it at slot 1 (before list elements).
+        // Correct order: [list elements] + [scalar-after].
+        // This test fails until the root cause is fixed.
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "GetActiveByIds".to_string(),
+            cmd: QueryCmd::Many,
+            sql: "SELECT id FROM t WHERE id IN ($1) AND active = $2".to_string(),
+            params: vec![Parameter::list(1, "ids", SqlType::BigInt, false), Parameter::scalar(2, "active", SqlType::Boolean, false)],
+            result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        };
+        let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic) };
+        let files = KotlinCodegen { target: KotlinTarget::Postgres }.generate(&schema, &[query], &cfg).unwrap();
+        let src = get_file(&files, "Queries.kt");
+        // Bug: active is incorrectly bound at slot 1 before the list elements.
+        assert!(!src.contains("ps.setBoolean(1, active)"), "active must not bind at slot 1 when it follows IN");
+        // Fix: forEachIndexed (list loop) must appear before the scalar-after binding.
+        let loop_pos = src.find("forEachIndexed").expect("list binding loop not found");
+        let active_pos = src.find("setBoolean").expect("active binding not found");
+        assert!(loop_pos < active_pos, "list binding loop must precede the scalar-after binding");
+        // Fix: slot for active depends on the runtime list size.
+        assert!(src.contains("ids.size"), "slot for active must be computed from ids.size at runtime");
+    }
+
+    #[test]
+    fn test_bug_b_dynamic_scalar_before_in_no_regression() {
+        // When the scalar param appears *before* the IN clause, the current binding
+        // order is correct. Confirm the fix preserves this common pattern.
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "GetActiveByIds".to_string(),
+            cmd: QueryCmd::Many,
+            sql: "SELECT id FROM t WHERE active = $1 AND id IN ($2)".to_string(),
+            params: vec![Parameter::scalar(1, "active", SqlType::Boolean, false), Parameter::list(2, "ids", SqlType::BigInt, false)],
+            result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        };
+        let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic) };
+        let files = KotlinCodegen { target: KotlinTarget::Postgres }.generate(&schema, &[query], &cfg).unwrap();
+        let src = get_file(&files, "Queries.kt");
+        // active is before IN in the SQL — must still bind at slot 1.
+        assert!(src.contains("ps.setBoolean(1, active)"), "scalar before IN must bind at slot 1");
+        // The scalar binding must precede the list forEachIndexed.
+        let active_pos = src.find("ps.setBoolean(1, active)").unwrap();
+        let loop_pos = src.find("forEachIndexed").expect("list binding loop not found");
+        assert!(active_pos < loop_pos, "before-scalar binding must precede the list binding loop");
     }
 }
 

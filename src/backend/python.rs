@@ -2,7 +2,10 @@ use std::collections::BTreeSet;
 use std::fmt::Write;
 use std::path::PathBuf;
 
-use crate::backend::common::{infer_table, mysql_json_table_col_type, positional_bind_names, replace_list_in_clause, rewrite_to_anon_params, split_at_in_clause, sql_const_name, to_pascal_case, to_snake_case};
+use crate::backend::common::{
+    infer_table, mysql_json_table_col_type, positional_bind_names, replace_list_in_clause, rewrite_to_anon_params, split_at_in_clause, sql_const_name,
+    to_pascal_case, to_snake_case,
+};
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::{ListParamStrategy, OutputConfig};
 use crate::ir::{Parameter, Query, QueryCmd, Schema, SqlType};
@@ -1021,5 +1024,72 @@ mod tests {
         let src = get_file(&files, "queries.py");
         assert!(src.contains("placeholders"), "dynamic builds placeholders at runtime");
         assert!(src.contains("tuple(ids)"), "dynamic binds each element");
+    }
+
+    // ─── Bug B: dynamic strategy binds scalars at wrong position when scalar follows IN
+
+    #[test]
+    #[ignore = "exposes bug B (task 023): fix before enabling"]
+    fn test_bug_b_postgres_dynamic_scalar_after_in_binding_order() {
+        // Bug B: when a scalar param appears *after* the IN clause in the SQL, the
+        // Dynamic strategy incorrectly places it *before* the list elements in the
+        // execute args. Correct order: tuple(list) + (scalar,).
+        // This test fails until the root cause is fixed.
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "GetActiveByIds".to_string(),
+            cmd: QueryCmd::Many,
+            sql: "SELECT id FROM t WHERE id IN ($1) AND active = $2".to_string(),
+            params: vec![Parameter::list(1, "ids", SqlType::BigInt, false), Parameter::scalar(2, "active", SqlType::Boolean, false)],
+            result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        };
+        let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic) };
+        let files = pg().generate(&schema, &[query], &cfg).unwrap();
+        let src = get_file(&files, "queries.py");
+        // Bug: active precedes list elements in the execute args tuple.
+        assert!(!src.contains("(active,) + tuple(ids)"), "active must not precede list in args when it follows IN");
+        // Fix: list elements come first, then active.
+        assert!(src.contains("tuple(ids) + (active,)"), "list elements must precede the scalar-after in args tuple");
+    }
+
+    #[test]
+    fn test_bug_b_postgres_dynamic_scalar_before_in_no_regression() {
+        // When the scalar param appears *before* the IN clause, the current order
+        // is correct. Confirm the fix preserves this common pattern.
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "GetActiveByIds".to_string(),
+            cmd: QueryCmd::Many,
+            sql: "SELECT id FROM t WHERE active = $1 AND id IN ($2)".to_string(),
+            params: vec![Parameter::scalar(1, "active", SqlType::Boolean, false), Parameter::list(2, "ids", SqlType::BigInt, false)],
+            result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        };
+        let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic) };
+        let files = pg().generate(&schema, &[query], &cfg).unwrap();
+        let src = get_file(&files, "queries.py");
+        // active is before IN in the SQL — must come first in the args tuple.
+        assert!(src.contains("(active,) + tuple(ids)"), "scalar before IN must precede list in args tuple");
+    }
+
+    #[test]
+    #[ignore = "exposes bug B (task 023): fix before enabling"]
+    fn test_bug_b_sqlite_dynamic_scalar_after_in_binding_order() {
+        // Bug B also affects the SQLite Dynamic branch which uses conn.execute.
+        // This test fails until the root cause is fixed.
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "GetActiveByIds".to_string(),
+            cmd: QueryCmd::Many,
+            sql: "SELECT id FROM t WHERE id IN ($1) AND active = $2".to_string(),
+            params: vec![Parameter::list(1, "ids", SqlType::BigInt, false), Parameter::scalar(2, "active", SqlType::Boolean, false)],
+            result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        };
+        let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic) };
+        let files = sq().generate(&schema, &[query], &cfg).unwrap();
+        let src = get_file(&files, "queries.py");
+        // Bug: active precedes list elements in the execute args.
+        assert!(!src.contains("(active,) + tuple(ids)"), "active must not precede list in args when it follows IN");
+        // Fix: list elements come first, then active.
+        assert!(src.contains("tuple(ids) + (active,)"), "list elements must precede the scalar-after in execute args");
     }
 }

@@ -2,7 +2,9 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 use std::path::PathBuf;
 
-use crate::backend::common::{infer_table, mysql_json_table_col_type, positional_bind_names, replace_list_in_clause, split_at_in_clause, to_pascal_case, to_snake_case};
+use crate::backend::common::{
+    infer_table, mysql_json_table_col_type, positional_bind_names, replace_list_in_clause, split_at_in_clause, to_pascal_case, to_snake_case,
+};
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::{ListParamStrategy, OutputConfig};
 use crate::ir::{Parameter, Query, QueryCmd, Schema, SqlType};
