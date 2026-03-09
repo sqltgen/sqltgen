@@ -2,6 +2,7 @@ use sqlx::SqlitePool;
 
 use super::author::Author;
 use super::book::Book;
+use super::product::Product;
 
 #[derive(Debug, sqlx::FromRow)]
 pub struct ListBooksWithAuthorRow {
@@ -82,6 +83,61 @@ pub struct GetBookPriceOrDefaultRow {
     pub id: i32,
     pub title: String,
     pub effective_price: Option<serde_json::Value>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct GetGenresWithManyBooksRow {
+    pub genre: String,
+    pub book_count: i64,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct GetBooksByAuthorParamRow {
+    pub id: i32,
+    pub title: String,
+    pub price: f64,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct GetBooksNotByAuthorRow {
+    pub id: i32,
+    pub title: String,
+    pub genre: String,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct GetBooksWithRecentSalesRow {
+    pub id: i32,
+    pub title: String,
+    pub genre: String,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct GetBookWithAuthorNameRow {
+    pub id: i32,
+    pub title: String,
+    pub author_name: Option<serde_json::Value>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct GetAuthorStatsRow {
+    pub id: i32,
+    pub name: String,
+    pub num_books: Option<serde_json::Value>,
+    pub total_sold: Option<serde_json::Value>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct ListActiveProductsRow {
+    pub id: String,
+    pub sku: String,
+    pub name: String,
+    pub active: i32,
+    pub weight_kg: Option<f32>,
+    pub rating: Option<f32>,
+    pub metadata: Option<String>,
+    pub created_at: String,
+    pub stock_count: i32,
 }
 
 pub async fn create_author(pool: &SqlitePool, name: String, bio: Option<String>, birth_year: Option<i32>) -> Result<(), sqlx::Error> {
@@ -249,6 +305,74 @@ pub async fn get_book_price_label(pool: &SqlitePool, price: f64) -> Result<Vec<G
 pub async fn get_book_price_or_default(pool: &SqlitePool, param1: String) -> Result<Vec<GetBookPriceOrDefaultRow>, sqlx::Error> {
     sqlx::query_as::<_, GetBookPriceOrDefaultRow>("SELECT id, title, COALESCE(price, ?) AS effective_price FROM book ORDER BY title")
         .bind(param1)
+        .fetch_all(pool)
+        .await
+}
+
+pub async fn delete_book_by_id(pool: &SqlitePool, id: i32) -> Result<u64, sqlx::Error> {
+    sqlx::query("DELETE FROM book WHERE id = ?")
+        .bind(id)
+        .execute(pool)
+        .await
+        .map(|r| r.rows_affected())
+}
+
+pub async fn get_genres_with_many_books(pool: &SqlitePool, count: i64) -> Result<Vec<GetGenresWithManyBooksRow>, sqlx::Error> {
+    sqlx::query_as::<_, GetGenresWithManyBooksRow>("SELECT genre, COUNT(*) AS book_count FROM book GROUP BY genre HAVING COUNT(*) > ? ORDER BY genre")
+        .bind(count)
+        .fetch_all(pool)
+        .await
+}
+
+pub async fn get_books_by_author_param(pool: &SqlitePool, birth_year: Option<i32>) -> Result<Vec<GetBooksByAuthorParamRow>, sqlx::Error> {
+    sqlx::query_as::<_, GetBooksByAuthorParamRow>("SELECT b.id, b.title, b.price FROM book b JOIN author a ON a.id = b.author_id AND a.birth_year > ? ORDER BY b.title")
+        .bind(birth_year)
+        .fetch_all(pool)
+        .await
+}
+
+pub async fn get_all_book_fields(pool: &SqlitePool) -> Result<Vec<Book>, sqlx::Error> {
+    sqlx::query_as::<_, Book>("SELECT b.* FROM book b ORDER BY b.id")
+        .fetch_all(pool)
+        .await
+}
+
+pub async fn get_books_not_by_author(pool: &SqlitePool, name: String) -> Result<Vec<GetBooksNotByAuthorRow>, sqlx::Error> {
+    sqlx::query_as::<_, GetBooksNotByAuthorRow>("SELECT id, title, genre FROM book WHERE author_id NOT IN (SELECT id FROM author WHERE name = ?) ORDER BY title")
+        .bind(name)
+        .fetch_all(pool)
+        .await
+}
+
+pub async fn get_books_with_recent_sales(pool: &SqlitePool, param1: String) -> Result<Vec<GetBooksWithRecentSalesRow>, sqlx::Error> {
+    sqlx::query_as::<_, GetBooksWithRecentSalesRow>("SELECT id, title, genre FROM book WHERE EXISTS (     SELECT 1 FROM sale_item si     JOIN sale s ON s.id = si.sale_id     WHERE si.book_id = book.id AND s.ordered_at > ? ) ORDER BY title")
+        .bind(param1)
+        .fetch_all(pool)
+        .await
+}
+
+pub async fn get_book_with_author_name(pool: &SqlitePool) -> Result<Vec<GetBookWithAuthorNameRow>, sqlx::Error> {
+    sqlx::query_as::<_, GetBookWithAuthorNameRow>("SELECT b.id, b.title,        (SELECT a.name FROM author a WHERE a.id = b.author_id) AS author_name FROM book b ORDER BY b.title")
+        .fetch_all(pool)
+        .await
+}
+
+pub async fn get_author_stats(pool: &SqlitePool) -> Result<Vec<GetAuthorStatsRow>, sqlx::Error> {
+    sqlx::query_as::<_, GetAuthorStatsRow>("WITH book_counts AS (     SELECT author_id, COUNT(*) AS num_books     FROM book     GROUP BY author_id ), sale_counts AS (     SELECT b.author_id, SUM(si.quantity) AS total_sold     FROM sale_item si     JOIN book b ON b.id = si.book_id     GROUP BY b.author_id ) SELECT a.id, a.name,        COALESCE(bc.num_books, 0) AS num_books,        COALESCE(sc.total_sold, 0) AS total_sold FROM author a LEFT JOIN book_counts bc ON bc.author_id = a.id LEFT JOIN sale_counts sc ON sc.author_id = a.id ORDER BY a.name")
+        .fetch_all(pool)
+        .await
+}
+
+pub async fn get_product(pool: &SqlitePool, id: String) -> Result<Option<Product>, sqlx::Error> {
+    sqlx::query_as::<_, Product>("SELECT id, sku, name, active, weight_kg, rating, metadata,        thumbnail, created_at, stock_count FROM product WHERE id = ?")
+        .bind(id)
+        .fetch_optional(pool)
+        .await
+}
+
+pub async fn list_active_products(pool: &SqlitePool, active: i32) -> Result<Vec<ListActiveProductsRow>, sqlx::Error> {
+    sqlx::query_as::<_, ListActiveProductsRow>("SELECT id, sku, name, active, weight_kg, rating, metadata,        created_at, stock_count FROM product WHERE active = ? ORDER BY name")
+        .bind(active)
         .fetch_all(pool)
         .await
 }

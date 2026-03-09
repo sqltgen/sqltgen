@@ -2,6 +2,7 @@ out/__init__.py
 out/author.py
 out/book.py
 out/customer.py
+out/product.py
 out/queries.py
 out/sale.py
 out/sale_item.py

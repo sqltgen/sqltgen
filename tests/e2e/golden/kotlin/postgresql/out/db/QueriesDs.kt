@@ -75,4 +75,40 @@ class QueriesDs(private val dataSource: DataSource) {
 
     fun getBookPriceOrDefault(param1: String): List<Queries.GetBookPriceOrDefaultRow> =
         dataSource.connection.use { conn -> Queries.getBookPriceOrDefault(conn, param1) }
+
+    fun deleteBookById(id: Long): Long =
+        dataSource.connection.use { conn -> Queries.deleteBookById(conn, id) }
+
+    fun getGenresWithManyBooks(count: Long): List<Queries.GetGenresWithManyBooksRow> =
+        dataSource.connection.use { conn -> Queries.getGenresWithManyBooks(conn, count) }
+
+    fun getBooksByAuthorParam(birthYear: Int?): List<Queries.GetBooksByAuthorParamRow> =
+        dataSource.connection.use { conn -> Queries.getBooksByAuthorParam(conn, birthYear) }
+
+    fun getAllBookFields(): List<Book> =
+        dataSource.connection.use { conn -> Queries.getAllBookFields(conn) }
+
+    fun getBooksNotByAuthor(name: String): List<Queries.GetBooksNotByAuthorRow> =
+        dataSource.connection.use { conn -> Queries.getBooksNotByAuthor(conn, name) }
+
+    fun getBooksWithRecentSales(param1: String): List<Queries.GetBooksWithRecentSalesRow> =
+        dataSource.connection.use { conn -> Queries.getBooksWithRecentSales(conn, param1) }
+
+    fun getBookWithAuthorName(): List<Queries.GetBookWithAuthorNameRow> =
+        dataSource.connection.use { conn -> Queries.getBookWithAuthorName(conn) }
+
+    fun getAuthorStats(): List<Queries.GetAuthorStatsRow> =
+        dataSource.connection.use { conn -> Queries.getAuthorStats(conn) }
+
+    fun archiveAndReturnBooks(publishedAt: java.time.LocalDate?): List<Queries.ArchiveAndReturnBooksRow> =
+        dataSource.connection.use { conn -> Queries.archiveAndReturnBooks(conn, publishedAt) }
+
+    fun getProduct(id: java.util.UUID): Product? =
+        dataSource.connection.use { conn -> Queries.getProduct(conn, id) }
+
+    fun listActiveProducts(active: Boolean): List<Queries.ListActiveProductsRow> =
+        dataSource.connection.use { conn -> Queries.listActiveProducts(conn, active) }
+
+    fun insertProduct(id: java.util.UUID, sku: String, name: String, active: Boolean, weightKg: Float?, rating: Double?, tags: List<String>, metadata: String?, thumbnail: ByteArray?, stockCount: Short): Product? =
+        dataSource.connection.use { conn -> Queries.insertProduct(conn, id, sku, name, active, weightKg, rating, tags, metadata, thumbnail, stockCount) }
 }

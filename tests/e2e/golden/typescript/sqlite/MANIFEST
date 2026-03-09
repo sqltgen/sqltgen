@@ -2,6 +2,7 @@ out/author.ts
 out/book.ts
 out/customer.ts
 out/index.ts
+out/product.ts
 out/queries.ts
 out/sale.ts
 out/sale_item.ts

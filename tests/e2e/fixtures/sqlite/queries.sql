@@ -133,3 +133,79 @@ ORDER BY title;
 SELECT id, title, COALESCE(price, ?1) AS effective_price
 FROM book
 ORDER BY title;
+
+-- name: DeleteBookById :execrows
+DELETE FROM book WHERE id = ?1;
+
+-- name: GetGenresWithManyBooks :many
+SELECT genre, COUNT(*) AS book_count
+FROM book
+GROUP BY genre
+HAVING COUNT(*) > ?1
+ORDER BY genre;
+
+-- name: GetBooksByAuthorParam :many
+SELECT b.id, b.title, b.price
+FROM book b
+JOIN author a ON a.id = b.author_id AND a.birth_year > ?1
+ORDER BY b.title;
+
+-- name: GetAllBookFields :many
+SELECT b.*
+FROM book b
+ORDER BY b.id;
+
+-- name: GetBooksNotByAuthor :many
+SELECT id, title, genre
+FROM book
+WHERE author_id NOT IN (SELECT id FROM author WHERE name = ?1)
+ORDER BY title;
+
+-- name: GetBooksWithRecentSales :many
+SELECT id, title, genre
+FROM book
+WHERE EXISTS (
+    SELECT 1 FROM sale_item si
+    JOIN sale s ON s.id = si.sale_id
+    WHERE si.book_id = book.id AND s.ordered_at > ?1
+)
+ORDER BY title;
+
+-- name: GetBookWithAuthorName :many
+SELECT b.id, b.title,
+       (SELECT a.name FROM author a WHERE a.id = b.author_id) AS author_name
+FROM book b
+ORDER BY b.title;
+
+-- name: GetAuthorStats :many
+WITH book_counts AS (
+    SELECT author_id, COUNT(*) AS num_books
+    FROM book
+    GROUP BY author_id
+),
+sale_counts AS (
+    SELECT b.author_id, SUM(si.quantity) AS total_sold
+    FROM sale_item si
+    JOIN book b ON b.id = si.book_id
+    GROUP BY b.author_id
+)
+SELECT a.id, a.name,
+       COALESCE(bc.num_books, 0) AS num_books,
+       COALESCE(sc.total_sold, 0) AS total_sold
+FROM author a
+LEFT JOIN book_counts bc ON bc.author_id = a.id
+LEFT JOIN sale_counts sc ON sc.author_id = a.id
+ORDER BY a.name;
+
+-- name: GetProduct :one
+SELECT id, sku, name, active, weight_kg, rating, metadata,
+       thumbnail, created_at, stock_count
+FROM product
+WHERE id = ?1;
+
+-- name: ListActiveProducts :many
+SELECT id, sku, name, active, weight_kg, rating, metadata,
+       created_at, stock_count
+FROM product
+WHERE active = ?1
+ORDER BY name;

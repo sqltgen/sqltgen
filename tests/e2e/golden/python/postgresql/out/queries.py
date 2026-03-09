@@ -6,10 +6,12 @@ import dataclasses
 import psycopg
 import decimal
 import datetime
+import uuid
 from typing import Any
 
 from .author import Author
 from .book import Book
+from .product import Product
 
 SQL_CREATE_AUTHOR = "INSERT INTO author (name, bio, birth_year) VALUES (%s, %s, %s) RETURNING *"
 SQL_GET_AUTHOR = "SELECT id, name, bio, birth_year FROM author WHERE id = %s"
@@ -35,6 +37,18 @@ SQL_GET_BOOKS_BY_PRICE_RANGE = "SELECT id, title, genre, price FROM book WHERE p
 SQL_GET_BOOKS_IN_GENRES = "SELECT id, title, genre, price FROM book WHERE genre IN (%s, %s, %s) ORDER BY title"
 SQL_GET_BOOK_PRICE_LABEL = "SELECT id, title, price,        CASE WHEN price > %s THEN 'expensive' ELSE 'affordable' END AS price_label FROM book ORDER BY title"
 SQL_GET_BOOK_PRICE_OR_DEFAULT = "SELECT id, title, COALESCE(price, %s) AS effective_price FROM book ORDER BY title"
+SQL_DELETE_BOOK_BY_ID = "DELETE FROM book WHERE id = %s"
+SQL_GET_GENRES_WITH_MANY_BOOKS = "SELECT genre, COUNT(*) AS book_count FROM book GROUP BY genre HAVING COUNT(*) > %s ORDER BY genre"
+SQL_GET_BOOKS_BY_AUTHOR_PARAM = "SELECT b.id, b.title, b.price FROM book b JOIN author a ON a.id = b.author_id AND a.birth_year > %s ORDER BY b.title"
+SQL_GET_ALL_BOOK_FIELDS = "SELECT b.* FROM book b ORDER BY b.id"
+SQL_GET_BOOKS_NOT_BY_AUTHOR = "SELECT id, title, genre FROM book WHERE author_id NOT IN (SELECT id FROM author WHERE name = %s) ORDER BY title"
+SQL_GET_BOOKS_WITH_RECENT_SALES = "SELECT id, title, genre FROM book WHERE EXISTS (     SELECT 1 FROM sale_item si     JOIN sale s ON s.id = si.sale_id     WHERE si.book_id = book.id AND s.ordered_at > %s ) ORDER BY title"
+SQL_GET_BOOK_WITH_AUTHOR_NAME = "SELECT b.id, b.title,        (SELECT a.name FROM author a WHERE a.id = b.author_id) AS author_name FROM book b ORDER BY b.title"
+SQL_GET_AUTHOR_STATS = "WITH book_counts AS (     SELECT author_id, COUNT(*) AS num_books     FROM book     GROUP BY author_id ), sale_counts AS (     SELECT b.author_id, SUM(si.quantity) AS total_sold     FROM sale_item si     JOIN book b ON b.id = si.book_id     GROUP BY b.author_id ) SELECT a.id, a.name,        COALESCE(bc.num_books, 0) AS num_books,        COALESCE(sc.total_sold, 0) AS total_sold FROM author a LEFT JOIN book_counts bc ON bc.author_id = a.id LEFT JOIN sale_counts sc ON sc.author_id = a.id ORDER BY a.name"
+SQL_ARCHIVE_AND_RETURN_BOOKS = "WITH archived AS (     DELETE FROM book     WHERE published_at < %s     RETURNING id, title, genre, price ) SELECT id, title, genre, price FROM archived ORDER BY title"
+SQL_GET_PRODUCT = "SELECT id, sku, name, active, weight_kg, rating, tags, metadata,        thumbnail, created_at, stock_count FROM product WHERE id = %s"
+SQL_LIST_ACTIVE_PRODUCTS = "SELECT id, sku, name, active, weight_kg, rating, tags, metadata,        created_at, stock_count FROM product WHERE active = %s ORDER BY name"
+SQL_INSERT_PRODUCT = "INSERT INTO product (id, sku, name, active, weight_kg, rating, tags, metadata, thumbnail, stock_count) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING *"
 
 
 def create_author(conn: psycopg.Connection, name: str, bio: str | None, birth_year: int | None) -> Author | None:
@@ -299,3 +313,145 @@ def get_book_price_or_default(conn: psycopg.Connection, param1: str) -> list[Get
     with conn.cursor() as cur:
         cur.execute(SQL_GET_BOOK_PRICE_OR_DEFAULT, (param1,))
         return [GetBookPriceOrDefaultRow(*row) for row in cur.fetchall()]
+
+
+def delete_book_by_id(conn: psycopg.Connection, id: int) -> int:
+    with conn.cursor() as cur:
+        cur.execute(SQL_DELETE_BOOK_BY_ID, (id,))
+        return cur.rowcount
+
+
+@dataclasses.dataclass
+class GetGenresWithManyBooksRow:
+    genre: str
+    book_count: int
+
+
+def get_genres_with_many_books(conn: psycopg.Connection, count: int) -> list[GetGenresWithManyBooksRow]:
+    with conn.cursor() as cur:
+        cur.execute(SQL_GET_GENRES_WITH_MANY_BOOKS, (count,))
+        return [GetGenresWithManyBooksRow(*row) for row in cur.fetchall()]
+
+
+@dataclasses.dataclass
+class GetBooksByAuthorParamRow:
+    id: int
+    title: str
+    price: decimal.Decimal
+
+
+def get_books_by_author_param(conn: psycopg.Connection, birth_year: int | None) -> list[GetBooksByAuthorParamRow]:
+    with conn.cursor() as cur:
+        cur.execute(SQL_GET_BOOKS_BY_AUTHOR_PARAM, (birth_year,))
+        return [GetBooksByAuthorParamRow(*row) for row in cur.fetchall()]
+
+
+def get_all_book_fields(conn: psycopg.Connection) -> list[Book]:
+    with conn.cursor() as cur:
+        cur.execute(SQL_GET_ALL_BOOK_FIELDS)
+        return [Book(*row) for row in cur.fetchall()]
+
+
+@dataclasses.dataclass
+class GetBooksNotByAuthorRow:
+    id: int
+    title: str
+    genre: str
+
+
+def get_books_not_by_author(conn: psycopg.Connection, name: str) -> list[GetBooksNotByAuthorRow]:
+    with conn.cursor() as cur:
+        cur.execute(SQL_GET_BOOKS_NOT_BY_AUTHOR, (name,))
+        return [GetBooksNotByAuthorRow(*row) for row in cur.fetchall()]
+
+
+@dataclasses.dataclass
+class GetBooksWithRecentSalesRow:
+    id: int
+    title: str
+    genre: str
+
+
+def get_books_with_recent_sales(conn: psycopg.Connection, param1: str) -> list[GetBooksWithRecentSalesRow]:
+    with conn.cursor() as cur:
+        cur.execute(SQL_GET_BOOKS_WITH_RECENT_SALES, (param1,))
+        return [GetBooksWithRecentSalesRow(*row) for row in cur.fetchall()]
+
+
+@dataclasses.dataclass
+class GetBookWithAuthorNameRow:
+    id: int
+    title: str
+    author_name: Any | None
+
+
+def get_book_with_author_name(conn: psycopg.Connection) -> list[GetBookWithAuthorNameRow]:
+    with conn.cursor() as cur:
+        cur.execute(SQL_GET_BOOK_WITH_AUTHOR_NAME)
+        return [GetBookWithAuthorNameRow(*row) for row in cur.fetchall()]
+
+
+@dataclasses.dataclass
+class GetAuthorStatsRow:
+    id: int
+    name: str
+    num_books: Any | None
+    total_sold: Any | None
+
+
+def get_author_stats(conn: psycopg.Connection) -> list[GetAuthorStatsRow]:
+    with conn.cursor() as cur:
+        cur.execute(SQL_GET_AUTHOR_STATS)
+        return [GetAuthorStatsRow(*row) for row in cur.fetchall()]
+
+
+@dataclasses.dataclass
+class ArchiveAndReturnBooksRow:
+    id: int
+    title: str
+    genre: str
+    price: decimal.Decimal
+
+
+def archive_and_return_books(conn: psycopg.Connection, published_at: datetime.date | None) -> list[ArchiveAndReturnBooksRow]:
+    with conn.cursor() as cur:
+        cur.execute(SQL_ARCHIVE_AND_RETURN_BOOKS, (published_at,))
+        return [ArchiveAndReturnBooksRow(*row) for row in cur.fetchall()]
+
+
+def get_product(conn: psycopg.Connection, id: uuid.UUID) -> Product | None:
+    with conn.cursor() as cur:
+        cur.execute(SQL_GET_PRODUCT, (id,))
+        row = cur.fetchone()
+        if row is None:
+            return None
+        return Product(*row)
+
+
+@dataclasses.dataclass
+class ListActiveProductsRow:
+    id: uuid.UUID
+    sku: str
+    name: str
+    active: bool
+    weight_kg: float | None
+    rating: float | None
+    tags: list[str]
+    metadata: object | None
+    created_at: datetime.datetime
+    stock_count: int
+
+
+def list_active_products(conn: psycopg.Connection, active: bool) -> list[ListActiveProductsRow]:
+    with conn.cursor() as cur:
+        cur.execute(SQL_LIST_ACTIVE_PRODUCTS, (active,))
+        return [ListActiveProductsRow(*row) for row in cur.fetchall()]
+
+
+def insert_product(conn: psycopg.Connection, id: uuid.UUID, sku: str, name: str, active: bool, weight_kg: float | None, rating: float | None, tags: list[str], metadata: object | None, thumbnail: bytes | None, stock_count: int) -> Product | None:
+    with conn.cursor() as cur:
+        cur.execute(SQL_INSERT_PRODUCT, (id, sku, name, active, weight_kg, rating, tags, metadata, thumbnail, stock_count))
+        row = cur.fetchone()
+        if row is None:
+            return None
+        return Product(*row)

@@ -33,3 +33,16 @@ CREATE TABLE sale_item (
     quantity   INTEGER NOT NULL,
     unit_price DECIMAL NOT NULL
 );
+
+CREATE TABLE product (
+    id          TEXT    PRIMARY KEY,
+    sku         TEXT    NOT NULL,
+    name        TEXT    NOT NULL,
+    active      INTEGER NOT NULL DEFAULT 1,
+    weight_kg   REAL,
+    rating      REAL,
+    metadata    TEXT,
+    thumbnail   BLOB,
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+    stock_count INTEGER NOT NULL DEFAULT 0
+);

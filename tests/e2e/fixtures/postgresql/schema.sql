@@ -33,3 +33,17 @@ CREATE TABLE sale_item (
     quantity   INTEGER        NOT NULL,
     unit_price NUMERIC(10, 2) NOT NULL
 );
+
+CREATE TABLE product (
+    id          UUID         PRIMARY KEY,
+    sku         VARCHAR(50)  NOT NULL,
+    name        TEXT         NOT NULL,
+    active      BOOLEAN      NOT NULL DEFAULT TRUE,
+    weight_kg   REAL,
+    rating      DOUBLE PRECISION,
+    tags        TEXT[]       NOT NULL DEFAULT '{}',
+    metadata    JSONB,
+    thumbnail   BYTEA,
+    created_at  TIMESTAMP    NOT NULL DEFAULT NOW(),
+    stock_count SMALLINT     NOT NULL DEFAULT 0
+);

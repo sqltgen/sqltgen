@@ -5,6 +5,7 @@ import type { ClientBase } from 'pg';
 
 import type { Author } from './author';
 import type { Book } from './book';
+import type { Product } from './product';
 
 const SQL_CREATE_AUTHOR = "INSERT INTO author (name, bio, birth_year) VALUES ($1, $2, $3) RETURNING *";
 const SQL_GET_AUTHOR = "SELECT id, name, bio, birth_year FROM author WHERE id = $1";
@@ -30,6 +31,18 @@ const SQL_GET_BOOKS_BY_PRICE_RANGE = "SELECT id, title, genre, price FROM book W
 const SQL_GET_BOOKS_IN_GENRES = "SELECT id, title, genre, price FROM book WHERE genre IN ($1, $2, $3) ORDER BY title";
 const SQL_GET_BOOK_PRICE_LABEL = "SELECT id, title, price,        CASE WHEN price > $1 THEN 'expensive' ELSE 'affordable' END AS price_label FROM book ORDER BY title";
 const SQL_GET_BOOK_PRICE_OR_DEFAULT = "SELECT id, title, COALESCE(price, $1) AS effective_price FROM book ORDER BY title";
+const SQL_DELETE_BOOK_BY_ID = "DELETE FROM book WHERE id = $1";
+const SQL_GET_GENRES_WITH_MANY_BOOKS = "SELECT genre, COUNT(*) AS book_count FROM book GROUP BY genre HAVING COUNT(*) > $1 ORDER BY genre";
+const SQL_GET_BOOKS_BY_AUTHOR_PARAM = "SELECT b.id, b.title, b.price FROM book b JOIN author a ON a.id = b.author_id AND a.birth_year > $1 ORDER BY b.title";
+const SQL_GET_ALL_BOOK_FIELDS = "SELECT b.* FROM book b ORDER BY b.id";
+const SQL_GET_BOOKS_NOT_BY_AUTHOR = "SELECT id, title, genre FROM book WHERE author_id NOT IN (SELECT id FROM author WHERE name = $1) ORDER BY title";
+const SQL_GET_BOOKS_WITH_RECENT_SALES = "SELECT id, title, genre FROM book WHERE EXISTS (     SELECT 1 FROM sale_item si     JOIN sale s ON s.id = si.sale_id     WHERE si.book_id = book.id AND s.ordered_at > $1 ) ORDER BY title";
+const SQL_GET_BOOK_WITH_AUTHOR_NAME = "SELECT b.id, b.title,        (SELECT a.name FROM author a WHERE a.id = b.author_id) AS author_name FROM book b ORDER BY b.title";
+const SQL_GET_AUTHOR_STATS = "WITH book_counts AS (     SELECT author_id, COUNT(*) AS num_books     FROM book     GROUP BY author_id ), sale_counts AS (     SELECT b.author_id, SUM(si.quantity) AS total_sold     FROM sale_item si     JOIN book b ON b.id = si.book_id     GROUP BY b.author_id ) SELECT a.id, a.name,        COALESCE(bc.num_books, 0) AS num_books,        COALESCE(sc.total_sold, 0) AS total_sold FROM author a LEFT JOIN book_counts bc ON bc.author_id = a.id LEFT JOIN sale_counts sc ON sc.author_id = a.id ORDER BY a.name";
+const SQL_ARCHIVE_AND_RETURN_BOOKS = "WITH archived AS (     DELETE FROM book     WHERE published_at < $1     RETURNING id, title, genre, price ) SELECT id, title, genre, price FROM archived ORDER BY title";
+const SQL_GET_PRODUCT = "SELECT id, sku, name, active, weight_kg, rating, tags, metadata,        thumbnail, created_at, stock_count FROM product WHERE id = $1";
+const SQL_LIST_ACTIVE_PRODUCTS = "SELECT id, sku, name, active, weight_kg, rating, tags, metadata,        created_at, stock_count FROM product WHERE active = $1 ORDER BY name";
+const SQL_INSERT_PRODUCT = "INSERT INTO product (id, sku, name, active, weight_kg, rating, tags, metadata, thumbnail, stock_count) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *";
 
 export async function createAuthor(db: ClientBase, name: string, bio: string | null, birthYear: number | null): Promise<Author | null> {
   const result = await db.query<Author>(SQL_CREATE_AUTHOR, [name, bio, birthYear]);
@@ -232,4 +245,120 @@ export interface GetBookPriceOrDefaultRow {
 export async function getBookPriceOrDefault(db: ClientBase, param1: string): Promise<GetBookPriceOrDefaultRow[]> {
   const result = await db.query<GetBookPriceOrDefaultRow>(SQL_GET_BOOK_PRICE_OR_DEFAULT, [param1]);
   return result.rows;
+}
+
+export async function deleteBookById(db: ClientBase, id: number): Promise<number> {
+  const result = await db.query(SQL_DELETE_BOOK_BY_ID, [id]);
+  return result.rowCount ?? 0;
+}
+
+export interface GetGenresWithManyBooksRow {
+  genre: string;
+  book_count: number;
+}
+
+export async function getGenresWithManyBooks(db: ClientBase, count: number): Promise<GetGenresWithManyBooksRow[]> {
+  const result = await db.query<GetGenresWithManyBooksRow>(SQL_GET_GENRES_WITH_MANY_BOOKS, [count]);
+  return result.rows;
+}
+
+export interface GetBooksByAuthorParamRow {
+  id: number;
+  title: string;
+  price: number;
+}
+
+export async function getBooksByAuthorParam(db: ClientBase, birthYear: number | null): Promise<GetBooksByAuthorParamRow[]> {
+  const result = await db.query<GetBooksByAuthorParamRow>(SQL_GET_BOOKS_BY_AUTHOR_PARAM, [birthYear]);
+  return result.rows;
+}
+
+export async function getAllBookFields(db: ClientBase): Promise<Book[]> {
+  const result = await db.query<Book>(SQL_GET_ALL_BOOK_FIELDS, []);
+  return result.rows;
+}
+
+export interface GetBooksNotByAuthorRow {
+  id: number;
+  title: string;
+  genre: string;
+}
+
+export async function getBooksNotByAuthor(db: ClientBase, name: string): Promise<GetBooksNotByAuthorRow[]> {
+  const result = await db.query<GetBooksNotByAuthorRow>(SQL_GET_BOOKS_NOT_BY_AUTHOR, [name]);
+  return result.rows;
+}
+
+export interface GetBooksWithRecentSalesRow {
+  id: number;
+  title: string;
+  genre: string;
+}
+
+export async function getBooksWithRecentSales(db: ClientBase, param1: string): Promise<GetBooksWithRecentSalesRow[]> {
+  const result = await db.query<GetBooksWithRecentSalesRow>(SQL_GET_BOOKS_WITH_RECENT_SALES, [param1]);
+  return result.rows;
+}
+
+export interface GetBookWithAuthorNameRow {
+  id: number;
+  title: string;
+  author_name: unknown | null;
+}
+
+export async function getBookWithAuthorName(db: ClientBase): Promise<GetBookWithAuthorNameRow[]> {
+  const result = await db.query<GetBookWithAuthorNameRow>(SQL_GET_BOOK_WITH_AUTHOR_NAME, []);
+  return result.rows;
+}
+
+export interface GetAuthorStatsRow {
+  id: number;
+  name: string;
+  num_books: unknown | null;
+  total_sold: unknown | null;
+}
+
+export async function getAuthorStats(db: ClientBase): Promise<GetAuthorStatsRow[]> {
+  const result = await db.query<GetAuthorStatsRow>(SQL_GET_AUTHOR_STATS, []);
+  return result.rows;
+}
+
+export interface ArchiveAndReturnBooksRow {
+  id: number;
+  title: string;
+  genre: string;
+  price: number;
+}
+
+export async function archiveAndReturnBooks(db: ClientBase, publishedAt: Date | null): Promise<ArchiveAndReturnBooksRow[]> {
+  const result = await db.query<ArchiveAndReturnBooksRow>(SQL_ARCHIVE_AND_RETURN_BOOKS, [publishedAt]);
+  return result.rows;
+}
+
+export async function getProduct(db: ClientBase, id: string): Promise<Product | null> {
+  const result = await db.query<Product>(SQL_GET_PRODUCT, [id]);
+  return result.rows[0] ?? null;
+}
+
+export interface ListActiveProductsRow {
+  id: string;
+  sku: string;
+  name: string;
+  active: boolean;
+  weight_kg: number | null;
+  rating: number | null;
+  tags: string[];
+  metadata: unknown | null;
+  created_at: Date;
+  stock_count: number;
+}
+
+export async function listActiveProducts(db: ClientBase, active: boolean): Promise<ListActiveProductsRow[]> {
+  const result = await db.query<ListActiveProductsRow>(SQL_LIST_ACTIVE_PRODUCTS, [active]);
+  return result.rows;
+}
+
+export async function insertProduct(db: ClientBase, id: string, sku: string, name: string, active: boolean, weightKg: number | null, rating: number | null, tags: string[], metadata: unknown | null, thumbnail: Buffer | null, stockCount: number): Promise<Product | null> {
+  const result = await db.query<Product>(SQL_INSERT_PRODUCT, [id, sku, name, active, weightKg, rating, tags, metadata, thumbnail, stockCount]);
+  return result.rows[0] ?? null;
 }

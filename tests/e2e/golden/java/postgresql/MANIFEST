@@ -1,6 +1,7 @@
 out/db/Author.java
 out/db/Book.java
 out/db/Customer.java
+out/db/Product.java
 out/db/Queries.java
 out/db/QueriesDs.java
 out/db/Sale.java

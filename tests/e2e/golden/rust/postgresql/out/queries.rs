@@ -2,6 +2,7 @@ use sqlx::PgPool;
 
 use super::author::Author;
 use super::book::Book;
+use super::product::Product;
 
 #[derive(Debug, sqlx::FromRow)]
 pub struct DeleteAuthorRow {
@@ -98,6 +99,70 @@ pub struct GetBookPriceOrDefaultRow {
     pub id: i64,
     pub title: String,
     pub effective_price: Option<serde_json::Value>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct GetGenresWithManyBooksRow {
+    pub genre: String,
+    pub book_count: i64,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct GetBooksByAuthorParamRow {
+    pub id: i64,
+    pub title: String,
+    pub price: rust_decimal::Decimal,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct GetBooksNotByAuthorRow {
+    pub id: i64,
+    pub title: String,
+    pub genre: String,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct GetBooksWithRecentSalesRow {
+    pub id: i64,
+    pub title: String,
+    pub genre: String,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct GetBookWithAuthorNameRow {
+    pub id: i64,
+    pub title: String,
+    pub author_name: Option<serde_json::Value>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct GetAuthorStatsRow {
+    pub id: i64,
+    pub name: String,
+    pub num_books: Option<serde_json::Value>,
+    pub total_sold: Option<serde_json::Value>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct ArchiveAndReturnBooksRow {
+    pub id: i64,
+    pub title: String,
+    pub genre: String,
+    pub price: rust_decimal::Decimal,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct ListActiveProductsRow {
+    pub id: uuid::Uuid,
+    pub sku: String,
+    pub name: String,
+    pub active: bool,
+    pub weight_kg: Option<f32>,
+    pub rating: Option<f64>,
+    pub tags: Vec<String>,
+    pub metadata: Option<serde_json::Value>,
+    pub created_at: time::PrimitiveDateTime,
+    pub stock_count: i16,
 }
 
 pub async fn create_author(pool: &PgPool, name: String, bio: Option<String>, birth_year: Option<i32>) -> Result<Option<Author>, sqlx::Error> {
@@ -275,5 +340,96 @@ pub async fn get_book_price_or_default(pool: &PgPool, param1: String) -> Result<
     sqlx::query_as::<_, GetBookPriceOrDefaultRow>("SELECT id, title, COALESCE(price, $1) AS effective_price FROM book ORDER BY title")
         .bind(param1)
         .fetch_all(pool)
+        .await
+}
+
+pub async fn delete_book_by_id(pool: &PgPool, id: i64) -> Result<u64, sqlx::Error> {
+    sqlx::query("DELETE FROM book WHERE id = $1")
+        .bind(id)
+        .execute(pool)
+        .await
+        .map(|r| r.rows_affected())
+}
+
+pub async fn get_genres_with_many_books(pool: &PgPool, count: i64) -> Result<Vec<GetGenresWithManyBooksRow>, sqlx::Error> {
+    sqlx::query_as::<_, GetGenresWithManyBooksRow>("SELECT genre, COUNT(*) AS book_count FROM book GROUP BY genre HAVING COUNT(*) > $1 ORDER BY genre")
+        .bind(count)
+        .fetch_all(pool)
+        .await
+}
+
+pub async fn get_books_by_author_param(pool: &PgPool, birth_year: Option<i32>) -> Result<Vec<GetBooksByAuthorParamRow>, sqlx::Error> {
+    sqlx::query_as::<_, GetBooksByAuthorParamRow>("SELECT b.id, b.title, b.price FROM book b JOIN author a ON a.id = b.author_id AND a.birth_year > $1 ORDER BY b.title")
+        .bind(birth_year)
+        .fetch_all(pool)
+        .await
+}
+
+pub async fn get_all_book_fields(pool: &PgPool) -> Result<Vec<Book>, sqlx::Error> {
+    sqlx::query_as::<_, Book>("SELECT b.* FROM book b ORDER BY b.id")
+        .fetch_all(pool)
+        .await
+}
+
+pub async fn get_books_not_by_author(pool: &PgPool, name: String) -> Result<Vec<GetBooksNotByAuthorRow>, sqlx::Error> {
+    sqlx::query_as::<_, GetBooksNotByAuthorRow>("SELECT id, title, genre FROM book WHERE author_id NOT IN (SELECT id FROM author WHERE name = $1) ORDER BY title")
+        .bind(name)
+        .fetch_all(pool)
+        .await
+}
+
+pub async fn get_books_with_recent_sales(pool: &PgPool, param1: String) -> Result<Vec<GetBooksWithRecentSalesRow>, sqlx::Error> {
+    sqlx::query_as::<_, GetBooksWithRecentSalesRow>("SELECT id, title, genre FROM book WHERE EXISTS (     SELECT 1 FROM sale_item si     JOIN sale s ON s.id = si.sale_id     WHERE si.book_id = book.id AND s.ordered_at > $1 ) ORDER BY title")
+        .bind(param1)
+        .fetch_all(pool)
+        .await
+}
+
+pub async fn get_book_with_author_name(pool: &PgPool) -> Result<Vec<GetBookWithAuthorNameRow>, sqlx::Error> {
+    sqlx::query_as::<_, GetBookWithAuthorNameRow>("SELECT b.id, b.title,        (SELECT a.name FROM author a WHERE a.id = b.author_id) AS author_name FROM book b ORDER BY b.title")
+        .fetch_all(pool)
+        .await
+}
+
+pub async fn get_author_stats(pool: &PgPool) -> Result<Vec<GetAuthorStatsRow>, sqlx::Error> {
+    sqlx::query_as::<_, GetAuthorStatsRow>("WITH book_counts AS (     SELECT author_id, COUNT(*) AS num_books     FROM book     GROUP BY author_id ), sale_counts AS (     SELECT b.author_id, SUM(si.quantity) AS total_sold     FROM sale_item si     JOIN book b ON b.id = si.book_id     GROUP BY b.author_id ) SELECT a.id, a.name,        COALESCE(bc.num_books, 0) AS num_books,        COALESCE(sc.total_sold, 0) AS total_sold FROM author a LEFT JOIN book_counts bc ON bc.author_id = a.id LEFT JOIN sale_counts sc ON sc.author_id = a.id ORDER BY a.name")
+        .fetch_all(pool)
+        .await
+}
+
+pub async fn archive_and_return_books(pool: &PgPool, published_at: Option<time::Date>) -> Result<Vec<ArchiveAndReturnBooksRow>, sqlx::Error> {
+    sqlx::query_as::<_, ArchiveAndReturnBooksRow>("WITH archived AS (     DELETE FROM book     WHERE published_at < $1     RETURNING id, title, genre, price ) SELECT id, title, genre, price FROM archived ORDER BY title")
+        .bind(published_at)
+        .fetch_all(pool)
+        .await
+}
+
+pub async fn get_product(pool: &PgPool, id: uuid::Uuid) -> Result<Option<Product>, sqlx::Error> {
+    sqlx::query_as::<_, Product>("SELECT id, sku, name, active, weight_kg, rating, tags, metadata,        thumbnail, created_at, stock_count FROM product WHERE id = $1")
+        .bind(id)
+        .fetch_optional(pool)
+        .await
+}
+
+pub async fn list_active_products(pool: &PgPool, active: bool) -> Result<Vec<ListActiveProductsRow>, sqlx::Error> {
+    sqlx::query_as::<_, ListActiveProductsRow>("SELECT id, sku, name, active, weight_kg, rating, tags, metadata,        created_at, stock_count FROM product WHERE active = $1 ORDER BY name")
+        .bind(active)
+        .fetch_all(pool)
+        .await
+}
+
+pub async fn insert_product(pool: &PgPool, id: uuid::Uuid, sku: String, name: String, active: bool, weight_kg: Option<f32>, rating: Option<f64>, tags: Vec<String>, metadata: Option<serde_json::Value>, thumbnail: Option<Vec<u8>>, stock_count: i16) -> Result<Option<Product>, sqlx::Error> {
+    sqlx::query_as::<_, Product>("INSERT INTO product (id, sku, name, active, weight_kg, rating, tags, metadata, thumbnail, stock_count) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *")
+        .bind(id)
+        .bind(sku)
+        .bind(name)
+        .bind(active)
+        .bind(weight_kg)
+        .bind(rating)
+        .bind(tags)
+        .bind(metadata)
+        .bind(thumbnail)
+        .bind(stock_count)
+        .fetch_optional(pool)
         .await
 }

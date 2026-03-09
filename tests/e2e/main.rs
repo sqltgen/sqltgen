@@ -21,6 +21,18 @@ use sqltgen::frontend::sqlite::SqliteParser;
 use sqltgen::frontend::DialectParser;
 use sqltgen::ir::{Query, Schema};
 
+// ─── Error resilience helpers ──────────────────────────────────────────────
+
+/// Parse queries against a schema and run codegen. Returns the generated files
+/// without comparing to golden — used for error resilience tests that verify
+/// the pipeline doesn't crash on edge-case input.
+fn parse_and_generate(parser: &dyn DialectParser, ddl: &str, queries_sql: &str, codegen: &dyn Codegen) -> Vec<GeneratedFile> {
+    let schema = parser.parse_schema(ddl).expect("schema parse should not fail");
+    let queries = parser.parse_queries(queries_sql, &schema).expect("query parse should not fail");
+    let config = output_config();
+    codegen.generate(&schema, &queries, &config).expect("codegen should not fail")
+}
+
 /// Root of the e2e test tree, relative to crate root.
 fn e2e_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/e2e")
@@ -220,4 +232,66 @@ fn snapshot_javascript_sqlite() {
 #[test]
 fn snapshot_javascript_mysql() {
     snapshot_test("mysql", &MysqlParser, "javascript", &TypeScriptCodegen { target: JsTarget::Mysql, output: JsOutput::JavaScript });
+}
+
+// ─── Error resilience tests ───────────────────────────────────────────────
+//
+// These verify the pipeline handles bad/edge-case input gracefully without
+// panicking.  They don't compare golden files — just assert no crash.
+
+const SIMPLE_PG_SCHEMA: &str = "CREATE TABLE users (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL);";
+
+#[test]
+fn resilience_unknown_table_query_skipped() {
+    let queries_sql = "-- name: GetGhost :one\nSELECT id, name FROM ghost WHERE id = $1;\n";
+    let files = parse_and_generate(&PostgresParser, SIMPLE_PG_SCHEMA, queries_sql, &RustCodegen { target: RustTarget::Postgres });
+    // Query references unknown table "ghost" — should be skipped, but
+    // codegen should still produce model files.
+    assert!(!files.is_empty());
+}
+
+#[test]
+fn resilience_empty_query_file() {
+    let files = parse_and_generate(&PostgresParser, SIMPLE_PG_SCHEMA, "", &RustCodegen { target: RustTarget::Postgres });
+    // No queries → only model files (or possibly nothing), but no crash.
+    let _ = files;
+}
+
+#[test]
+fn resilience_comment_only_query_file() {
+    let queries_sql = "-- just a comment\n-- another comment\n";
+    let files = parse_and_generate(&PostgresParser, SIMPLE_PG_SCHEMA, queries_sql, &RustCodegen { target: RustTarget::Postgres });
+    let _ = files;
+}
+
+#[test]
+fn resilience_malformed_annotation_skipped() {
+    // Missing command (:one/:many/:exec/:execrows)
+    let queries_sql = "-- name: BadQuery\nSELECT id FROM users;\n";
+    let files = parse_and_generate(&PostgresParser, SIMPLE_PG_SCHEMA, queries_sql, &RustCodegen { target: RustTarget::Postgres });
+    let _ = files;
+}
+
+#[test]
+fn resilience_unknown_column_graceful() {
+    let queries_sql = "-- name: GetUserMissing :one\nSELECT id, name, nonexistent FROM users WHERE id = $1;\n";
+    let files = parse_and_generate(&PostgresParser, SIMPLE_PG_SCHEMA, queries_sql, &RustCodegen { target: RustTarget::Postgres });
+    assert!(!files.is_empty());
+}
+
+#[test]
+fn resilience_all_backends_empty_queries() {
+    let backends: Vec<Box<dyn Codegen>> = vec![
+        Box::new(RustCodegen { target: RustTarget::Postgres }),
+        Box::new(PythonCodegen { target: PythonTarget::Postgres }),
+        Box::new(JavaCodegen { target: JavaTarget::Postgres }),
+        Box::new(KotlinCodegen { target: KotlinTarget::Postgres }),
+        Box::new(TypeScriptCodegen { target: JsTarget::Postgres, output: JsOutput::TypeScript }),
+        Box::new(TypeScriptCodegen { target: JsTarget::Postgres, output: JsOutput::JavaScript }),
+    ];
+    let schema = PostgresParser.parse_schema(SIMPLE_PG_SCHEMA).unwrap();
+    let config = output_config();
+    for backend in &backends {
+        let _ = backend.generate(&schema, &[], &config).expect("codegen with no queries should not fail");
+    }
 }

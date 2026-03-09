@@ -374,4 +374,204 @@ object Queries {
             return rows
         }
     }
+
+    private const val SQL_DELETE_BOOK_BY_ID = "DELETE FROM book WHERE id = ?;"
+    fun deleteBookById(conn: Connection, id: Long): Long {
+        conn.prepareStatement(SQL_DELETE_BOOK_BY_ID).use { ps ->
+            ps.setLong(1, id)
+            return ps.executeUpdate().toLong()
+        }
+    }
+
+    data class GetGenresWithManyBooksRow(
+        val genre: String,
+        val bookCount: Long
+    )
+
+    private const val SQL_GET_GENRES_WITH_MANY_BOOKS = "SELECT genre, COUNT(*) AS book_count FROM book GROUP BY genre HAVING COUNT(*) > ? ORDER BY genre;"
+    fun getGenresWithManyBooks(conn: Connection, count: Long): List<GetGenresWithManyBooksRow> {
+        conn.prepareStatement(SQL_GET_GENRES_WITH_MANY_BOOKS).use { ps ->
+            ps.setLong(1, count)
+            val rows = mutableListOf<GetGenresWithManyBooksRow>()
+            ps.executeQuery().use { rs ->
+                while (rs.next()) rows.add(GetGenresWithManyBooksRow(rs.getString(1), rs.getLong(2)))
+            }
+            return rows
+        }
+    }
+
+    data class GetBooksByAuthorParamRow(
+        val id: Long,
+        val title: String,
+        val price: java.math.BigDecimal
+    )
+
+    private const val SQL_GET_BOOKS_BY_AUTHOR_PARAM = "SELECT b.id, b.title, b.price FROM book b JOIN author a ON a.id = b.author_id AND a.birth_year > ? ORDER BY b.title;"
+    fun getBooksByAuthorParam(conn: Connection, birthYear: Int?): List<GetBooksByAuthorParamRow> {
+        conn.prepareStatement(SQL_GET_BOOKS_BY_AUTHOR_PARAM).use { ps ->
+            ps.setObject(1, birthYear)
+            val rows = mutableListOf<GetBooksByAuthorParamRow>()
+            ps.executeQuery().use { rs ->
+                while (rs.next()) rows.add(GetBooksByAuthorParamRow(rs.getLong(1), rs.getString(2), rs.getBigDecimal(3)))
+            }
+            return rows
+        }
+    }
+
+    private const val SQL_GET_ALL_BOOK_FIELDS = "SELECT b.* FROM book b ORDER BY b.id;"
+    fun getAllBookFields(conn: Connection): List<Book> {
+        conn.prepareStatement(SQL_GET_ALL_BOOK_FIELDS).use { ps ->
+            val rows = mutableListOf<Book>()
+            ps.executeQuery().use { rs ->
+                while (rs.next()) rows.add(Book(rs.getLong(1), rs.getLong(2), rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getObject(6, java.time.LocalDate::class.java)))
+            }
+            return rows
+        }
+    }
+
+    data class GetBooksNotByAuthorRow(
+        val id: Long,
+        val title: String,
+        val genre: String
+    )
+
+    private const val SQL_GET_BOOKS_NOT_BY_AUTHOR = "SELECT id, title, genre FROM book WHERE author_id NOT IN (SELECT id FROM author WHERE name = ?) ORDER BY title;"
+    fun getBooksNotByAuthor(conn: Connection, name: String): List<GetBooksNotByAuthorRow> {
+        conn.prepareStatement(SQL_GET_BOOKS_NOT_BY_AUTHOR).use { ps ->
+            ps.setString(1, name)
+            val rows = mutableListOf<GetBooksNotByAuthorRow>()
+            ps.executeQuery().use { rs ->
+                while (rs.next()) rows.add(GetBooksNotByAuthorRow(rs.getLong(1), rs.getString(2), rs.getString(3)))
+            }
+            return rows
+        }
+    }
+
+    data class GetBooksWithRecentSalesRow(
+        val id: Long,
+        val title: String,
+        val genre: String
+    )
+
+    private const val SQL_GET_BOOKS_WITH_RECENT_SALES = "SELECT id, title, genre FROM book WHERE EXISTS (     SELECT 1 FROM sale_item si     JOIN sale s ON s.id = si.sale_id     WHERE si.book_id = book.id AND s.ordered_at > ? ) ORDER BY title;"
+    fun getBooksWithRecentSales(conn: Connection, param1: String): List<GetBooksWithRecentSalesRow> {
+        conn.prepareStatement(SQL_GET_BOOKS_WITH_RECENT_SALES).use { ps ->
+            ps.setString(1, param1)
+            val rows = mutableListOf<GetBooksWithRecentSalesRow>()
+            ps.executeQuery().use { rs ->
+                while (rs.next()) rows.add(GetBooksWithRecentSalesRow(rs.getLong(1), rs.getString(2), rs.getString(3)))
+            }
+            return rows
+        }
+    }
+
+    data class GetBookWithAuthorNameRow(
+        val id: Long,
+        val title: String,
+        val authorName: Any?
+    )
+
+    private const val SQL_GET_BOOK_WITH_AUTHOR_NAME = "SELECT b.id, b.title,        (SELECT a.name FROM author a WHERE a.id = b.author_id) AS author_name FROM book b ORDER BY b.title;"
+    fun getBookWithAuthorName(conn: Connection): List<GetBookWithAuthorNameRow> {
+        conn.prepareStatement(SQL_GET_BOOK_WITH_AUTHOR_NAME).use { ps ->
+            val rows = mutableListOf<GetBookWithAuthorNameRow>()
+            ps.executeQuery().use { rs ->
+                while (rs.next()) rows.add(GetBookWithAuthorNameRow(rs.getLong(1), rs.getString(2), rs.getObject(3)))
+            }
+            return rows
+        }
+    }
+
+    data class GetAuthorStatsRow(
+        val id: Long,
+        val name: String,
+        val numBooks: Any?,
+        val totalSold: Any?
+    )
+
+    private const val SQL_GET_AUTHOR_STATS = "WITH book_counts AS (     SELECT author_id, COUNT(*) AS num_books     FROM book     GROUP BY author_id ), sale_counts AS (     SELECT b.author_id, SUM(si.quantity) AS total_sold     FROM sale_item si     JOIN book b ON b.id = si.book_id     GROUP BY b.author_id ) SELECT a.id, a.name,        COALESCE(bc.num_books, 0) AS num_books,        COALESCE(sc.total_sold, 0) AS total_sold FROM author a LEFT JOIN book_counts bc ON bc.author_id = a.id LEFT JOIN sale_counts sc ON sc.author_id = a.id ORDER BY a.name;"
+    fun getAuthorStats(conn: Connection): List<GetAuthorStatsRow> {
+        conn.prepareStatement(SQL_GET_AUTHOR_STATS).use { ps ->
+            val rows = mutableListOf<GetAuthorStatsRow>()
+            ps.executeQuery().use { rs ->
+                while (rs.next()) rows.add(GetAuthorStatsRow(rs.getLong(1), rs.getString(2), rs.getObject(3), rs.getObject(4)))
+            }
+            return rows
+        }
+    }
+
+    data class ArchiveAndReturnBooksRow(
+        val id: Long,
+        val title: String,
+        val genre: String,
+        val price: java.math.BigDecimal
+    )
+
+    private const val SQL_ARCHIVE_AND_RETURN_BOOKS = "WITH archived AS (     DELETE FROM book     WHERE published_at < ?     RETURNING id, title, genre, price ) SELECT id, title, genre, price FROM archived ORDER BY title;"
+    fun archiveAndReturnBooks(conn: Connection, publishedAt: java.time.LocalDate?): List<ArchiveAndReturnBooksRow> {
+        conn.prepareStatement(SQL_ARCHIVE_AND_RETURN_BOOKS).use { ps ->
+            ps.setObject(1, publishedAt)
+            val rows = mutableListOf<ArchiveAndReturnBooksRow>()
+            ps.executeQuery().use { rs ->
+                while (rs.next()) rows.add(ArchiveAndReturnBooksRow(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getBigDecimal(4)))
+            }
+            return rows
+        }
+    }
+
+    private const val SQL_GET_PRODUCT = "SELECT id, sku, name, active, weight_kg, rating, tags, metadata,        thumbnail, created_at, stock_count FROM product WHERE id = ?;"
+    fun getProduct(conn: Connection, id: java.util.UUID): Product? {
+        conn.prepareStatement(SQL_GET_PRODUCT).use { ps ->
+            ps.setObject(1, id)
+            ps.executeQuery().use { rs ->
+                if (!rs.next()) return null
+                return Product(rs.getObject(1, java.util.UUID::class.java), rs.getString(2), rs.getString(3), rs.getBoolean(4), rs.getObject(5, java.lang.Float::class.java)?.toFloat(), rs.getObject(6, java.lang.Double::class.java)?.toDouble(), rs.getObject(7), rs.getObject(8), rs.getBytes(9), rs.getObject(10, java.time.LocalDateTime::class.java), rs.getShort(11))
+            }
+        }
+    }
+
+    data class ListActiveProductsRow(
+        val id: java.util.UUID,
+        val sku: String,
+        val name: String,
+        val active: Boolean,
+        val weightKg: Float?,
+        val rating: Double?,
+        val tags: List<String>,
+        val metadata: String?,
+        val createdAt: java.time.LocalDateTime,
+        val stockCount: Short
+    )
+
+    private const val SQL_LIST_ACTIVE_PRODUCTS = "SELECT id, sku, name, active, weight_kg, rating, tags, metadata,        created_at, stock_count FROM product WHERE active = ? ORDER BY name;"
+    fun listActiveProducts(conn: Connection, active: Boolean): List<ListActiveProductsRow> {
+        conn.prepareStatement(SQL_LIST_ACTIVE_PRODUCTS).use { ps ->
+            ps.setBoolean(1, active)
+            val rows = mutableListOf<ListActiveProductsRow>()
+            ps.executeQuery().use { rs ->
+                while (rs.next()) rows.add(ListActiveProductsRow(rs.getObject(1, java.util.UUID::class.java), rs.getString(2), rs.getString(3), rs.getBoolean(4), rs.getObject(5, java.lang.Float::class.java)?.toFloat(), rs.getObject(6, java.lang.Double::class.java)?.toDouble(), rs.getObject(7), rs.getObject(8), rs.getObject(9, java.time.LocalDateTime::class.java), rs.getShort(10)))
+            }
+            return rows
+        }
+    }
+
+    private const val SQL_INSERT_PRODUCT = "INSERT INTO product (id, sku, name, active, weight_kg, rating, tags, metadata, thumbnail, stock_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *;"
+    fun insertProduct(conn: Connection, id: java.util.UUID, sku: String, name: String, active: Boolean, weightKg: Float?, rating: Double?, tags: List<String>, metadata: String?, thumbnail: ByteArray?, stockCount: Short): Product? {
+        conn.prepareStatement(SQL_INSERT_PRODUCT).use { ps ->
+            ps.setObject(1, id)
+            ps.setString(2, sku)
+            ps.setString(3, name)
+            ps.setBoolean(4, active)
+            ps.setObject(5, weightKg)
+            ps.setObject(6, rating)
+            ps.setObject(7, tags)
+            ps.setObject(8, metadata)
+            ps.setObject(9, thumbnail)
+            ps.setShort(10, stockCount)
+            ps.executeQuery().use { rs ->
+                if (!rs.next()) return null
+                return Product(rs.getObject(1, java.util.UUID::class.java), rs.getString(2), rs.getString(3), rs.getBoolean(4), rs.getObject(5, java.lang.Float::class.java)?.toFloat(), rs.getObject(6, java.lang.Double::class.java)?.toDouble(), rs.getObject(7), rs.getObject(8), rs.getBytes(9), rs.getObject(10, java.time.LocalDateTime::class.java), rs.getShort(11))
+            }
+        }
+    }
 }

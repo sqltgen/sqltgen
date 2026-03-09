@@ -156,4 +156,76 @@ public final class QueriesDs {
             return Queries.getBookPriceOrDefault(conn, param1);
         }
     }
+
+    public long deleteBookById(long id) throws SQLException {
+        try (Connection conn = dataSource.getConnection()) {
+            return Queries.deleteBookById(conn, id);
+        }
+    }
+
+    public List<Queries.GetGenresWithManyBooksRow> getGenresWithManyBooks(long count) throws SQLException {
+        try (Connection conn = dataSource.getConnection()) {
+            return Queries.getGenresWithManyBooks(conn, count);
+        }
+    }
+
+    public List<Queries.GetBooksByAuthorParamRow> getBooksByAuthorParam(Integer birthYear) throws SQLException {
+        try (Connection conn = dataSource.getConnection()) {
+            return Queries.getBooksByAuthorParam(conn, birthYear);
+        }
+    }
+
+    public List<Book> getAllBookFields() throws SQLException {
+        try (Connection conn = dataSource.getConnection()) {
+            return Queries.getAllBookFields(conn);
+        }
+    }
+
+    public List<Queries.GetBooksNotByAuthorRow> getBooksNotByAuthor(String name) throws SQLException {
+        try (Connection conn = dataSource.getConnection()) {
+            return Queries.getBooksNotByAuthor(conn, name);
+        }
+    }
+
+    public List<Queries.GetBooksWithRecentSalesRow> getBooksWithRecentSales(String param1) throws SQLException {
+        try (Connection conn = dataSource.getConnection()) {
+            return Queries.getBooksWithRecentSales(conn, param1);
+        }
+    }
+
+    public List<Queries.GetBookWithAuthorNameRow> getBookWithAuthorName() throws SQLException {
+        try (Connection conn = dataSource.getConnection()) {
+            return Queries.getBookWithAuthorName(conn);
+        }
+    }
+
+    public List<Queries.GetAuthorStatsRow> getAuthorStats() throws SQLException {
+        try (Connection conn = dataSource.getConnection()) {
+            return Queries.getAuthorStats(conn);
+        }
+    }
+
+    public List<Queries.ArchiveAndReturnBooksRow> archiveAndReturnBooks(java.time.LocalDate publishedAt) throws SQLException {
+        try (Connection conn = dataSource.getConnection()) {
+            return Queries.archiveAndReturnBooks(conn, publishedAt);
+        }
+    }
+
+    public Optional<Product> getProduct(java.util.UUID id) throws SQLException {
+        try (Connection conn = dataSource.getConnection()) {
+            return Queries.getProduct(conn, id);
+        }
+    }
+
+    public List<Queries.ListActiveProductsRow> listActiveProducts(boolean active) throws SQLException {
+        try (Connection conn = dataSource.getConnection()) {
+            return Queries.listActiveProducts(conn, active);
+        }
+    }
+
+    public Optional<Product> insertProduct(java.util.UUID id, String sku, String name, boolean active, Float weightKg, Double rating, java.util.List<String> tags, String metadata, byte[] thumbnail, short stockCount) throws SQLException {
+        try (Connection conn = dataSource.getConnection()) {
+            return Queries.insertProduct(conn, id, sku, name, active, weightKg, rating, tags, metadata, thumbnail, stockCount);
+        }
+    }
 }

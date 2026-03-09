@@ -5,6 +5,7 @@
 
 /** @typedef {import('./author.js').Author} Author */
 /** @typedef {import('./book.js').Book} Book */
+/** @typedef {import('./product.js').Product} Product */
 
 const SQL_CREATE_AUTHOR = "INSERT INTO author (name, bio, birth_year) VALUES (?, ?, ?)";
 const SQL_GET_AUTHOR = "SELECT id, name, bio, birth_year FROM author WHERE id = ?";
@@ -28,6 +29,16 @@ const SQL_GET_BOOKS_BY_PRICE_RANGE = "SELECT id, title, genre, price FROM book W
 const SQL_GET_BOOKS_IN_GENRES = "SELECT id, title, genre, price FROM book WHERE genre IN (?, ?, ?) ORDER BY title";
 const SQL_GET_BOOK_PRICE_LABEL = "SELECT id, title, price,        CASE WHEN price > ? THEN 'expensive' ELSE 'affordable' END AS price_label FROM book ORDER BY title";
 const SQL_GET_BOOK_PRICE_OR_DEFAULT = "SELECT id, title, COALESCE(price, ?) AS effective_price FROM book ORDER BY title";
+const SQL_DELETE_BOOK_BY_ID = "DELETE FROM book WHERE id = ?";
+const SQL_GET_GENRES_WITH_MANY_BOOKS = "SELECT genre, COUNT(*) AS book_count FROM book GROUP BY genre HAVING COUNT(*) > ? ORDER BY genre";
+const SQL_GET_BOOKS_BY_AUTHOR_PARAM = "SELECT b.id, b.title, b.price FROM book b JOIN author a ON a.id = b.author_id AND a.birth_year > ? ORDER BY b.title";
+const SQL_GET_ALL_BOOK_FIELDS = "SELECT b.* FROM book b ORDER BY b.id";
+const SQL_GET_BOOKS_NOT_BY_AUTHOR = "SELECT id, title, genre FROM book WHERE author_id NOT IN (SELECT id FROM author WHERE name = ?) ORDER BY title";
+const SQL_GET_BOOKS_WITH_RECENT_SALES = "SELECT id, title, genre FROM book WHERE EXISTS (     SELECT 1 FROM sale_item si     JOIN sale s ON s.id = si.sale_id     WHERE si.book_id = book.id AND s.ordered_at > ? ) ORDER BY title";
+const SQL_GET_BOOK_WITH_AUTHOR_NAME = "SELECT b.id, b.title,        (SELECT a.name FROM author a WHERE a.id = b.author_id) AS author_name FROM book b ORDER BY b.title";
+const SQL_GET_AUTHOR_STATS = "WITH book_counts AS (     SELECT author_id, COUNT(*) AS num_books     FROM book     GROUP BY author_id ), sale_counts AS (     SELECT b.author_id, SUM(si.quantity) AS total_sold     FROM sale_item si     JOIN book b ON b.id = si.book_id     GROUP BY b.author_id ) SELECT a.id, a.name,        COALESCE(bc.num_books, 0) AS num_books,        COALESCE(sc.total_sold, 0) AS total_sold FROM author a LEFT JOIN book_counts bc ON bc.author_id = a.id LEFT JOIN sale_counts sc ON sc.author_id = a.id ORDER BY a.name";
+const SQL_GET_PRODUCT = "SELECT id, sku, name, active, weight_kg, rating, metadata,        thumbnail, created_at, stock_count FROM product WHERE id = ?";
+const SQL_LIST_ACTIVE_PRODUCTS = "SELECT id, sku, name, active, weight_kg, rating, metadata,        created_at, stock_count FROM product WHERE active = ? ORDER BY name";
 
 /**
  * @param {Database} db
@@ -317,4 +328,148 @@ export async function getBookPriceLabel(db, price) {
  */
 export async function getBookPriceOrDefault(db, param1) {
   return db.prepare(SQL_GET_BOOK_PRICE_OR_DEFAULT).all(param1);
+}
+
+/**
+ * @param {Database} db
+ * @param {number} id
+ * @returns {Promise<number>}
+ */
+export async function deleteBookById(db, id) {
+  const result = db.prepare(SQL_DELETE_BOOK_BY_ID).run(id);
+  return result.changes;
+}
+
+/**
+ * @typedef {Object} GetGenresWithManyBooksRow
+ * @property {string} genre
+ * @property {number} book_count
+ */
+
+/**
+ * @param {Database} db
+ * @param {number} count
+ * @returns {Promise<GetGenresWithManyBooksRow[]>}
+ */
+export async function getGenresWithManyBooks(db, count) {
+  return db.prepare(SQL_GET_GENRES_WITH_MANY_BOOKS).all(count);
+}
+
+/**
+ * @typedef {Object} GetBooksByAuthorParamRow
+ * @property {number} id
+ * @property {string} title
+ * @property {number} price
+ */
+
+/**
+ * @param {Database} db
+ * @param {number | null} birthYear
+ * @returns {Promise<GetBooksByAuthorParamRow[]>}
+ */
+export async function getBooksByAuthorParam(db, birthYear) {
+  return db.prepare(SQL_GET_BOOKS_BY_AUTHOR_PARAM).all(birthYear);
+}
+
+/**
+ * @param {Database} db
+ * @returns {Promise<Book[]>}
+ */
+export async function getAllBookFields(db) {
+  return db.prepare(SQL_GET_ALL_BOOK_FIELDS).all();
+}
+
+/**
+ * @typedef {Object} GetBooksNotByAuthorRow
+ * @property {number} id
+ * @property {string} title
+ * @property {string} genre
+ */
+
+/**
+ * @param {Database} db
+ * @param {string} name
+ * @returns {Promise<GetBooksNotByAuthorRow[]>}
+ */
+export async function getBooksNotByAuthor(db, name) {
+  return db.prepare(SQL_GET_BOOKS_NOT_BY_AUTHOR).all(name);
+}
+
+/**
+ * @typedef {Object} GetBooksWithRecentSalesRow
+ * @property {number} id
+ * @property {string} title
+ * @property {string} genre
+ */
+
+/**
+ * @param {Database} db
+ * @param {string} param1
+ * @returns {Promise<GetBooksWithRecentSalesRow[]>}
+ */
+export async function getBooksWithRecentSales(db, param1) {
+  return db.prepare(SQL_GET_BOOKS_WITH_RECENT_SALES).all(param1);
+}
+
+/**
+ * @typedef {Object} GetBookWithAuthorNameRow
+ * @property {number} id
+ * @property {string} title
+ * @property {unknown | null} author_name
+ */
+
+/**
+ * @param {Database} db
+ * @returns {Promise<GetBookWithAuthorNameRow[]>}
+ */
+export async function getBookWithAuthorName(db) {
+  return db.prepare(SQL_GET_BOOK_WITH_AUTHOR_NAME).all();
+}
+
+/**
+ * @typedef {Object} GetAuthorStatsRow
+ * @property {number} id
+ * @property {string} name
+ * @property {unknown | null} num_books
+ * @property {unknown | null} total_sold
+ */
+
+/**
+ * @param {Database} db
+ * @returns {Promise<GetAuthorStatsRow[]>}
+ */
+export async function getAuthorStats(db) {
+  return db.prepare(SQL_GET_AUTHOR_STATS).all();
+}
+
+/**
+ * @param {Database} db
+ * @param {string} id
+ * @returns {Promise<Product | null>}
+ */
+export async function getProduct(db, id) {
+  const row = db.prepare(SQL_GET_PRODUCT).get(id);
+  return row ?? null;
+}
+
+/**
+ * @typedef {Object} ListActiveProductsRow
+ * @property {string} id
+ * @property {string} sku
+ * @property {string} name
+ * @property {number} active
+ * @property {number | null} weight_kg
+ * @property {number | null} rating
+ * @property {string | null} metadata
+ * @property {string} created_at
+ * @property {number} stock_count
+ */
+
+/**
+ * @param {Database} db
+ * @param {number} active
+ * @returns {Promise<ListActiveProductsRow[]>}
+ */
+export async function listActiveProducts(db, active) {
+  return db.prepare(SQL_LIST_ACTIVE_PRODUCTS).all(active);
 }

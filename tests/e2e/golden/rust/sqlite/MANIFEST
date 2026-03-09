@@ -2,6 +2,7 @@ out/author.rs
 out/book.rs
 out/customer.rs
 out/mod.rs
+out/product.rs
 out/queries.rs
 out/sale.rs
 out/sale_item.rs

@@ -405,4 +405,216 @@ public final class Queries {
             return rows;
         }
     }
+
+    private static final String SQL_DELETE_BOOK_BY_ID =
+        "DELETE FROM book WHERE id = ?;";
+    public static long deleteBookById(Connection conn, long id) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(SQL_DELETE_BOOK_BY_ID)) {
+            ps.setLong(1, id);
+            return ps.executeUpdate();
+        }
+    }
+
+    public record GetGenresWithManyBooksRow(
+        String genre,
+        long bookCount
+    ) {}
+
+    private static final String SQL_GET_GENRES_WITH_MANY_BOOKS =
+        "SELECT genre, COUNT(*) AS book_count FROM book GROUP BY genre HAVING COUNT(*) > ? ORDER BY genre;";
+    public static List<GetGenresWithManyBooksRow> getGenresWithManyBooks(Connection conn, long count) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(SQL_GET_GENRES_WITH_MANY_BOOKS)) {
+            ps.setLong(1, count);
+            List<GetGenresWithManyBooksRow> rows = new ArrayList<>();
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) rows.add(new GetGenresWithManyBooksRow(rs.getString(1), rs.getLong(2)));
+            }
+            return rows;
+        }
+    }
+
+    public record GetBooksByAuthorParamRow(
+        long id,
+        String title,
+        java.math.BigDecimal price
+    ) {}
+
+    private static final String SQL_GET_BOOKS_BY_AUTHOR_PARAM =
+        "SELECT b.id, b.title, b.price FROM book b JOIN author a ON a.id = b.author_id AND a.birth_year > ? ORDER BY b.title;";
+    public static List<GetBooksByAuthorParamRow> getBooksByAuthorParam(Connection conn, Integer birthYear) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(SQL_GET_BOOKS_BY_AUTHOR_PARAM)) {
+            ps.setObject(1, birthYear);
+            List<GetBooksByAuthorParamRow> rows = new ArrayList<>();
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) rows.add(new GetBooksByAuthorParamRow(rs.getLong(1), rs.getString(2), rs.getBigDecimal(3)));
+            }
+            return rows;
+        }
+    }
+
+    private static final String SQL_GET_ALL_BOOK_FIELDS =
+        "SELECT b.* FROM book b ORDER BY b.id;";
+    public static List<Book> getAllBookFields(Connection conn) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(SQL_GET_ALL_BOOK_FIELDS)) {
+            List<Book> rows = new ArrayList<>();
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) rows.add(new Book(rs.getLong(1), rs.getLong(2), rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getObject(6, java.time.LocalDate.class)));
+            }
+            return rows;
+        }
+    }
+
+    public record GetBooksNotByAuthorRow(
+        long id,
+        String title,
+        String genre
+    ) {}
+
+    private static final String SQL_GET_BOOKS_NOT_BY_AUTHOR =
+        "SELECT id, title, genre FROM book WHERE author_id NOT IN (SELECT id FROM author WHERE name = ?) ORDER BY title;";
+    public static List<GetBooksNotByAuthorRow> getBooksNotByAuthor(Connection conn, String name) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(SQL_GET_BOOKS_NOT_BY_AUTHOR)) {
+            ps.setString(1, name);
+            List<GetBooksNotByAuthorRow> rows = new ArrayList<>();
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) rows.add(new GetBooksNotByAuthorRow(rs.getLong(1), rs.getString(2), rs.getString(3)));
+            }
+            return rows;
+        }
+    }
+
+    public record GetBooksWithRecentSalesRow(
+        long id,
+        String title,
+        String genre
+    ) {}
+
+    private static final String SQL_GET_BOOKS_WITH_RECENT_SALES =
+        "SELECT id, title, genre FROM book WHERE EXISTS (     SELECT 1 FROM sale_item si     JOIN sale s ON s.id = si.sale_id     WHERE si.book_id = book.id AND s.ordered_at > ? ) ORDER BY title;";
+    public static List<GetBooksWithRecentSalesRow> getBooksWithRecentSales(Connection conn, String param1) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(SQL_GET_BOOKS_WITH_RECENT_SALES)) {
+            ps.setString(1, param1);
+            List<GetBooksWithRecentSalesRow> rows = new ArrayList<>();
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) rows.add(new GetBooksWithRecentSalesRow(rs.getLong(1), rs.getString(2), rs.getString(3)));
+            }
+            return rows;
+        }
+    }
+
+    public record GetBookWithAuthorNameRow(
+        long id,
+        String title,
+        Object authorName
+    ) {}
+
+    private static final String SQL_GET_BOOK_WITH_AUTHOR_NAME =
+        "SELECT b.id, b.title,        (SELECT a.name FROM author a WHERE a.id = b.author_id) AS author_name FROM book b ORDER BY b.title;";
+    public static List<GetBookWithAuthorNameRow> getBookWithAuthorName(Connection conn) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(SQL_GET_BOOK_WITH_AUTHOR_NAME)) {
+            List<GetBookWithAuthorNameRow> rows = new ArrayList<>();
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) rows.add(new GetBookWithAuthorNameRow(rs.getLong(1), rs.getString(2), rs.getObject(3)));
+            }
+            return rows;
+        }
+    }
+
+    public record GetAuthorStatsRow(
+        long id,
+        String name,
+        Object numBooks,
+        Object totalSold
+    ) {}
+
+    private static final String SQL_GET_AUTHOR_STATS =
+        "WITH book_counts AS (     SELECT author_id, COUNT(*) AS num_books     FROM book     GROUP BY author_id ), sale_counts AS (     SELECT b.author_id, SUM(si.quantity) AS total_sold     FROM sale_item si     JOIN book b ON b.id = si.book_id     GROUP BY b.author_id ) SELECT a.id, a.name,        COALESCE(bc.num_books, 0) AS num_books,        COALESCE(sc.total_sold, 0) AS total_sold FROM author a LEFT JOIN book_counts bc ON bc.author_id = a.id LEFT JOIN sale_counts sc ON sc.author_id = a.id ORDER BY a.name;";
+    public static List<GetAuthorStatsRow> getAuthorStats(Connection conn) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(SQL_GET_AUTHOR_STATS)) {
+            List<GetAuthorStatsRow> rows = new ArrayList<>();
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) rows.add(new GetAuthorStatsRow(rs.getLong(1), rs.getString(2), rs.getObject(3), rs.getObject(4)));
+            }
+            return rows;
+        }
+    }
+
+    public record ArchiveAndReturnBooksRow(
+        long id,
+        String title,
+        String genre,
+        java.math.BigDecimal price
+    ) {}
+
+    private static final String SQL_ARCHIVE_AND_RETURN_BOOKS =
+        "WITH archived AS (     DELETE FROM book     WHERE published_at < ?     RETURNING id, title, genre, price ) SELECT id, title, genre, price FROM archived ORDER BY title;";
+    public static List<ArchiveAndReturnBooksRow> archiveAndReturnBooks(Connection conn, java.time.LocalDate publishedAt) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(SQL_ARCHIVE_AND_RETURN_BOOKS)) {
+            ps.setObject(1, publishedAt);
+            List<ArchiveAndReturnBooksRow> rows = new ArrayList<>();
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) rows.add(new ArchiveAndReturnBooksRow(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getBigDecimal(4)));
+            }
+            return rows;
+        }
+    }
+
+    private static final String SQL_GET_PRODUCT =
+        "SELECT id, sku, name, active, weight_kg, rating, tags, metadata,        thumbnail, created_at, stock_count FROM product WHERE id = ?;";
+    public static Optional<Product> getProduct(Connection conn, java.util.UUID id) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(SQL_GET_PRODUCT)) {
+            ps.setObject(1, id);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) return Optional.empty();
+                return Optional.of(new Product(rs.getObject(1, java.util.UUID.class), rs.getString(2), rs.getString(3), rs.getBoolean(4), rs.getObject(5, Float.class), rs.getObject(6, Double.class), rs.getObject(7), rs.getObject(8), rs.getBytes(9), rs.getObject(10, java.time.LocalDateTime.class), rs.getShort(11)));
+            }
+        }
+    }
+
+    public record ListActiveProductsRow(
+        java.util.UUID id,
+        String sku,
+        String name,
+        boolean active,
+        Float weightKg,
+        Double rating,
+        java.util.List<String> tags,
+        String metadata,
+        java.time.LocalDateTime createdAt,
+        short stockCount
+    ) {}
+
+    private static final String SQL_LIST_ACTIVE_PRODUCTS =
+        "SELECT id, sku, name, active, weight_kg, rating, tags, metadata,        created_at, stock_count FROM product WHERE active = ? ORDER BY name;";
+    public static List<ListActiveProductsRow> listActiveProducts(Connection conn, boolean active) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(SQL_LIST_ACTIVE_PRODUCTS)) {
+            ps.setBoolean(1, active);
+            List<ListActiveProductsRow> rows = new ArrayList<>();
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) rows.add(new ListActiveProductsRow(rs.getObject(1, java.util.UUID.class), rs.getString(2), rs.getString(3), rs.getBoolean(4), rs.getObject(5, Float.class), rs.getObject(6, Double.class), rs.getObject(7), rs.getObject(8), rs.getObject(9, java.time.LocalDateTime.class), rs.getShort(10)));
+            }
+            return rows;
+        }
+    }
+
+    private static final String SQL_INSERT_PRODUCT =
+        "INSERT INTO product (id, sku, name, active, weight_kg, rating, tags, metadata, thumbnail, stock_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *;";
+    public static Optional<Product> insertProduct(Connection conn, java.util.UUID id, String sku, String name, boolean active, Float weightKg, Double rating, java.util.List<String> tags, String metadata, byte[] thumbnail, short stockCount) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(SQL_INSERT_PRODUCT)) {
+            ps.setObject(1, id);
+            ps.setString(2, sku);
+            ps.setString(3, name);
+            ps.setBoolean(4, active);
+            ps.setObject(5, weightKg);
+            ps.setObject(6, rating);
+            ps.setObject(7, tags);
+            ps.setObject(8, metadata);
+            ps.setObject(9, thumbnail);
+            ps.setShort(10, stockCount);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) return Optional.empty();
+                return Optional.of(new Product(rs.getObject(1, java.util.UUID.class), rs.getString(2), rs.getString(3), rs.getBoolean(4), rs.getObject(5, Float.class), rs.getObject(6, Double.class), rs.getObject(7), rs.getObject(8), rs.getBytes(9), rs.getObject(10, java.time.LocalDateTime.class), rs.getShort(11)));
+            }
+        }
+    }
 }

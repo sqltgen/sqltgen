@@ -38,3 +38,16 @@ CREATE TABLE sale_item (
     FOREIGN KEY (sale_id) REFERENCES sale(id),
     FOREIGN KEY (book_id) REFERENCES book(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE product (
+    id          VARCHAR(36)  NOT NULL PRIMARY KEY,
+    sku         VARCHAR(50)  NOT NULL,
+    name        TEXT         NOT NULL,
+    active      BOOLEAN      NOT NULL DEFAULT TRUE,
+    weight_kg   FLOAT,
+    rating      DOUBLE,
+    metadata    JSON,
+    thumbnail   BLOB,
+    created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    stock_count SMALLINT     NOT NULL DEFAULT 0
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
