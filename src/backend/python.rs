@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 use std::fmt::Write;
 use std::path::PathBuf;
 
-use crate::backend::common::{infer_table, jdbc_sql, positional_bind_names, replace_list_in_clause, split_at_in_clause, sql_const_name, to_pascal_case, to_snake_case};
+use crate::backend::common::{infer_table, mysql_json_table_col_type, positional_bind_names, replace_list_in_clause, rewrite_to_anon_params, split_at_in_clause, sql_const_name, to_pascal_case, to_snake_case};
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::{ListParamStrategy, OutputConfig};
 use crate::ir::{Parameter, Query, QueryCmd, Schema, SqlType};
@@ -136,7 +136,7 @@ fn build_queries_file(queries: &[Query], schema: &Schema, target: &PythonTarget,
         let const_name = sql_const_name(&query.name);
         let base_sql =
             if let Some(lp) = query.params.iter().find(|p| p.is_list) { rewrite_list_sql_native(query.sql.as_str(), lp, target) } else { query.sql.clone() };
-        let sql = rewrite_sql(&base_sql, target).replace('"', "\\\"").replace('\n', " ");
+        let sql = normalize_sql(&base_sql, target).replace('"', "\\\"").replace('\n', " ");
         let sql = sql.trim_end().trim_end_matches(';');
         writeln!(src, r#"{const_name} = "{sql}""#)?;
     }
@@ -311,8 +311,8 @@ fn emit_python_list_query(
         },
         (PythonTarget::Postgres | PythonTarget::Mysql, ListParamStrategy::Dynamic) => {
             let (before_raw, after_raw) = split_at_in_clause(&query.sql, lp.index).unwrap_or_else(|| (query.sql.clone(), String::new()));
-            let before = rewrite_sql(&before_raw, target).replace('"', "\\\"").replace('\n', " ");
-            let after = rewrite_sql(&after_raw, target).replace('"', "\\\"").replace('\n', " ");
+            let before = normalize_sql(&before_raw, target).replace('"', "\\\"").replace('\n', " ");
+            let after = normalize_sql(&after_raw, target).replace('"', "\\\"").replace('\n', " ");
             let scalar_names: Vec<String> = scalar_params.iter().map(|p| to_snake_case(&p.name)).collect();
             let scalar_tuple = build_arg_tuple(&scalar_names);
             writeln!(src, "    placeholders = \", \".join([\"%s\"] * len({lp_name}))")?;
@@ -323,8 +323,8 @@ fn emit_python_list_query(
         },
         (PythonTarget::Sqlite, ListParamStrategy::Dynamic) => {
             let (before_raw, after_raw) = split_at_in_clause(&query.sql, lp.index).unwrap_or_else(|| (query.sql.clone(), String::new()));
-            let before = jdbc_sql(&before_raw).replace('"', "\\\"").replace('\n', " ");
-            let after = jdbc_sql(&after_raw).replace('"', "\\\"").replace('\n', " ");
+            let before = rewrite_to_anon_params(&before_raw).replace('"', "\\\"").replace('\n', " ");
+            let after = rewrite_to_anon_params(&after_raw).replace('"', "\\\"").replace('\n', " ");
             let scalar_names: Vec<String> = scalar_params.iter().map(|p| to_snake_case(&p.name)).collect();
             let scalar_tuple = build_arg_tuple(&scalar_names);
             writeln!(src, "    placeholders = \", \".join([\"?\"] * len({lp_name}))")?;
@@ -385,7 +385,7 @@ fn rewrite_list_sql_native(sql: &str, lp: &Parameter, target: &PythonTarget) -> 
         PythonTarget::Sqlite => "IN (SELECT value FROM json_each(?))".to_string(),
         PythonTarget::Mysql => {
             // Pass the full JSON array string directly as %s — no CONCAT wrapping.
-            let elem = mysql_json_table_type_py(&lp.sql_type);
+            let elem = mysql_json_table_col_type(&lp.sql_type);
             format!("IN (SELECT value FROM JSON_TABLE(%s,'$[*]' COLUMNS(value {elem} PATH '$')) t)")
         },
     };
@@ -393,19 +393,6 @@ fn rewrite_list_sql_native(sql: &str, lp: &Parameter, target: &PythonTarget) -> 
         eprintln!("warning: list param {} not found in IN clause, treating as scalar", lp.name);
         sql.to_string()
     })
-}
-
-fn mysql_json_table_type_py(sql_type: &SqlType) -> &'static str {
-    match sql_type {
-        SqlType::Boolean => "BOOLEAN",
-        SqlType::SmallInt => "SMALLINT",
-        SqlType::Integer => "INT",
-        SqlType::BigInt => "BIGINT",
-        SqlType::Real => "FLOAT",
-        SqlType::Double => "DOUBLE",
-        SqlType::Decimal => "DECIMAL(38,10)",
-        _ => "CHAR(255)",
-    }
 }
 
 fn build_execute_call(const_name: &str, query: &Query) -> String {
@@ -504,11 +491,11 @@ impl TypeImports {
 
 // ─── SQL helpers ──────────────────────────────────────────────────────────────
 
-fn rewrite_sql(sql: &str, target: &PythonTarget) -> String {
+fn normalize_sql(sql: &str, target: &PythonTarget) -> String {
     match target {
         // Both psycopg and mysql-connector-python use %s positional placeholders
         PythonTarget::Postgres | PythonTarget::Mysql => rewrite_sql_postgres(sql),
-        PythonTarget::Sqlite => jdbc_sql(sql),
+        PythonTarget::Sqlite => rewrite_to_anon_params(sql),
     }
 }
 

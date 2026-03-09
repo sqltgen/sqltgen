@@ -3,8 +3,8 @@ use std::fmt::Write;
 use std::path::PathBuf;
 
 use crate::backend::common::{
-    infer_table, jdbc_sql, mysql_json_table_col_type, positional_bind_names, replace_list_in_clause, split_at_in_clause, sql_const_name, to_camel_case,
-    to_pascal_case,
+    infer_table, mysql_json_table_col_type, positional_bind_names, replace_list_in_clause, rewrite_to_anon_params, split_at_in_clause, sql_const_name,
+    to_camel_case, to_pascal_case,
 };
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::{ListParamStrategy, OutputConfig};
@@ -245,7 +245,7 @@ fn emit_sql_constants(src: &mut String, queries: &[Query], target: &JsTarget, st
             Some(lp) => rewrite_list_sql_native(&query.sql, lp, target),
             None => query.sql.clone(),
         };
-        let sql = rewrite_placeholders(&base_sql, target).replace('"', "\\\"").replace('\n', " ");
+        let sql = normalize_sql(&base_sql, target).replace('"', "\\\"").replace('\n', " ");
         let sql = sql.trim_end().trim_end_matches(';');
         writeln!(src, r#"const {const_name} = "{sql}";"#)?;
     }
@@ -254,10 +254,14 @@ fn emit_sql_constants(src: &mut String, queries: &[Query], target: &JsTarget, st
 
 /// Rewrite `$N`/`?N` placeholders for the target driver.
 /// PostgreSQL keeps `$N`, SQLite and MySQL rewrite to anonymous `?`.
-fn rewrite_placeholders(sql: &str, target: &JsTarget) -> String {
+/// Rewrite SQL placeholders for the target driver.
+///
+/// PostgreSQL (`pg`) accepts `$N` natively; leave the SQL unchanged.
+/// SQLite (`better-sqlite3`) and MySQL (`mysql2`) require anonymous `?`.
+fn normalize_sql(sql: &str, target: &JsTarget) -> String {
     match target {
         JsTarget::Postgres => sql.to_string(),
-        JsTarget::Sqlite | JsTarget::Mysql => jdbc_sql(sql),
+        JsTarget::Sqlite | JsTarget::Mysql => rewrite_to_anon_params(sql),
     }
 }
 
@@ -541,8 +545,8 @@ fn emit_sqlite_list_query(
             let scalar_params: Vec<&Parameter> = query.params.iter().filter(|p| !p.is_list).collect();
             let (before_raw, after_raw) = split_at_in_clause(&query.sql, lp.index).unwrap_or_else(|| (query.sql.clone(), String::new()));
             // Rewrite $N → ? for any scalar params that appear before/after the list.
-            let before = jdbc_sql(&before_raw).replace('"', "\\\"").replace('\n', " ");
-            let after = jdbc_sql(&after_raw).replace('"', "\\\"").replace('\n', " ");
+            let before = rewrite_to_anon_params(&before_raw).replace('"', "\\\"").replace('\n', " ");
+            let after = rewrite_to_anon_params(&after_raw).replace('"', "\\\"").replace('\n', " ");
             let before = before.trim_end().trim_end_matches(';');
             let after = after.trim_start();
             writeln!(src, r#"  const placeholders = {lp_name}.map(() => "?").join(", ");"#)?;
@@ -627,20 +631,20 @@ fn emit_mysql_body(src: &mut String, query: &Query, schema: &Schema, sql_expr: &
     match query.cmd {
         QueryCmd::Exec => writeln!(src, "  await db.execute({sql_expr}, {args});")?,
         QueryCmd::ExecRows => {
-            let rsh = mysql_generic(output, "ResultSetHeader");
+            let rsh = mysql_type_param(output, "ResultSetHeader");
             writeln!(src, "  const [result] = await db.execute{rsh}({sql_expr}, {args});")?;
             writeln!(src, "  return result.affectedRows;")?;
         },
         QueryCmd::One => {
             let row = row_type_name(query, schema);
-            let rdp = mysql_generic(output, "RowDataPacket[]");
+            let rdp = mysql_type_param(output, "RowDataPacket[]");
             let cast = ts_cast(&format!("{row} | undefined"), output);
             writeln!(src, "  const [rows] = await db.execute{rdp}({sql_expr}, {args});")?;
             writeln!(src, "  return (rows[0]{cast}) ?? null;")?;
         },
         QueryCmd::Many => {
             let row = row_type_name(query, schema);
-            let rdp = mysql_generic(output, "RowDataPacket[]");
+            let rdp = mysql_type_param(output, "RowDataPacket[]");
             let cast = ts_cast(&format!("{row}[]"), output);
             writeln!(src, "  const [rows] = await db.execute{rdp}({sql_expr}, {args});")?;
             writeln!(src, "  return rows{cast};")?;
@@ -650,7 +654,10 @@ fn emit_mysql_body(src: &mut String, query: &Query, schema: &Schema, sql_expr: &
 }
 
 /// Returns `<Type>` (TS) or empty string (JS) for a mysql2 generic type parameter.
-fn mysql_generic(output: &JsOutput, ts_type: &str) -> String {
+/// Emit `<T>` (TypeScript generic type argument) or empty string (JavaScript).
+///
+/// Used to make mysql2 `execute` calls typed: `db.execute<RowDataPacket[]>(...)`.
+fn mysql_type_param(output: &JsOutput, ts_type: &str) -> String {
     match output {
         JsOutput::TypeScript => format!("<{ts_type}>"),
         JsOutput::JavaScript => String::new(),
@@ -681,8 +688,8 @@ fn emit_mysql_list_query(
         ListParamStrategy::Dynamic => {
             let scalar_params: Vec<&Parameter> = query.params.iter().filter(|p| !p.is_list).collect();
             let (before_raw, after_raw) = split_at_in_clause(&query.sql, lp.index).unwrap_or_else(|| (query.sql.clone(), String::new()));
-            let before = jdbc_sql(&before_raw).replace('"', "\\\"").replace('\n', " ");
-            let after = jdbc_sql(&after_raw).replace('"', "\\\"").replace('\n', " ");
+            let before = rewrite_to_anon_params(&before_raw).replace('"', "\\\"").replace('\n', " ");
+            let after = rewrite_to_anon_params(&after_raw).replace('"', "\\\"").replace('\n', " ");
             let before = before.trim_end().trim_end_matches(';');
             let after = after.trim_start();
             writeln!(src, r#"  const placeholders = {lp_name}.map(() => "?").join(", ");"#)?;

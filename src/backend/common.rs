@@ -54,11 +54,11 @@ pub fn infer_table<'a>(query: &Query, schema: &'a Schema) -> Option<&'a str> {
 
 /// Return the ordered list of parameter indices referenced by `$N`/`?N` placeholders.
 ///
-/// Each entry corresponds to one JDBC `?` produced by [`jdbc_sql`]: `bind_plan[i]` is
-/// the 1-based `Parameter.index` that must be bound at JDBC position `i + 1`. When a
-/// named parameter is reused the same index appears multiple times, ensuring every `?`
-/// slot gets a bind call even though the logical parameter is unique.
-pub fn jdbc_bind_plan(sql: &str) -> Vec<usize> {
+/// Each entry corresponds to one anonymous `?` produced by [`rewrite_to_anon_params`]:
+/// `indices[i]` is the 1-based `Parameter.index` that must be bound at position `i + 1`.
+/// When a parameter is reused the same index appears multiple times, ensuring every `?`
+/// slot gets a value even though the logical parameter is unique.
+pub fn parse_placeholder_indices(sql: &str) -> Vec<usize> {
     let mut plan = Vec::new();
     let mut chars = sql.chars().peekable();
     while let Some(ch) = chars.next() {
@@ -75,8 +75,13 @@ pub fn jdbc_bind_plan(sql: &str) -> Vec<usize> {
     plan
 }
 
-/// Replace `$N` or `?N` placeholders with JDBC `?` markers.
-pub fn jdbc_sql(sql: &str) -> String {
+/// Replace `$N` or `?N` numbered placeholders with anonymous `?` markers.
+///
+/// Used by every backend that binds parameters positionally: JDBC (Java, Kotlin),
+/// better-sqlite3 (TypeScript/JavaScript), mysql2 (TypeScript/JavaScript), and
+/// Python sqlite3. Not specific to any one driver — any driver that accepts `?`
+/// as a positional placeholder can use this rewrite.
+pub fn rewrite_to_anon_params(sql: &str) -> String {
     let mut out = String::with_capacity(sql.len());
     let mut chars = sql.chars().peekable();
     while let Some(ch) = chars.next() {
@@ -124,7 +129,7 @@ pub fn jdbc_setter(sql_type: &SqlType) -> &'static str {
     }
 }
 
-/// Resolve the JDBC bind plan to `(jdbc_index, &Parameter)` pairs.
+/// Resolve the placeholder sequence to `(jdbc_slot, &Parameter)` pairs for JDBC binding.
 ///
 /// Scans `$N`/`?N` occurrences in the stored SQL text and returns one entry per
 /// `?` slot (1-based JDBC index, reference to the parameter to bind there).
@@ -132,13 +137,13 @@ pub fn jdbc_setter(sql_type: &SqlType) -> &'static str {
 /// slot is covered — unlike a naïve "one bind per unique param" approach.
 pub fn jdbc_bind_sequence<'a>(query: &'a Query) -> Vec<(usize, &'a Parameter)> {
     let by_idx: HashMap<usize, &'a Parameter> = query.params.iter().map(|p| (p.index, p)).collect();
-    jdbc_bind_plan(&query.sql).iter().enumerate().filter_map(|(slot, &param_idx)| by_idx.get(&param_idx).map(|p| (slot + 1, *p))).collect()
+    parse_placeholder_indices(&query.sql).iter().enumerate().filter_map(|(slot, &param_idx)| by_idx.get(&param_idx).map(|p| (slot + 1, *p))).collect()
 }
 
-/// Return the JDBC array type name for use with `conn.createArrayOf(typeName, …)`.
+/// Return the PostgreSQL type name for use with `conn.createArrayOf(typeName, …)`.
 ///
-/// Required for PostgreSQL native list-param strategy in Java and Kotlin.
-pub fn jdbc_array_type_name(sql_type: &SqlType) -> &'static str {
+/// Required for the PostgreSQL native list-param strategy in the Java and Kotlin JDBC backends.
+pub fn pg_array_type_name(sql_type: &SqlType) -> &'static str {
     match sql_type {
         SqlType::SmallInt => "smallint",
         SqlType::Integer => "integer",
@@ -223,7 +228,7 @@ pub fn mysql_json_table_col_type(sql_type: &SqlType) -> &'static str {
 /// one `.bind()` per unique parameter is correct there.
 pub fn positional_bind_names<'a>(query: &'a Query) -> Vec<&'a str> {
     let by_idx: HashMap<usize, &'a str> = query.params.iter().map(|p| (p.index, p.name.as_str())).collect();
-    jdbc_bind_plan(&query.sql).iter().filter_map(|&i| by_idx.get(&i).copied()).collect()
+    parse_placeholder_indices(&query.sql).iter().filter_map(|&i| by_idx.get(&i).copied()).collect()
 }
 
 #[cfg(test)]
@@ -236,7 +241,7 @@ mod tests {
         Query { name: "Test".to_string(), cmd: QueryCmd::Exec, sql: sql.to_string(), params, result_columns: vec![] }
     }
 
-    // ─── jdbc_setter ────────────────────────────────────────────────────────
+    // ─── jdbc_setter ─────────────────────────────────────────────────────────
 
     #[test]
     fn test_jdbc_setter_primitives() {
@@ -307,35 +312,35 @@ mod tests {
         assert_eq!(positional_bind_names(&q), vec!["genre", "genre"]);
     }
 
-    // ─── jdbc_bind_plan ─────────────────────────────────────────────────────
+    // ─── parse_placeholder_indices ──────────────────────────────────────────
 
     #[test]
-    fn test_jdbc_bind_plan_unique_params() {
-        // Each placeholder appears once — plan is [1, 2]
-        assert_eq!(jdbc_bind_plan("SELECT * FROM t WHERE a = $1 AND b = $2"), vec![1, 2]);
+    fn test_parse_placeholder_indices_unique_params() {
+        // Each placeholder appears once — indices are [1, 2]
+        assert_eq!(parse_placeholder_indices("SELECT * FROM t WHERE a = $1 AND b = $2"), vec![1, 2]);
     }
 
     #[test]
-    fn test_jdbc_bind_plan_reused_param() {
-        // $1 appears 4 times, $2 once — plan matches textual order
+    fn test_parse_placeholder_indices_reused_param() {
+        // $1 appears 4 times, $2 once — order matches textual occurrence
         let sql = "WHERE account_id = $1 OR $1 = -1 AND x = $1 OR $1 = 0 AND y = $2";
-        assert_eq!(jdbc_bind_plan(sql), vec![1, 1, 1, 1, 2]);
+        assert_eq!(parse_placeholder_indices(sql), vec![1, 1, 1, 1, 2]);
     }
 
     #[test]
-    fn test_jdbc_bind_plan_question_mark_style() {
+    fn test_parse_placeholder_indices_question_mark_style() {
         // SQLite-style ?N placeholders
-        assert_eq!(jdbc_bind_plan("WHERE a = ?1 AND b = ?2 AND c = ?1"), vec![1, 2, 1]);
+        assert_eq!(parse_placeholder_indices("WHERE a = ?1 AND b = ?2 AND c = ?1"), vec![1, 2, 1]);
     }
 
     #[test]
-    fn test_jdbc_bind_plan_no_params() {
-        assert_eq!(jdbc_bind_plan("SELECT 1"), Vec::<usize>::new());
+    fn test_parse_placeholder_indices_no_params() {
+        assert_eq!(parse_placeholder_indices("SELECT 1"), Vec::<usize>::new());
     }
 
     #[test]
-    fn test_jdbc_bind_plan_multidigit_index() {
-        assert_eq!(jdbc_bind_plan("WHERE a = $10 AND b = $2"), vec![10, 2]);
+    fn test_parse_placeholder_indices_multidigit_index() {
+        assert_eq!(parse_placeholder_indices("WHERE a = $10 AND b = $2"), vec![10, 2]);
     }
 
     // ─── replace_list_in_clause ──────────────────────────────────────────────
@@ -371,14 +376,14 @@ mod tests {
         assert_eq!(after, " AND active = $2");
     }
 
-    // ─── jdbc_array_type_name ────────────────────────────────────────────────
+    // ─── pg_array_type_name ──────────────────────────────────────────────────
 
     #[test]
-    fn test_jdbc_array_type_name_primitives() {
-        assert_eq!(jdbc_array_type_name(&SqlType::BigInt), "bigint");
-        assert_eq!(jdbc_array_type_name(&SqlType::Integer), "integer");
-        assert_eq!(jdbc_array_type_name(&SqlType::Text), "text");
-        assert_eq!(jdbc_array_type_name(&SqlType::Boolean), "boolean");
-        assert_eq!(jdbc_array_type_name(&SqlType::Uuid), "uuid");
+    fn test_pg_array_type_name_primitives() {
+        assert_eq!(pg_array_type_name(&SqlType::BigInt), "bigint");
+        assert_eq!(pg_array_type_name(&SqlType::Integer), "integer");
+        assert_eq!(pg_array_type_name(&SqlType::Text), "text");
+        assert_eq!(pg_array_type_name(&SqlType::Boolean), "boolean");
+        assert_eq!(pg_array_type_name(&SqlType::Uuid), "uuid");
     }
 }

@@ -2,8 +2,8 @@ use std::fmt::Write;
 use std::path::PathBuf;
 
 use crate::backend::common::{
-    emit_package, infer_table, jdbc_array_type_name, jdbc_bind_sequence, jdbc_setter, jdbc_sql, mysql_json_table_col_type, replace_list_in_clause,
-    split_at_in_clause, sql_const_name, to_camel_case, to_pascal_case,
+    emit_package, infer_table, jdbc_bind_sequence, jdbc_setter, mysql_json_table_col_type, pg_array_type_name, replace_list_in_clause,
+    rewrite_to_anon_params, split_at_in_clause, sql_const_name, to_camel_case, to_pascal_case,
 };
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::{ListParamStrategy, OutputConfig};
@@ -100,7 +100,7 @@ fn emit_kotlin_query(src: &mut String, query: &Query, schema: &Schema, target: &
 
 fn emit_kotlin_scalar_query(src: &mut String, query: &Query, schema: &Schema, return_type: &str, params_sig: &str) -> anyhow::Result<()> {
     let sql_const = sql_const_name(&query.name);
-    let sql = jdbc_sql(&query.sql);
+    let sql = rewrite_to_anon_params(&query.sql);
     writeln!(src, "    private const val {sql_const} = \"{};\"", sql.replace('\n', " ").replace('"', "\\\""))?;
     writeln!(src, "    fun {}({params_sig}): {return_type} {{", to_camel_case(&query.name))?;
     writeln!(src, "        conn.prepareStatement({sql_const}).use {{ ps ->")?;
@@ -134,11 +134,11 @@ fn emit_kotlin_list_query(
 
     match (target, strategy) {
         (KotlinTarget::Postgres, ListParamStrategy::Native) => {
-            let sql = jdbc_sql(&replace_list_in_clause(&query.sql, lp.index, "= ANY(?)").unwrap_or_else(|| query.sql.clone()));
+            let sql = rewrite_to_anon_params(&replace_list_in_clause(&query.sql, lp.index, "= ANY(?)").unwrap_or_else(|| query.sql.clone()));
             let sql_const = sql_const_name(&query.name);
             writeln!(src, "    private const val {sql_const} = \"{};\"", sql.replace('\n', " ").replace('"', "\\\""))?;
             writeln!(src, "    fun {method_name}({params_sig}): {return_type} {{")?;
-            let type_name = jdbc_array_type_name(&lp.sql_type);
+            let type_name = pg_array_type_name(&lp.sql_type);
             writeln!(src, "        val arr = conn.createArrayOf(\"{type_name}\", {lp_name}.toTypedArray())")?;
             writeln!(src, "        conn.prepareStatement({sql_const}).use {{ ps ->")?;
             for (jdbc_idx, p) in jdbc_bind_sequence(query) {
@@ -156,8 +156,8 @@ fn emit_kotlin_list_query(
         },
         (_, ListParamStrategy::Dynamic) => {
             let (before_raw, after_raw) = split_at_in_clause(&query.sql, lp.index).unwrap_or_else(|| (query.sql.clone(), String::new()));
-            let before_esc = jdbc_sql(&before_raw).replace('\n', " ").replace('"', "\\\"");
-            let after_esc = jdbc_sql(&after_raw).replace('\n', " ").replace('"', "\\\"");
+            let before_esc = rewrite_to_anon_params(&before_raw).replace('\n', " ").replace('"', "\\\"");
+            let after_esc = rewrite_to_anon_params(&after_raw).replace('\n', " ").replace('"', "\\\"");
             writeln!(src, "    fun {method_name}({params_sig}): {return_type} {{")?;
             writeln!(src, "        val marks = {lp_name}.joinToString(\", \") {{ \"?\" }}")?;
             writeln!(src, "        val sql = \"{before_esc}\" + \"IN (${{marks}}){after_esc};\"")?;
@@ -179,7 +179,7 @@ fn emit_kotlin_list_query(
         (KotlinTarget::Sqlite, ListParamStrategy::Native) => {
             // SQLite: json_each(?) unpacks a JSON array string into rows.
             let repl = "IN (SELECT value FROM json_each(?))";
-            let sql = jdbc_sql(&replace_list_in_clause(&query.sql, lp.index, repl).unwrap_or_else(|| query.sql.clone()));
+            let sql = rewrite_to_anon_params(&replace_list_in_clause(&query.sql, lp.index, repl).unwrap_or_else(|| query.sql.clone()));
             let sql_const = sql_const_name(&query.name);
             writeln!(src, "    private const val {sql_const} = \"{};\"", sql.replace('\n', " ").replace('"', "\\\""))?;
             writeln!(src, "    fun {method_name}({params_sig}): {return_type} {{")?;
@@ -202,7 +202,7 @@ fn emit_kotlin_list_query(
             let elem_type = mysql_json_table_col_type(&lp.sql_type);
             // Pass the full JSON array string as the JDBC ? — no CONCAT wrapping.
             let repl = format!("IN (SELECT value FROM JSON_TABLE(?,'$[*]' COLUMNS(value {elem_type} PATH '$')) t)");
-            let sql = jdbc_sql(&replace_list_in_clause(&query.sql, lp.index, &repl).unwrap_or_else(|| query.sql.clone()));
+            let sql = rewrite_to_anon_params(&replace_list_in_clause(&query.sql, lp.index, &repl).unwrap_or_else(|| query.sql.clone()));
             let sql_const = sql_const_name(&query.name);
             writeln!(src, "    private const val {sql_const} = \"{};\"", sql.replace('\n', " ").replace('"', "\\\""))?;
             writeln!(src, "    fun {method_name}({params_sig}): {return_type} {{")?;
