@@ -118,7 +118,15 @@ fn run_generate(config_path: &Path) -> anyhow::Result<()> {
                 };
                 Box::new(backend::python::PythonCodegen { target })
             },
-            "typescript" => Box::new(backend::typescript::TypeScriptCodegen),
+            "typescript" | "javascript" => {
+                let target = match cfg.engine {
+                    Engine::Sqlite => backend::typescript::JsTarget::Sqlite,
+                    Engine::Mysql => backend::typescript::JsTarget::Mysql,
+                    Engine::Postgresql => backend::typescript::JsTarget::Postgres,
+                };
+                let output = if lang == "javascript" { backend::typescript::JsOutput::JavaScript } else { backend::typescript::JsOutput::TypeScript };
+                Box::new(backend::typescript::TypeScriptCodegen { target, output })
+            },
             other => anyhow::bail!("unknown codegen target: {other}"),
         };
 

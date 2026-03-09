@@ -1,0 +1,17 @@
+{
+  "name": "sqltgen-example-typescript-sqlite",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "start": "tsx main.ts"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.7.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}
