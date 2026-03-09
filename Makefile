@@ -3,7 +3,8 @@ SQLTGEN := ./target/debug/sqltgen
 .PHONY: all build test generate java kotlin rust python run-all \
        db-up db-down db-up-mysql db-down-mysql \
        e2e e2e-snapshot e2e-runtime \
-       e2e-runtime-rust-sqlite
+       e2e-runtime-rust-sqlite e2e-runtime-rust-postgresql \
+       e2e-db-up e2e-db-down
 
 all: build test
 
@@ -79,11 +80,23 @@ e2e-snapshot:
 # Runtime tests: regenerate code, then run each sub-project's tests.
 # SQLite tests need no Docker; PG/MySQL targets will start containers.
 
-e2e-runtime: e2e-runtime-rust-sqlite
+e2e-runtime: e2e-runtime-rust-sqlite e2e-runtime-rust-postgresql
 
 e2e-runtime-rust-sqlite: $(SQLTGEN)
 	cd $(E2E_RUNTIME)/rust/sqlite && $(abspath $(SQLTGEN)) generate --config sqltgen.json
 	cd $(E2E_RUNTIME)/rust/sqlite && cargo test
+
+e2e-runtime-rust-postgresql: $(SQLTGEN) e2e-db-up
+	cd $(E2E_RUNTIME)/rust/postgresql && $(abspath $(SQLTGEN)) generate --config sqltgen.json
+	cd $(E2E_RUNTIME)/rust/postgresql && cargo test
+
+# ── E2E Docker lifecycle ────────────────────────────────────────────────────
+
+e2e-db-up:
+	docker compose -f $(E2E_RUNTIME)/docker-compose.yml up -d --wait
+
+e2e-db-down:
+	docker compose -f $(E2E_RUNTIME)/docker-compose.yml down
 
 # ── PostgreSQL database ───────────────────────────────────────────────────────
 
