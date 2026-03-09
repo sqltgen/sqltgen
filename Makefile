@@ -1,6 +1,9 @@
 SQLTGEN := ./target/debug/sqltgen
 
-.PHONY: all build test generate java kotlin rust python run-all db-up db-down db-up-mysql db-down-mysql
+.PHONY: all build test generate java kotlin rust python run-all \
+       db-up db-down db-up-mysql db-down-mysql \
+       e2e e2e-snapshot e2e-runtime \
+       e2e-runtime-rust-sqlite
 
 all: build test
 
@@ -63,6 +66,24 @@ run-all: $(SQLTGEN)
 	$(MAKE) -C examples/python/sqlite        run
 	$(MAKE) -C examples/typescript/sqlite    run
 	$(MAKE) -C examples/javascript/sqlite    run
+
+# ── E2E tests ────────────────────────────────────────────────────────────────
+
+E2E_RUNTIME := tests/e2e/runtime
+
+e2e: e2e-snapshot e2e-runtime
+
+e2e-snapshot:
+	cargo test --test e2e
+
+# Runtime tests: regenerate code, then run each sub-project's tests.
+# SQLite tests need no Docker; PG/MySQL targets will start containers.
+
+e2e-runtime: e2e-runtime-rust-sqlite
+
+e2e-runtime-rust-sqlite: $(SQLTGEN)
+	cd $(E2E_RUNTIME)/rust/sqlite && $(abspath $(SQLTGEN)) generate --config sqltgen.json
+	cd $(E2E_RUNTIME)/rust/sqlite && cargo test
 
 # ── PostgreSQL database ───────────────────────────────────────────────────────
 
