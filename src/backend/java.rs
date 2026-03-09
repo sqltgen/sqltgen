@@ -2,8 +2,8 @@ use std::fmt::Write;
 use std::path::PathBuf;
 
 use crate::backend::common::{
-    emit_package, infer_row_type_name, infer_table, jdbc_bind_sequence, jdbc_setter, mysql_json_table_col_type, pg_array_type_name, replace_list_in_clause,
-    rewrite_to_anon_params, split_at_in_clause, sql_const_name, to_camel_case, to_pascal_case,
+    emit_package, has_inline_rows, infer_row_type_name, infer_table, jdbc_bind_sequence, jdbc_setter, mysql_json_table_col_type, pg_array_type_name,
+    replace_list_in_clause, rewrite_to_anon_params, split_at_in_clause, sql_const_name, to_camel_case, to_pascal_case,
 };
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::{ListParamStrategy, OutputConfig};
@@ -63,7 +63,7 @@ impl Codegen for JavaCodegen {
             let strategy = config.list_params.clone().unwrap_or_default();
             for query in queries {
                 writeln!(src)?;
-                if infer_table(query, schema).is_none() && !query.result_columns.is_empty() {
+                if has_inline_rows(query, schema) {
                     emit_row_record(&mut src, query)?;
                     writeln!(src)?;
                 }

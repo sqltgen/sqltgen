@@ -3,8 +3,8 @@ use std::fmt::Write;
 use std::path::PathBuf;
 
 use crate::backend::common::{
-    infer_row_type_name, infer_table, mysql_json_table_col_type, positional_bind_names, replace_list_in_clause, split_at_in_clause, to_pascal_case,
-    to_snake_case,
+    has_inline_rows, infer_row_type_name, infer_table, mysql_json_table_col_type, positional_bind_names, replace_list_in_clause, split_at_in_clause,
+    to_pascal_case, to_snake_case,
 };
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::{ListParamStrategy, OutputConfig};
@@ -61,7 +61,7 @@ impl Codegen for RustCodegen {
 
             // Custom row structs for queries that don't return a whole table
             for query in queries {
-                if infer_table(query, schema).is_none() && !query.result_columns.is_empty() {
+                if has_inline_rows(query, schema) {
                     emit_row_struct(&mut src, query, &self.target)?;
                     writeln!(src)?;
                 }

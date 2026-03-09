@@ -3,8 +3,8 @@ use std::fmt::Write;
 use std::path::PathBuf;
 
 use crate::backend::common::{
-    infer_row_type_name, infer_table, mysql_json_table_col_type, positional_bind_names, replace_list_in_clause, rewrite_to_anon_params, split_at_in_clause,
-    sql_const_name, to_camel_case, to_pascal_case,
+    has_inline_rows, infer_row_type_name, infer_table, mysql_json_table_col_type, positional_bind_names, replace_list_in_clause, rewrite_to_anon_params,
+    split_at_in_clause, sql_const_name, to_camel_case, to_pascal_case,
 };
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::{ListParamStrategy, OutputConfig};
@@ -167,7 +167,7 @@ fn build_queries_file(queries: &[Query], schema: &Schema, target: &JsTarget, out
     emit_sql_constants(&mut src, queries, target, &strategy)?;
     for query in queries {
         writeln!(src)?;
-        if infer_table(query, schema).is_none() && !query.result_columns.is_empty() {
+        if has_inline_rows(query, schema) {
             emit_inline_row_type(&mut src, query, output)?;
             writeln!(src)?;
         }

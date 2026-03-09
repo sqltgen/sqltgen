@@ -3,8 +3,8 @@ use std::fmt::Write;
 use std::path::PathBuf;
 
 use crate::backend::common::{
-    infer_row_type_name, infer_table, mysql_json_table_col_type, positional_bind_names, replace_list_in_clause, rewrite_to_anon_params, split_at_in_clause,
-    sql_const_name, to_pascal_case, to_snake_case,
+    has_inline_rows, infer_row_type_name, infer_table, mysql_json_table_col_type, positional_bind_names, replace_list_in_clause, rewrite_to_anon_params,
+    split_at_in_clause, sql_const_name, to_pascal_case, to_snake_case,
 };
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::{ListParamStrategy, OutputConfig};
@@ -83,7 +83,7 @@ fn build_queries_file(queries: &[Query], schema: &Schema, target: &PythonTarget,
     let strategy = config.list_params.clone().unwrap_or_default();
     let mut src = String::new();
 
-    let has_inline_rows = queries.iter().any(|q| infer_table(q, schema).is_none() && !q.result_columns.is_empty());
+    let any_inline_rows = queries.iter().any(|q| has_inline_rows(q, schema));
 
     // Collect type imports across all query params and result columns
     let mut imports = TypeImports::default();
@@ -105,7 +105,7 @@ fn build_queries_file(queries: &[Query], schema: &Schema, target: &PythonTarget,
     }
     writeln!(src, "from __future__ import annotations")?;
     writeln!(src)?;
-    if has_inline_rows {
+    if any_inline_rows {
         writeln!(src, "import dataclasses")?;
     }
     match target {
@@ -148,7 +148,7 @@ fn build_queries_file(queries: &[Query], schema: &Schema, target: &PythonTarget,
     for query in queries {
         writeln!(src)?;
         writeln!(src)?;
-        if infer_table(query, schema).is_none() && !query.result_columns.is_empty() {
+        if has_inline_rows(query, schema) {
             emit_row_dataclass(&mut src, query, target)?;
             writeln!(src)?;
             writeln!(src)?;

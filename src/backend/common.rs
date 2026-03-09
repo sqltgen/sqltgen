@@ -63,6 +63,16 @@ pub fn infer_row_type_name(query: &Query, schema: &Schema) -> Option<String> {
     None
 }
 
+/// True when a query has inline result columns that are *not* matched to a schema table.
+///
+/// Use this to decide whether to emit a per-query row type declaration (record, dataclass,
+/// interface, …). When the result columns match a table, the backend reuses that table's
+/// existing type instead; when there are no result columns at all (exec/execrows), no row
+/// type is needed.
+pub fn has_inline_rows(query: &Query, schema: &Schema) -> bool {
+    infer_table(query, schema).is_none() && !query.result_columns.is_empty()
+}
+
 /// Check if a query's result columns exactly match a table's columns by name and count.
 pub fn infer_table<'a>(query: &Query, schema: &'a Schema) -> Option<&'a str> {
     for table in &schema.tables {

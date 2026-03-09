@@ -1,7 +1,7 @@
 use sqlx::PgPool;
 
-use super::author::Author;
 use super::book::Book;
+use super::author::Author;
 
 #[derive(Debug, sqlx::FromRow)]
 pub struct DeleteAuthorRow {
