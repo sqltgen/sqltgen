@@ -702,6 +702,42 @@ mod tests {
         assert!(!src.contains("JSON_TABLE"), "dynamic strategy does not use JSON_TABLE");
     }
 
+    // ─── generate: nullable params ───────────────────────────────────────────
+
+    #[test]
+    fn test_generate_nullable_param_pg() {
+        // Nullable param → `Option<T>` in function signature; sqlx handles binding.
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "UpdateBio".to_string(),
+            cmd: QueryCmd::Exec,
+            sql: "UPDATE users SET bio = $1 WHERE id = $2".to_string(),
+            params: vec![Parameter::scalar(1, "bio", SqlType::Text, true), Parameter::scalar(2, "id", SqlType::BigInt, false)],
+            result_columns: vec![],
+        };
+        let files = pg().generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "queries.rs");
+        assert!(src.contains("bio: Option<String>"), "nullable param should be Option<String>");
+        assert!(src.contains("id: i64"), "non-nullable param should be plain i64");
+        assert!(!src.contains("id: Option<i64>"), "non-nullable param must not be wrapped in Option");
+    }
+
+    #[test]
+    fn test_generate_nullable_param_mysql() {
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "UpdateBio".to_string(),
+            cmd: QueryCmd::Exec,
+            sql: "UPDATE users SET bio = $1 WHERE id = $2".to_string(),
+            params: vec![Parameter::scalar(1, "bio", SqlType::Text, true), Parameter::scalar(2, "id", SqlType::BigInt, false)],
+            result_columns: vec![],
+        };
+        let files = mysql().generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "queries.rs");
+        assert!(src.contains("bio: Option<String>"), "nullable param should be Option<String>");
+        assert!(src.contains("id: i64"), "non-nullable param should be plain i64");
+    }
+
     // ─── generate: SQLite placeholder rewriting ─────────────────────────────
 
     #[test]

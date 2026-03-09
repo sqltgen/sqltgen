@@ -1207,6 +1207,58 @@ mod tests {
         assert!(src.contains("(active,) + tuple(ids)"), "scalar before IN must precede list in args tuple");
     }
 
+    // ─── generate: nullable params ───────────────────────────────────────────
+
+    #[test]
+    fn test_generate_nullable_param_pg() {
+        // Nullable param → `T | None` in function signature; Python passes None directly.
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "UpdateBio".to_string(),
+            cmd: QueryCmd::Exec,
+            sql: "UPDATE users SET bio = $1 WHERE id = $2".to_string(),
+            params: vec![Parameter::scalar(1, "bio", SqlType::Text, true), Parameter::scalar(2, "id", SqlType::BigInt, false)],
+            result_columns: vec![],
+        };
+        let files = pg().generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "queries.py");
+        assert!(src.contains("bio: str | None"), "nullable param should be str | None");
+        assert!(src.contains("id: int"), "non-nullable param should be plain int");
+        assert!(!src.contains("id: int | None"), "non-nullable param must not be Optional");
+    }
+
+    #[test]
+    fn test_generate_nullable_param_sqlite() {
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "UpdateBio".to_string(),
+            cmd: QueryCmd::Exec,
+            sql: "UPDATE users SET bio = ?1 WHERE id = ?2".to_string(),
+            params: vec![Parameter::scalar(1, "bio", SqlType::Text, true), Parameter::scalar(2, "id", SqlType::BigInt, false)],
+            result_columns: vec![],
+        };
+        let files = sq().generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "queries.py");
+        assert!(src.contains("bio: str | None"), "nullable param should be str | None");
+        assert!(src.contains("id: int"), "non-nullable param should be plain int");
+    }
+
+    #[test]
+    fn test_generate_nullable_param_mysql() {
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "UpdateBio".to_string(),
+            cmd: QueryCmd::Exec,
+            sql: "UPDATE users SET bio = $1 WHERE id = $2".to_string(),
+            params: vec![Parameter::scalar(1, "bio", SqlType::Text, true), Parameter::scalar(2, "id", SqlType::BigInt, false)],
+            result_columns: vec![],
+        };
+        let files = my().generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "queries.py");
+        assert!(src.contains("bio: str | None"), "nullable param should be str | None");
+        assert!(src.contains("id: int"), "non-nullable param should be plain int");
+    }
+
     #[test]
     #[ignore = "exposes bug B (task 023): fix before enabling"]
     fn test_bug_b_sqlite_dynamic_scalar_after_in_binding_order() {
