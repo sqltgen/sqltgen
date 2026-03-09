@@ -42,6 +42,27 @@ pub fn to_snake_case(s: &str) -> String {
     out
 }
 
+/// Derive the row-type name for a query result, or `None` if the query has no
+/// result columns (e.g. `:exec` / `:execrows`).
+///
+/// - If the result columns exactly match a known table, returns the PascalCase
+///   table name.
+/// - If the query has result columns but doesn't map to a known table, returns
+///   `"{Query}Row"` (PascalCase query name + `"Row"`).
+/// - Returns `None` when there are no result columns at all.
+///
+/// Backends call this and supply a language-specific fallback for the `None`
+/// case (e.g. `"Object[]"` for Java, `"Any"` for Kotlin/Python).
+pub fn infer_row_type_name(query: &Query, schema: &Schema) -> Option<String> {
+    if let Some(table_name) = infer_table(query, schema) {
+        return Some(to_pascal_case(table_name));
+    }
+    if !query.result_columns.is_empty() {
+        return Some(format!("{}Row", to_pascal_case(&query.name)));
+    }
+    None
+}
+
 /// Check if a query's result columns exactly match a table's columns by name and count.
 pub fn infer_table<'a>(query: &Query, schema: &'a Schema) -> Option<&'a str> {
     for table in &schema.tables {
@@ -235,10 +256,64 @@ pub fn positional_bind_names<'a>(query: &'a Query) -> Vec<&'a str> {
 mod tests {
     use super::*;
 
-    use crate::ir::{Parameter, Query, QueryCmd, SqlType};
+    use crate::ir::{Column, Parameter, Query, QueryCmd, ResultColumn, Schema, SqlType, Table};
 
     fn make_query(sql: &str, params: Vec<Parameter>) -> Query {
         Query { name: "Test".to_string(), cmd: QueryCmd::Exec, sql: sql.to_string(), params, result_columns: vec![] }
+    }
+
+    fn make_schema_with_table(table_name: &str, col_names: &[&str]) -> Schema {
+        Schema {
+            tables: vec![Table {
+                name: table_name.to_string(),
+                columns: col_names.iter().map(|n| Column { name: n.to_string(), sql_type: SqlType::Text, nullable: false, is_primary_key: false }).collect(),
+            }],
+        }
+    }
+
+    fn make_result_cols(names: &[&str]) -> Vec<ResultColumn> {
+        names.iter().map(|n| ResultColumn { name: n.to_string(), sql_type: SqlType::Text, nullable: false }).collect()
+    }
+
+    // ─── infer_row_type_name ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_infer_row_type_name_matches_table() {
+        let schema = make_schema_with_table("user_account", &["id", "name"]);
+        let query = Query {
+            name: "GetUser".to_string(),
+            cmd: QueryCmd::One,
+            sql: "SELECT id, name FROM user_account WHERE id = $1".to_string(),
+            params: vec![],
+            result_columns: make_result_cols(&["id", "name"]),
+        };
+        assert_eq!(infer_row_type_name(&query, &schema), Some("UserAccount".to_string()));
+    }
+
+    #[test]
+    fn test_infer_row_type_name_inline_row_when_no_table_match() {
+        let schema = make_schema_with_table("user_account", &["id", "name", "email"]);
+        let query = Query {
+            name: "GetUserSummary".to_string(),
+            cmd: QueryCmd::One,
+            sql: "SELECT id, name FROM user_account WHERE id = $1".to_string(),
+            params: vec![],
+            result_columns: make_result_cols(&["id", "name"]), // only 2 cols, table has 3
+        };
+        assert_eq!(infer_row_type_name(&query, &schema), Some("GetUserSummaryRow".to_string()));
+    }
+
+    #[test]
+    fn test_infer_row_type_name_returns_none_when_no_result_cols() {
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "DeleteUser".to_string(),
+            cmd: QueryCmd::Exec,
+            sql: "DELETE FROM users WHERE id = $1".to_string(),
+            params: vec![],
+            result_columns: vec![],
+        };
+        assert!(infer_row_type_name(&query, &schema).is_none());
     }
 
     // ─── jdbc_setter ─────────────────────────────────────────────────────────

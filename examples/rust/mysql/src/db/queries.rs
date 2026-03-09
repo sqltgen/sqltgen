@@ -1,7 +1,7 @@
 use sqlx::MySqlPool;
 
-use super::book::Book;
 use super::author::Author;
+use super::book::Book;
 
 #[derive(Debug, sqlx::FromRow)]
 pub struct ListBooksWithAuthorRow {

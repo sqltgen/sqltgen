@@ -2,8 +2,8 @@ use std::fmt::Write;
 use std::path::PathBuf;
 
 use crate::backend::common::{
-    emit_package, infer_table, jdbc_bind_sequence, jdbc_setter, mysql_json_table_col_type, pg_array_type_name, replace_list_in_clause, rewrite_to_anon_params,
-    split_at_in_clause, sql_const_name, to_camel_case, to_pascal_case,
+    emit_package, infer_row_type_name, infer_table, jdbc_bind_sequence, jdbc_setter, mysql_json_table_col_type, pg_array_type_name, replace_list_in_clause,
+    rewrite_to_anon_params, split_at_in_clause, sql_const_name, to_camel_case, to_pascal_case,
 };
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::{ListParamStrategy, OutputConfig};
@@ -337,13 +337,7 @@ fn emit_java_ds_method(src: &mut String, query: &Query, schema: &Schema) -> anyh
 }
 
 fn result_row_type(query: &Query, schema: &Schema) -> String {
-    if let Some(table_name) = infer_table(query, schema) {
-        return to_pascal_case(table_name);
-    }
-    if !query.result_columns.is_empty() {
-        return row_record_name(&query.name);
-    }
-    "Object[]".to_string()
+    infer_row_type_name(query, schema).unwrap_or_else(|| "Object[]".to_string())
 }
 
 /// Like [`result_row_type`], but qualifies inline row records as `Queries.XxxRow`
@@ -353,17 +347,13 @@ fn ds_result_row_type(query: &Query, schema: &Schema) -> String {
         return to_pascal_case(table_name);
     }
     if !query.result_columns.is_empty() {
-        return format!("Queries.{}", row_record_name(&query.name));
+        return format!("Queries.{}Row", to_pascal_case(&query.name));
     }
     "Object[]".to_string()
 }
 
-fn row_record_name(query_name: &str) -> String {
-    format!("{}Row", to_pascal_case(query_name))
-}
-
 fn emit_row_record(src: &mut String, query: &Query) -> anyhow::Result<()> {
-    let name = row_record_name(&query.name);
+    let name = format!("{}Row", to_pascal_case(&query.name));
     writeln!(src, "    public record {name}(")?;
     let fields: Vec<String> =
         query.result_columns.iter().map(|col| format!("        {} {}", java_type(&col.sql_type, col.nullable), to_camel_case(&col.name))).collect();

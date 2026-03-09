@@ -3,8 +3,8 @@ use std::fmt::Write;
 use std::path::PathBuf;
 
 use crate::backend::common::{
-    infer_table, mysql_json_table_col_type, positional_bind_names, replace_list_in_clause, rewrite_to_anon_params, split_at_in_clause, sql_const_name,
-    to_pascal_case, to_snake_case,
+    infer_row_type_name, infer_table, mysql_json_table_col_type, positional_bind_names, replace_list_in_clause, rewrite_to_anon_params, split_at_in_clause,
+    sql_const_name, to_pascal_case, to_snake_case,
 };
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::{ListParamStrategy, OutputConfig};
@@ -160,7 +160,7 @@ fn build_queries_file(queries: &[Query], schema: &Schema, target: &PythonTarget,
 }
 
 fn emit_row_dataclass(src: &mut String, query: &Query, target: &PythonTarget) -> anyhow::Result<()> {
-    let name = row_class_name(&query.name);
+    let name = format!("{}Row", to_pascal_case(&query.name));
     writeln!(src, "@dataclasses.dataclass")?;
     writeln!(src, "class {name}:")?;
     for col in &query.result_columns {
@@ -522,17 +522,7 @@ fn rewrite_sql_postgres(sql: &str) -> String {
 // ─── Row helpers ──────────────────────────────────────────────────────────────
 
 fn result_row_type(query: &Query, schema: &Schema) -> String {
-    if let Some(table_name) = infer_table(query, schema) {
-        return to_pascal_case(table_name);
-    }
-    if !query.result_columns.is_empty() {
-        return row_class_name(&query.name);
-    }
-    "Any".to_string()
-}
-
-fn row_class_name(query_name: &str) -> String {
-    format!("{}Row", to_pascal_case(query_name))
+    infer_row_type_name(query, schema).unwrap_or_else(|| "Any".to_string())
 }
 
 #[cfg(test)]

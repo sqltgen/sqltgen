@@ -3,7 +3,8 @@ use std::fmt::Write;
 use std::path::PathBuf;
 
 use crate::backend::common::{
-    infer_table, mysql_json_table_col_type, positional_bind_names, replace_list_in_clause, split_at_in_clause, to_pascal_case, to_snake_case,
+    infer_row_type_name, infer_table, mysql_json_table_col_type, positional_bind_names, replace_list_in_clause, split_at_in_clause, to_pascal_case,
+    to_snake_case,
 };
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::{ListParamStrategy, OutputConfig};
@@ -325,13 +326,7 @@ fn emit_rust_sqlx_call(src: &mut String, query: &Query, sql: &str, bind_names: &
 }
 
 fn result_row_type(query: &Query, schema: &Schema) -> String {
-    if let Some(table_name) = infer_table(query, schema) {
-        return to_pascal_case(table_name);
-    }
-    if !query.result_columns.is_empty() {
-        return row_struct_name(&query.name);
-    }
-    "serde_json::Value".to_string()
+    infer_row_type_name(query, schema).unwrap_or_else(|| "serde_json::Value".to_string())
 }
 
 fn row_struct_name(query_name: &str) -> String {

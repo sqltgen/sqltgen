@@ -3,8 +3,8 @@ use std::fmt::Write;
 use std::path::PathBuf;
 
 use crate::backend::common::{
-    infer_table, mysql_json_table_col_type, positional_bind_names, replace_list_in_clause, rewrite_to_anon_params, split_at_in_clause, sql_const_name,
-    to_camel_case, to_pascal_case,
+    infer_row_type_name, infer_table, mysql_json_table_col_type, positional_bind_names, replace_list_in_clause, rewrite_to_anon_params, split_at_in_clause,
+    sql_const_name, to_camel_case, to_pascal_case,
 };
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::{ListParamStrategy, OutputConfig};
@@ -343,10 +343,7 @@ fn return_type(query: &Query, schema: &Schema) -> String {
 
 /// Compute the row type name for a query result (table name or `{Query}Row`).
 fn row_type_name(query: &Query, schema: &Schema) -> String {
-    if let Some(table_name) = infer_table(query, schema) {
-        return to_pascal_case(table_name);
-    }
-    format!("{}Row", to_pascal_case(&query.name))
+    infer_row_type_name(query, schema).unwrap_or_else(|| format!("{}Row", to_pascal_case(&query.name)))
 }
 
 // ─── PostgreSQL (pg) ─────────────────────────────────────────────────────────
