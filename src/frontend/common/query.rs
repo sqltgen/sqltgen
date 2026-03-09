@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use sqlparser::ast::{
     Assignment, AssignmentTarget, BinaryOperator, Delete, Expr, FromTable, FunctionArg, FunctionArgExpr, FunctionArguments, Insert, JoinConstraint,
-    JoinOperator, LimitClause, ObjectNamePart, Query as SqlQuery, Select, SelectItem, SelectItemQualifiedWildcardKind, SetExpr, Statement, TableFactor,
-    TableObject, TableWithJoins, Value, ValueWithSpan, Values, With,
+    JoinOperator, LimitClause, ObjectNamePart, OrderByKind, Query as SqlQuery, Select, SelectItem, SelectItemQualifiedWildcardKind, SetExpr, Statement,
+    TableFactor, TableObject, TableWithJoins, Value, ValueWithSpan, Values, With,
 };
 use sqlparser::dialect::Dialect;
 use sqlparser::parser::Parser;
@@ -174,6 +174,8 @@ fn build_select_body(ann: &Annotation, sql: &str, q: &SqlQuery, select: &Select,
         }
         // LIMIT / OFFSET
         collect_limit_offset_params(q, &mut mapping);
+        // ORDER BY expressions (CASE, function calls, etc. in ORDER BY)
+        collect_order_by_params(q, &alias_map, &all_tables, schema, config, &mut mapping);
         // Projection expressions (CASE, function calls, etc. in SELECT list)
         collect_projection_params(select, &alias_map, &all_tables, schema, config, &mut mapping);
         build_params(mapping, count_params(sql))
@@ -908,6 +910,27 @@ fn collect_limit_offset_params(q: &SqlQuery, mapping: &mut HashMap<usize, (Strin
                 if let Some(idx) = placeholder_idx(p) {
                     mapping.entry(idx).or_insert(("offset".into(), SqlType::BigInt, false));
                 }
+            }
+        }
+    }
+}
+
+/// Collect typed parameter mappings from ORDER BY expressions.
+///
+/// Walks each ORDER BY expression to find placeholders inside CASE, function
+/// calls, and other complex expressions used for sorting.
+fn collect_order_by_params(
+    q: &SqlQuery,
+    alias_map: &HashMap<String, &Table>,
+    all_tables: &[(Table, Option<String>)],
+    schema: &Schema,
+    config: &ResolverConfig,
+    mapping: &mut HashMap<usize, (String, SqlType, bool)>,
+) {
+    if let Some(order_by) = &q.order_by {
+        if let OrderByKind::Expressions(exprs) = &order_by.kind {
+            for obe in exprs {
+                collect_params_from_expr(&obe.expr, alias_map, all_tables, schema, config, mapping);
             }
         }
     }
@@ -1819,5 +1842,31 @@ mod tests {
         // First resolution wins — id is encountered first
         assert_eq!(q.params[0].name, "id");
         assert_eq!(q.params[0].sql_type, SqlType::BigInt);
+    }
+
+    // ─── ORDER BY param inference tests ──────────────────────────────────────
+
+    #[test]
+    fn param_in_order_by_case_expr() {
+        // ORDER BY CASE WHEN id = $1 THEN 0 ELSE 1 END — $1 should be BigInt, not Text
+        let schema = make_schema();
+        let sql = "-- name: ListUsersOrderByParam :many\nSELECT id, name FROM users ORDER BY CASE WHEN id = $1 THEN 0 ELSE 1 END, id;";
+        let queries = parse_queries(sql, &schema).unwrap();
+        let q = &queries[0];
+        assert_eq!(q.params.len(), 1);
+        assert_eq!(q.params[0].name, "id");
+        assert_eq!(q.params[0].sql_type, SqlType::BigInt);
+    }
+
+    #[test]
+    fn param_in_order_by_simple_comparison() {
+        // ORDER BY (name = $1) DESC — $1 should be Text
+        let schema = make_schema();
+        let sql = "-- name: ListUsersNameFirst :many\nSELECT id, name FROM users ORDER BY name = $1 DESC;";
+        let queries = parse_queries(sql, &schema).unwrap();
+        let q = &queries[0];
+        assert_eq!(q.params.len(), 1);
+        assert_eq!(q.params[0].name, "name");
+        assert_eq!(q.params[0].sql_type, SqlType::Text);
     }
 }
