@@ -177,6 +177,42 @@ mod tests {
     }
 
     #[test]
+    fn drop_table_multiple_names() {
+        let ddl = "
+            CREATE TABLE a (id INTEGER PRIMARY KEY);
+            CREATE TABLE b (id INTEGER PRIMARY KEY);
+            CREATE TABLE c (id INTEGER PRIMARY KEY);
+            DROP TABLE a, b;
+        ";
+        let schema = parse_schema(ddl).unwrap();
+        assert_eq!(schema.tables.len(), 1);
+        assert_eq!(schema.tables[0].name, "c");
+    }
+
+    #[test]
+    fn alter_unknown_table_is_ignored() {
+        let ddl = "
+            CREATE TABLE users (id INTEGER PRIMARY KEY);
+            ALTER TABLE ghost ADD COLUMN x TEXT;
+        ";
+        let schema = parse_schema(ddl).unwrap();
+        assert_eq!(schema.tables[0].columns.len(), 1);
+    }
+
+    #[test]
+    fn parses_default_constraint() {
+        let ddl = "
+            CREATE TABLE events (
+                id         INTEGER PRIMARY KEY,
+                created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+                status     TEXT    NOT NULL DEFAULT 'active'
+            );
+        ";
+        let schema = parse_schema(ddl).unwrap();
+        assert_eq!(schema.tables[0].columns.len(), 3);
+    }
+
+    #[test]
     fn type_affinity_mapping() {
         let ddl = "
             CREATE TABLE data (

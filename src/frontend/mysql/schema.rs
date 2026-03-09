@@ -238,6 +238,32 @@ mod tests {
     }
 
     #[test]
+    fn drop_table_multiple_names() {
+        let ddl = "
+            CREATE TABLE a (id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY);
+            CREATE TABLE b (id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY);
+            CREATE TABLE c (id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY);
+            DROP TABLE a, b;
+        ";
+        let schema = parse_schema(ddl).unwrap();
+        assert_eq!(schema.tables.len(), 1);
+        assert_eq!(schema.tables[0].name, "c");
+    }
+
+    #[test]
+    fn parses_default_constraint() {
+        let ddl = "
+            CREATE TABLE events (
+                id         BIGINT   NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                status     VARCHAR(50) NOT NULL DEFAULT 'active'
+            );
+        ";
+        let schema = parse_schema(ddl).unwrap();
+        assert_eq!(schema.tables[0].columns.len(), 3);
+    }
+
+    #[test]
     fn alter_add_primary_key_constraint() {
         let ddl = "
             CREATE TABLE orders (user_id BIGINT NOT NULL, item_id BIGINT NOT NULL);
