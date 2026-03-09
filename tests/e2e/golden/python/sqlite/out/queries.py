@@ -184,8 +184,8 @@ class GetBooksByPriceRangeRow:
     price: decimal.Decimal
 
 
-def get_books_by_price_range(conn: sqlite3.Connection, price: decimal.Decimal, price: decimal.Decimal) -> list[GetBooksByPriceRangeRow]:
-    return [GetBooksByPriceRangeRow(*row) for row in conn.execute(SQL_GET_BOOKS_BY_PRICE_RANGE, (price, price)).fetchall()]
+def get_books_by_price_range(conn: sqlite3.Connection, price: decimal.Decimal, price_2: decimal.Decimal) -> list[GetBooksByPriceRangeRow]:
+    return [GetBooksByPriceRangeRow(*row) for row in conn.execute(SQL_GET_BOOKS_BY_PRICE_RANGE, (price, price_2)).fetchall()]
 
 
 @dataclasses.dataclass
@@ -196,8 +196,8 @@ class GetBooksInGenresRow:
     price: decimal.Decimal
 
 
-def get_books_in_genres(conn: sqlite3.Connection, genre: str, genre: str, genre: str) -> list[GetBooksInGenresRow]:
-    return [GetBooksInGenresRow(*row) for row in conn.execute(SQL_GET_BOOKS_IN_GENRES, (genre, genre, genre)).fetchall()]
+def get_books_in_genres(conn: sqlite3.Connection, genre: str, genre_2: str, genre_3: str) -> list[GetBooksInGenresRow]:
+    return [GetBooksInGenresRow(*row) for row in conn.execute(SQL_GET_BOOKS_IN_GENRES, (genre, genre_2, genre_3)).fetchall()]
 
 
 @dataclasses.dataclass

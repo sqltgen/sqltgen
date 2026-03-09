@@ -326,11 +326,11 @@ export async function searchBooksByTitle(db, title) {
 /**
  * @param {ClientBase} db
  * @param {number} price
- * @param {number} price
+ * @param {number} price2
  * @returns {Promise<GetBooksByPriceRangeRow[]>}
  */
-export async function getBooksByPriceRange(db, price, price) {
-  const result = await db.query(SQL_GET_BOOKS_BY_PRICE_RANGE, [price, price]);
+export async function getBooksByPriceRange(db, price, price2) {
+  const result = await db.query(SQL_GET_BOOKS_BY_PRICE_RANGE, [price, price2]);
   return result.rows;
 }
 
@@ -345,12 +345,12 @@ export async function getBooksByPriceRange(db, price, price) {
 /**
  * @param {ClientBase} db
  * @param {string} genre
- * @param {string} genre
- * @param {string} genre
+ * @param {string} genre2
+ * @param {string} genre3
  * @returns {Promise<GetBooksInGenresRow[]>}
  */
-export async function getBooksInGenres(db, genre, genre, genre) {
-  const result = await db.query(SQL_GET_BOOKS_IN_GENRES, [genre, genre, genre]);
+export async function getBooksInGenres(db, genre, genre2, genre3) {
+  const result = await db.query(SQL_GET_BOOKS_IN_GENRES, [genre, genre2, genre3]);
   return result.rows;
 }
 

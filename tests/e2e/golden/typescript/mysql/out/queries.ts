@@ -187,8 +187,8 @@ export interface GetBooksByPriceRangeRow {
   price: number;
 }
 
-export async function getBooksByPriceRange(db: Connection, price: number, price: number): Promise<GetBooksByPriceRangeRow[]> {
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_GET_BOOKS_BY_PRICE_RANGE, [price, price]);
+export async function getBooksByPriceRange(db: Connection, price: number, price2: number): Promise<GetBooksByPriceRangeRow[]> {
+  const [rows] = await db.execute<RowDataPacket[]>(SQL_GET_BOOKS_BY_PRICE_RANGE, [price, price2]);
   return rows as GetBooksByPriceRangeRow[];
 }
 
@@ -199,8 +199,8 @@ export interface GetBooksInGenresRow {
   price: number;
 }
 
-export async function getBooksInGenres(db: Connection, genre: string, genre: string, genre: string): Promise<GetBooksInGenresRow[]> {
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_GET_BOOKS_IN_GENRES, [genre, genre, genre]);
+export async function getBooksInGenres(db: Connection, genre: string, genre2: string, genre3: string): Promise<GetBooksInGenresRow[]> {
+  const [rows] = await db.execute<RowDataPacket[]>(SQL_GET_BOOKS_IN_GENRES, [genre, genre2, genre3]);
   return rows as GetBooksInGenresRow[];
 }
 

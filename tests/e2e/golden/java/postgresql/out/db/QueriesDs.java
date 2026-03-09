@@ -133,15 +133,15 @@ public final class QueriesDs {
         }
     }
 
-    public List<Queries.GetBooksByPriceRangeRow> getBooksByPriceRange(java.math.BigDecimal price, java.math.BigDecimal price) throws SQLException {
+    public List<Queries.GetBooksByPriceRangeRow> getBooksByPriceRange(java.math.BigDecimal price, java.math.BigDecimal price2) throws SQLException {
         try (Connection conn = dataSource.getConnection()) {
-            return Queries.getBooksByPriceRange(conn, price, price);
+            return Queries.getBooksByPriceRange(conn, price, price2);
         }
     }
 
-    public List<Queries.GetBooksInGenresRow> getBooksInGenres(String genre, String genre, String genre) throws SQLException {
+    public List<Queries.GetBooksInGenresRow> getBooksInGenres(String genre, String genre2, String genre3) throws SQLException {
         try (Connection conn = dataSource.getConnection()) {
-            return Queries.getBooksInGenres(conn, genre, genre, genre);
+            return Queries.getBooksInGenres(conn, genre, genre2, genre3);
         }
     }
 

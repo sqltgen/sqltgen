@@ -271,11 +271,11 @@ export async function searchBooksByTitle(db, title) {
 /**
  * @param {Database} db
  * @param {number} price
- * @param {number} price
+ * @param {number} price2
  * @returns {Promise<GetBooksByPriceRangeRow[]>}
  */
-export async function getBooksByPriceRange(db, price, price) {
-  return db.prepare(SQL_GET_BOOKS_BY_PRICE_RANGE).all(price, price);
+export async function getBooksByPriceRange(db, price, price2) {
+  return db.prepare(SQL_GET_BOOKS_BY_PRICE_RANGE).all(price, price2);
 }
 
 /**
@@ -289,12 +289,12 @@ export async function getBooksByPriceRange(db, price, price) {
 /**
  * @param {Database} db
  * @param {string} genre
- * @param {string} genre
- * @param {string} genre
+ * @param {string} genre2
+ * @param {string} genre3
  * @returns {Promise<GetBooksInGenresRow[]>}
  */
-export async function getBooksInGenres(db, genre, genre, genre) {
-  return db.prepare(SQL_GET_BOOKS_IN_GENRES).all(genre, genre, genre);
+export async function getBooksInGenres(db, genre, genre2, genre3) {
+  return db.prepare(SQL_GET_BOOKS_IN_GENRES).all(genre, genre2, genre3);
 }
 
 /**

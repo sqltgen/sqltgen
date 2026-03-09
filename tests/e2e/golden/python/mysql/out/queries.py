@@ -227,9 +227,9 @@ class GetBooksByPriceRangeRow:
     price: decimal.Decimal
 
 
-def get_books_by_price_range(conn: mysql.connector.MySQLConnection, price: decimal.Decimal, price: decimal.Decimal) -> list[GetBooksByPriceRangeRow]:
+def get_books_by_price_range(conn: mysql.connector.MySQLConnection, price: decimal.Decimal, price_2: decimal.Decimal) -> list[GetBooksByPriceRangeRow]:
     with conn.cursor() as cur:
-        cur.execute(SQL_GET_BOOKS_BY_PRICE_RANGE, (price, price))
+        cur.execute(SQL_GET_BOOKS_BY_PRICE_RANGE, (price, price_2))
         return [GetBooksByPriceRangeRow(*row) for row in cur.fetchall()]
 
 
@@ -241,9 +241,9 @@ class GetBooksInGenresRow:
     price: decimal.Decimal
 
 
-def get_books_in_genres(conn: mysql.connector.MySQLConnection, genre: str, genre: str, genre: str) -> list[GetBooksInGenresRow]:
+def get_books_in_genres(conn: mysql.connector.MySQLConnection, genre: str, genre_2: str, genre_3: str) -> list[GetBooksInGenresRow]:
     with conn.cursor() as cur:
-        cur.execute(SQL_GET_BOOKS_IN_GENRES, (genre, genre, genre))
+        cur.execute(SQL_GET_BOOKS_IN_GENRES, (genre, genre_2, genre_3))
         return [GetBooksInGenresRow(*row) for row in cur.fetchall()]
 
 

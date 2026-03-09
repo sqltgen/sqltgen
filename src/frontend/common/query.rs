@@ -936,9 +936,18 @@ fn collect_projection_params(
 }
 
 fn build_params(mapping: HashMap<usize, (String, SqlType, bool)>, count: usize) -> Vec<Parameter> {
+    // Track how many times each name has been used so we can deduplicate.
+    // e.g. `price BETWEEN $1 AND $2` → both get name "price" from the column,
+    // but we need "price" and "price_2" in the function signature.
+    let mut name_counts: HashMap<String, usize> = HashMap::new();
     (1..=count)
         .map(|idx| match mapping.get(&idx) {
-            Some((name, sql_type, nullable)) => Parameter::scalar(idx, name.clone(), sql_type.clone(), *nullable),
+            Some((name, sql_type, nullable)) => {
+                let count = name_counts.entry(name.clone()).or_insert(0);
+                *count += 1;
+                let unique_name = if *count == 1 { name.clone() } else { format!("{}_{}", name, count) };
+                Parameter::scalar(idx, unique_name, sql_type.clone(), *nullable)
+            },
             None => Parameter::scalar(idx, format!("param{idx}"), SqlType::Text, false),
         })
         .collect()
@@ -1751,5 +1760,64 @@ mod tests {
         assert_eq!(q.params[1].sql_type, SqlType::BigInt, "tenant_id should be typed from sessions.tenant_id");
         assert_eq!(q.sql.matches("$1").count(), 1);
         assert_eq!(q.sql.matches("$2").count(), 2);
+    }
+
+    #[test]
+    fn param_dedup_between() {
+        let schema = make_schema();
+        let sql = "-- name: GetByIdRange :many\nSELECT * FROM users WHERE id BETWEEN $1 AND $2;";
+        let queries = parse_queries(sql, &schema).unwrap();
+        let q = &queries[0];
+        assert_eq!(q.params.len(), 2);
+        assert_eq!(q.params[0].name, "id");
+        assert_eq!(q.params[1].name, "id_2");
+    }
+
+    #[test]
+    fn param_dedup_in_list() {
+        let schema = make_schema();
+        let sql = "-- name: GetByNames :many\nSELECT * FROM users WHERE name IN ($1, $2, $3);";
+        let queries = parse_queries(sql, &schema).unwrap();
+        let q = &queries[0];
+        assert_eq!(q.params.len(), 3);
+        assert_eq!(q.params[0].name, "name");
+        assert_eq!(q.params[1].name, "name_2");
+        assert_eq!(q.params[2].name, "name_3");
+    }
+
+    #[test]
+    fn param_dedup_same_column_or() {
+        let schema = make_schema();
+        let sql = "-- name: GetByIdOr :many\nSELECT * FROM users WHERE id = $1 OR id = $2;";
+        let queries = parse_queries(sql, &schema).unwrap();
+        let q = &queries[0];
+        assert_eq!(q.params.len(), 2);
+        assert_eq!(q.params[0].name, "id");
+        assert_eq!(q.params[1].name, "id_2");
+    }
+
+    #[test]
+    fn param_dedup_different_columns_no_suffix() {
+        let schema = make_schema();
+        let sql = "-- name: GetByIdAndName :many\nSELECT * FROM users WHERE id = $1 AND name = $2;";
+        let queries = parse_queries(sql, &schema).unwrap();
+        let q = &queries[0];
+        assert_eq!(q.params.len(), 2);
+        assert_eq!(q.params[0].name, "id");
+        assert_eq!(q.params[1].name, "name");
+    }
+
+    #[test]
+    fn repeated_param_same_index_different_columns() {
+        // WHERE col_a = $1 OR col_b = $1 — same param index used with two columns.
+        // The param should get one name (from first resolution) and no dedup suffix.
+        let schema = make_schema();
+        let sql = "-- name: SearchByIdOrName :many\nSELECT * FROM users WHERE id = $1 OR name = $1;";
+        let queries = parse_queries(sql, &schema).unwrap();
+        let q = &queries[0];
+        assert_eq!(q.params.len(), 1);
+        // First resolution wins — id is encountered first
+        assert_eq!(q.params[0].name, "id");
+        assert_eq!(q.params[0].sql_type, SqlType::BigInt);
     }
 }

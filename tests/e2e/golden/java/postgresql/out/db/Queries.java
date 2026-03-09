@@ -333,10 +333,10 @@ public final class Queries {
 
     private static final String SQL_GET_BOOKS_BY_PRICE_RANGE =
         "SELECT id, title, genre, price FROM book WHERE price BETWEEN ? AND ? ORDER BY price;";
-    public static List<GetBooksByPriceRangeRow> getBooksByPriceRange(Connection conn, java.math.BigDecimal price, java.math.BigDecimal price) throws SQLException {
+    public static List<GetBooksByPriceRangeRow> getBooksByPriceRange(Connection conn, java.math.BigDecimal price, java.math.BigDecimal price2) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_GET_BOOKS_BY_PRICE_RANGE)) {
             ps.setBigDecimal(1, price);
-            ps.setBigDecimal(2, price);
+            ps.setBigDecimal(2, price2);
             List<GetBooksByPriceRangeRow> rows = new ArrayList<>();
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) rows.add(new GetBooksByPriceRangeRow(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getBigDecimal(4)));
@@ -354,11 +354,11 @@ public final class Queries {
 
     private static final String SQL_GET_BOOKS_IN_GENRES =
         "SELECT id, title, genre, price FROM book WHERE genre IN (?, ?, ?) ORDER BY title;";
-    public static List<GetBooksInGenresRow> getBooksInGenres(Connection conn, String genre, String genre, String genre) throws SQLException {
+    public static List<GetBooksInGenresRow> getBooksInGenres(Connection conn, String genre, String genre2, String genre3) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_GET_BOOKS_IN_GENRES)) {
             ps.setString(1, genre);
-            ps.setString(2, genre);
-            ps.setString(3, genre);
+            ps.setString(2, genre2);
+            ps.setString(3, genre3);
             List<GetBooksInGenresRow> rows = new ArrayList<>();
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) rows.add(new GetBooksInGenresRow(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getBigDecimal(4)));

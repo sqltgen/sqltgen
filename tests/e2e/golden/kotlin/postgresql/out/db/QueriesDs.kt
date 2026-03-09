@@ -64,11 +64,11 @@ class QueriesDs(private val dataSource: DataSource) {
     fun searchBooksByTitle(title: String): List<Queries.SearchBooksByTitleRow> =
         dataSource.connection.use { conn -> Queries.searchBooksByTitle(conn, title) }
 
-    fun getBooksByPriceRange(price: java.math.BigDecimal, price: java.math.BigDecimal): List<Queries.GetBooksByPriceRangeRow> =
-        dataSource.connection.use { conn -> Queries.getBooksByPriceRange(conn, price, price) }
+    fun getBooksByPriceRange(price: java.math.BigDecimal, price2: java.math.BigDecimal): List<Queries.GetBooksByPriceRangeRow> =
+        dataSource.connection.use { conn -> Queries.getBooksByPriceRange(conn, price, price2) }
 
-    fun getBooksInGenres(genre: String, genre: String, genre: String): List<Queries.GetBooksInGenresRow> =
-        dataSource.connection.use { conn -> Queries.getBooksInGenres(conn, genre, genre, genre) }
+    fun getBooksInGenres(genre: String, genre2: String, genre3: String): List<Queries.GetBooksInGenresRow> =
+        dataSource.connection.use { conn -> Queries.getBooksInGenres(conn, genre, genre2, genre3) }
 
     fun getBookPriceLabel(price: java.math.BigDecimal): List<Queries.GetBookPriceLabelRow> =
         dataSource.connection.use { conn -> Queries.getBookPriceLabel(conn, price) }

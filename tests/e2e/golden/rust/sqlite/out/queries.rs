@@ -278,19 +278,19 @@ pub async fn search_books_by_title(pool: &SqlitePool, title: String) -> Result<V
         .await
 }
 
-pub async fn get_books_by_price_range(pool: &SqlitePool, price: f64, price: f64) -> Result<Vec<GetBooksByPriceRangeRow>, sqlx::Error> {
+pub async fn get_books_by_price_range(pool: &SqlitePool, price: f64, price_2: f64) -> Result<Vec<GetBooksByPriceRangeRow>, sqlx::Error> {
     sqlx::query_as::<_, GetBooksByPriceRangeRow>("SELECT id, title, genre, price FROM book WHERE price BETWEEN ? AND ? ORDER BY price")
-        .bind(price.clone())
         .bind(price)
+        .bind(price_2)
         .fetch_all(pool)
         .await
 }
 
-pub async fn get_books_in_genres(pool: &SqlitePool, genre: String, genre: String, genre: String) -> Result<Vec<GetBooksInGenresRow>, sqlx::Error> {
+pub async fn get_books_in_genres(pool: &SqlitePool, genre: String, genre_2: String, genre_3: String) -> Result<Vec<GetBooksInGenresRow>, sqlx::Error> {
     sqlx::query_as::<_, GetBooksInGenresRow>("SELECT id, title, genre, price FROM book WHERE genre IN (?, ?, ?) ORDER BY title")
-        .bind(genre.clone())
-        .bind(genre.clone())
         .bind(genre)
+        .bind(genre_2)
+        .bind(genre_3)
         .fetch_all(pool)
         .await
 }
