@@ -24,24 +24,6 @@ pub enum QueryCmd {
     ExecRows,
 }
 
-impl QueryCmd {
-    /// True for `:one` and `:many` — commands that produce typed result rows.
-    ///
-    /// Use this to decide whether to emit a row type declaration and a result
-    /// return type, rather than matching both variants in every backend.
-    pub fn has_rows(&self) -> bool {
-        matches!(self, QueryCmd::One | QueryCmd::Many)
-    }
-
-    /// True for `:execrows` — the command that returns an affected-row count.
-    ///
-    /// Use this when generating a numeric return type (e.g. `int`, `i64`,
-    /// `number`) instead of a row type or `void`.
-    pub fn returns_count(&self) -> bool {
-        matches!(self, QueryCmd::ExecRows)
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct Parameter {
     /// 1-based index matching `$1`, `$2`, … in the SQL text.

@@ -1,9 +1,9 @@
-use sqlparser::ast::{AlterColumnOperation, AlterTableOperation, ObjectName, ObjectType, RenameTableNameKind, Statement};
+use sqlparser::ast::{ObjectType, Statement};
 use sqlparser::dialect::PostgreSqlDialect;
 use sqlparser::parser::Parser;
 use sqlparser::tokenizer::{Token, Tokenizer};
 
-use crate::frontend::common::{apply_drop_tables, build_column, build_create_table, ident_to_str, obj_name_to_str, pk_columns_from_constraint};
+use crate::frontend::common::{apply_alter_table, apply_drop_tables, build_create_table, AlterCaps};
 use crate::frontend::postgres::typemap;
 use crate::ir::Schema;
 
@@ -39,7 +39,7 @@ pub fn parse_schema(ddl: &str) -> anyhow::Result<Schema> {
                     tables.push(build_create_table(&ct.name, &ct.columns, &ct.constraints, typemap::map));
                 },
                 Statement::AlterTable(a) => {
-                    apply_alter_table(&a.name, &a.operations, &mut tables);
+                    apply_alter_table(&a.name, &a.operations, &mut tables, typemap::map, AlterCaps::ALL);
                 },
                 Statement::Drop { object_type: ObjectType::Table, names, .. } => {
                     apply_drop_tables(&names, &mut tables);
@@ -59,64 +59,6 @@ pub fn parse_schema(ddl: &str) -> anyhow::Result<Schema> {
     }
 
     Ok(Schema { tables })
-}
-
-// ─── ALTER TABLE ─────────────────────────────────────────────────────────────
-
-fn apply_alter_table(name: &ObjectName, operations: &[AlterTableOperation], tables: &mut [crate::ir::Table]) {
-    let table_name = obj_name_to_str(name);
-    let Some(idx) = tables.iter().position(|t| t.name == table_name) else {
-        return; // ALTER on unknown table — ignore
-    };
-
-    for op in operations {
-        let table = &mut tables[idx];
-        match op {
-            AlterTableOperation::AddColumn { column_def, .. } => {
-                table.columns.push(build_column(column_def, typemap::map));
-            },
-            AlterTableOperation::DropColumn { column_names, .. } => {
-                let names: Vec<String> = column_names.iter().map(ident_to_str).collect();
-                table.columns.retain(|c| !names.contains(&c.name));
-            },
-            AlterTableOperation::AlterColumn { column_name, op } => {
-                let col_name = ident_to_str(column_name);
-                if let Some(col) = table.columns.iter_mut().find(|c| c.name == col_name) {
-                    match op {
-                        AlterColumnOperation::SetNotNull => col.nullable = false,
-                        AlterColumnOperation::DropNotNull => col.nullable = true,
-                        AlterColumnOperation::SetDataType { data_type, .. } => {
-                            col.sql_type = typemap::map(data_type);
-                        },
-                        _ => {},
-                    }
-                }
-            },
-            AlterTableOperation::RenameColumn { old_column_name, new_column_name } => {
-                let old = ident_to_str(old_column_name);
-                let new = ident_to_str(new_column_name);
-                if let Some(col) = table.columns.iter_mut().find(|c| c.name == old) {
-                    col.name = new;
-                }
-            },
-            AlterTableOperation::RenameTable { table_name: new_name } => {
-                let obj_name = match new_name {
-                    RenameTableNameKind::As(n) | RenameTableNameKind::To(n) => n,
-                };
-                table.name = obj_name_to_str(obj_name);
-            },
-            AlterTableOperation::AddConstraint { constraint, .. } => {
-                let pk_cols = pk_columns_from_constraint(constraint);
-                for col in table.columns.iter_mut() {
-                    if pk_cols.contains(&col.name) {
-                        col.is_primary_key = true;
-                        col.nullable = false;
-                    }
-                }
-            },
-            _ => {}, // OWNER TO, ENABLE/DISABLE TRIGGER, etc.
-        }
-    }
 }
 
 #[cfg(test)]
