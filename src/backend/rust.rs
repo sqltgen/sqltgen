@@ -755,4 +755,214 @@ mod tests {
         // ?1 should be rewritten to ? for sqlx sqlite
         assert!(src.contains("\"DELETE FROM user WHERE id = ?\""));
     }
+
+    // ─── rust_type mapping ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_rust_type_primitives_non_nullable() {
+        let t = &RustTarget::Postgres;
+        assert_eq!(rust_type(&SqlType::Boolean, false, t), "bool");
+        assert_eq!(rust_type(&SqlType::SmallInt, false, t), "i16");
+        assert_eq!(rust_type(&SqlType::Integer, false, t), "i32");
+        assert_eq!(rust_type(&SqlType::BigInt, false, t), "i64");
+        assert_eq!(rust_type(&SqlType::Real, false, t), "f32");
+        assert_eq!(rust_type(&SqlType::Double, false, t), "f64");
+    }
+
+    #[test]
+    fn test_rust_type_primitives_nullable() {
+        let t = &RustTarget::Postgres;
+        assert_eq!(rust_type(&SqlType::Boolean, true, t), "Option<bool>");
+        assert_eq!(rust_type(&SqlType::BigInt, true, t), "Option<i64>");
+        assert_eq!(rust_type(&SqlType::Double, true, t), "Option<f64>");
+    }
+
+    #[test]
+    fn test_rust_type_text_types() {
+        let t = &RustTarget::Postgres;
+        assert_eq!(rust_type(&SqlType::Text, false, t), "String");
+        assert_eq!(rust_type(&SqlType::Char(Some(10)), false, t), "String");
+        assert_eq!(rust_type(&SqlType::VarChar(Some(255)), false, t), "String");
+        assert_eq!(rust_type(&SqlType::Text, true, t), "Option<String>");
+    }
+
+    #[test]
+    fn test_rust_type_temporal() {
+        let t = &RustTarget::Postgres;
+        assert_eq!(rust_type(&SqlType::Date, false, t), "time::Date");
+        assert_eq!(rust_type(&SqlType::Time, false, t), "time::Time");
+        assert_eq!(rust_type(&SqlType::Timestamp, false, t), "time::PrimitiveDateTime");
+        assert_eq!(rust_type(&SqlType::TimestampTz, false, t), "time::OffsetDateTime");
+    }
+
+    #[test]
+    fn test_rust_type_uuid_and_json() {
+        let t = &RustTarget::Postgres;
+        assert_eq!(rust_type(&SqlType::Uuid, false, t), "uuid::Uuid");
+        assert_eq!(rust_type(&SqlType::Json, false, t), "serde_json::Value");
+        assert_eq!(rust_type(&SqlType::Custom("geometry".to_string()), false, t), "serde_json::Value");
+    }
+
+    #[test]
+    fn test_rust_type_decimal_sqlite_vs_pg() {
+        // SQLite stores DECIMAL as REAL; PG/MySQL use rust_decimal::Decimal
+        assert_eq!(rust_type(&SqlType::Decimal, false, &RustTarget::Sqlite), "f64");
+        assert_eq!(rust_type(&SqlType::Decimal, false, &RustTarget::Postgres), "rust_decimal::Decimal");
+        assert_eq!(rust_type(&SqlType::Decimal, false, &RustTarget::Mysql), "rust_decimal::Decimal");
+    }
+
+    #[test]
+    fn test_rust_type_array_non_nullable() {
+        let t = &RustTarget::Postgres;
+        assert_eq!(rust_type(&SqlType::Array(Box::new(SqlType::BigInt)), false, t), "Vec<i64>");
+        assert_eq!(rust_type(&SqlType::Array(Box::new(SqlType::Text)), false, t), "Vec<String>");
+    }
+
+    #[test]
+    fn test_rust_type_array_nullable() {
+        let t = &RustTarget::Postgres;
+        assert_eq!(rust_type(&SqlType::Array(Box::new(SqlType::BigInt)), true, t), "Option<Vec<i64>>");
+    }
+
+    // ─── generate: MySQL and SQLite targets ──────────────────────────────────
+
+    #[test]
+    fn test_generate_mysql_exec_query() {
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "DeleteUser".to_string(),
+            cmd: QueryCmd::Exec,
+            sql: "DELETE FROM user WHERE id = $1".to_string(),
+            params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
+            result_columns: vec![],
+        };
+        let files = mysql().generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "queries.rs");
+        assert!(src.contains("MySqlPool"), "MySQL backend uses MySqlPool");
+        // MySQL rewrites $1 → ? (JDBC style)
+        assert!(src.contains("\"DELETE FROM user WHERE id = ?\""));
+        assert!(src.contains("pub async fn delete_user"));
+    }
+
+    #[test]
+    fn test_generate_sqlite_one_query() {
+        let schema = Schema { tables: vec![user_table()] };
+        let query = Query {
+            name: "GetUser".to_string(),
+            cmd: QueryCmd::One,
+            sql: "SELECT id, name, bio FROM user WHERE id = ?1".to_string(),
+            params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
+            result_columns: vec![
+                ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false },
+                ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
+                ResultColumn { name: "bio".to_string(), sql_type: SqlType::Text, nullable: true },
+            ],
+        };
+        let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "queries.rs");
+        assert!(src.contains("SqlitePool"), "SQLite backend uses SqlitePool");
+        assert!(src.contains("Result<Option<User>, sqlx::Error>"), "One returns Option");
+        assert!(src.contains(".fetch_optional(pool)"));
+    }
+
+    #[test]
+    fn test_generate_mysql_one_query_returns_option() {
+        let schema = Schema { tables: vec![user_table()] };
+        let query = Query {
+            name: "GetUser".to_string(),
+            cmd: QueryCmd::One,
+            sql: "SELECT id, name, bio FROM user WHERE id = $1".to_string(),
+            params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
+            result_columns: vec![
+                ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false },
+                ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
+                ResultColumn { name: "bio".to_string(), sql_type: SqlType::Text, nullable: true },
+            ],
+        };
+        let files = mysql().generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "queries.rs");
+        assert!(src.contains("Result<Option<User>, sqlx::Error>"), "One returns Option");
+        assert!(src.contains(".fetch_optional(pool)"));
+    }
+
+    // ─── generate: SQL embedding ─────────────────────────────────────────────
+
+    #[test]
+    fn test_generate_sql_is_inlined_not_constant() {
+        // Rust backend inlines SQL directly into sqlx::query(). It does NOT emit
+        // a named SQL constant (that is a JDBC backend pattern).
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "GetUserById".to_string(),
+            cmd: QueryCmd::Exec,
+            sql: "DELETE FROM user WHERE id = $1".to_string(),
+            params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
+            result_columns: vec![],
+        };
+        let files = pg().generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "queries.rs");
+        // SQL is inlined as a string literal in the sqlx call
+        assert!(src.contains("\"DELETE FROM user WHERE id = $1\""), "SQL should be inlined");
+        // No separate const for the SQL
+        assert!(!src.contains("GET_USER_BY_ID"), "Rust does not emit SQL constants");
+    }
+
+    // ─── generate: repeated param ────────────────────────────────────────────
+
+    #[test]
+    fn test_generate_repeated_param_pg_binds_once_per_unique_param() {
+        // Postgres uses $N reference-by-index, so sqlx only needs one .bind(genre)
+        // even when $1 appears multiple times in the SQL.
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "ListByGenreOrAll".to_string(),
+            cmd: QueryCmd::Many,
+            sql: "SELECT id FROM t WHERE $1 = 'all' OR genre = $1".to_string(),
+            params: vec![Parameter::scalar(1, "genre", SqlType::Text, false)],
+            result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        };
+        let files = pg().generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "queries.rs");
+        let bind_count = src.matches(".bind(genre)").count();
+        assert_eq!(bind_count, 1, "Postgres $N → one .bind() per unique param, got: {}", bind_count);
+    }
+
+    #[test]
+    fn test_generate_repeated_param_mysql_binds_per_occurrence() {
+        // MySQL uses ? (positional-sequential), so each occurrence of $1 needs its
+        // own .bind(). The first gets .clone() so the value is not moved early.
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "ListByGenreOrAll".to_string(),
+            cmd: QueryCmd::Many,
+            sql: "SELECT id FROM t WHERE $1 = 'all' OR genre = $1".to_string(),
+            params: vec![Parameter::scalar(1, "genre", SqlType::Text, false)],
+            result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        };
+        let files = mysql().generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "queries.rs");
+        // Two occurrences of $1 → two ? → two .bind() calls
+        let bind_count = src.matches(".bind(genre").count();
+        assert_eq!(bind_count, 2, "MySQL positional → two .bind() calls, got: {}", bind_count);
+        // First occurrence must clone to avoid a move before the second use
+        assert!(src.contains(".bind(genre.clone())"), "first bind must clone to avoid move");
+    }
+
+    // ─── generate: execrows ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_generate_execrows_sqlite() {
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "DeleteUser".to_string(),
+            cmd: QueryCmd::ExecRows,
+            sql: "DELETE FROM user WHERE id = ?1".to_string(),
+            params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
+            result_columns: vec![],
+        };
+        let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "queries.rs");
+        assert!(src.contains("Result<u64, sqlx::Error>"), "execrows returns u64");
+        assert!(src.contains(".rows_affected()"), "execrows uses rows_affected");
+    }
 }
