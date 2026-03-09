@@ -174,6 +174,8 @@ fn build_select_body(ann: &Annotation, sql: &str, q: &SqlQuery, select: &Select,
         }
         // LIMIT / OFFSET
         collect_limit_offset_params(q, &mut mapping);
+        // Projection expressions (CASE, function calls, etc. in SELECT list)
+        collect_projection_params(select, &alias_map, &all_tables, schema, config, &mut mapping);
         build_params(mapping, count_params(sql))
     };
     Query { name: ann.name.clone(), cmd: ann.cmd.clone(), sql: sql.to_string(), params, result_columns }
@@ -806,6 +808,27 @@ fn collect_params_from_expr(
         Expr::UnaryOp { expr, .. } | Expr::Cast { expr, .. } => {
             collect_params_from_expr(expr, alias_map, all_tables, schema, config, mapping);
         },
+        Expr::Case { operand, conditions, else_result, .. } => {
+            if let Some(op) = operand {
+                collect_params_from_expr(op, alias_map, all_tables, schema, config, mapping);
+            }
+            for cw in conditions {
+                collect_params_from_expr(&cw.condition, alias_map, all_tables, schema, config, mapping);
+                collect_params_from_expr(&cw.result, alias_map, all_tables, schema, config, mapping);
+            }
+            if let Some(el) = else_result {
+                collect_params_from_expr(el, alias_map, all_tables, schema, config, mapping);
+            }
+        },
+        Expr::Function(func) => {
+            if let FunctionArguments::List(arg_list) = &func.args {
+                for arg in &arg_list.args {
+                    if let FunctionArg::Unnamed(FunctionArgExpr::Expr(inner)) = arg {
+                        collect_params_from_expr(inner, alias_map, all_tables, schema, config, mapping);
+                    }
+                }
+            }
+        },
         _ => {},
     }
 }
@@ -886,6 +909,28 @@ fn collect_limit_offset_params(q: &SqlQuery, mapping: &mut HashMap<usize, (Strin
                     mapping.entry(idx).or_insert(("offset".into(), SqlType::BigInt, false));
                 }
             }
+        }
+    }
+}
+
+/// Collect typed parameter mappings from projection (SELECT list) expressions.
+///
+/// Walks each select item's expression to find placeholders inside CASE, function
+/// calls, and other complex expressions that appear in the SELECT list.
+fn collect_projection_params(
+    select: &Select,
+    alias_map: &HashMap<String, &Table>,
+    all_tables: &[(Table, Option<String>)],
+    schema: &Schema,
+    config: &ResolverConfig,
+    mapping: &mut HashMap<usize, (String, SqlType, bool)>,
+) {
+    for item in &select.projection {
+        match item {
+            SelectItem::UnnamedExpr(expr) | SelectItem::ExprWithAlias { expr, .. } => {
+                collect_params_from_expr(expr, alias_map, all_tables, schema, config, mapping);
+            },
+            _ => {},
         }
     }
 }
@@ -1586,6 +1631,48 @@ mod tests {
         let q = &parse_queries(sql, &make_schema()).unwrap()[0];
         assert_eq!(q.params.len(), 1);
         assert_eq!(q.params[0].sql_type, SqlType::Text);
+    }
+
+    #[test]
+    fn param_in_case_when_is_typed() {
+        let sql = "-- name: GetUsers :many\n\
+            SELECT id, CASE WHEN id = $1 THEN 'match' ELSE 'no' END AS label FROM users;";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        assert_eq!(q.params.len(), 1);
+        assert_eq!(q.params[0].sql_type, SqlType::BigInt);
+    }
+
+    #[test]
+    fn param_in_case_when_then_is_collected() {
+        // $1 in THEN branch — no column context, but should at least be collected
+        let sql = "-- name: GetUsers :many\n\
+            SELECT id, CASE WHEN id > 0 THEN $1 ELSE name END AS label FROM users;";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        assert_eq!(q.params.len(), 1);
+    }
+
+    #[test]
+    fn param_in_coalesce_is_recursed() {
+        // WHERE COALESCE(bio, $1) — the function body should be recursed into
+        // so $1 is at least found (even without direct column type inference)
+        let sql = "-- name: GetUsers :many\n\
+            SELECT id FROM users WHERE COALESCE(bio, $1) = 'default';";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        assert_eq!(q.params.len(), 1);
+        // $1 is inside a function arg — no adjacent column context, but should still be found
+    }
+
+    #[test]
+    fn param_in_where_function_arg_is_found() {
+        // WHERE id = ABS($1) — $1 is inside a function; should be recursed into
+        // so the param is at least found by count_params even though typing
+        // can't infer through the function boundary
+        let sql = "-- name: GetUser :one\n\
+            SELECT id, name FROM users WHERE id = ABS($1);";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        assert_eq!(q.params.len(), 1);
+        // Ideally this would be BigInt (from id), but the function wrapping
+        // prevents direct column inference — falls back to Text
     }
 
     #[test]
