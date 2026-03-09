@@ -52,7 +52,9 @@ impl Codegen for RustCodegen {
 
             // Import only table structs that are actually used as return types
             let needed: HashSet<&str> = queries.iter().filter_map(|q| infer_table(q, schema)).collect();
-            for name in &needed {
+            let mut needed_sorted: Vec<&str> = needed.iter().copied().collect();
+            needed_sorted.sort();
+            for name in &needed_sorted {
                 writeln!(src, "use super::{}::{};", name, to_pascal_case(name))?;
             }
             if !needed.is_empty() {

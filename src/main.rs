@@ -1,16 +1,11 @@
-mod backend;
-mod config;
-mod frontend;
-mod ir;
-
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
 
-use backend::Codegen;
-use config::{Engine, SqltgenConfig};
-use frontend::{mysql::MysqlParser, postgres::PostgresParser, sqlite::SqliteParser, DialectParser};
+use sqltgen::backend::{self, Codegen};
+use sqltgen::config::{Engine, SqltgenConfig};
+use sqltgen::frontend::{mysql::MysqlParser, postgres::PostgresParser, sqlite::SqliteParser, DialectParser};
 
 #[derive(Parser)]
 #[command(name = "sqltgen", about = "SQL-to-code generator")]

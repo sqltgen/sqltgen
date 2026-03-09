@@ -31,6 +31,59 @@ pub struct GetBestCustomersRow {
     pub total_spent: Option<rust_decimal::Decimal>,
 }
 
+#[derive(Debug, sqlx::FromRow)]
+pub struct CountBooksByGenreRow {
+    pub genre: String,
+    pub book_count: i64,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct ListBooksWithLimitRow {
+    pub id: i64,
+    pub title: String,
+    pub genre: String,
+    pub price: rust_decimal::Decimal,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct SearchBooksByTitleRow {
+    pub id: i64,
+    pub title: String,
+    pub genre: String,
+    pub price: rust_decimal::Decimal,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct GetBooksByPriceRangeRow {
+    pub id: i64,
+    pub title: String,
+    pub genre: String,
+    pub price: rust_decimal::Decimal,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct GetBooksInGenresRow {
+    pub id: i64,
+    pub title: String,
+    pub genre: String,
+    pub price: rust_decimal::Decimal,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct GetBookPriceLabelRow {
+    pub id: i64,
+    pub title: String,
+    pub price: rust_decimal::Decimal,
+    pub price_label: Option<serde_json::Value>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct GetBookPriceOrDefaultRow {
+    pub id: i64,
+    pub title: String,
+    pub effective_price: Option<serde_json::Value>,
+}
+
 pub async fn create_author(pool: &MySqlPool, name: String, bio: Option<String>, birth_year: Option<i32>) -> Result<(), sqlx::Error> {
     sqlx::query("INSERT INTO author (name, bio, birth_year) VALUES (?, ?, ?)")
         .bind(name)
@@ -161,6 +214,58 @@ pub async fn get_top_selling_books(pool: &MySqlPool) -> Result<Vec<GetTopSelling
 
 pub async fn get_best_customers(pool: &MySqlPool) -> Result<Vec<GetBestCustomersRow>, sqlx::Error> {
     sqlx::query_as::<_, GetBestCustomersRow>("WITH customer_spend AS (     SELECT s.customer_id,            SUM(si.quantity * si.unit_price) AS total_spent     FROM sale s     JOIN sale_item si ON si.sale_id = s.id     GROUP BY s.customer_id ) SELECT c.id, c.name, c.email,        cs.total_spent FROM customer c JOIN customer_spend cs ON cs.customer_id = c.id ORDER BY cs.total_spent DESC")
+        .fetch_all(pool)
+        .await
+}
+
+pub async fn count_books_by_genre(pool: &MySqlPool) -> Result<Vec<CountBooksByGenreRow>, sqlx::Error> {
+    sqlx::query_as::<_, CountBooksByGenreRow>("SELECT genre, COUNT(*) AS book_count FROM book GROUP BY genre ORDER BY genre")
+        .fetch_all(pool)
+        .await
+}
+
+pub async fn list_books_with_limit(pool: &MySqlPool, limit: i64, offset: i64) -> Result<Vec<ListBooksWithLimitRow>, sqlx::Error> {
+    sqlx::query_as::<_, ListBooksWithLimitRow>("SELECT id, title, genre, price FROM book ORDER BY title LIMIT ? OFFSET ?")
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(pool)
+        .await
+}
+
+pub async fn search_books_by_title(pool: &MySqlPool, title: String) -> Result<Vec<SearchBooksByTitleRow>, sqlx::Error> {
+    sqlx::query_as::<_, SearchBooksByTitleRow>("SELECT id, title, genre, price FROM book WHERE title LIKE ? ORDER BY title")
+        .bind(title)
+        .fetch_all(pool)
+        .await
+}
+
+pub async fn get_books_by_price_range(pool: &MySqlPool, price: rust_decimal::Decimal, price: rust_decimal::Decimal) -> Result<Vec<GetBooksByPriceRangeRow>, sqlx::Error> {
+    sqlx::query_as::<_, GetBooksByPriceRangeRow>("SELECT id, title, genre, price FROM book WHERE price BETWEEN ? AND ? ORDER BY price")
+        .bind(price.clone())
+        .bind(price)
+        .fetch_all(pool)
+        .await
+}
+
+pub async fn get_books_in_genres(pool: &MySqlPool, genre: String, genre: String, genre: String) -> Result<Vec<GetBooksInGenresRow>, sqlx::Error> {
+    sqlx::query_as::<_, GetBooksInGenresRow>("SELECT id, title, genre, price FROM book WHERE genre IN (?, ?, ?) ORDER BY title")
+        .bind(genre.clone())
+        .bind(genre.clone())
+        .bind(genre)
+        .fetch_all(pool)
+        .await
+}
+
+pub async fn get_book_price_label(pool: &MySqlPool, price: rust_decimal::Decimal) -> Result<Vec<GetBookPriceLabelRow>, sqlx::Error> {
+    sqlx::query_as::<_, GetBookPriceLabelRow>("SELECT id, title, price,        CASE WHEN price > ? THEN 'expensive' ELSE 'affordable' END AS price_label FROM book ORDER BY title")
+        .bind(price)
+        .fetch_all(pool)
+        .await
+}
+
+pub async fn get_book_price_or_default(pool: &MySqlPool, param1: String) -> Result<Vec<GetBookPriceOrDefaultRow>, sqlx::Error> {
+    sqlx::query_as::<_, GetBookPriceOrDefaultRow>("SELECT id, title, COALESCE(price, ?) AS effective_price FROM book ORDER BY title")
+        .bind(param1)
         .fetch_all(pool)
         .await
 }

@@ -3,6 +3,10 @@ name = "sqltgen"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "sqltgen"
+path = "src/lib.rs"
+
 [[bin]]
 name = "sqltgen"
 path = "src/main.rs"

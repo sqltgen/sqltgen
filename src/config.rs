@@ -64,10 +64,10 @@ pub struct OutputConfig {
 impl SqltgenConfig {
     pub fn load(path: &Path) -> anyhow::Result<Self> {
         let text = std::fs::read_to_string(path).with_context(|| format!("reading config file: {}", path.display()))?;
-        Self::from_str(&text)
+        Self::from_json(&text)
     }
 
-    pub fn from_str(text: &str) -> anyhow::Result<Self> {
+    pub fn from_json(text: &str) -> anyhow::Result<Self> {
         serde_json::from_str(text).context("parsing sqltgen config JSON")
     }
 
@@ -132,7 +132,7 @@ mod tests {
 
     #[test]
     fn parses_sample_config() {
-        let cfg = SqltgenConfig::from_str(SAMPLE).unwrap();
+        let cfg = SqltgenConfig::from_json(SAMPLE).unwrap();
         assert_eq!(cfg.version, "1");
         assert_eq!(cfg.engine, Engine::Postgresql);
         assert_eq!(cfg.schema, "schema.sql");
@@ -153,7 +153,7 @@ mod tests {
 
     #[test]
     fn parses_multi_query_paths() {
-        let cfg = SqltgenConfig::from_str(MULTI_QUERIES).unwrap();
+        let cfg = SqltgenConfig::from_json(MULTI_QUERIES).unwrap();
         match cfg.queries {
             QueryPaths::Single(_) => panic!("expected multiple queries paths"),
             QueryPaths::Many(paths) => {
