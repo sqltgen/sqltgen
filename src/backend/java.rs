@@ -2,8 +2,8 @@ use std::fmt::Write;
 use std::path::PathBuf;
 
 use crate::backend::common::{
-    emit_package, infer_table, jdbc_bind_sequence, jdbc_setter, mysql_json_table_col_type, pg_array_type_name, replace_list_in_clause,
-    rewrite_to_anon_params, split_at_in_clause, sql_const_name, to_camel_case, to_pascal_case,
+    emit_package, infer_table, jdbc_bind_sequence, jdbc_setter, mysql_json_table_col_type, pg_array_type_name, replace_list_in_clause, rewrite_to_anon_params,
+    split_at_in_clause, sql_const_name, to_camel_case, to_pascal_case,
 };
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::{ListParamStrategy, OutputConfig};
@@ -1033,17 +1033,10 @@ mod tests {
             name: "GetActiveByIds".to_string(),
             cmd: QueryCmd::Many,
             sql: "SELECT id FROM t WHERE id IN ($1) AND active = $2".to_string(),
-            params: vec![
-                Parameter::list(1, "ids", SqlType::BigInt, false),
-                Parameter::scalar(2, "active", SqlType::Boolean, false),
-            ],
+            params: vec![Parameter::list(1, "ids", SqlType::BigInt, false), Parameter::scalar(2, "active", SqlType::Boolean, false)],
             result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
         };
-        let cfg = OutputConfig {
-            out: "out".to_string(),
-            package: String::new(),
-            list_params: Some(crate::config::ListParamStrategy::Dynamic),
-        };
+        let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic) };
         let files = JavaCodegen { target: JavaTarget::Postgres }.generate(&schema, &[query], &cfg).unwrap();
         let src = get_file(&files, "Queries.java");
         // Bug: active is incorrectly bound at slot 1 before the list elements.
@@ -1065,17 +1058,10 @@ mod tests {
             name: "GetActiveByIds".to_string(),
             cmd: QueryCmd::Many,
             sql: "SELECT id FROM t WHERE active = $1 AND id IN ($2)".to_string(),
-            params: vec![
-                Parameter::scalar(1, "active", SqlType::Boolean, false),
-                Parameter::list(2, "ids", SqlType::BigInt, false),
-            ],
+            params: vec![Parameter::scalar(1, "active", SqlType::Boolean, false), Parameter::list(2, "ids", SqlType::BigInt, false)],
             result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
         };
-        let cfg = OutputConfig {
-            out: "out".to_string(),
-            package: String::new(),
-            list_params: Some(crate::config::ListParamStrategy::Dynamic),
-        };
+        let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic) };
         let files = JavaCodegen { target: JavaTarget::Postgres }.generate(&schema, &[query], &cfg).unwrap();
         let src = get_file(&files, "Queries.java");
         // active is before IN in the SQL — must still bind at slot 1.
