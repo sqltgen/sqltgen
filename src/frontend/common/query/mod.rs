@@ -1045,6 +1045,23 @@ mod tests {
         assert!(q.result_columns[1].nullable, "title (from posts via LEFT JOIN) should become nullable");
     }
 
+    #[test]
+    fn left_join_derived_subquery_becomes_nullable() {
+        // LEFT OUTER JOIN on a derived table (subquery) — the subquery's
+        // columns should become nullable just like a regular table would.
+        let sql = "-- name: GetUserPosts :many\n\
+            SELECT t1.id, t1.name, t2.id, t2.title \
+            FROM users t1 LEFT OUTER JOIN (SELECT id, title, user_id FROM posts) t2 ON t1.id = t2.user_id;";
+        let q = &parse_queries(sql, &make_join_schema()).unwrap()[0];
+        assert_eq!(q.result_columns.len(), 4);
+        // Left side (users) keeps original nullability
+        assert!(!q.result_columns[0].nullable, "users.id should remain non-nullable");
+        assert!(!q.result_columns[1].nullable, "users.name should remain non-nullable");
+        // Right side (derived subquery from posts) becomes nullable
+        assert!(q.result_columns[2].nullable, "derived posts.id should become nullable in LEFT OUTER JOIN");
+        assert!(q.result_columns[3].nullable, "derived posts.title should become nullable in LEFT OUTER JOIN");
+    }
+
     // ─── Derived-table tests (JOIN (SELECT …) alias) ─────────────────────────
 
     #[test]
