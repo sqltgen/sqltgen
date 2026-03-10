@@ -160,8 +160,6 @@ fn emit_rust_list_query(
     strategy: &ListParamStrategy,
     list_param: &Parameter,
 ) -> anyhow::Result<()> {
-    let scalar_params: Vec<&Parameter> = query.params.iter().filter(|p| !p.is_list).collect();
-
     match (target, strategy) {
         (RustTarget::Postgres, ListParamStrategy::Native) => {
             let repl = format!("= ANY(${})", list_param.index);
@@ -174,25 +172,12 @@ fn emit_rust_list_query(
             emit_rust_sqlx_call(src, query, &sql, &bind_names, &row_type)
         },
         (RustTarget::Postgres, ListParamStrategy::Dynamic) => {
-            let (before, after) = split_at_in_clause(&query.sql, list_param.index).unwrap_or_else(|| (query.sql.clone(), String::new()));
             let lp_name = to_snake_case(&list_param.name);
-            let before_esc = before.replace('"', "\\\"").replace('\n', " ");
-            let after_esc = after.replace('"', "\\\"").replace('\n', " ");
-            // Other scalar params occupy indices 1..list_param.index-1; list elements start after.
             let base = list_param.index;
             writeln!(src, "    let placeholders: String = ({lp_name}).iter().enumerate()")?;
             writeln!(src, "        .map(|(i, _)| format!(\"${{}}\", {base} + i))")?;
             writeln!(src, "        .collect::<Vec<_>>().join(\", \");")?;
-            writeln!(src, "    let sql = format!(\"{before_esc}IN ({{placeholders}}){after_esc}\");")?;
-            writeln!(src, "    let mut q = sqlx::query_as::<_, {row_type}>(&sql);")?;
-            for sp in &scalar_params {
-                writeln!(src, "    q = q.bind({});", to_snake_case(&sp.name))?;
-            }
-            writeln!(src, "    for v in {lp_name} {{")?;
-            writeln!(src, "        q = q.bind(v);")?;
-            writeln!(src, "    }}")?;
-            writeln!(src, "    q.{}.await", fetch_method(query))?;
-            Ok(())
+            emit_rust_dynamic_query(src, query, &row_type, list_param, target)
         },
         (RustTarget::Sqlite, ListParamStrategy::Native) => {
             let repl = "IN (SELECT value FROM json_each(?))";
@@ -200,29 +185,12 @@ fn emit_rust_list_query(
                 eprintln!("warning: list param {} not found in IN clause, treating as scalar", list_param.name);
                 query.sql.clone()
             });
-            let sql = normalize_sql_for_sqlx(&rewritten, target).replace('"', "\\\"").replace('\n', " ");
-            let lp_name = to_snake_case(&list_param.name);
-            writeln!(src, "    let {lp_name}_json = {};", json_list_expr(&lp_name, &list_param.sql_type))?;
-            let bind_names: Vec<String> = query.params.iter().map(|p| if p.is_list { format!("{lp_name}_json") } else { to_snake_case(&p.name) }).collect();
-            let bind_refs: Vec<&str> = bind_names.iter().map(|s| s.as_str()).collect();
-            emit_rust_sqlx_call(src, query, &sql, &bind_refs, &row_type)
+            emit_rust_json_native(src, query, &row_type, list_param, &rewritten, target)
         },
         (RustTarget::Sqlite, ListParamStrategy::Dynamic) | (RustTarget::Mysql, ListParamStrategy::Dynamic) => {
-            let (before, after) = split_at_in_clause(&query.sql, list_param.index).unwrap_or_else(|| (query.sql.clone(), String::new()));
             let lp_name = to_snake_case(&list_param.name);
-            let before_esc = normalize_sql_for_sqlx(&before, target).replace('"', "\\\"").replace('\n', " ");
-            let after_esc = normalize_sql_for_sqlx(&after, target).replace('"', "\\\"").replace('\n', " ");
             writeln!(src, "    let placeholders = ({lp_name}).iter().map(|_| \"?\").collect::<Vec<_>>().join(\", \");")?;
-            writeln!(src, "    let sql = format!(\"{before_esc}IN ({{placeholders}}){after_esc}\");")?;
-            writeln!(src, "    let mut q = sqlx::query_as::<_, {row_type}>(&sql);")?;
-            for sp in &scalar_params {
-                writeln!(src, "    q = q.bind({});", to_snake_case(&sp.name))?;
-            }
-            writeln!(src, "    for v in {lp_name} {{")?;
-            writeln!(src, "        q = q.bind(v);")?;
-            writeln!(src, "    }}")?;
-            writeln!(src, "    q.{}.await", fetch_method(query))?;
-            Ok(())
+            emit_rust_dynamic_query(src, query, &row_type, list_param, target)
         },
         (RustTarget::Mysql, ListParamStrategy::Native) => {
             let col_type = mysql_json_table_col_type(&list_param.sql_type);
@@ -231,14 +199,45 @@ fn emit_rust_list_query(
                 eprintln!("warning: list param {} not found in IN clause, treating as scalar", list_param.name);
                 query.sql.clone()
             });
-            let sql = normalize_sql_for_sqlx(&rewritten, target).replace('"', "\\\"").replace('\n', " ");
-            let lp_name = to_snake_case(&list_param.name);
-            writeln!(src, "    let {lp_name}_json = {};", json_list_expr(&lp_name, &list_param.sql_type))?;
-            let bind_names: Vec<String> = query.params.iter().map(|p| if p.is_list { format!("{lp_name}_json") } else { to_snake_case(&p.name) }).collect();
-            let bind_refs: Vec<&str> = bind_names.iter().map(|s| s.as_str()).collect();
-            emit_rust_sqlx_call(src, query, &sql, &bind_refs, &row_type)
+            emit_rust_json_native(src, query, &row_type, list_param, &rewritten, target)
         },
     }
+}
+
+/// Emit the shared tail of a dynamic list query: build SQL, bind scalars, bind list.
+fn emit_rust_dynamic_query(src: &mut String, query: &Query, row_type: &str, list_param: &Parameter, target: &RustTarget) -> anyhow::Result<()> {
+    let scalar_params: Vec<&Parameter> = query.params.iter().filter(|p| !p.is_list).collect();
+    let lp_name = to_snake_case(&list_param.name);
+    let (before, after) = split_at_in_clause(&query.sql, list_param.index).unwrap_or_else(|| (query.sql.clone(), String::new()));
+    let before_esc = normalize_sql_for_sqlx(&before, target).replace('"', "\\\"").replace('\n', " ");
+    let after_esc = normalize_sql_for_sqlx(&after, target).replace('"', "\\\"").replace('\n', " ");
+    writeln!(src, "    let sql = format!(\"{before_esc}IN ({{placeholders}}){after_esc}\");")?;
+    writeln!(src, "    let mut q = sqlx::query_as::<_, {row_type}>(&sql);")?;
+    for sp in &scalar_params {
+        writeln!(src, "    q = q.bind({});", to_snake_case(&sp.name))?;
+    }
+    writeln!(src, "    for v in {lp_name} {{")?;
+    writeln!(src, "        q = q.bind(v);")?;
+    writeln!(src, "    }}")?;
+    writeln!(src, "    q.{}.await", fetch_method(query))?;
+    Ok(())
+}
+
+/// Emit a SQLite or MySQL native list query that binds a JSON array string.
+fn emit_rust_json_native(
+    src: &mut String,
+    query: &Query,
+    row_type: &str,
+    list_param: &Parameter,
+    rewritten_sql: &str,
+    target: &RustTarget,
+) -> anyhow::Result<()> {
+    let sql = normalize_sql_for_sqlx(rewritten_sql, target).replace('"', "\\\"").replace('\n', " ");
+    let lp_name = to_snake_case(&list_param.name);
+    writeln!(src, "    let {lp_name}_json = {};", json_list_expr(&lp_name, &list_param.sql_type))?;
+    let bind_names: Vec<String> = query.params.iter().map(|p| if p.is_list { format!("{lp_name}_json") } else { to_snake_case(&p.name) }).collect();
+    let bind_refs: Vec<&str> = bind_names.iter().map(|s| s.as_str()).collect();
+    emit_rust_sqlx_call(src, query, &sql, &bind_refs, row_type)
 }
 
 /// Generate inline Rust code that builds a JSON array string from a list parameter.

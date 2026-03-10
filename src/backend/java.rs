@@ -136,115 +136,126 @@ fn emit_java_list_query(
     return_type: &str,
     params_sig: &str,
 ) -> anyhow::Result<()> {
-    let lp_name = to_camel_case(&lp.name);
-    let scalar_params: Vec<&Parameter> = query.params.iter().filter(|p| !p.is_list).collect();
-    let method_name = to_camel_case(&query.name);
-
     match (target, strategy) {
-        (JavaTarget::Postgres, ListParamStrategy::Native) => {
-            let sql = rewrite_to_anon_params(&replace_list_in_clause(&query.sql, lp.index, "= ANY(?)").unwrap_or_else(|| query.sql.clone()));
-            let sql_const = sql_const_name(&query.name);
-            writeln!(src, "    private static final String {sql_const} =")?;
-            writeln!(src, "        \"{};\";", sql.replace('\n', " ").replace('"', "\\\""))?;
-            writeln!(src, "    public static {return_type} {method_name}({params_sig}) throws SQLException {{")?;
-            let type_name = pg_array_type_name(&lp.sql_type);
-            writeln!(src, "        java.sql.Array arr = conn.createArrayOf(\"{type_name}\", {lp_name}.toArray());")?;
-            writeln!(src, "        try (PreparedStatement ps = conn.prepareStatement({sql_const})) {{")?;
-            for (jdbc_idx, p) in jdbc_bind_sequence(query) {
-                if p.is_list {
-                    writeln!(src, "            ps.setArray({jdbc_idx}, arr);")?;
-                } else if p.nullable {
-                    writeln!(src, "            ps.setObject({jdbc_idx}, {});", to_camel_case(&p.name))?;
-                } else {
-                    writeln!(src, "            ps.{}({jdbc_idx}, {});", jdbc_setter(&p.sql_type), to_camel_case(&p.name))?;
-                }
-            }
-            emit_java_result_block(src, query, schema)?;
-            writeln!(src, "        }}")?;
-            writeln!(src, "    }}")?;
-        },
-        (_, ListParamStrategy::Dynamic) => {
-            let (before_raw, after_raw) = split_at_in_clause(&query.sql, lp.index).unwrap_or_else(|| (query.sql.clone(), String::new()));
-            let before_esc = rewrite_to_anon_params(&before_raw).replace('\n', " ").replace('"', "\\\"");
-            let after_esc = rewrite_to_anon_params(&after_raw).replace('\n', " ").replace('"', "\\\"");
-            writeln!(src, "    public static {return_type} {method_name}({params_sig}) throws SQLException {{")?;
-            writeln!(src, "        String marks = {lp_name}.stream().map(x -> \"?\").collect(java.util.stream.Collectors.joining(\", \"));")?;
-            writeln!(src, "        String sql = \"{before_esc}\" + \"IN (\" + marks + \"){after_esc};\";")?;
-            writeln!(src, "        try (PreparedStatement ps = conn.prepareStatement(sql)) {{")?;
-            // Split scalars into before/after the list param by SQL occurrence order.
-            let before_scalars: Vec<_> = scalar_params.iter().filter(|p| p.index < lp.index).collect();
-            let after_scalars: Vec<_> = scalar_params.iter().filter(|p| p.index > lp.index).collect();
-            for (i, sp) in before_scalars.iter().enumerate() {
-                let idx = i + 1;
-                if sp.nullable {
-                    writeln!(src, "            ps.setObject({idx}, {});", to_camel_case(&sp.name))?;
-                } else {
-                    writeln!(src, "            ps.{}({idx}, {});", jdbc_setter(&sp.sql_type), to_camel_case(&sp.name))?;
-                }
-            }
-            let base = before_scalars.len();
-            writeln!(src, "            for (int i = 0; i < {lp_name}.size(); i++) {{")?;
-            writeln!(src, "                ps.{}({base} + i + 1, {lp_name}.get(i));", jdbc_setter(&lp.sql_type))?;
-            writeln!(src, "            }}")?;
-            for (i, sp) in after_scalars.iter().enumerate() {
-                let name = to_camel_case(&sp.name);
-                if sp.nullable {
-                    writeln!(src, "            ps.setObject({} + {lp_name}.size() + {}, {name});", base, i + 1)?;
-                } else {
-                    writeln!(src, "            ps.{}({} + {lp_name}.size() + {}, {name});", jdbc_setter(&sp.sql_type), base, i + 1)?;
-                }
-            }
-            emit_java_result_block(src, query, schema)?;
-            writeln!(src, "        }}")?;
-            writeln!(src, "    }}")?;
-        },
+        (JavaTarget::Postgres, ListParamStrategy::Native) => emit_java_list_pg_native(src, query, schema, lp, return_type, params_sig),
+        (_, ListParamStrategy::Dynamic) => emit_java_list_dynamic(src, query, schema, lp, return_type, params_sig),
         (JavaTarget::Sqlite, ListParamStrategy::Native) => {
-            // SQLite: json_each(?) unpacks a JSON array string into rows.
             let repl = "IN (SELECT value FROM json_each(?))";
-            let sql = rewrite_to_anon_params(&replace_list_in_clause(&query.sql, lp.index, repl).unwrap_or_else(|| query.sql.clone()));
-            let sql_const = sql_const_name(&query.name);
-            writeln!(src, "    private static final String {sql_const} =")?;
-            writeln!(src, "        \"{};\";", sql.replace('\n', " ").replace('"', "\\\""))?;
-            writeln!(src, "    public static {return_type} {method_name}({params_sig}) throws SQLException {{")?;
-            emit_java_json_builder(src, lp)?;
-            writeln!(src, "        try (PreparedStatement ps = conn.prepareStatement({sql_const})) {{")?;
-            for (jdbc_idx, p) in jdbc_bind_sequence(query) {
-                if p.is_list {
-                    writeln!(src, "            ps.setString({jdbc_idx}, json);")?;
-                } else if p.nullable {
-                    writeln!(src, "            ps.setObject({jdbc_idx}, {});", to_camel_case(&p.name))?;
-                } else {
-                    writeln!(src, "            ps.{}({jdbc_idx}, {});", jdbc_setter(&p.sql_type), to_camel_case(&p.name))?;
-                }
-            }
-            emit_java_result_block(src, query, schema)?;
-            writeln!(src, "        }}")?;
-            writeln!(src, "    }}")?;
+            let sql = replace_list_in_clause(&query.sql, lp.index, repl).unwrap_or_else(|| query.sql.clone());
+            emit_java_list_json_native(src, query, schema, lp, return_type, params_sig, &sql)
         },
         (JavaTarget::Mysql, ListParamStrategy::Native) => {
             let elem_type = mysql_json_table_col_type(&lp.sql_type);
-            // Pass the full JSON array string as the JDBC ? — no CONCAT wrapping.
             let repl = format!("IN (SELECT value FROM JSON_TABLE(?,'$[*]' COLUMNS(value {elem_type} PATH '$')) t)");
-            let sql = rewrite_to_anon_params(&replace_list_in_clause(&query.sql, lp.index, &repl).unwrap_or_else(|| query.sql.clone()));
-            let sql_const = sql_const_name(&query.name);
-            writeln!(src, "    private static final String {sql_const} =")?;
-            writeln!(src, "        \"{};\";", sql.replace('\n', " ").replace('"', "\\\""))?;
-            writeln!(src, "    public static {return_type} {method_name}({params_sig}) throws SQLException {{")?;
-            emit_java_json_builder(src, lp)?;
-            writeln!(src, "        try (PreparedStatement ps = conn.prepareStatement({sql_const})) {{")?;
-            for (jdbc_idx, p) in jdbc_bind_sequence(query) {
-                if p.is_list {
-                    writeln!(src, "            ps.setString({jdbc_idx}, json);")?;
-                } else if p.nullable {
-                    writeln!(src, "            ps.setObject({jdbc_idx}, {});", to_camel_case(&p.name))?;
-                } else {
-                    writeln!(src, "            ps.{}({jdbc_idx}, {});", jdbc_setter(&p.sql_type), to_camel_case(&p.name))?;
-                }
-            }
-            emit_java_result_block(src, query, schema)?;
-            writeln!(src, "        }}")?;
-            writeln!(src, "    }}")?;
+            let sql = replace_list_in_clause(&query.sql, lp.index, &repl).unwrap_or_else(|| query.sql.clone());
+            emit_java_list_json_native(src, query, schema, lp, return_type, params_sig, &sql)
         },
+    }
+}
+
+/// Emit a PostgreSQL native list query using `= ANY(?)` with a JDBC array.
+fn emit_java_list_pg_native(src: &mut String, query: &Query, schema: &Schema, lp: &Parameter, return_type: &str, params_sig: &str) -> anyhow::Result<()> {
+    let lp_name = to_camel_case(&lp.name);
+    let method_name = to_camel_case(&query.name);
+    let sql = rewrite_to_anon_params(&replace_list_in_clause(&query.sql, lp.index, "= ANY(?)").unwrap_or_else(|| query.sql.clone()));
+    let sql_const = sql_const_name(&query.name);
+    writeln!(src, "    private static final String {sql_const} =")?;
+    writeln!(src, "        \"{};\";", sql.replace('\n', " ").replace('"', "\\\""))?;
+    writeln!(src, "    public static {return_type} {method_name}({params_sig}) throws SQLException {{")?;
+    let type_name = pg_array_type_name(&lp.sql_type);
+    writeln!(src, "        java.sql.Array arr = conn.createArrayOf(\"{type_name}\", {lp_name}.toArray());")?;
+    writeln!(src, "        try (PreparedStatement ps = conn.prepareStatement({sql_const})) {{")?;
+    emit_java_jdbc_binds(src, query, "arr")?;
+    emit_java_result_block(src, query, schema)?;
+    writeln!(src, "        }}")?;
+    writeln!(src, "    }}")?;
+    Ok(())
+}
+
+/// Emit a dynamic list query that builds `IN (?,?,…,?)` at runtime.
+fn emit_java_list_dynamic(src: &mut String, query: &Query, schema: &Schema, lp: &Parameter, return_type: &str, params_sig: &str) -> anyhow::Result<()> {
+    let lp_name = to_camel_case(&lp.name);
+    let method_name = to_camel_case(&query.name);
+    let scalar_params: Vec<&Parameter> = query.params.iter().filter(|p| !p.is_list).collect();
+    let (before_raw, after_raw) = split_at_in_clause(&query.sql, lp.index).unwrap_or_else(|| (query.sql.clone(), String::new()));
+    let before_esc = rewrite_to_anon_params(&before_raw).replace('\n', " ").replace('"', "\\\"");
+    let after_esc = rewrite_to_anon_params(&after_raw).replace('\n', " ").replace('"', "\\\"");
+    writeln!(src, "    public static {return_type} {method_name}({params_sig}) throws SQLException {{")?;
+    writeln!(src, "        String marks = {lp_name}.stream().map(x -> \"?\").collect(java.util.stream.Collectors.joining(\", \"));")?;
+    writeln!(src, "        String sql = \"{before_esc}\" + \"IN (\" + marks + \"){after_esc};\";")?;
+    writeln!(src, "        try (PreparedStatement ps = conn.prepareStatement(sql)) {{")?;
+    // Split scalars into before/after the list param by SQL occurrence order.
+    let before_scalars: Vec<_> = scalar_params.iter().filter(|p| p.index < lp.index).collect();
+    let after_scalars: Vec<_> = scalar_params.iter().filter(|p| p.index > lp.index).collect();
+    for (i, sp) in before_scalars.iter().enumerate() {
+        let idx = i + 1;
+        if sp.nullable {
+            writeln!(src, "            ps.setObject({idx}, {});", to_camel_case(&sp.name))?;
+        } else {
+            writeln!(src, "            ps.{}({idx}, {});", jdbc_setter(&sp.sql_type), to_camel_case(&sp.name))?;
+        }
+    }
+    let base = before_scalars.len();
+    writeln!(src, "            for (int i = 0; i < {lp_name}.size(); i++) {{")?;
+    writeln!(src, "                ps.{}({base} + i + 1, {lp_name}.get(i));", jdbc_setter(&lp.sql_type))?;
+    writeln!(src, "            }}")?;
+    for (i, sp) in after_scalars.iter().enumerate() {
+        let name = to_camel_case(&sp.name);
+        if sp.nullable {
+            writeln!(src, "            ps.setObject({} + {lp_name}.size() + {}, {name});", base, i + 1)?;
+        } else {
+            writeln!(src, "            ps.{}({} + {lp_name}.size() + {}, {name});", jdbc_setter(&sp.sql_type), base, i + 1)?;
+        }
+    }
+    emit_java_result_block(src, query, schema)?;
+    writeln!(src, "        }}")?;
+    writeln!(src, "    }}")?;
+    Ok(())
+}
+
+/// Emit a SQLite or MySQL native list query that passes a JSON array string.
+///
+/// Both engines use the same structure: build a JSON string from the list,
+/// then bind it as a regular string parameter. The caller provides the
+/// already-rewritten SQL (with `json_each` or `JSON_TABLE`).
+fn emit_java_list_json_native(
+    src: &mut String,
+    query: &Query,
+    schema: &Schema,
+    lp: &Parameter,
+    return_type: &str,
+    params_sig: &str,
+    rewritten_sql: &str,
+) -> anyhow::Result<()> {
+    let method_name = to_camel_case(&query.name);
+    let sql = rewrite_to_anon_params(rewritten_sql);
+    let sql_const = sql_const_name(&query.name);
+    writeln!(src, "    private static final String {sql_const} =")?;
+    writeln!(src, "        \"{};\";", sql.replace('\n', " ").replace('"', "\\\""))?;
+    writeln!(src, "    public static {return_type} {method_name}({params_sig}) throws SQLException {{")?;
+    emit_java_json_builder(src, lp)?;
+    writeln!(src, "        try (PreparedStatement ps = conn.prepareStatement({sql_const})) {{")?;
+    emit_java_jdbc_binds(src, query, "json")?;
+    emit_java_result_block(src, query, schema)?;
+    writeln!(src, "        }}")?;
+    writeln!(src, "    }}")?;
+    Ok(())
+}
+
+/// Emit JDBC `ps.setXxx(idx, value)` calls for each parameter in bind order.
+///
+/// For the list parameter slot, emits a bind using `list_bind_expr` (e.g. `"arr"`
+/// for PostgreSQL arrays, `"json"` for JSON strings).
+fn emit_java_jdbc_binds(src: &mut String, query: &Query, list_bind_expr: &str) -> anyhow::Result<()> {
+    let list_setter = if list_bind_expr == "arr" { "setArray" } else { "setString" };
+    for (jdbc_idx, p) in jdbc_bind_sequence(query) {
+        if p.is_list {
+            writeln!(src, "            ps.{list_setter}({jdbc_idx}, {list_bind_expr});")?;
+        } else if p.nullable {
+            writeln!(src, "            ps.setObject({jdbc_idx}, {});", to_camel_case(&p.name))?;
+        } else {
+            writeln!(src, "            ps.{}({jdbc_idx}, {});", jdbc_setter(&p.sql_type), to_camel_case(&p.name))?;
+        }
     }
     Ok(())
 }
