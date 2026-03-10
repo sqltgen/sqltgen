@@ -44,7 +44,6 @@ impl Parameter {
     }
 
     /// Construct a list parameter (`-- @name type[] not null`).
-    #[allow(dead_code)]
     pub fn list(index: usize, name: impl Into<String>, sql_type: SqlType, nullable: bool) -> Self {
         Self { index, name: name.into(), sql_type, nullable, is_list: true }
     }

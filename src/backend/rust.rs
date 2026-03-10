@@ -3,8 +3,8 @@ use std::fmt::Write;
 use std::path::PathBuf;
 
 use crate::backend::common::{
-    has_inline_rows, infer_row_type_name, infer_table, mysql_json_table_col_type, positional_bind_names, replace_list_in_clause, split_at_in_clause,
-    to_pascal_case, to_snake_case,
+    has_inline_rows, infer_row_type_name, infer_table, mysql_json_table_col_type, positional_bind_names, replace_list_in_clause, rewrite_to_anon_params,
+    split_at_in_clause, to_pascal_case, to_snake_case,
 };
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::{ListParamStrategy, OutputConfig};
@@ -336,43 +336,15 @@ fn row_struct_name(query_name: &str) -> String {
 
 // ─── SQL helpers ──────────────────────────────────────────────────────────────
 
-/// Normalize SQL placeholders for the target driver:
-/// - SQLite `?N` → `?` (sqlx sqlite uses anonymous `?`)
-/// - MySQL `$N` → `?` (sqlx mysql uses anonymous `?`)
+/// Normalize SQL placeholders for the target sqlx driver:
+/// - SQLite `?N`/`$N` → `?` (sqlx sqlite uses anonymous `?`)
+/// - MySQL `$N`/`?N` → `?` (sqlx mysql uses anonymous `?`)
 /// - PostgreSQL `$N` → unchanged (sqlx postgres uses `$N`)
 fn normalize_sql_for_sqlx(sql: &str, target: &RustTarget) -> String {
-    let mut out = String::with_capacity(sql.len());
-    let mut chars = sql.chars().peekable();
-    while let Some(ch) = chars.next() {
-        match target {
-            RustTarget::Sqlite => {
-                // Rewrite `?N` or `$N` → `?` (sqlx sqlite uses bare `?`)
-                if (ch == '?' || ch == '$') && chars.peek().is_some_and(|c| c.is_ascii_digit()) {
-                    out.push('?');
-                    while chars.peek().is_some_and(|c| c.is_ascii_digit()) {
-                        chars.next();
-                    }
-                } else {
-                    out.push(ch);
-                }
-            },
-            RustTarget::Mysql => {
-                // Replace `$N` with `?`
-                if ch == '$' && chars.peek().is_some_and(|c| c.is_ascii_digit()) {
-                    out.push('?');
-                    while chars.peek().is_some_and(|c| c.is_ascii_digit()) {
-                        chars.next();
-                    }
-                } else {
-                    out.push(ch);
-                }
-            },
-            RustTarget::Postgres => {
-                out.push(ch);
-            },
-        }
+    match target {
+        RustTarget::Sqlite | RustTarget::Mysql => rewrite_to_anon_params(sql),
+        RustTarget::Postgres => sql.to_string(),
     }
-    out
 }
 
 // ─── Type mapping ─────────────────────────────────────────────────────────────

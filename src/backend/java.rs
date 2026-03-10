@@ -1,23 +1,16 @@
 use std::fmt::Write;
 use std::path::PathBuf;
 
-use crate::backend::common::{
-    emit_package, has_inline_rows, infer_row_type_name, infer_table, jdbc_bind_sequence, jdbc_setter, mysql_json_table_col_type, needs_null_safe_getter,
-    pg_array_type_name, replace_list_in_clause, rewrite_to_anon_params, split_at_in_clause, sql_const_name, to_camel_case, to_pascal_case,
+use crate::backend::common::{emit_package, has_inline_rows, needs_null_safe_getter, pg_array_type_name, to_camel_case, to_pascal_case};
+use crate::backend::jdbc::{
+    self, emit_dynamic_binds, emit_jdbc_binds, prepare_dynamic_sql_parts, prepare_sql_const, prepare_sql_const_from, JdbcTarget, ListAction,
 };
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::{ListParamStrategy, OutputConfig};
 use crate::ir::{Parameter, Query, QueryCmd, Schema, SqlType};
 
-/// Database engine target for the Java backend.
-pub enum JavaTarget {
-    Postgres,
-    Mysql,
-    Sqlite,
-}
-
 pub struct JavaCodegen {
-    pub target: JavaTarget,
+    pub target: JdbcTarget,
 }
 
 impl Codegen for JavaCodegen {
@@ -67,7 +60,7 @@ impl Codegen for JavaCodegen {
                     emit_row_record(&mut src, query)?;
                     writeln!(src)?;
                 }
-                emit_java_query(&mut src, query, schema, &self.target, &strategy)?;
+                emit_java_query(&mut src, query, schema, self.target, &strategy)?;
             }
 
             writeln!(src, "}}")?;
@@ -86,13 +79,8 @@ impl Codegen for JavaCodegen {
     }
 }
 
-fn emit_java_query(src: &mut String, query: &Query, schema: &Schema, target: &JavaTarget, strategy: &ListParamStrategy) -> anyhow::Result<()> {
-    let return_type = match query.cmd {
-        QueryCmd::One => format!("Optional<{}>", result_row_type(query, schema)),
-        QueryCmd::Many => format!("List<{}>", result_row_type(query, schema)),
-        QueryCmd::Exec => "void".to_string(),
-        QueryCmd::ExecRows => "long".to_string(),
-    };
+fn emit_java_query(src: &mut String, query: &Query, schema: &Schema, target: JdbcTarget, strategy: &ListParamStrategy) -> anyhow::Result<()> {
+    let return_type = jdbc::jdbc_return_type(query, schema, FALLBACK_TYPE, |r| format!("Optional<{r}>"), |r| format!("List<{r}>"), "void", "long");
     let params_sig: String = std::iter::once("Connection conn".to_string())
         .chain(query.params.iter().map(|p| format!("{} {}", java_param_type(p), to_camel_case(&p.name))))
         .collect::<Vec<_>>()
@@ -106,19 +94,12 @@ fn emit_java_query(src: &mut String, query: &Query, schema: &Schema, target: &Ja
 }
 
 fn emit_java_scalar_query(src: &mut String, query: &Query, schema: &Schema, return_type: &str, params_sig: &str) -> anyhow::Result<()> {
-    let sql_const = sql_const_name(&query.name);
-    let sql = rewrite_to_anon_params(&query.sql);
+    let (sql_const, escaped) = prepare_sql_const(query);
     writeln!(src, "    private static final String {sql_const} =")?;
-    writeln!(src, "        \"{};\";", sql.replace('\n', " ").replace('"', "\\\""))?;
+    writeln!(src, "        \"{escaped};\";",)?;
     writeln!(src, "    public static {return_type} {}({params_sig}) throws SQLException {{", to_camel_case(&query.name))?;
     writeln!(src, "        try (PreparedStatement ps = conn.prepareStatement({sql_const})) {{")?;
-    for (jdbc_idx, p) in jdbc_bind_sequence(query) {
-        if p.nullable {
-            writeln!(src, "            ps.setObject({jdbc_idx}, {});", to_camel_case(&p.name))?;
-        } else {
-            writeln!(src, "            ps.{}({jdbc_idx}, {});", jdbc_setter(&p.sql_type), to_camel_case(&p.name))?;
-        }
-    }
+    emit_jdbc_binds(src, query, "", SE)?;
     emit_java_result_block(src, query, schema)?;
     writeln!(src, "        }}")?;
     writeln!(src, "    }}")?;
@@ -130,42 +111,39 @@ fn emit_java_list_query(
     src: &mut String,
     query: &Query,
     schema: &Schema,
-    target: &JavaTarget,
+    target: JdbcTarget,
     strategy: &ListParamStrategy,
     lp: &Parameter,
     return_type: &str,
     params_sig: &str,
 ) -> anyhow::Result<()> {
-    match (target, strategy) {
-        (JavaTarget::Postgres, ListParamStrategy::Native) => emit_java_list_pg_native(src, query, schema, lp, return_type, params_sig),
-        (_, ListParamStrategy::Dynamic) => emit_java_list_dynamic(src, query, schema, lp, return_type, params_sig),
-        (JavaTarget::Sqlite, ListParamStrategy::Native) => {
-            let repl = "IN (SELECT value FROM json_each(?))";
-            let sql = replace_list_in_clause(&query.sql, lp.index, repl).unwrap_or_else(|| query.sql.clone());
-            emit_java_list_json_native(src, query, schema, lp, return_type, params_sig, &sql)
-        },
-        (JavaTarget::Mysql, ListParamStrategy::Native) => {
-            let elem_type = mysql_json_table_col_type(&lp.sql_type);
-            let repl = format!("IN (SELECT value FROM JSON_TABLE(?,'$[*]' COLUMNS(value {elem_type} PATH '$')) t)");
-            let sql = replace_list_in_clause(&query.sql, lp.index, &repl).unwrap_or_else(|| query.sql.clone());
-            emit_java_list_json_native(src, query, schema, lp, return_type, params_sig, &sql)
-        },
+    match jdbc::resolve_list_strategy(target, strategy, query, lp) {
+        ListAction::PgNative(sql) => emit_java_list_pg_native(src, query, schema, lp, return_type, params_sig, &sql),
+        ListAction::Dynamic => emit_java_list_dynamic(src, query, schema, lp, return_type, params_sig),
+        ListAction::JsonNative(sql) => emit_java_list_json_native(src, query, schema, lp, return_type, params_sig, &sql),
     }
 }
 
 /// Emit a PostgreSQL native list query using `= ANY(?)` with a JDBC array.
-fn emit_java_list_pg_native(src: &mut String, query: &Query, schema: &Schema, lp: &Parameter, return_type: &str, params_sig: &str) -> anyhow::Result<()> {
+fn emit_java_list_pg_native(
+    src: &mut String,
+    query: &Query,
+    schema: &Schema,
+    lp: &Parameter,
+    return_type: &str,
+    params_sig: &str,
+    rewritten_sql: &str,
+) -> anyhow::Result<()> {
     let lp_name = to_camel_case(&lp.name);
     let method_name = to_camel_case(&query.name);
-    let sql = rewrite_to_anon_params(&replace_list_in_clause(&query.sql, lp.index, "= ANY(?)").unwrap_or_else(|| query.sql.clone()));
-    let sql_const = sql_const_name(&query.name);
+    let (sql_const, escaped) = prepare_sql_const_from(query, rewritten_sql);
     writeln!(src, "    private static final String {sql_const} =")?;
-    writeln!(src, "        \"{};\";", sql.replace('\n', " ").replace('"', "\\\""))?;
+    writeln!(src, "        \"{escaped};\";",)?;
     writeln!(src, "    public static {return_type} {method_name}({params_sig}) throws SQLException {{")?;
     let type_name = pg_array_type_name(&lp.sql_type);
     writeln!(src, "        java.sql.Array arr = conn.createArrayOf(\"{type_name}\", {lp_name}.toArray());")?;
     writeln!(src, "        try (PreparedStatement ps = conn.prepareStatement({sql_const})) {{")?;
-    emit_java_jdbc_binds(src, query, "arr")?;
+    emit_jdbc_binds(src, query, "arr", SE)?;
     emit_java_result_block(src, query, schema)?;
     writeln!(src, "        }}")?;
     writeln!(src, "    }}")?;
@@ -176,37 +154,17 @@ fn emit_java_list_pg_native(src: &mut String, query: &Query, schema: &Schema, lp
 fn emit_java_list_dynamic(src: &mut String, query: &Query, schema: &Schema, lp: &Parameter, return_type: &str, params_sig: &str) -> anyhow::Result<()> {
     let lp_name = to_camel_case(&lp.name);
     let method_name = to_camel_case(&query.name);
-    let scalar_params: Vec<&Parameter> = query.params.iter().filter(|p| !p.is_list).collect();
-    let (before_raw, after_raw) = split_at_in_clause(&query.sql, lp.index).unwrap_or_else(|| (query.sql.clone(), String::new()));
-    let before_esc = rewrite_to_anon_params(&before_raw).replace('\n', " ").replace('"', "\\\"");
-    let after_esc = rewrite_to_anon_params(&after_raw).replace('\n', " ").replace('"', "\\\"");
+    let (before_esc, after_esc) = prepare_dynamic_sql_parts(query, lp);
     writeln!(src, "    public static {return_type} {method_name}({params_sig}) throws SQLException {{")?;
     writeln!(src, "        String marks = {lp_name}.stream().map(x -> \"?\").collect(java.util.stream.Collectors.joining(\", \"));")?;
     writeln!(src, "        String sql = \"{before_esc}\" + \"IN (\" + marks + \"){after_esc};\";")?;
     writeln!(src, "        try (PreparedStatement ps = conn.prepareStatement(sql)) {{")?;
-    // Split scalars into before/after the list param by SQL occurrence order.
-    let before_scalars: Vec<_> = scalar_params.iter().filter(|p| p.index < lp.index).collect();
-    let after_scalars: Vec<_> = scalar_params.iter().filter(|p| p.index > lp.index).collect();
-    for (i, sp) in before_scalars.iter().enumerate() {
-        let idx = i + 1;
-        if sp.nullable {
-            writeln!(src, "            ps.setObject({idx}, {});", to_camel_case(&sp.name))?;
-        } else {
-            writeln!(src, "            ps.{}({idx}, {});", jdbc_setter(&sp.sql_type), to_camel_case(&sp.name))?;
-        }
-    }
-    let base = before_scalars.len();
-    writeln!(src, "            for (int i = 0; i < {lp_name}.size(); i++) {{")?;
-    writeln!(src, "                ps.{}({base} + i + 1, {lp_name}.get(i));", jdbc_setter(&lp.sql_type))?;
-    writeln!(src, "            }}")?;
-    for (i, sp) in after_scalars.iter().enumerate() {
-        let name = to_camel_case(&sp.name);
-        if sp.nullable {
-            writeln!(src, "            ps.setObject({} + {lp_name}.size() + {}, {name});", base, i + 1)?;
-        } else {
-            writeln!(src, "            ps.{}({} + {lp_name}.size() + {}, {name});", jdbc_setter(&sp.sql_type), base, i + 1)?;
-        }
-    }
+    emit_dynamic_binds(src, query, lp, SE, &|src, lp_name, base, setter| {
+        writeln!(src, "            for (int i = 0; i < {lp_name}.size(); i++) {{")?;
+        writeln!(src, "                ps.{setter}({base} + i + 1, {lp_name}.get(i));")?;
+        writeln!(src, "            }}")?;
+        Ok(())
+    })?;
     emit_java_result_block(src, query, schema)?;
     writeln!(src, "        }}")?;
     writeln!(src, "    }}")?;
@@ -228,35 +186,16 @@ fn emit_java_list_json_native(
     rewritten_sql: &str,
 ) -> anyhow::Result<()> {
     let method_name = to_camel_case(&query.name);
-    let sql = rewrite_to_anon_params(rewritten_sql);
-    let sql_const = sql_const_name(&query.name);
+    let (sql_const, escaped) = prepare_sql_const_from(query, rewritten_sql);
     writeln!(src, "    private static final String {sql_const} =")?;
-    writeln!(src, "        \"{};\";", sql.replace('\n', " ").replace('"', "\\\""))?;
+    writeln!(src, "        \"{escaped};\";",)?;
     writeln!(src, "    public static {return_type} {method_name}({params_sig}) throws SQLException {{")?;
     emit_java_json_builder(src, lp)?;
     writeln!(src, "        try (PreparedStatement ps = conn.prepareStatement({sql_const})) {{")?;
-    emit_java_jdbc_binds(src, query, "json")?;
+    emit_jdbc_binds(src, query, "json", SE)?;
     emit_java_result_block(src, query, schema)?;
     writeln!(src, "        }}")?;
     writeln!(src, "    }}")?;
-    Ok(())
-}
-
-/// Emit JDBC `ps.setXxx(idx, value)` calls for each parameter in bind order.
-///
-/// For the list parameter slot, emits a bind using `list_bind_expr` (e.g. `"arr"`
-/// for PostgreSQL arrays, `"json"` for JSON strings).
-fn emit_java_jdbc_binds(src: &mut String, query: &Query, list_bind_expr: &str) -> anyhow::Result<()> {
-    let list_setter = if list_bind_expr == "arr" { "setArray" } else { "setString" };
-    for (jdbc_idx, p) in jdbc_bind_sequence(query) {
-        if p.is_list {
-            writeln!(src, "            ps.{list_setter}({jdbc_idx}, {list_bind_expr});")?;
-        } else if p.nullable {
-            writeln!(src, "            ps.setObject({jdbc_idx}, {});", to_camel_case(&p.name))?;
-        } else {
-            writeln!(src, "            ps.{}({jdbc_idx}, {});", jdbc_setter(&p.sql_type), to_camel_case(&p.name))?;
-        }
-    }
     Ok(())
 }
 
@@ -343,14 +282,7 @@ fn emit_java_queries_ds(src: &mut String, queries: &[Query], schema: &Schema) ->
 
 /// Emits one instance method on `QueriesDs` that wraps the corresponding static `Queries` method.
 fn emit_java_ds_method(src: &mut String, query: &Query, schema: &Schema) -> anyhow::Result<()> {
-    // Inline row records are inner types of `Queries` and must be qualified.
-    let row_type = ds_result_row_type(query, schema);
-    let return_type = match query.cmd {
-        QueryCmd::One => format!("Optional<{row_type}>"),
-        QueryCmd::Many => format!("List<{row_type}>"),
-        QueryCmd::Exec => "void".to_string(),
-        QueryCmd::ExecRows => "long".to_string(),
-    };
+    let return_type = jdbc::jdbc_ds_return_type(query, schema, FALLBACK_TYPE, |r| format!("Optional<{r}>"), |r| format!("List<{r}>"), "void", "long");
 
     let params_sig: String = query.params.iter().map(|p| format!("{} {}", java_param_type(p), to_camel_case(&p.name))).collect::<Vec<_>>().join(", ");
 
@@ -369,20 +301,13 @@ fn emit_java_ds_method(src: &mut String, query: &Query, schema: &Schema) -> anyh
     Ok(())
 }
 
-fn result_row_type(query: &Query, schema: &Schema) -> String {
-    infer_row_type_name(query, schema).unwrap_or_else(|| "Object[]".to_string())
-}
+/// Statement-end terminator for Java.
+const SE: &str = ";";
+/// Fallback row type when no table match is found.
+const FALLBACK_TYPE: &str = "Object[]";
 
-/// Like [`result_row_type`], but qualifies inline row records as `Queries.XxxRow`
-/// because they are inner types of `Queries` and must be fully referenced from `QueriesDs`.
-fn ds_result_row_type(query: &Query, schema: &Schema) -> String {
-    if let Some(table_name) = infer_table(query, schema) {
-        return to_pascal_case(table_name);
-    }
-    if !query.result_columns.is_empty() {
-        return format!("Queries.{}Row", to_pascal_case(&query.name));
-    }
-    "Object[]".to_string()
+fn result_row_type(query: &Query, schema: &Schema) -> String {
+    jdbc::result_row_type(query, schema, FALLBACK_TYPE)
 }
 
 fn emit_row_record(src: &mut String, query: &Query) -> anyhow::Result<()> {
@@ -396,14 +321,12 @@ fn emit_row_record(src: &mut String, query: &Query) -> anyhow::Result<()> {
 }
 
 fn emit_row_constructor(query: &Query, schema: &Schema) -> String {
-    let class = result_row_type(query, schema);
-    let args: Vec<String> = query.result_columns.iter().enumerate().map(|(i, col)| rs_read_expr(&col.sql_type, col.nullable, i + 1)).collect();
-    format!("new {class}({})", args.join(", "))
+    jdbc::build_row_constructor(query, schema, FALLBACK_TYPE, "new ", resultset_read_expr)
 }
 
 // ─── Type helpers ─────────────────────────────────────────────────────────────
 
-pub fn java_type(sql_type: &SqlType, nullable: bool) -> String {
+fn java_type(sql_type: &SqlType, nullable: bool) -> String {
     // Each variant maps to (non_nullable_type, nullable_type). Java primitives
     // use their boxed counterparts when nullable; reference types are the same
     // regardless of nullability.
@@ -445,7 +368,7 @@ fn java_type_boxed(sql_type: &SqlType) -> String {
     }
 }
 
-fn rs_read_expr(sql_type: &SqlType, nullable: bool, idx: usize) -> String {
+fn resultset_read_expr(sql_type: &SqlType, nullable: bool, idx: usize) -> String {
     // Primitive getters (getInt, getBoolean, …) return 0/false for SQL NULL.
     // For nullable primitive columns we must use getObject with the boxed type
     // so that the result can be null, matching the @Nullable field declaration.
@@ -491,7 +414,7 @@ mod tests {
     }
 
     fn pg() -> JavaCodegen {
-        JavaCodegen { target: JavaTarget::Postgres }
+        JavaCodegen { target: JdbcTarget::Postgres }
     }
 
     // ─── java_type ─────────────────────────────────────────────────────────
@@ -939,7 +862,7 @@ mod tests {
             params: vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
             result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
         };
-        let files = JavaCodegen { target: JavaTarget::Sqlite }.generate(&schema, &[query], &cfg()).unwrap();
+        let files = JavaCodegen { target: JdbcTarget::Sqlite }.generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.java");
         assert!(src.contains("json_each(?)"), "SQLite native should use json_each");
         assert!(!src.contains("IN ($1)"), "IN clause must be replaced by json_each rewrite");
@@ -962,7 +885,7 @@ mod tests {
             params: vec![Parameter::list(1, "tags", SqlType::Text, false)],
             result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
         };
-        let files = JavaCodegen { target: JavaTarget::Sqlite }.generate(&schema, &[query], &cfg()).unwrap();
+        let files = JavaCodegen { target: JdbcTarget::Sqlite }.generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.java");
         // Object::toString on a String yields a bare value with no JSON quoting.
         assert!(!src.contains("Object::toString"), "text list must not use Object::toString (produces bare strings)");
@@ -984,7 +907,7 @@ mod tests {
             params: vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
             result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
         };
-        let files = JavaCodegen { target: JavaTarget::Sqlite }.generate(&schema, &[query], &cfg()).unwrap();
+        let files = JavaCodegen { target: JdbcTarget::Sqlite }.generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.java");
         assert!(src.contains("json_each(?)"), "SQLite native should use json_each");
         assert!(!src.contains(r#""\"" + x"#), "numeric list must not add per-element quoting");
@@ -1007,7 +930,7 @@ mod tests {
             result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
         };
         let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic) };
-        let files = JavaCodegen { target: JavaTarget::Postgres }.generate(&schema, &[query], &cfg).unwrap();
+        let files = JavaCodegen { target: JdbcTarget::Postgres }.generate(&schema, &[query], &cfg).unwrap();
         let src = get_file(&files, "Queries.java");
         // Bug: active is incorrectly bound at slot 1 before the list elements.
         assert!(!src.contains("ps.setBoolean(1, active)"), "active must not bind at slot 1 when it follows IN");
@@ -1032,7 +955,7 @@ mod tests {
             result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
         };
         let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic) };
-        let files = JavaCodegen { target: JavaTarget::Postgres }.generate(&schema, &[query], &cfg).unwrap();
+        let files = JavaCodegen { target: JdbcTarget::Postgres }.generate(&schema, &[query], &cfg).unwrap();
         let src = get_file(&files, "Queries.java");
         // active is before IN in the SQL — must still bind at slot 1.
         assert!(src.contains("ps.setBoolean(1, active)"), "scalar before IN must bind at slot 1");

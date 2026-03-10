@@ -24,6 +24,17 @@ impl Default for ResolverConfig {
     }
 }
 
+/// Groups the read-only context and mutable parameter mapping that most
+/// parameter-collection functions need. Avoids threading five separate
+/// arguments through every call.
+struct ResolverContext<'a> {
+    alias_map: &'a HashMap<String, &'a Table>,
+    all_tables: &'a [(Table, Option<String>)],
+    schema: &'a Schema,
+    config: &'a ResolverConfig,
+    mapping: &'a mut HashMap<usize, (String, SqlType, bool)>,
+}
+
 fn insert_table_name(ins: &Insert) -> String {
     match &ins.table {
         TableObject::TableName(name) => obj_name_to_str(name),
@@ -51,14 +62,14 @@ pub(crate) fn parse_queries_with_config(dialect: &dyn Dialect, sql: &str, schema
 
 // ─── Block splitting ─────────────────────────────────────────────────────────
 
-struct Annotation {
+struct QueryAnnotation {
     name: String,
     cmd: QueryCmd,
 }
 
-fn split_into_blocks(sql: &str) -> Vec<(Annotation, String)> {
+fn split_into_blocks(sql: &str) -> Vec<(QueryAnnotation, String)> {
     let mut blocks = Vec::new();
-    let mut current: Option<Annotation> = None;
+    let mut current: Option<QueryAnnotation> = None;
     let mut body_lines: Vec<&str> = Vec::new();
 
     for line in sql.lines() {
@@ -73,7 +84,7 @@ fn split_into_blocks(sql: &str) -> Vec<(Annotation, String)> {
     blocks
 }
 
-fn flush_block(current: &mut Option<Annotation>, lines: &mut Vec<&str>, out: &mut Vec<(Annotation, String)>) {
+fn flush_block(current: &mut Option<QueryAnnotation>, lines: &mut Vec<&str>, out: &mut Vec<(QueryAnnotation, String)>) {
     if let Some(ann) = current.take() {
         let body = lines.join("\n");
         let body = body.trim().to_string();
@@ -84,7 +95,7 @@ fn flush_block(current: &mut Option<Annotation>, lines: &mut Vec<&str>, out: &mu
     lines.clear();
 }
 
-fn parse_annotation(line: &str) -> Option<Annotation> {
+fn parse_annotation(line: &str) -> Option<QueryAnnotation> {
     let line = line.trim();
     // -- name: Foo :one
     let rest = line.strip_prefix("--")?.trim();
@@ -102,12 +113,12 @@ fn parse_annotation(line: &str) -> Option<Annotation> {
     if name.is_empty() {
         return None;
     }
-    Some(Annotation { name, cmd })
+    Some(QueryAnnotation { name, cmd })
 }
 
 // ─── Query building ──────────────────────────────────────────────────────────
 
-fn build_query_with_dialect(dialect: &dyn Dialect, ann: &Annotation, sql: &str, schema: &Schema, config: &ResolverConfig) -> anyhow::Result<Query> {
+fn build_query_with_dialect(dialect: &dyn Dialect, ann: &QueryAnnotation, sql: &str, schema: &Schema, config: &ResolverConfig) -> anyhow::Result<Query> {
     let (sql_buf, np) = match named_params::preprocess_named_params(sql) {
         Some((rewritten, params)) => (rewritten, params),
         // No named params: still strip comment lines so that the stored SQL can be
@@ -119,7 +130,7 @@ fn build_query_with_dialect(dialect: &dyn Dialect, ann: &Annotation, sql: &str, 
     let stmts = match Parser::parse_sql(dialect, sql) {
         Ok(s) if !s.is_empty() => s,
         _ => {
-            let mut query = bare(ann, sql);
+            let mut query = unresolved_query(ann, sql);
             named_params::apply_named_param_overrides(&mut query.params, &np);
             return Ok(query);
         },
@@ -130,7 +141,7 @@ fn build_query_with_dialect(dialect: &dyn Dialect, ann: &Annotation, sql: &str, 
         Statement::Insert(ins) => build_insert(ann, sql, ins, schema, config),
         Statement::Update(u) => build_update(ann, sql, &u.table, &u.assignments, u.selection.as_ref(), u.returning.as_ref(), schema, config),
         Statement::Delete(del) => build_delete(ann, sql, del, schema, config),
-        _ => bare(ann, sql),
+        _ => unresolved_query(ann, sql),
     };
 
     named_params::apply_named_param_overrides(&mut query.params, &np);
@@ -139,7 +150,7 @@ fn build_query_with_dialect(dialect: &dyn Dialect, ann: &Annotation, sql: &str, 
 
 // ─── SELECT ──────────────────────────────────────────────────────────────────
 
-fn build_select(ann: &Annotation, sql: &str, q: &SqlQuery, schema: &Schema, config: &ResolverConfig) -> Query {
+fn build_select(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, schema: &Schema, config: &ResolverConfig) -> Query {
     let ctes = build_cte_scope(q.with.as_ref(), schema, config);
     match q.body.as_ref() {
         SetExpr::Select(select) => build_select_body(ann, sql, q, select, schema, config, &ctes),
@@ -148,15 +159,15 @@ fn build_select(ann: &Annotation, sql: &str, q: &SqlQuery, schema: &Schema, conf
             build_query_from_update(ann, sql, q, &u.table, &u.assignments, u.selection.as_ref(), u.returning.as_deref(), schema, config)
         },
         SetExpr::SetOperation { .. } => build_set_operation(ann, sql, q, q.body.as_ref(), schema, config, &ctes),
-        _ => bare(ann, sql),
+        _ => unresolved_query(ann, sql),
     }
 }
 
 /// Handle `Statement::Query` where the body is a plain `SELECT` (with optional CTEs).
-fn build_select_body(ann: &Annotation, sql: &str, q: &SqlQuery, select: &Select, schema: &Schema, config: &ResolverConfig, ctes: &[Table]) -> Query {
+fn build_select_body(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, select: &Select, schema: &Schema, config: &ResolverConfig, ctes: &[Table]) -> Query {
     let all_tables = collect_from_tables(select, schema, ctes, config);
     if all_tables.is_empty() {
-        return bare(ann, sql);
+        return unresolved_query(ann, sql);
     }
     let alias_map = build_alias_map(&all_tables);
     let result_columns = resolve_projection(select, &alias_map, &all_tables, config);
@@ -167,7 +178,7 @@ fn build_select_body(ann: &Annotation, sql: &str, q: &SqlQuery, select: &Select,
         // LIMIT / OFFSET
         collect_limit_offset_params(q, &mut mapping);
         // ORDER BY expressions (CASE, function calls, etc. in ORDER BY)
-        collect_order_by_params(q, &alias_map, &all_tables, schema, config, &mut mapping);
+        collect_order_by_params(q, &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping: &mut mapping });
         build_params(mapping, count_params(sql))
     };
     Query { name: ann.name.clone(), cmd: ann.cmd.clone(), sql: sql.to_string(), params, result_columns }
@@ -183,21 +194,22 @@ fn collect_select_params(select: &Select, schema: &Schema, config: &ResolverConf
         return;
     }
     let alias_map = build_alias_map(&all_tables);
+    let ctx = &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping };
     if let Some(expr) = &select.selection {
-        collect_params_from_expr(expr, &alias_map, &all_tables, schema, config, mapping);
+        collect_params_from_expr(expr, ctx);
     }
-    collect_join_params(select, &alias_map, &all_tables, schema, config, mapping);
+    collect_join_params(select, ctx);
     if let Some(expr) = &select.having {
-        collect_params_from_expr(expr, &alias_map, &all_tables, schema, config, mapping);
+        collect_params_from_expr(expr, ctx);
     }
-    collect_projection_params(select, &alias_map, &all_tables, schema, config, mapping);
+    collect_projection_params(select, ctx);
 }
 
 /// Handle `Statement::Query` where the body is a set operation (UNION/INTERSECT/EXCEPT).
 ///
 /// Result columns come from the leftmost SELECT branch (per SQL standard).
 /// Parameters are collected recursively from all branches.
-fn build_set_operation(ann: &Annotation, sql: &str, q: &SqlQuery, body: &SetExpr, schema: &Schema, config: &ResolverConfig, ctes: &[Table]) -> Query {
+fn build_set_operation(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, body: &SetExpr, schema: &Schema, config: &ResolverConfig, ctes: &[Table]) -> Query {
     // Resolve result columns from the leftmost SELECT branch.
     let result_columns = leftmost_select(body)
         .map(|select| {
@@ -221,7 +233,7 @@ fn build_set_operation(ann: &Annotation, sql: &str, q: &SqlQuery, body: &SetExpr
             let all_tables = collect_from_tables(select, schema, ctes, config);
             if !all_tables.is_empty() {
                 let alias_map = build_alias_map(&all_tables);
-                collect_order_by_params(q, &alias_map, &all_tables, schema, config, &mut mapping);
+                collect_order_by_params(q, &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping: &mut mapping });
             }
         }
         build_params(mapping, count_params(sql))
@@ -261,7 +273,7 @@ fn collect_set_expr_params(expr: &SetExpr, schema: &Schema, config: &ResolverCon
 }
 
 /// Handle `Statement::Query` where the body is `INSERT … RETURNING` (data-modifying CTE pattern).
-fn build_query_from_insert(ann: &Annotation, sql: &str, q: &SqlQuery, ins: &Insert, schema: &Schema, config: &ResolverConfig) -> Query {
+fn build_query_from_insert(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, ins: &Insert, schema: &Schema, config: &ResolverConfig) -> Query {
     let mut mapping = HashMap::new();
     collect_cte_params(q.with.as_ref(), schema, config, &mut mapping);
     collect_insert_value_params(ins, schema, &mut mapping);
@@ -278,7 +290,7 @@ fn build_query_from_insert(ann: &Annotation, sql: &str, q: &SqlQuery, ins: &Inse
 /// Handle `Statement::Query` where the body is `UPDATE … RETURNING` (data-modifying CTE pattern).
 #[allow(clippy::too_many_arguments)]
 fn build_query_from_update(
-    ann: &Annotation,
+    ann: &QueryAnnotation,
     sql: &str,
     q: &SqlQuery,
     table: &TableWithJoins,
@@ -294,7 +306,7 @@ fn build_query_from_update(
     let params = build_params(mapping, count_params(sql));
     let table_name = match &table.relation {
         TableFactor::Table { name, .. } => obj_name_to_str(name),
-        _ => return bare(ann, sql),
+        _ => return unresolved_query(ann, sql),
     };
     let result_columns =
         schema.tables.iter().find(|t| t.name == table_name).and_then(|t| returning.map(|items| resolve_returning(items, t, config))).unwrap_or_default();
@@ -303,10 +315,10 @@ fn build_query_from_update(
 
 // ─── INSERT ──────────────────────────────────────────────────────────────────
 
-fn build_insert(ann: &Annotation, sql: &str, insert: &Insert, schema: &Schema, config: &ResolverConfig) -> Query {
+fn build_insert(ann: &QueryAnnotation, sql: &str, insert: &Insert, schema: &Schema, config: &ResolverConfig) -> Query {
     let table_name = insert_table_name(insert);
     let Some(table) = schema.tables.iter().find(|t| t.name == table_name) else {
-        return bare(ann, sql);
+        return unresolved_query(ann, sql);
     };
 
     let col_names: Vec<String> = insert.columns.iter().map(ident_to_str).collect();
@@ -331,7 +343,7 @@ fn build_insert(ann: &Annotation, sql: &str, insert: &Insert, schema: &Schema, c
 
 #[allow(clippy::too_many_arguments)]
 fn build_update(
-    ann: &Annotation,
+    ann: &QueryAnnotation,
     sql: &str,
     table_with_joins: &TableWithJoins,
     assignments: &[Assignment],
@@ -342,10 +354,10 @@ fn build_update(
 ) -> Query {
     let table_name = match &table_with_joins.relation {
         TableFactor::Table { name, .. } => obj_name_to_str(name),
-        _ => return bare(ann, sql),
+        _ => return unresolved_query(ann, sql),
     };
     let Some(table) = schema.tables.iter().find(|t| t.name == table_name) else {
-        return bare(ann, sql);
+        return unresolved_query(ann, sql);
     };
 
     let mut mapping: HashMap<usize, (String, SqlType, bool)> = HashMap::new();
@@ -395,13 +407,13 @@ fn collect_update_params(
 
     // Parameters from WHERE
     if let Some(expr) = selection {
-        collect_params_from_expr(expr, &alias_map, &all_tables, schema, config, mapping);
+        collect_params_from_expr(expr, &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping });
     }
 }
 
 // ─── DELETE ──────────────────────────────────────────────────────────────────
 
-fn build_delete(ann: &Annotation, sql: &str, delete: &Delete, schema: &Schema, config: &ResolverConfig) -> Query {
+fn build_delete(ann: &QueryAnnotation, sql: &str, delete: &Delete, schema: &Schema, config: &ResolverConfig) -> Query {
     let tables = match &delete.from {
         FromTable::WithFromKeyword(t) | FromTable::WithoutKeyword(t) => t,
     };
@@ -411,10 +423,10 @@ fn build_delete(ann: &Annotation, sql: &str, delete: &Delete, schema: &Schema, c
     });
 
     let Some(table_name) = table_name else {
-        return bare(ann, sql);
+        return unresolved_query(ann, sql);
     };
     let Some(table) = schema.tables.iter().find(|t| t.name == table_name) else {
-        return bare(ann, sql);
+        return unresolved_query(ann, sql);
     };
 
     let all_tables = vec![(table.clone(), None)];
@@ -422,7 +434,7 @@ fn build_delete(ann: &Annotation, sql: &str, delete: &Delete, schema: &Schema, c
     let mut mapping = HashMap::new();
 
     if let Some(expr) = &delete.selection {
-        collect_params_from_expr(expr, &alias_map, &all_tables, schema, config, &mut mapping);
+        collect_params_from_expr(expr, &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping: &mut mapping });
     }
 
     let params = build_params(mapping, count_params(sql));
@@ -461,7 +473,7 @@ fn collect_cte_params(with: Option<&With>, schema: &Schema, config: &ResolverCon
                         let all_tables = vec![(table.clone(), None)];
                         let alias_map = build_alias_map(&all_tables);
                         if let Some(expr) = &del.selection {
-                            collect_params_from_expr(expr, &alias_map, &all_tables, schema, config, mapping);
+                            collect_params_from_expr(expr, &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping });
                         }
                     }
                 }
@@ -473,14 +485,15 @@ fn collect_cte_params(with: Option<&With>, schema: &Schema, config: &ResolverCon
                 let all_tables = collect_from_tables(select, schema, &local_ctes, config);
                 if !all_tables.is_empty() {
                     let alias_map = build_alias_map(&all_tables);
+                    let ctx = &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping };
                     if let Some(expr) = &select.selection {
-                        collect_params_from_expr(expr, &alias_map, &all_tables, schema, config, mapping);
+                        collect_params_from_expr(expr, ctx);
                     }
-                    collect_join_params(select, &alias_map, &all_tables, schema, config, mapping);
+                    collect_join_params(select, ctx);
                     if let Some(expr) = &select.having {
-                        collect_params_from_expr(expr, &alias_map, &all_tables, schema, config, mapping);
+                        collect_params_from_expr(expr, ctx);
                     }
-                    collect_limit_offset_params(&cte.query, mapping);
+                    collect_limit_offset_params(&cte.query, ctx.mapping);
                 }
             },
             _ => {},
@@ -796,14 +809,7 @@ fn build_cte_scope(with: Option<&With>, schema: &Schema, config: &ResolverConfig
 
 // ─── Parameter resolution ─────────────────────────────────────────────────────
 
-fn collect_params_from_expr(
-    expr: &Expr,
-    alias_map: &HashMap<String, &Table>,
-    all_tables: &[(Table, Option<String>)],
-    schema: &Schema,
-    config: &ResolverConfig,
-    mapping: &mut HashMap<usize, (String, SqlType, bool)>,
-) {
+fn collect_params_from_expr(expr: &Expr, ctx: &mut ResolverContext) {
     match expr {
         Expr::BinaryOp { left, op, right } => {
             // Infer param type from any comparison: col = $N, col < $N, col > $N, etc.
@@ -812,98 +818,98 @@ fn collect_params_from_expr(
                 // col OP $N
                 if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = &**right {
                     if let Some(idx) = placeholder_idx(p) {
-                        if let Some(rc) = resolve_expr(left, alias_map, all_tables, config) {
-                            mapping.entry(idx).or_insert((rc.name, rc.sql_type, rc.nullable));
+                        if let Some(rc) = resolve_expr(left, ctx.alias_map, ctx.all_tables, ctx.config) {
+                            ctx.mapping.entry(idx).or_insert((rc.name, rc.sql_type, rc.nullable));
                         }
                     }
                 }
                 // $N OP col
                 if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = &**left {
                     if let Some(idx) = placeholder_idx(p) {
-                        if let Some(rc) = resolve_expr(right, alias_map, all_tables, config) {
-                            mapping.entry(idx).or_insert((rc.name, rc.sql_type, rc.nullable));
+                        if let Some(rc) = resolve_expr(right, ctx.alias_map, ctx.all_tables, ctx.config) {
+                            ctx.mapping.entry(idx).or_insert((rc.name, rc.sql_type, rc.nullable));
                         }
                     }
                 }
             }
-            collect_params_from_expr(left, alias_map, all_tables, schema, config, mapping);
-            collect_params_from_expr(right, alias_map, all_tables, schema, config, mapping);
+            collect_params_from_expr(left, ctx);
+            collect_params_from_expr(right, ctx);
         },
         Expr::InSubquery { expr, subquery, .. } => {
-            collect_params_from_expr(expr, alias_map, all_tables, schema, config, mapping);
-            collect_params_from_subquery(subquery, schema, config, mapping);
+            collect_params_from_expr(expr, ctx);
+            collect_params_from_subquery(subquery, ctx.schema, ctx.config, ctx.mapping);
         },
         Expr::Subquery(q) => {
-            collect_params_from_subquery(q, schema, config, mapping);
+            collect_params_from_subquery(q, ctx.schema, ctx.config, ctx.mapping);
         },
         Expr::Nested(inner) => {
-            collect_params_from_expr(inner, alias_map, all_tables, schema, config, mapping);
+            collect_params_from_expr(inner, ctx);
         },
         Expr::IsNull(inner) | Expr::IsNotNull(inner) => {
-            collect_params_from_expr(inner, alias_map, all_tables, schema, config, mapping);
+            collect_params_from_expr(inner, ctx);
         },
         Expr::InList { expr, list, .. } => {
             // col IN ($1, $2, …) — infer param type from the expression being tested
-            let resolved = resolve_expr(expr, alias_map, all_tables, config);
+            let resolved = resolve_expr(expr, ctx.alias_map, ctx.all_tables, ctx.config);
             for item in list {
                 if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = item {
                     if let Some(idx) = placeholder_idx(p) {
                         if let Some(rc) = &resolved {
-                            mapping.entry(idx).or_insert((rc.name.clone(), rc.sql_type.clone(), rc.nullable));
+                            ctx.mapping.entry(idx).or_insert((rc.name.clone(), rc.sql_type.clone(), rc.nullable));
                         }
                     }
                 }
-                collect_params_from_expr(item, alias_map, all_tables, schema, config, mapping);
+                collect_params_from_expr(item, ctx);
             }
-            collect_params_from_expr(expr, alias_map, all_tables, schema, config, mapping);
+            collect_params_from_expr(expr, ctx);
         },
         Expr::Between { expr, low, high, .. } => {
             // col BETWEEN $1 AND $2 — infer both param types from the tested expression
-            let resolved = resolve_expr(expr, alias_map, all_tables, config);
+            let resolved = resolve_expr(expr, ctx.alias_map, ctx.all_tables, ctx.config);
             for bound in [low.as_ref(), high.as_ref()] {
                 if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = bound {
                     if let Some(idx) = placeholder_idx(p) {
                         if let Some(rc) = &resolved {
-                            mapping.entry(idx).or_insert((rc.name.clone(), rc.sql_type.clone(), rc.nullable));
+                            ctx.mapping.entry(idx).or_insert((rc.name.clone(), rc.sql_type.clone(), rc.nullable));
                         }
                     }
                 }
-                collect_params_from_expr(bound, alias_map, all_tables, schema, config, mapping);
+                collect_params_from_expr(bound, ctx);
             }
-            collect_params_from_expr(expr, alias_map, all_tables, schema, config, mapping);
+            collect_params_from_expr(expr, ctx);
         },
         Expr::Like { expr, pattern, .. } | Expr::ILike { expr, pattern, .. } => {
             // col LIKE $1 — infer param type from the column
             if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = pattern.as_ref() {
                 if let Some(idx) = placeholder_idx(p) {
-                    if let Some(rc) = resolve_expr(expr, alias_map, all_tables, config) {
-                        mapping.entry(idx).or_insert((rc.name, rc.sql_type, rc.nullable));
+                    if let Some(rc) = resolve_expr(expr, ctx.alias_map, ctx.all_tables, ctx.config) {
+                        ctx.mapping.entry(idx).or_insert((rc.name, rc.sql_type, rc.nullable));
                     }
                 }
             }
-            collect_params_from_expr(expr, alias_map, all_tables, schema, config, mapping);
-            collect_params_from_expr(pattern, alias_map, all_tables, schema, config, mapping);
+            collect_params_from_expr(expr, ctx);
+            collect_params_from_expr(pattern, ctx);
         },
         Expr::UnaryOp { expr, .. } | Expr::Cast { expr, .. } => {
-            collect_params_from_expr(expr, alias_map, all_tables, schema, config, mapping);
+            collect_params_from_expr(expr, ctx);
         },
         Expr::Case { operand, conditions, else_result, .. } => {
             if let Some(op) = operand {
-                collect_params_from_expr(op, alias_map, all_tables, schema, config, mapping);
+                collect_params_from_expr(op, ctx);
             }
             for cw in conditions {
-                collect_params_from_expr(&cw.condition, alias_map, all_tables, schema, config, mapping);
-                collect_params_from_expr(&cw.result, alias_map, all_tables, schema, config, mapping);
+                collect_params_from_expr(&cw.condition, ctx);
+                collect_params_from_expr(&cw.result, ctx);
             }
             if let Some(el) = else_result {
-                collect_params_from_expr(el, alias_map, all_tables, schema, config, mapping);
+                collect_params_from_expr(el, ctx);
             }
         },
         Expr::Function(func) => {
             if let FunctionArguments::List(arg_list) = &func.args {
                 for arg in &arg_list.args {
                     if let FunctionArg::Unnamed(FunctionArgExpr::Expr(inner)) = arg {
-                        collect_params_from_expr(inner, alias_map, all_tables, schema, config, mapping);
+                        collect_params_from_expr(inner, ctx);
                     }
                 }
             }
@@ -925,25 +931,19 @@ fn collect_params_from_subquery(q: &SqlQuery, schema: &Schema, config: &Resolver
         return;
     }
     let alias_map = build_alias_map(&all_tables);
+    let ctx = &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping };
     if let Some(expr) = &select.selection {
-        collect_params_from_expr(expr, &alias_map, &all_tables, schema, config, mapping);
+        collect_params_from_expr(expr, ctx);
     }
-    collect_join_params(select, &alias_map, &all_tables, schema, config, mapping);
+    collect_join_params(select, ctx);
     if let Some(expr) = &select.having {
-        collect_params_from_expr(expr, &alias_map, &all_tables, schema, config, mapping);
+        collect_params_from_expr(expr, ctx);
     }
-    collect_limit_offset_params(q, mapping);
+    collect_limit_offset_params(q, ctx.mapping);
 }
 
 /// Collect typed parameter mappings from JOIN ON conditions.
-fn collect_join_params(
-    select: &Select,
-    alias_map: &HashMap<String, &Table>,
-    all_tables: &[(Table, Option<String>)],
-    schema: &Schema,
-    config: &ResolverConfig,
-    mapping: &mut HashMap<usize, (String, SqlType, bool)>,
-) {
+fn collect_join_params(select: &Select, ctx: &mut ResolverContext) {
     for twj in &select.from {
         for join in &twj.joins {
             let constraint = match &join.join_operator {
@@ -966,7 +966,7 @@ fn collect_join_params(
                 JoinOperator::AsOf { constraint, .. } => constraint,
             };
             if let JoinConstraint::On(expr) = constraint {
-                collect_params_from_expr(expr, alias_map, all_tables, schema, config, mapping);
+                collect_params_from_expr(expr, ctx);
             }
         }
     }
@@ -996,18 +996,11 @@ fn collect_limit_offset_params(q: &SqlQuery, mapping: &mut HashMap<usize, (Strin
 ///
 /// Walks each ORDER BY expression to find placeholders inside CASE, function
 /// calls, and other complex expressions used for sorting.
-fn collect_order_by_params(
-    q: &SqlQuery,
-    alias_map: &HashMap<String, &Table>,
-    all_tables: &[(Table, Option<String>)],
-    schema: &Schema,
-    config: &ResolverConfig,
-    mapping: &mut HashMap<usize, (String, SqlType, bool)>,
-) {
+fn collect_order_by_params(q: &SqlQuery, ctx: &mut ResolverContext) {
     if let Some(order_by) = &q.order_by {
         if let OrderByKind::Expressions(exprs) = &order_by.kind {
             for obe in exprs {
-                collect_params_from_expr(&obe.expr, alias_map, all_tables, schema, config, mapping);
+                collect_params_from_expr(&obe.expr, ctx);
             }
         }
     }
@@ -1017,18 +1010,11 @@ fn collect_order_by_params(
 ///
 /// Walks each select item's expression to find placeholders inside CASE, function
 /// calls, and other complex expressions that appear in the SELECT list.
-fn collect_projection_params(
-    select: &Select,
-    alias_map: &HashMap<String, &Table>,
-    all_tables: &[(Table, Option<String>)],
-    schema: &Schema,
-    config: &ResolverConfig,
-    mapping: &mut HashMap<usize, (String, SqlType, bool)>,
-) {
+fn collect_projection_params(select: &Select, ctx: &mut ResolverContext) {
     for item in &select.projection {
         match item {
             SelectItem::UnnamedExpr(expr) | SelectItem::ExprWithAlias { expr, .. } => {
-                collect_params_from_expr(expr, alias_map, all_tables, schema, config, mapping);
+                collect_params_from_expr(expr, ctx);
             },
             _ => {},
         }
@@ -1086,7 +1072,12 @@ fn col_to_result(col: &Column) -> ResultColumn {
     ResultColumn { name: col.name.clone(), sql_type: col.sql_type.clone(), nullable: col.nullable }
 }
 
-fn bare(ann: &Annotation, sql: &str) -> Query {
+/// Build a fallback query with no type information for parameters or result columns.
+///
+/// Used when a query cannot be fully resolved against the schema (e.g. unsupported
+/// syntax, unknown tables). The query still runs but parameter/result types default
+/// to `SqlType::Text`.
+fn unresolved_query(ann: &QueryAnnotation, sql: &str) -> Query {
     Query {
         name: ann.name.clone(),
         cmd: ann.cmd.clone(),

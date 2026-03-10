@@ -1,40 +1,26 @@
 use sqlparser::ast::{DataType, ObjectName};
 
+use crate::frontend::common::typemap::{custom_name_upper, fallback_custom, fallback_custom_name, map_common, map_custom_common};
 use crate::ir::SqlType;
 
 /// Maps a sqlparser [`DataType`] to [`SqlType`] using MySQL type rules.
 ///
 /// Note: MySQL query files currently use `$N` positional placeholders (same as PostgreSQL).
 /// Bare `?` and named parameter support are planned for a future release.
-pub fn map(dt: &DataType) -> SqlType {
+pub(crate) fn map(dt: &DataType) -> SqlType {
+    // Dialect-specific arms first
     match dt {
-        DataType::Boolean | DataType::Bool => SqlType::Boolean,
-
         // TINYINT is 1-byte signed; map to SmallInt (use BOOLEAN/BOOL for booleans)
-        DataType::TinyInt(_) | DataType::Int2(_) | DataType::SmallInt(_) => SqlType::SmallInt,
+        DataType::TinyInt(_) => SqlType::SmallInt,
 
-        DataType::MediumInt(_) | DataType::Int(_) | DataType::Int4(_) | DataType::Integer(_) | DataType::Unsigned | DataType::UnsignedInteger => {
-            SqlType::Integer
-        },
+        DataType::MediumInt(_) => SqlType::Integer,
 
-        DataType::Int8(_) | DataType::BigInt(_) | DataType::BigIntUnsigned(_) => SqlType::BigInt,
+        DataType::Varchar(_) | DataType::CharacterVarying(_) | DataType::Nvarchar(_) => SqlType::VarChar(None),
 
         // MySQL FLOAT is 32-bit single-precision
         DataType::Float(_) | DataType::Real | DataType::Float4 => SqlType::Real,
 
-        DataType::Double(_) | DataType::DoublePrecision | DataType::Float8 | DataType::Float64 => SqlType::Double,
-
-        DataType::Numeric(_) | DataType::Decimal(_) => SqlType::Decimal,
-
-        DataType::Text | DataType::Clob(_) => SqlType::Text,
-
-        DataType::Varchar(_) | DataType::CharacterVarying(_) | DataType::Nvarchar(_) => SqlType::VarChar(None),
-
-        DataType::Char(_) | DataType::Character(_) => SqlType::Char(None),
-
         DataType::Blob(_) | DataType::Bytea | DataType::Binary(_) | DataType::Varbinary(_) => SqlType::Bytes,
-
-        DataType::Date => SqlType::Date,
 
         DataType::Time(_, _) => SqlType::Time,
 
@@ -50,35 +36,31 @@ pub fn map(dt: &DataType) -> SqlType {
 
         DataType::Custom(name, _) => map_custom(name),
 
-        _ => SqlType::Custom(format!("{dt}").to_lowercase()),
+        // Fall through to common mappings, then dialect fallback
+        other => map_common(other).unwrap_or_else(|| fallback_custom(dt)),
     }
 }
 
+/// Maps MySQL-specific custom type names to [`SqlType`].
 fn map_custom(name: &ObjectName) -> SqlType {
-    use sqlparser::ast::ObjectNamePart;
-    let upper =
-        name.0.iter().filter_map(|p| if let ObjectNamePart::Identifier(i) = p { Some(i.value.to_uppercase()) } else { None }).collect::<Vec<_>>().join(".");
+    let upper = custom_name_upper(name);
     match upper.as_str() {
         "TINYINT" | "INT1" => SqlType::SmallInt,
-        "SMALLINT" | "INT2" => SqlType::SmallInt,
+        "SMALLINT" => SqlType::SmallInt,
         "MEDIUMINT" | "INT3" | "MIDDLEINT" => SqlType::Integer,
-        "INT" | "INT4" | "INTEGER" => SqlType::Integer,
-        "BIGINT" | "INT8" => SqlType::BigInt,
-        "FLOAT" | "FLOAT4" => SqlType::Real,
-        "DOUBLE" | "FLOAT8" | "REAL" => SqlType::Double,
-        "DECIMAL" | "NUMERIC" | "DEC" | "FIXED" => SqlType::Decimal,
+        "INT" | "INTEGER" => SqlType::Integer,
+        "BIGINT" => SqlType::BigInt,
+        "FLOAT" => SqlType::Real,
+        "DOUBLE" | "REAL" => SqlType::Double,
+        "DEC" | "FIXED" => SqlType::Decimal,
         // MySQL extended text types (may arrive as Custom depending on parser version)
         "TEXT" | "TINYTEXT" | "MEDIUMTEXT" | "LONGTEXT" | "CLOB" => SqlType::Text,
         "VARCHAR" | "NVARCHAR" | "NCHAR" => SqlType::Text,
         // MySQL extended blob types
         "BLOB" | "TINYBLOB" | "MEDIUMBLOB" | "LONGBLOB" | "BINARY" | "VARBINARY" => SqlType::Bytes,
-        "BOOL" | "BOOLEAN" => SqlType::Boolean,
-        "DATE" => SqlType::Date,
-        "TIME" => SqlType::Time,
-        "DATETIME" | "TIMESTAMP" => SqlType::Timestamp,
+        "DATETIME" => SqlType::Timestamp,
         "YEAR" => SqlType::SmallInt,
-        "JSON" => SqlType::Json,
-        _ => SqlType::Custom(upper.to_lowercase()),
+        _ => map_custom_common(&upper).unwrap_or_else(|| fallback_custom_name(&upper)),
     }
 }
 

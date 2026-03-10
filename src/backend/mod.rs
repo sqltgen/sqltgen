@@ -1,6 +1,7 @@
 pub mod common;
 pub mod go;
 pub mod java;
+pub mod jdbc;
 pub mod kotlin;
 pub mod python;
 pub mod rust;

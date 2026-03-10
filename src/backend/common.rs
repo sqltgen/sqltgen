@@ -118,18 +118,21 @@ pub fn parse_placeholder_indices(sql: &str) -> Vec<usize> {
     plan
 }
 
-/// Replace `$N` or `?N` numbered placeholders with anonymous `?` markers.
+/// Replace `$N` or `?N` numbered placeholders with the given `replacement` string.
 ///
-/// Used by every backend that binds parameters positionally: JDBC (Java, Kotlin),
-/// better-sqlite3 (TypeScript/JavaScript), mysql2 (TypeScript/JavaScript), and
-/// Python sqlite3. Not specific to any one driver — any driver that accepts `?`
-/// as a positional placeholder can use this rewrite.
-pub fn rewrite_to_anon_params(sql: &str) -> String {
+/// This is the general-purpose placeholder rewriter. Every `$N` or `?N` token
+/// (where `N` is one or more ASCII digits) is replaced by `replacement` and the
+/// digits are consumed.
+///
+/// Specific shortcuts:
+/// - `rewrite_to_anon_params(sql)` — rewrites to `?`
+/// - `rewrite_to_percent_s(sql)` — rewrites to `%s`
+pub fn rewrite_placeholders(sql: &str, replacement: &str) -> String {
     let mut out = String::with_capacity(sql.len());
     let mut chars = sql.chars().peekable();
     while let Some(ch) = chars.next() {
         if (ch == '$' || ch == '?') && chars.peek().is_some_and(|c| c.is_ascii_digit()) {
-            out.push('?');
+            out.push_str(replacement);
             while chars.peek().is_some_and(|c| c.is_ascii_digit()) {
                 chars.next();
             }
@@ -138,6 +141,64 @@ pub fn rewrite_to_anon_params(sql: &str) -> String {
         }
     }
     out
+}
+
+/// Replace `$N` or `?N` numbered placeholders with anonymous `?` markers.
+///
+/// Used by every backend that binds parameters positionally: JDBC (Java, Kotlin),
+/// better-sqlite3 (TypeScript/JavaScript), mysql2 (TypeScript/JavaScript), and
+/// Python sqlite3. Not specific to any one driver — any driver that accepts `?`
+/// as a positional placeholder can use this rewrite.
+pub fn rewrite_to_anon_params(sql: &str) -> String {
+    rewrite_placeholders(sql, "?")
+}
+
+/// Replace `$N` or `?N` numbered placeholders with `%s` positional markers.
+///
+/// Used by Python backends that bind parameters via DB-API 2.0 `%s` syntax
+/// (psycopg3 for PostgreSQL, mysql-connector-python for MySQL).
+pub fn rewrite_to_percent_s(sql: &str) -> String {
+    rewrite_placeholders(sql, "%s")
+}
+
+/// Rewrite SQL for native list-param strategy: replace `IN ($N)` with the
+/// target-specific SQL for the given list parameter.
+///
+/// Each `target_kind` determines the replacement pattern:
+/// - `ListRewriteTarget::PgArray` — `= ANY($N)` (PostgreSQL array binding)
+/// - `ListRewriteTarget::JsonEach(placeholder)` — `IN (SELECT value FROM json_each(<ph>))` (SQLite)
+/// - `ListRewriteTarget::JsonTable { placeholder, col_type }` — MySQL `JSON_TABLE` expansion
+///
+/// Falls back to the original SQL with a warning if the `IN ($N)` clause is not found.
+pub fn rewrite_list_sql_native(sql: &str, lp: &Parameter, target_kind: ListRewriteTarget) -> String {
+    let replacement = match target_kind {
+        ListRewriteTarget::PgArray => format!("= ANY(${})", lp.index),
+        ListRewriteTarget::JsonEach(placeholder) => {
+            format!("IN (SELECT value FROM json_each({placeholder}))")
+        },
+        ListRewriteTarget::JsonTable { placeholder, col_type } => {
+            format!("IN (SELECT value FROM JSON_TABLE({placeholder},'$[*]' COLUMNS(value {col_type} PATH '$')) t)")
+        },
+    };
+    replace_list_in_clause(sql, lp.index, &replacement).unwrap_or_else(|| {
+        eprintln!("warning: list param '{}' not found in IN clause, treating as scalar", lp.name);
+        sql.to_string()
+    })
+}
+
+/// Target-specific replacement pattern for [`rewrite_list_sql_native`].
+pub enum ListRewriteTarget {
+    /// PostgreSQL `= ANY($N)` array binding.
+    PgArray,
+    /// SQLite `json_each` with the given placeholder string (e.g. `"?"`, `"?1"`).
+    JsonEach(String),
+    /// MySQL `JSON_TABLE` with the given placeholder and column type.
+    JsonTable {
+        /// The placeholder string to use (e.g. `"?"`, `"%s"`).
+        placeholder: String,
+        /// The SQL column type for the JSON_TABLE extraction (e.g. `"INT"`, `"CHAR(255)"`).
+        col_type: String,
+    },
 }
 
 /// Emit a package declaration if non-empty. Pass `";"` for Java, `""` for Kotlin.
@@ -505,5 +566,68 @@ mod tests {
         assert_eq!(pg_array_type_name(&SqlType::Text), "text");
         assert_eq!(pg_array_type_name(&SqlType::Boolean), "boolean");
         assert_eq!(pg_array_type_name(&SqlType::Uuid), "uuid");
+    }
+
+    // ─── rewrite_placeholders ───────────────────────────────────────────────
+
+    #[test]
+    fn test_rewrite_placeholders_to_percent_s() {
+        assert_eq!(rewrite_placeholders("WHERE a = $1 AND b = $2", "%s"), "WHERE a = %s AND b = %s");
+    }
+
+    #[test]
+    fn test_rewrite_placeholders_to_question_mark() {
+        assert_eq!(rewrite_placeholders("WHERE a = $1 AND b = ?2", "?"), "WHERE a = ? AND b = ?");
+    }
+
+    #[test]
+    fn test_rewrite_placeholders_passthrough_when_no_placeholders() {
+        assert_eq!(rewrite_placeholders("SELECT 1", "%s"), "SELECT 1");
+    }
+
+    // ─── rewrite_to_percent_s ───────────────────────────────────────────────
+
+    #[test]
+    fn test_rewrite_to_percent_s_dollar_params() {
+        assert_eq!(rewrite_to_percent_s("WHERE a = $1 AND b = $2"), "WHERE a = %s AND b = %s");
+    }
+
+    #[test]
+    fn test_rewrite_to_percent_s_question_params() {
+        assert_eq!(rewrite_to_percent_s("WHERE a = ?1 AND b = ?2"), "WHERE a = %s AND b = %s");
+    }
+
+    // ─── rewrite_list_sql_native ────────────────────────────────────────────
+
+    #[test]
+    fn test_rewrite_list_sql_native_pg_array() {
+        let lp = Parameter { index: 1, name: "ids".to_string(), sql_type: SqlType::Integer, nullable: false, is_list: true };
+        let sql = "SELECT * FROM t WHERE id IN ($1)";
+        let result = rewrite_list_sql_native(sql, &lp, ListRewriteTarget::PgArray);
+        assert_eq!(result, "SELECT * FROM t WHERE id = ANY($1)");
+    }
+
+    #[test]
+    fn test_rewrite_list_sql_native_json_each() {
+        let lp = Parameter { index: 1, name: "ids".to_string(), sql_type: SqlType::Integer, nullable: false, is_list: true };
+        let sql = "SELECT * FROM t WHERE id IN ($1)";
+        let result = rewrite_list_sql_native(sql, &lp, ListRewriteTarget::JsonEach("?".to_string()));
+        assert_eq!(result, "SELECT * FROM t WHERE id IN (SELECT value FROM json_each(?))");
+    }
+
+    #[test]
+    fn test_rewrite_list_sql_native_json_table() {
+        let lp = Parameter { index: 1, name: "ids".to_string(), sql_type: SqlType::Integer, nullable: false, is_list: true };
+        let sql = "SELECT * FROM t WHERE id IN ($1)";
+        let result = rewrite_list_sql_native(sql, &lp, ListRewriteTarget::JsonTable { placeholder: "%s".to_string(), col_type: "INT".to_string() });
+        assert_eq!(result, "SELECT * FROM t WHERE id IN (SELECT value FROM JSON_TABLE(%s,'$[*]' COLUMNS(value INT PATH '$')) t)");
+    }
+
+    #[test]
+    fn test_rewrite_list_sql_native_not_found_falls_back() {
+        let lp = Parameter { index: 1, name: "ids".to_string(), sql_type: SqlType::Integer, nullable: false, is_list: true };
+        let sql = "SELECT * FROM t WHERE id = $1";
+        let result = rewrite_list_sql_native(sql, &lp, ListRewriteTarget::PgArray);
+        assert_eq!(result, sql); // falls back to original
     }
 }

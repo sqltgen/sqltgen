@@ -1,23 +1,21 @@
 use std::fmt::Write;
 use std::path::PathBuf;
 
-use crate::backend::common::{
-    emit_package, has_inline_rows, infer_row_type_name, infer_table, jdbc_bind_sequence, jdbc_setter, mysql_json_table_col_type, needs_null_safe_getter,
-    pg_array_type_name, replace_list_in_clause, rewrite_to_anon_params, split_at_in_clause, sql_const_name, to_camel_case, to_pascal_case,
+use crate::backend::common::{emit_package, has_inline_rows, needs_null_safe_getter, pg_array_type_name, to_camel_case, to_pascal_case};
+use crate::backend::jdbc::{
+    self, emit_dynamic_binds, emit_jdbc_binds, prepare_dynamic_sql_parts, prepare_sql_const, prepare_sql_const_from, JdbcTarget, ListAction,
 };
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::{ListParamStrategy, OutputConfig};
 use crate::ir::{Parameter, Query, QueryCmd, Schema, SqlType};
 
-/// Database engine target for the Kotlin backend.
-pub enum KotlinTarget {
-    Postgres,
-    Mysql,
-    Sqlite,
-}
+/// Statement-end terminator for Kotlin.
+const SE: &str = "";
+/// Fallback row type when no table match is found.
+const FALLBACK_TYPE: &str = "Any";
 
 pub struct KotlinCodegen {
-    pub target: KotlinTarget,
+    pub target: JdbcTarget,
 }
 
 impl Codegen for KotlinCodegen {
@@ -60,7 +58,7 @@ impl Codegen for KotlinCodegen {
                     emit_row_class(&mut src, query)?;
                     writeln!(src)?;
                 }
-                emit_kotlin_query(&mut src, query, schema, &self.target, &strategy)?;
+                emit_kotlin_query(&mut src, query, schema, self.target, &strategy)?;
             }
 
             writeln!(src, "}}")?;
@@ -79,13 +77,8 @@ impl Codegen for KotlinCodegen {
     }
 }
 
-fn emit_kotlin_query(src: &mut String, query: &Query, schema: &Schema, target: &KotlinTarget, strategy: &ListParamStrategy) -> anyhow::Result<()> {
-    let return_type = match query.cmd {
-        QueryCmd::One => format!("{}?", result_row_type(query, schema)),
-        QueryCmd::Many => format!("List<{}>", result_row_type(query, schema)),
-        QueryCmd::Exec => "Unit".to_string(),
-        QueryCmd::ExecRows => "Long".to_string(),
-    };
+fn emit_kotlin_query(src: &mut String, query: &Query, schema: &Schema, target: JdbcTarget, strategy: &ListParamStrategy) -> anyhow::Result<()> {
+    let return_type = jdbc::jdbc_return_type(query, schema, FALLBACK_TYPE, |r| format!("{r}?"), |r| format!("List<{r}>"), "Unit", "Long");
     let params_sig: String = std::iter::once("conn: Connection".to_string())
         .chain(query.params.iter().map(|p| format!("{}: {}", to_camel_case(&p.name), kotlin_param_type(p))))
         .collect::<Vec<_>>()
@@ -99,18 +92,11 @@ fn emit_kotlin_query(src: &mut String, query: &Query, schema: &Schema, target: &
 }
 
 fn emit_kotlin_scalar_query(src: &mut String, query: &Query, schema: &Schema, return_type: &str, params_sig: &str) -> anyhow::Result<()> {
-    let sql_const = sql_const_name(&query.name);
-    let sql = rewrite_to_anon_params(&query.sql);
-    writeln!(src, "    private const val {sql_const} = \"{};\"", sql.replace('\n', " ").replace('"', "\\\""))?;
+    let (sql_const, escaped) = prepare_sql_const(query);
+    writeln!(src, "    private const val {sql_const} = \"{escaped};\"")?;
     writeln!(src, "    fun {}({params_sig}): {return_type} {{", to_camel_case(&query.name))?;
     writeln!(src, "        conn.prepareStatement({sql_const}).use {{ ps ->")?;
-    for (jdbc_idx, p) in jdbc_bind_sequence(query) {
-        if p.nullable {
-            writeln!(src, "            ps.setObject({jdbc_idx}, {})", to_camel_case(&p.name))?;
-        } else {
-            writeln!(src, "            ps.{}({jdbc_idx}, {})", jdbc_setter(&p.sql_type), to_camel_case(&p.name))?;
-        }
-    }
+    emit_jdbc_binds(src, query, "", SE)?;
     emit_kotlin_result_block(src, query, schema)?;
     writeln!(src, "        }}")?;
     writeln!(src, "    }}")?;
@@ -122,41 +108,38 @@ fn emit_kotlin_list_query(
     src: &mut String,
     query: &Query,
     schema: &Schema,
-    target: &KotlinTarget,
+    target: JdbcTarget,
     strategy: &ListParamStrategy,
     lp: &Parameter,
     return_type: &str,
     params_sig: &str,
 ) -> anyhow::Result<()> {
-    match (target, strategy) {
-        (KotlinTarget::Postgres, ListParamStrategy::Native) => emit_kotlin_list_pg_native(src, query, schema, lp, return_type, params_sig),
-        (_, ListParamStrategy::Dynamic) => emit_kotlin_list_dynamic(src, query, schema, lp, return_type, params_sig),
-        (KotlinTarget::Sqlite, ListParamStrategy::Native) => {
-            let repl = "IN (SELECT value FROM json_each(?))";
-            let sql = replace_list_in_clause(&query.sql, lp.index, repl).unwrap_or_else(|| query.sql.clone());
-            emit_kotlin_list_json_native(src, query, schema, lp, return_type, params_sig, &sql)
-        },
-        (KotlinTarget::Mysql, ListParamStrategy::Native) => {
-            let elem_type = mysql_json_table_col_type(&lp.sql_type);
-            let repl = format!("IN (SELECT value FROM JSON_TABLE(?,'$[*]' COLUMNS(value {elem_type} PATH '$')) t)");
-            let sql = replace_list_in_clause(&query.sql, lp.index, &repl).unwrap_or_else(|| query.sql.clone());
-            emit_kotlin_list_json_native(src, query, schema, lp, return_type, params_sig, &sql)
-        },
+    match jdbc::resolve_list_strategy(target, strategy, query, lp) {
+        ListAction::PgNative(sql) => emit_kotlin_list_pg_native(src, query, schema, lp, return_type, params_sig, &sql),
+        ListAction::Dynamic => emit_kotlin_list_dynamic(src, query, schema, lp, return_type, params_sig),
+        ListAction::JsonNative(sql) => emit_kotlin_list_json_native(src, query, schema, lp, return_type, params_sig, &sql),
     }
 }
 
 /// Emit a PostgreSQL native list query using `= ANY(?)` with a JDBC array.
-fn emit_kotlin_list_pg_native(src: &mut String, query: &Query, schema: &Schema, lp: &Parameter, return_type: &str, params_sig: &str) -> anyhow::Result<()> {
+fn emit_kotlin_list_pg_native(
+    src: &mut String,
+    query: &Query,
+    schema: &Schema,
+    lp: &Parameter,
+    return_type: &str,
+    params_sig: &str,
+    rewritten_sql: &str,
+) -> anyhow::Result<()> {
     let lp_name = to_camel_case(&lp.name);
     let method_name = to_camel_case(&query.name);
-    let sql = rewrite_to_anon_params(&replace_list_in_clause(&query.sql, lp.index, "= ANY(?)").unwrap_or_else(|| query.sql.clone()));
-    let sql_const = sql_const_name(&query.name);
-    writeln!(src, "    private const val {sql_const} = \"{};\"", sql.replace('\n', " ").replace('"', "\\\""))?;
+    let (sql_const, escaped) = prepare_sql_const_from(query, rewritten_sql);
+    writeln!(src, "    private const val {sql_const} = \"{escaped};\"")?;
     writeln!(src, "    fun {method_name}({params_sig}): {return_type} {{")?;
     let type_name = pg_array_type_name(&lp.sql_type);
     writeln!(src, "        val arr = conn.createArrayOf(\"{type_name}\", {lp_name}.toTypedArray())")?;
     writeln!(src, "        conn.prepareStatement({sql_const}).use {{ ps ->")?;
-    emit_kotlin_jdbc_binds(src, query, "arr")?;
+    emit_jdbc_binds(src, query, "arr", SE)?;
     emit_kotlin_result_block(src, query, schema)?;
     writeln!(src, "        }}")?;
     writeln!(src, "    }}")?;
@@ -167,35 +150,15 @@ fn emit_kotlin_list_pg_native(src: &mut String, query: &Query, schema: &Schema, 
 fn emit_kotlin_list_dynamic(src: &mut String, query: &Query, schema: &Schema, lp: &Parameter, return_type: &str, params_sig: &str) -> anyhow::Result<()> {
     let lp_name = to_camel_case(&lp.name);
     let method_name = to_camel_case(&query.name);
-    let scalar_params: Vec<&Parameter> = query.params.iter().filter(|p| !p.is_list).collect();
-    let (before_raw, after_raw) = split_at_in_clause(&query.sql, lp.index).unwrap_or_else(|| (query.sql.clone(), String::new()));
-    let before_esc = rewrite_to_anon_params(&before_raw).replace('\n', " ").replace('"', "\\\"");
-    let after_esc = rewrite_to_anon_params(&after_raw).replace('\n', " ").replace('"', "\\\"");
+    let (before_esc, after_esc) = prepare_dynamic_sql_parts(query, lp);
     writeln!(src, "    fun {method_name}({params_sig}): {return_type} {{")?;
     writeln!(src, "        val marks = {lp_name}.joinToString(\", \") {{ \"?\" }}")?;
     writeln!(src, "        val sql = \"{before_esc}\" + \"IN (${{marks}}){after_esc};\"")?;
     writeln!(src, "        conn.prepareStatement(sql).use {{ ps ->")?;
-    // Split scalars into before/after the list param by SQL occurrence order.
-    let before_scalars: Vec<_> = scalar_params.iter().filter(|p| p.index < lp.index).collect();
-    let after_scalars: Vec<_> = scalar_params.iter().filter(|p| p.index > lp.index).collect();
-    for (i, sp) in before_scalars.iter().enumerate() {
-        let idx = i + 1;
-        if sp.nullable {
-            writeln!(src, "            ps.setObject({idx}, {})", to_camel_case(&sp.name))?;
-        } else {
-            writeln!(src, "            ps.{}({idx}, {})", jdbc_setter(&sp.sql_type), to_camel_case(&sp.name))?;
-        }
-    }
-    let base = before_scalars.len();
-    writeln!(src, "            {lp_name}.forEachIndexed {{ i, v -> ps.{}({base} + i + 1, v) }}", jdbc_setter(&lp.sql_type))?;
-    for (i, sp) in after_scalars.iter().enumerate() {
-        let name = to_camel_case(&sp.name);
-        if sp.nullable {
-            writeln!(src, "            ps.setObject({} + {lp_name}.size + {}, {name})", base, i + 1)?;
-        } else {
-            writeln!(src, "            ps.{}({} + {lp_name}.size + {}, {name})", jdbc_setter(&sp.sql_type), base, i + 1)?;
-        }
-    }
+    emit_dynamic_binds(src, query, lp, SE, &|src, lp_name, base, setter| {
+        writeln!(src, "            {lp_name}.forEachIndexed {{ i, v -> ps.{setter}({base} + i + 1, v) }}")?;
+        Ok(())
+    })?;
     emit_kotlin_result_block(src, query, schema)?;
     writeln!(src, "        }}")?;
     writeln!(src, "    }}")?;
@@ -217,34 +180,15 @@ fn emit_kotlin_list_json_native(
     rewritten_sql: &str,
 ) -> anyhow::Result<()> {
     let method_name = to_camel_case(&query.name);
-    let sql = rewrite_to_anon_params(rewritten_sql);
-    let sql_const = sql_const_name(&query.name);
-    writeln!(src, "    private const val {sql_const} = \"{};\"", sql.replace('\n', " ").replace('"', "\\\""))?;
+    let (sql_const, escaped) = prepare_sql_const_from(query, rewritten_sql);
+    writeln!(src, "    private const val {sql_const} = \"{escaped};\"")?;
     writeln!(src, "    fun {method_name}({params_sig}): {return_type} {{")?;
     emit_kotlin_json_builder(src, lp)?;
     writeln!(src, "        conn.prepareStatement({sql_const}).use {{ ps ->")?;
-    emit_kotlin_jdbc_binds(src, query, "json")?;
+    emit_jdbc_binds(src, query, "json", SE)?;
     emit_kotlin_result_block(src, query, schema)?;
     writeln!(src, "        }}")?;
     writeln!(src, "    }}")?;
-    Ok(())
-}
-
-/// Emit Kotlin `ps.setXxx(idx, value)` calls for each parameter in bind order.
-///
-/// For the list parameter slot, emits a bind using `list_bind_expr` (e.g. `"arr"`
-/// for PostgreSQL arrays, `"json"` for JSON strings).
-fn emit_kotlin_jdbc_binds(src: &mut String, query: &Query, list_bind_expr: &str) -> anyhow::Result<()> {
-    let list_setter = if list_bind_expr == "arr" { "setArray" } else { "setString" };
-    for (jdbc_idx, p) in jdbc_bind_sequence(query) {
-        if p.is_list {
-            writeln!(src, "            ps.{list_setter}({jdbc_idx}, {list_bind_expr})")?;
-        } else if p.nullable {
-            writeln!(src, "            ps.setObject({jdbc_idx}, {})", to_camel_case(&p.name))?;
-        } else {
-            writeln!(src, "            ps.{}({jdbc_idx}, {})", jdbc_setter(&p.sql_type), to_camel_case(&p.name))?;
-        }
-    }
     Ok(())
 }
 
@@ -315,14 +259,7 @@ fn emit_kotlin_queries_ds(src: &mut String, queries: &[Query], schema: &Schema) 
 
 /// Emits one method on `QueriesDs` that wraps the corresponding `Queries` method.
 fn emit_kotlin_ds_method(src: &mut String, query: &Query, schema: &Schema) -> anyhow::Result<()> {
-    // Inline row data classes are nested inside `object Queries` and must be qualified.
-    let row_type = ds_result_row_type(query, schema);
-    let return_type = match query.cmd {
-        QueryCmd::One => format!("{row_type}?"),
-        QueryCmd::Many => format!("List<{row_type}>"),
-        QueryCmd::Exec => "Unit".to_string(),
-        QueryCmd::ExecRows => "Long".to_string(),
-    };
+    let return_type = jdbc::jdbc_ds_return_type(query, schema, FALLBACK_TYPE, |r| format!("{r}?"), |r| format!("List<{r}>"), "Unit", "Long");
 
     let params_sig: String = query.params.iter().map(|p| format!("{}: {}", to_camel_case(&p.name), kotlin_param_type(p))).collect::<Vec<_>>().join(", ");
 
@@ -336,19 +273,7 @@ fn emit_kotlin_ds_method(src: &mut String, query: &Query, schema: &Schema) -> an
 }
 
 fn result_row_type(query: &Query, schema: &Schema) -> String {
-    infer_row_type_name(query, schema).unwrap_or_else(|| "Any".to_string())
-}
-
-/// Like [`result_row_type`], but qualifies inline row data classes as `Queries.XxxRow`
-/// because they are nested inside `object Queries` and must be referenced from `QueriesDs`.
-fn ds_result_row_type(query: &Query, schema: &Schema) -> String {
-    if let Some(table_name) = infer_table(query, schema) {
-        return to_pascal_case(table_name);
-    }
-    if !query.result_columns.is_empty() {
-        return format!("Queries.{}Row", to_pascal_case(&query.name));
-    }
-    "Any".to_string()
+    jdbc::result_row_type(query, schema, FALLBACK_TYPE)
 }
 
 fn row_class_name(query_name: &str) -> String {
@@ -366,14 +291,12 @@ fn emit_row_class(src: &mut String, query: &Query) -> anyhow::Result<()> {
 }
 
 fn emit_row_constructor(query: &Query, schema: &Schema) -> String {
-    let class = result_row_type(query, schema);
-    let args: Vec<String> = query.result_columns.iter().enumerate().map(|(i, col)| rs_read_expr(&col.sql_type, col.nullable, i + 1)).collect();
-    format!("{class}({})", args.join(", "))
+    jdbc::build_row_constructor(query, schema, FALLBACK_TYPE, "", resultset_read_expr)
 }
 
 // ─── Type helpers ─────────────────────────────────────────────────────────────
 
-pub fn kotlin_type(sql_type: &SqlType, nullable: bool) -> String {
+fn kotlin_type(sql_type: &SqlType, nullable: bool) -> String {
     let base = match sql_type {
         SqlType::Boolean => "Boolean",
         SqlType::SmallInt => "Short",
@@ -404,7 +327,7 @@ pub fn kotlin_type(sql_type: &SqlType, nullable: bool) -> String {
     }
 }
 
-fn rs_read_expr(sql_type: &SqlType, nullable: bool, idx: usize) -> String {
+fn resultset_read_expr(sql_type: &SqlType, nullable: bool, idx: usize) -> String {
     // Primitive getters return 0/false for SQL NULL. For nullable primitive columns,
     // use getObject with the Java boxed type so the result can be null,
     // matching the nullable Kotlin type (e.g. Long? instead of Long).
@@ -453,7 +376,7 @@ mod tests {
     }
 
     fn pg() -> KotlinCodegen {
-        KotlinCodegen { target: KotlinTarget::Postgres }
+        KotlinCodegen { target: JdbcTarget::Postgres }
     }
 
     // ─── kotlin_type ───────────────────────────────────────────────────────
@@ -896,7 +819,7 @@ mod tests {
             params: vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
             result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
         };
-        let files = KotlinCodegen { target: KotlinTarget::Sqlite }.generate(&schema, &[query], &cfg()).unwrap();
+        let files = KotlinCodegen { target: JdbcTarget::Sqlite }.generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.kt");
         assert!(src.contains("json_each(?)"), "SQLite native should use json_each");
         assert!(!src.contains("IN ($1)"), "IN clause must be replaced by json_each rewrite");
@@ -919,7 +842,7 @@ mod tests {
             params: vec![Parameter::list(1, "tags", SqlType::Text, false)],
             result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
         };
-        let files = KotlinCodegen { target: KotlinTarget::Sqlite }.generate(&schema, &[query], &cfg()).unwrap();
+        let files = KotlinCodegen { target: JdbcTarget::Sqlite }.generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.kt");
         // Bare joinToString(",") produces unquoted strings — invalid JSON for Text.
         assert!(!src.contains(r#"joinToString(",") + "]""#), "text list must not use bare joinToString (produces unquoted strings)");
@@ -941,7 +864,7 @@ mod tests {
             params: vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
             result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
         };
-        let files = KotlinCodegen { target: KotlinTarget::Sqlite }.generate(&schema, &[query], &cfg()).unwrap();
+        let files = KotlinCodegen { target: JdbcTarget::Sqlite }.generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.kt");
         assert!(src.contains("json_each(?)"), "SQLite native should use json_each");
         assert!(!src.contains(r#"joinToString(",") {"#), "numeric list must not add a per-element quoting lambda");
@@ -964,7 +887,7 @@ mod tests {
             result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
         };
         let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic) };
-        let files = KotlinCodegen { target: KotlinTarget::Postgres }.generate(&schema, &[query], &cfg).unwrap();
+        let files = KotlinCodegen { target: JdbcTarget::Postgres }.generate(&schema, &[query], &cfg).unwrap();
         let src = get_file(&files, "Queries.kt");
         // Bug: active is incorrectly bound at slot 1 before the list elements.
         assert!(!src.contains("ps.setBoolean(1, active)"), "active must not bind at slot 1 when it follows IN");
@@ -989,7 +912,7 @@ mod tests {
             result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
         };
         let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic) };
-        let files = KotlinCodegen { target: KotlinTarget::Postgres }.generate(&schema, &[query], &cfg).unwrap();
+        let files = KotlinCodegen { target: JdbcTarget::Postgres }.generate(&schema, &[query], &cfg).unwrap();
         let src = get_file(&files, "Queries.kt");
         // active is before IN in the SQL — must still bind at slot 1.
         assert!(src.contains("ps.setBoolean(1, active)"), "scalar before IN must bind at slot 1");
