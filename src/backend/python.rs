@@ -7,13 +7,23 @@ use crate::backend::common::{
     rewrite_to_percent_s, split_at_in_clause, sql_const_name, to_pascal_case, to_snake_case, ListRewriteTarget,
 };
 use crate::backend::{Codegen, GeneratedFile};
-use crate::config::{ListParamStrategy, OutputConfig};
+use crate::config::{Engine, ListParamStrategy, OutputConfig};
 use crate::ir::{Parameter, Query, QueryCmd, Schema, SqlType};
 
 pub enum PythonTarget {
     Postgres,
     Sqlite,
     Mysql,
+}
+
+impl From<Engine> for PythonTarget {
+    fn from(engine: Engine) -> Self {
+        match engine {
+            Engine::Postgresql => PythonTarget::Postgres,
+            Engine::Sqlite => PythonTarget::Sqlite,
+            Engine::Mysql => PythonTarget::Mysql,
+        }
+    }
 }
 
 pub struct PythonCodegen {

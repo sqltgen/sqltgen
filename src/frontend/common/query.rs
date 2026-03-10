@@ -445,6 +445,27 @@ fn build_delete(ann: &QueryAnnotation, sql: &str, delete: &Delete, schema: &Sche
 
 // ─── CTE parameter collection ────────────────────────────────────────────────
 
+/// Extract the table name from a DELETE statement's FROM clause.
+fn delete_table_name(del: &Delete) -> Option<String> {
+    let tables = match &del.from {
+        FromTable::WithFromKeyword(t) | FromTable::WithoutKeyword(t) => t,
+    };
+    tables.first().and_then(|twj| match &twj.relation {
+        TableFactor::Table { name, .. } => Some(obj_name_to_str(name)),
+        _ => None,
+    })
+}
+
+/// Collect parameter mappings from a DELETE statement's WHERE clause.
+fn collect_delete_where_params(del: &Delete, schema: &Schema, config: &ResolverConfig, mapping: &mut HashMap<usize, (String, SqlType, bool)>) {
+    let Some(table_name) = delete_table_name(del) else { return };
+    let Some(table) = schema.tables.iter().find(|t| t.name == table_name) else { return };
+    let Some(expr) = &del.selection else { return };
+    let all_tables = vec![(table.clone(), None)];
+    let alias_map = build_alias_map(&all_tables);
+    collect_params_from_expr(expr, &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping });
+}
+
 /// Collect typed parameter mappings from the bodies of all CTEs in `with`.
 ///
 /// Walks UPDATE, DELETE, and SELECT CTE bodies using schema column types for
@@ -462,21 +483,7 @@ fn collect_cte_params(with: Option<&With>, schema: &Schema, config: &ResolverCon
                 collect_update_params(&u.table, &u.assignments, u.selection.as_ref(), schema, config, mapping);
             },
             SetExpr::Delete(Statement::Delete(del)) => {
-                let tables = match &del.from {
-                    FromTable::WithFromKeyword(t) | FromTable::WithoutKeyword(t) => t,
-                };
-                if let Some(table_name) = tables.first().and_then(|twj| match &twj.relation {
-                    TableFactor::Table { name, .. } => Some(obj_name_to_str(name)),
-                    _ => None,
-                }) {
-                    if let Some(table) = schema.tables.iter().find(|t| t.name == table_name) {
-                        let all_tables = vec![(table.clone(), None)];
-                        let alias_map = build_alias_map(&all_tables);
-                        if let Some(expr) = &del.selection {
-                            collect_params_from_expr(expr, &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping });
-                        }
-                    }
-                }
+                collect_delete_where_params(del, schema, config, mapping);
             },
             SetExpr::Insert(Statement::Insert(ins)) => {
                 collect_insert_value_params(ins, schema, mapping);
@@ -696,59 +703,45 @@ fn resolve_expr(expr: &Expr, alias_map: &HashMap<String, &Table>, all_tables: &[
 
 // ─── Derived table columns ────────────────────────────────────────────────────
 
+/// Convert RETURNING result columns to `Column` values (no primary-key flag).
+fn returning_to_columns(returning: &[SelectItem], table: &Table, config: &ResolverConfig) -> Vec<Column> {
+    resolve_returning(returning, table, config)
+        .into_iter()
+        .map(|rc| Column { name: rc.name, sql_type: rc.sql_type, nullable: rc.nullable, is_primary_key: false })
+        .collect()
+}
+
+/// Resolve RETURNING columns for an INSERT CTE body.
+fn returning_cols_for_insert(ins: &Insert, schema: &Schema, config: &ResolverConfig) -> Vec<Column> {
+    let Some(table) = schema.tables.iter().find(|t| t.name == insert_table_name(ins)) else { return vec![] };
+    let Some(returning) = &ins.returning else { return vec![] };
+    returning_to_columns(returning, table, config)
+}
+
+/// Resolve RETURNING columns for an UPDATE CTE body.
+fn returning_cols_for_update(u: &sqlparser::ast::Update, schema: &Schema, config: &ResolverConfig) -> Vec<Column> {
+    let TableFactor::Table { name, .. } = &u.table.relation else { return vec![] };
+    let Some(table) = schema.tables.iter().find(|t| t.name == obj_name_to_str(name)) else { return vec![] };
+    let Some(returning) = &u.returning else { return vec![] };
+    returning_to_columns(returning, table, config)
+}
+
+/// Resolve RETURNING columns for a DELETE CTE body.
+fn returning_cols_for_delete(del: &Delete, schema: &Schema, config: &ResolverConfig) -> Vec<Column> {
+    let Some(table_name) = delete_table_name(del) else { return vec![] };
+    let Some(table) = schema.tables.iter().find(|t| t.name == table_name) else { return vec![] };
+    let Some(returning) = &del.returning else { return vec![] };
+    returning_to_columns(returning, table, config)
+}
+
 fn derived_cols(subquery: &SqlQuery, schema: &Schema, ctes: &[Table], config: &ResolverConfig) -> Vec<Column> {
     // A CTE body may be INSERT … RETURNING or UPDATE … RETURNING (data-modifying CTE).
     // In those cases the CTE output is the RETURNING clause, not a SELECT projection.
     match subquery.body.as_ref() {
-        SetExpr::Insert(stmt) => {
-            if let Statement::Insert(ins) = stmt {
-                if let Some(table) = schema.tables.iter().find(|t| t.name == insert_table_name(ins)) {
-                    if let Some(returning) = &ins.returning {
-                        return resolve_returning(returning, table, config)
-                            .into_iter()
-                            .map(|rc| Column { name: rc.name, sql_type: rc.sql_type, nullable: rc.nullable, is_primary_key: false })
-                            .collect();
-                    }
-                }
-            }
-            return vec![];
-        },
-        SetExpr::Update(stmt) => {
-            if let Statement::Update(u) = stmt {
-                if let TableFactor::Table { name, .. } = &u.table.relation {
-                    if let Some(t) = schema.tables.iter().find(|t| t.name == obj_name_to_str(name)) {
-                        if let Some(returning) = &u.returning {
-                            return resolve_returning(returning, t, config)
-                                .into_iter()
-                                .map(|rc| Column { name: rc.name, sql_type: rc.sql_type, nullable: rc.nullable, is_primary_key: false })
-                                .collect();
-                        }
-                    }
-                }
-            }
-            return vec![];
-        },
-        SetExpr::Delete(stmt) => {
-            if let Statement::Delete(del) = stmt {
-                let tables = match &del.from {
-                    FromTable::WithFromKeyword(t) | FromTable::WithoutKeyword(t) => t,
-                };
-                if let Some(table_name) = tables.first().and_then(|twj| match &twj.relation {
-                    TableFactor::Table { name, .. } => Some(obj_name_to_str(name)),
-                    _ => None,
-                }) {
-                    if let Some(t) = schema.tables.iter().find(|t| t.name == table_name) {
-                        if let Some(returning) = &del.returning {
-                            return resolve_returning(returning, t, config)
-                                .into_iter()
-                                .map(|rc| Column { name: rc.name, sql_type: rc.sql_type, nullable: rc.nullable, is_primary_key: false })
-                                .collect();
-                        }
-                    }
-                }
-            }
-            return vec![];
-        },
+        SetExpr::Insert(Statement::Insert(ins)) => return returning_cols_for_insert(ins, schema, config),
+        SetExpr::Update(Statement::Update(u)) => return returning_cols_for_update(u, schema, config),
+        SetExpr::Delete(Statement::Delete(del)) => return returning_cols_for_delete(del, schema, config),
+        SetExpr::Insert(_) | SetExpr::Update(_) | SetExpr::Delete(_) => return vec![],
         _ => {},
     }
 
@@ -762,37 +755,11 @@ fn derived_cols(subquery: &SqlQuery, schema: &Schema, ctes: &[Table], config: &R
     }
     let alias_map = build_alias_map(&inner_tables);
 
-    let mut cols = Vec::new();
-    for item in &select.projection {
-        match item {
-            SelectItem::Wildcard(_) => {
-                for (t, _) in &inner_tables {
-                    cols.extend(t.columns.iter().cloned());
-                }
-            },
-            SelectItem::QualifiedWildcard(SelectItemQualifiedWildcardKind::ObjectName(name), _) => {
-                let qualifier =
-                    name.0.last().and_then(|p| if let ObjectNamePart::Identifier(i) = p { Some(ident_to_str(i)) } else { None }).unwrap_or_default();
-                if let Some(t) = alias_map.get(&qualifier) {
-                    cols.extend(t.columns.iter().cloned());
-                }
-            },
-            SelectItem::QualifiedWildcard(SelectItemQualifiedWildcardKind::Expr(_), _) => {},
-            SelectItem::UnnamedExpr(expr) => {
-                if let Some(rc) = resolve_expr(expr, &alias_map, &inner_tables, config) {
-                    cols.push(Column { name: rc.name, sql_type: rc.sql_type, nullable: rc.nullable, is_primary_key: false });
-                }
-            },
-            SelectItem::ExprWithAlias { expr, alias } => {
-                let alias_name = ident_to_str(alias);
-                match resolve_expr(expr, &alias_map, &inner_tables, config) {
-                    Some(rc) => cols.push(Column { name: alias_name, sql_type: rc.sql_type, nullable: rc.nullable, is_primary_key: false }),
-                    None => cols.push(Column { name: alias_name, sql_type: SqlType::Custom("expr".into()), nullable: true, is_primary_key: false }),
-                }
-            },
-        }
-    }
-    cols
+    // Reuse resolve_projection and convert ResultColumn → Column (no PK flag for derived tables).
+    resolve_projection(select, &alias_map, &inner_tables, config)
+        .into_iter()
+        .map(|rc| Column { name: rc.name, sql_type: rc.sql_type, nullable: rc.nullable, is_primary_key: false })
+        .collect()
 }
 
 fn build_cte_scope(with: Option<&With>, schema: &Schema, config: &ResolverConfig) -> Vec<Table> {

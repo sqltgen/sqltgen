@@ -12,8 +12,8 @@ pub struct SqltgenConfig {
     pub schema: String,
     /// Path(s) to annotated query files or glob patterns.
     pub queries: QueryPaths,
-    /// Map from language name (e.g. "java", "kotlin") to output config.
-    pub gen: HashMap<String, OutputConfig>,
+    /// Map from target language to output config.
+    pub gen: HashMap<Language, OutputConfig>,
 }
 
 /// Query file paths or glob patterns from config.
@@ -30,6 +30,21 @@ pub enum Engine {
     Postgresql,
     Sqlite,
     Mysql,
+}
+
+/// Target language for code generation.
+///
+/// Used as the key in `gen` — invalid values are rejected at deserialization time.
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "lowercase")]
+pub enum Language {
+    Java,
+    Kotlin,
+    Rust,
+    Go,
+    Python,
+    TypeScript,
+    JavaScript,
 }
 
 /// How variable-length list parameters (`-- @ids bigint[] not null`) are transmitted
@@ -68,7 +83,11 @@ impl SqltgenConfig {
     }
 
     pub fn from_json(text: &str) -> anyhow::Result<Self> {
-        serde_json::from_str(text).context("parsing sqltgen config JSON")
+        let cfg: Self = serde_json::from_str(text).context("parsing sqltgen config JSON")?;
+        if cfg.version != "1" {
+            bail!("unsupported config version {:?} (expected \"1\")", cfg.version);
+        }
+        Ok(cfg)
     }
 
     /// Resolve query file globs relative to the config directory.
@@ -142,11 +161,11 @@ mod tests {
         }
         assert_eq!(cfg.gen.len(), 2);
 
-        let java = cfg.gen.get("java").unwrap();
+        let java = cfg.gen.get(&Language::Java).unwrap();
         assert_eq!(java.out, "src/main/java");
         assert_eq!(java.package, "com.example.db");
 
-        let kotlin = cfg.gen.get("kotlin").unwrap();
+        let kotlin = cfg.gen.get(&Language::Kotlin).unwrap();
         assert_eq!(kotlin.out, "src/main/kotlin");
         assert_eq!(kotlin.package, "com.example.db");
     }
@@ -186,5 +205,32 @@ mod tests {
         let expected = vec![root.join("queries/a.sql"), root.join("queries/b.sql"), root.join("more.sql")];
         assert_eq!(paths, expected);
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rejects_invalid_version() {
+        let json = r#"{
+            "version": "2",
+            "engine": "postgresql",
+            "schema": "schema.sql",
+            "queries": "queries.sql",
+            "gen": { "java": { "out": "gen", "package": "com.example" } }
+        }"#;
+        let err = SqltgenConfig::from_json(json).unwrap_err();
+        assert!(err.to_string().contains("unsupported config version"));
+    }
+
+    #[test]
+    fn rejects_invalid_language_key() {
+        let json = r#"{
+            "version": "1",
+            "engine": "postgresql",
+            "schema": "schema.sql",
+            "queries": "queries.sql",
+            "gen": {
+                "jaava": { "out": "src/main/java", "package": "com.example.db" }
+            }
+        }"#;
+        assert!(SqltgenConfig::from_json(json).is_err());
     }
 }

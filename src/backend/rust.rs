@@ -7,13 +7,23 @@ use crate::backend::common::{
     split_at_in_clause, to_pascal_case, to_snake_case,
 };
 use crate::backend::{Codegen, GeneratedFile};
-use crate::config::{ListParamStrategy, OutputConfig};
+use crate::config::{Engine, ListParamStrategy, OutputConfig};
 use crate::ir::{Parameter, Query, QueryCmd, Schema, SqlType};
 
 pub enum RustTarget {
     Postgres,
     Sqlite,
     Mysql,
+}
+
+impl From<Engine> for RustTarget {
+    fn from(engine: Engine) -> Self {
+        match engine {
+            Engine::Postgresql => RustTarget::Postgres,
+            Engine::Sqlite => RustTarget::Sqlite,
+            Engine::Mysql => RustTarget::Mysql,
+        }
+    }
 }
 
 pub struct RustCodegen {
