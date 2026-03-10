@@ -1,15 +1,22 @@
+mod params;
+mod resolve;
+
 use std::collections::HashMap;
 
 use sqlparser::ast::{
-    Assignment, AssignmentTarget, BinaryOperator, DataType, Delete, Expr, FromTable, FunctionArg, FunctionArgExpr, FunctionArguments, Insert, JoinConstraint,
-    JoinOperator, LimitClause, ObjectNamePart, OrderByKind, Query as SqlQuery, Select, SelectItem, SelectItemQualifiedWildcardKind, SetExpr, Statement,
-    TableFactor, TableObject, TableWithJoins, UnaryOperator, Value, ValueWithSpan, Values, With,
+    Assignment, AssignmentTarget, Delete, Expr, FromTable, Insert, JoinOperator, ObjectNamePart, Query as SqlQuery, Select, SelectItem, SetExpr, Statement,
+    TableFactor, TableObject, TableWithJoins, Value, ValueWithSpan, Values, With,
 };
 use sqlparser::dialect::Dialect;
 use sqlparser::parser::Parser;
 
 use crate::frontend::common::{ident_to_str, named_params, obj_name_to_str};
 use crate::ir::{Column, Parameter, Query, QueryCmd, ResultColumn, Schema, SqlType, Table};
+
+use params::{
+    collect_join_params, collect_limit_offset_params, collect_order_by_params, collect_params_from_expr, collect_select_params, collect_set_expr_params,
+};
+use resolve::{col_to_result, resolve_expr, resolve_projection};
 
 /// Dialect-agnostic type inference configuration.
 pub(crate) struct ResolverConfig {
@@ -187,27 +194,6 @@ fn build_select_body(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, select: &Se
     Query { name: ann.name.clone(), cmd: ann.cmd.clone(), sql: sql.to_string(), params, result_columns }
 }
 
-/// Collect typed parameter mappings from a single `SELECT` clause.
-///
-/// Covers WHERE, JOIN ON, HAVING, and projection expressions. Shared by
-/// `build_select_body` (plain queries) and `collect_set_expr_params` (UNION branches).
-fn collect_select_params(select: &Select, schema: &Schema, config: &ResolverConfig, ctes: &[Table], mapping: &mut HashMap<usize, (String, SqlType, bool)>) {
-    let all_tables = collect_from_tables(select, schema, ctes, config);
-    if all_tables.is_empty() {
-        return;
-    }
-    let alias_map = build_alias_map(&all_tables);
-    let ctx = &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping };
-    if let Some(expr) = &select.selection {
-        collect_params_from_expr(expr, ctx);
-    }
-    collect_join_params(select, ctx);
-    if let Some(expr) = &select.having {
-        collect_params_from_expr(expr, ctx);
-    }
-    collect_projection_params(select, ctx);
-}
-
 /// Handle `Statement::Query` where the body is a set operation (UNION/INTERSECT/EXCEPT).
 ///
 /// Result columns come from the leftmost SELECT branch (per SQL standard).
@@ -255,23 +241,6 @@ fn leftmost_select(expr: &SetExpr) -> Option<&Select> {
         SetExpr::Select(select) => Some(select),
         SetExpr::SetOperation { left, .. } => leftmost_select(left),
         _ => None,
-    }
-}
-
-/// Recursively collect typed parameter mappings from all branches of a set operation.
-///
-/// Each `SELECT` branch gets its own table context for inference. Set operation
-/// nodes recurse into both left and right operands.
-fn collect_set_expr_params(expr: &SetExpr, schema: &Schema, config: &ResolverConfig, ctes: &[Table], mapping: &mut HashMap<usize, (String, SqlType, bool)>) {
-    match expr {
-        SetExpr::Select(select) => {
-            collect_select_params(select, schema, config, ctes, mapping);
-        },
-        SetExpr::SetOperation { left, right, .. } => {
-            collect_set_expr_params(left, schema, config, ctes, mapping);
-            collect_set_expr_params(right, schema, config, ctes, mapping);
-        },
-        _ => {},
     }
 }
 
@@ -528,12 +497,49 @@ fn collect_insert_value_params(ins: &Insert, schema: &Schema, mapping: &mut Hash
 fn collect_from_tables(select: &Select, schema: &Schema, ctes: &[Table], config: &ResolverConfig) -> Vec<(Table, Option<String>)> {
     let mut tables = Vec::new();
     for twj in &select.from {
+        let base_idx = tables.len();
         collect_table_factor(&twj.relation, schema, ctes, &mut tables, config);
         for join in &twj.joins {
+            let nulls_left = is_right_outer(&join.join_operator);
+            let nulls_right = is_left_outer(&join.join_operator);
+
+            // RIGHT or FULL OUTER: all previously collected tables from this
+            // FROM item become nullable (rows may be absent on the left side).
+            if nulls_left {
+                for (t, _) in &mut tables[base_idx..] {
+                    make_columns_nullable(t);
+                }
+            }
+
             collect_table_factor(&join.relation, schema, ctes, &mut tables, config);
+
+            // LEFT or FULL OUTER: the just-added table becomes nullable
+            // (rows may be absent on the right side).
+            if nulls_right {
+                if let Some((t, _)) = tables.last_mut() {
+                    make_columns_nullable(t);
+                }
+            }
         }
     }
     tables
+}
+
+/// Returns true if the join makes the **left** side nullable (RIGHT / FULL OUTER).
+fn is_right_outer(op: &JoinOperator) -> bool {
+    matches!(op, JoinOperator::Right(_) | JoinOperator::RightOuter(_) | JoinOperator::FullOuter(_))
+}
+
+/// Returns true if the join makes the **right** side nullable (LEFT / FULL OUTER).
+fn is_left_outer(op: &JoinOperator) -> bool {
+    matches!(op, JoinOperator::Left(_) | JoinOperator::LeftOuter(_) | JoinOperator::FullOuter(_))
+}
+
+/// Mark all columns in a table as nullable.
+fn make_columns_nullable(table: &mut Table) {
+    for col in &mut table.columns {
+        col.nullable = true;
+    }
 }
 
 fn collect_table_factor(factor: &TableFactor, schema: &Schema, ctes: &[Table], out: &mut Vec<(Table, Option<String>)>, config: &ResolverConfig) {
@@ -566,334 +572,6 @@ fn build_alias_map(tables: &[(Table, Option<String>)]) -> HashMap<String, &Table
         }
     }
     map
-}
-
-// ─── Projection resolution ───────────────────────────────────────────────────
-
-fn resolve_projection(
-    select: &Select,
-    alias_map: &HashMap<String, &Table>,
-    all_tables: &[(Table, Option<String>)],
-    config: &ResolverConfig,
-) -> Vec<ResultColumn> {
-    let mut result = Vec::new();
-    for item in &select.projection {
-        match item {
-            SelectItem::Wildcard(_) => {
-                for (t, _) in all_tables {
-                    result.extend(t.columns.iter().map(col_to_result));
-                }
-            },
-            SelectItem::QualifiedWildcard(SelectItemQualifiedWildcardKind::ObjectName(name), _) => {
-                let qualifier =
-                    name.0.last().and_then(|p| if let ObjectNamePart::Identifier(i) = p { Some(ident_to_str(i)) } else { None }).unwrap_or_default();
-                if let Some(t) = alias_map.get(&qualifier) {
-                    result.extend(t.columns.iter().map(col_to_result));
-                }
-            },
-            SelectItem::QualifiedWildcard(SelectItemQualifiedWildcardKind::Expr(_), _) => {},
-            SelectItem::UnnamedExpr(expr) => {
-                if let Some(rc) = resolve_expr(expr, alias_map, all_tables, config) {
-                    result.push(rc);
-                }
-                // Unresolvable expr without alias (subquery, aggregate) — skip
-            },
-            SelectItem::ExprWithAlias { expr, alias } => {
-                let name = ident_to_str(alias);
-                match resolve_expr(expr, alias_map, all_tables, config) {
-                    Some(rc) => result.push(ResultColumn { name, ..rc }),
-                    None => result.push(ResultColumn { name, sql_type: SqlType::Custom("expr".into()), nullable: true }),
-                }
-            },
-        }
-    }
-    result
-}
-
-/// Returns the wider of two numeric SQL types (for arithmetic result type promotion).
-fn numeric_wider(a: &SqlType, b: &SqlType) -> SqlType {
-    use SqlType::*;
-    match (a, b) {
-        (Decimal, _) | (_, Decimal) => Decimal,
-        (Double, _) | (_, Double) => Double,
-        (Real, _) | (_, Real) => Real,
-        (BigInt, _) | (_, BigInt) => BigInt,
-        (Integer, _) | (_, Integer) => Integer,
-        _ => a.clone(),
-    }
-}
-
-fn resolve_expr(expr: &Expr, alias_map: &HashMap<String, &Table>, all_tables: &[(Table, Option<String>)], config: &ResolverConfig) -> Option<ResultColumn> {
-    match expr {
-        // ── Column references ────────────────────────────────────────────
-        Expr::Identifier(ident) => {
-            let col_name = ident_to_str(ident);
-            all_tables.iter().flat_map(|(t, _)| t.columns.iter()).find(|c| c.name == col_name).map(col_to_result)
-        },
-        Expr::CompoundIdentifier(parts) if parts.len() >= 2 => {
-            let qualifier = ident_to_str(&parts[parts.len() - 2]);
-            let col_name = ident_to_str(&parts[parts.len() - 1]);
-            alias_map.get(&qualifier).and_then(|t| t.columns.iter().find(|c| c.name == col_name)).map(col_to_result)
-        },
-
-        // ── Literals ─────────────────────────────────────────────────────
-        Expr::Value(ValueWithSpan { value, .. }) => resolve_literal(value),
-
-        // ── Parenthesized expression ─────────────────────────────────────
-        Expr::Nested(inner) => resolve_expr(inner, alias_map, all_tables, config),
-
-        // ── Arithmetic operators ─────────────────────────────────────────
-        Expr::BinaryOp {
-            left,
-            op: BinaryOperator::Plus | BinaryOperator::Minus | BinaryOperator::Multiply | BinaryOperator::Divide | BinaryOperator::Modulo,
-            right,
-        } => resolve_binary_arithmetic(left, right, alias_map, all_tables, config),
-
-        // ── String concatenation (||) ────────────────────────────────────
-        Expr::BinaryOp { op: BinaryOperator::StringConcat, .. } => Some(ResultColumn { name: "concat".into(), sql_type: SqlType::Text, nullable: true }),
-
-        // ── Comparison operators → Boolean ───────────────────────────────
-        Expr::BinaryOp {
-            op: BinaryOperator::Eq | BinaryOperator::NotEq | BinaryOperator::Lt | BinaryOperator::LtEq | BinaryOperator::Gt | BinaryOperator::GtEq,
-            ..
-        }
-        | Expr::IsNull(_)
-        | Expr::IsNotNull(_)
-        | Expr::IsTrue(_)
-        | Expr::IsFalse(_)
-        | Expr::IsNotTrue(_)
-        | Expr::IsNotFalse(_)
-        | Expr::InList { .. }
-        | Expr::InSubquery { .. }
-        | Expr::Between { .. }
-        | Expr::Like { .. }
-        | Expr::ILike { .. }
-        | Expr::Exists { .. } => Some(ResultColumn { name: "bool".into(), sql_type: SqlType::Boolean, nullable: false }),
-
-        // ── Logical operators → Boolean ──────────────────────────────────
-        Expr::BinaryOp { op: BinaryOperator::And | BinaryOperator::Or | BinaryOperator::Xor, .. } => {
-            Some(ResultColumn { name: "bool".into(), sql_type: SqlType::Boolean, nullable: false })
-        },
-
-        // ── Unary operators ──────────────────────────────────────────────
-        Expr::UnaryOp { op: UnaryOperator::Not, .. } => Some(ResultColumn { name: "not".into(), sql_type: SqlType::Boolean, nullable: false }),
-        Expr::UnaryOp { op: UnaryOperator::Minus, expr } => {
-            resolve_expr(expr, alias_map, all_tables, config).map(|rc| ResultColumn { name: rc.name, sql_type: rc.sql_type, nullable: rc.nullable })
-        },
-        Expr::UnaryOp { op: UnaryOperator::Plus, expr } => resolve_expr(expr, alias_map, all_tables, config),
-
-        // ── CAST(expr AS type) ───────────────────────────────────────────
-        Expr::Cast { data_type, expr, .. } => {
-            let sql_type = (config.typemap)(data_type);
-            let inner = resolve_expr(expr, alias_map, all_tables, config);
-            let nullable = inner.as_ref().is_none_or(|rc| rc.nullable);
-            let name = inner.map_or_else(|| cast_name(data_type), |rc| rc.name);
-            Some(ResultColumn { name, sql_type, nullable })
-        },
-
-        // ── CASE WHEN … THEN … END ──────────────────────────────────────
-        Expr::Case { conditions, else_result, .. } => resolve_case(conditions, else_result.as_deref(), alias_map, all_tables, config),
-
-        // ── Functions ────────────────────────────────────────────────────
-        Expr::Function(func) => resolve_function(func, alias_map, all_tables, config),
-
-        _ => None,
-    }
-}
-
-/// Infer a result column from a SQL literal value.
-fn resolve_literal(value: &Value) -> Option<ResultColumn> {
-    match value {
-        Value::Number(s, _) => {
-            let sql_type = if s.contains('.') {
-                SqlType::Double
-            } else if s.parse::<i32>().is_ok() {
-                SqlType::Integer
-            } else {
-                SqlType::BigInt
-            };
-            Some(ResultColumn { name: "literal".into(), sql_type, nullable: false })
-        },
-        Value::SingleQuotedString(_) | Value::DoubleQuotedString(_) | Value::DollarQuotedString(_) => {
-            Some(ResultColumn { name: "literal".into(), sql_type: SqlType::Text, nullable: false })
-        },
-        Value::Boolean(_) => Some(ResultColumn { name: "literal".into(), sql_type: SqlType::Boolean, nullable: false }),
-        Value::Null => Some(ResultColumn { name: "literal".into(), sql_type: SqlType::Text, nullable: true }),
-        _ => None,
-    }
-}
-
-/// Resolve arithmetic binary ops with numeric widening.
-fn resolve_binary_arithmetic(
-    left: &Expr,
-    right: &Expr,
-    alias_map: &HashMap<String, &Table>,
-    all_tables: &[(Table, Option<String>)],
-    config: &ResolverConfig,
-) -> Option<ResultColumn> {
-    match (resolve_expr(left, alias_map, all_tables, config), resolve_expr(right, alias_map, all_tables, config)) {
-        (Some(l), Some(r)) => {
-            Some(ResultColumn { name: l.name.clone(), sql_type: numeric_wider(&l.sql_type, &r.sql_type), nullable: l.nullable || r.nullable })
-        },
-        (Some(l), None) => Some(l),
-        (None, Some(r)) => Some(r),
-        (None, None) => None,
-    }
-}
-
-/// Resolve CASE expressions: type comes from first THEN branch (or ELSE), nullable
-/// if any branch is nullable or an ELSE is absent.
-fn resolve_case(
-    conditions: &[sqlparser::ast::CaseWhen],
-    else_result: Option<&Expr>,
-    alias_map: &HashMap<String, &Table>,
-    all_tables: &[(Table, Option<String>)],
-    config: &ResolverConfig,
-) -> Option<ResultColumn> {
-    // Try each THEN branch, then ELSE; use the first resolvable one.
-    let mut resolved: Option<ResultColumn> = None;
-    let mut any_nullable = else_result.is_none(); // no ELSE means NULL is possible
-
-    for cw in conditions {
-        if let Some(rc) = resolve_expr(&cw.result, alias_map, all_tables, config) {
-            any_nullable = any_nullable || rc.nullable;
-            if resolved.is_none() {
-                resolved = Some(rc);
-            }
-        }
-    }
-    if let Some(el) = else_result {
-        if let Some(rc) = resolve_expr(el, alias_map, all_tables, config) {
-            any_nullable = any_nullable || rc.nullable;
-            if resolved.is_none() {
-                resolved = Some(rc);
-            }
-        }
-    }
-    resolved.map(|rc| ResultColumn { nullable: any_nullable, ..rc })
-}
-
-/// Generate a default column name from a CAST target type.
-fn cast_name(dt: &DataType) -> String {
-    format!("{dt}").to_lowercase().replace(' ', "_")
-}
-
-/// Resolve function calls: aggregates, string, math, date, and conditional functions.
-fn resolve_function(
-    func: &sqlparser::ast::Function,
-    alias_map: &HashMap<String, &Table>,
-    all_tables: &[(Table, Option<String>)],
-    config: &ResolverConfig,
-) -> Option<ResultColumn> {
-    let fname =
-        func.name.0.last().and_then(|p| if let ObjectNamePart::Identifier(i) = p { Some(ident_to_str(i)) } else { None }).unwrap_or_default().to_uppercase();
-
-    match fname.as_str() {
-        // ── Aggregates ───────────────────────────────────────────────
-        "COUNT" => Some(ResultColumn { name: "count".into(), sql_type: SqlType::BigInt, nullable: false }),
-        "SUM" => resolve_func_first_arg(func, alias_map, all_tables, config).map(|rc| {
-            let promoted = match rc.sql_type {
-                SqlType::SmallInt | SqlType::Integer => config.sum_integer_type.clone(),
-                other => other,
-            };
-            ResultColumn { sql_type: promoted, nullable: true, ..rc }
-        }),
-        "MIN" | "MAX" | "AVG" => resolve_func_first_arg(func, alias_map, all_tables, config).map(|rc| ResultColumn { nullable: true, ..rc }),
-
-        // ── String functions → Text ──────────────────────────────────
-        "UPPER" | "LOWER" | "TRIM" | "LTRIM" | "RTRIM" | "REPLACE" | "SUBSTR" | "SUBSTRING" | "CONCAT" | "LEFT" | "RIGHT" | "LPAD" | "RPAD" | "REVERSE"
-        | "REPEAT" | "TRANSLATE" | "INITCAP" | "MD5" | "ENCODE" | "DECODE" | "FORMAT" | "TO_CHAR" | "STRING_AGG" | "GROUP_CONCAT" => {
-            Some(ResultColumn { name: fname.to_lowercase(), sql_type: SqlType::Text, nullable: true })
-        },
-
-        // ── Length / position → Integer ──────────────────────────────
-        "LENGTH" | "CHAR_LENGTH" | "CHARACTER_LENGTH" | "OCTET_LENGTH" | "BIT_LENGTH" | "POSITION" | "STRPOS" => {
-            Some(ResultColumn { name: fname.to_lowercase(), sql_type: SqlType::Integer, nullable: true })
-        },
-
-        // ── Math functions → propagate type or return Double ─────────
-        "ABS" | "CEIL" | "CEILING" | "FLOOR" | "ROUND" | "TRUNC" | "TRUNCATE" | "SIGN" => {
-            resolve_func_first_arg(func, alias_map, all_tables, config).map(|rc| ResultColumn { nullable: true, ..rc })
-        },
-        "SQRT" | "CBRT" | "EXP" | "LN" | "LOG" | "LOG2" | "LOG10" | "POWER" | "POW" | "RANDOM" | "PI" | "DEGREES" | "RADIANS" | "SIN" | "COS" | "TAN"
-        | "ASIN" | "ACOS" | "ATAN" | "ATAN2" => Some(ResultColumn { name: fname.to_lowercase(), sql_type: SqlType::Double, nullable: true }),
-        "MOD" => Some(ResultColumn { name: "mod".into(), sql_type: SqlType::Integer, nullable: true }),
-
-        // ── Date/time functions ──────────────────────────────────────
-        "NOW" | "CURRENT_TIMESTAMP" | "LOCALTIMESTAMP" | "STATEMENT_TIMESTAMP" | "TRANSACTION_TIMESTAMP" | "CLOCK_TIMESTAMP" => {
-            Some(ResultColumn { name: fname.to_lowercase(), sql_type: SqlType::TimestampTz, nullable: false })
-        },
-        "CURRENT_DATE" | "DATE" => Some(ResultColumn { name: "date".into(), sql_type: SqlType::Date, nullable: false }),
-        "CURRENT_TIME" | "LOCALTIME" => Some(ResultColumn { name: "time".into(), sql_type: SqlType::Time, nullable: false }),
-
-        // ── Conditional / null-handling ───────────────────────────────
-        "COALESCE" => resolve_coalesce(func, alias_map, all_tables, config),
-        "NULLIF" => resolve_func_first_arg(func, alias_map, all_tables, config).map(|rc| ResultColumn { nullable: true, ..rc }),
-        "IFNULL" => resolve_func_first_arg(func, alias_map, all_tables, config).map(|rc| ResultColumn { nullable: false, ..rc }),
-        "GREATEST" | "LEAST" => resolve_func_first_arg(func, alias_map, all_tables, config).map(|rc| ResultColumn { nullable: true, ..rc }),
-
-        // ── Type-probing functions ───────────────────────────────────
-        "TYPEOF" => Some(ResultColumn { name: "typeof".into(), sql_type: SqlType::Text, nullable: false }),
-
-        // ── JSON functions ───────────────────────────────────────────
-        "JSON_EXTRACT" | "JSON_EXTRACT_PATH_TEXT" | "JSONB_EXTRACT_PATH_TEXT" | "JSON_VALUE" => {
-            Some(ResultColumn { name: fname.to_lowercase(), sql_type: SqlType::Text, nullable: true })
-        },
-        "JSON_OBJECT" | "JSON_BUILD_OBJECT" | "JSONB_BUILD_OBJECT" | "JSON_ARRAY" | "JSON_BUILD_ARRAY" | "JSONB_BUILD_ARRAY" | "JSON_AGG" | "JSONB_AGG"
-        | "JSON_ARRAYAGG" | "JSON_OBJECTAGG" => Some(ResultColumn { name: fname.to_lowercase(), sql_type: SqlType::Json, nullable: true }),
-
-        // ── Boolean functions ────────────────────────────────────────
-        "BOOL_AND" | "BOOL_OR" | "EVERY" => Some(ResultColumn { name: fname.to_lowercase(), sql_type: SqlType::Boolean, nullable: true }),
-
-        // ── Window functions that return integers ────────────────────
-        "ROW_NUMBER" | "RANK" | "DENSE_RANK" | "NTILE" => Some(ResultColumn { name: fname.to_lowercase(), sql_type: SqlType::BigInt, nullable: false }),
-        "CUME_DIST" | "PERCENT_RANK" => Some(ResultColumn { name: fname.to_lowercase(), sql_type: SqlType::Double, nullable: false }),
-        "LAG" | "LEAD" | "FIRST_VALUE" | "LAST_VALUE" | "NTH_VALUE" => {
-            resolve_func_first_arg(func, alias_map, all_tables, config).map(|rc| ResultColumn { nullable: true, ..rc })
-        },
-
-        _ => None,
-    }
-}
-
-/// Extract the first argument from a function and resolve its type.
-fn resolve_func_first_arg(
-    func: &sqlparser::ast::Function,
-    alias_map: &HashMap<String, &Table>,
-    all_tables: &[(Table, Option<String>)],
-    config: &ResolverConfig,
-) -> Option<ResultColumn> {
-    if let FunctionArguments::List(arg_list) = &func.args {
-        if let Some(FunctionArg::Unnamed(FunctionArgExpr::Expr(inner))) = arg_list.args.first() {
-            return resolve_expr(inner, alias_map, all_tables, config);
-        }
-    }
-    None
-}
-
-/// Resolve COALESCE: type from first argument, nullable only if all arguments are nullable.
-fn resolve_coalesce(
-    func: &sqlparser::ast::Function,
-    alias_map: &HashMap<String, &Table>,
-    all_tables: &[(Table, Option<String>)],
-    config: &ResolverConfig,
-) -> Option<ResultColumn> {
-    let FunctionArguments::List(arg_list) = &func.args else { return None };
-    let mut first: Option<ResultColumn> = None;
-    let mut all_nullable = true;
-    for arg in &arg_list.args {
-        if let FunctionArg::Unnamed(FunctionArgExpr::Expr(inner)) = arg {
-            if let Some(rc) = resolve_expr(inner, alias_map, all_tables, config) {
-                if !rc.nullable {
-                    all_nullable = false;
-                }
-                if first.is_none() {
-                    first = Some(rc);
-                }
-            }
-        }
-    }
-    first.map(|rc| ResultColumn { nullable: all_nullable, ..rc })
 }
 
 // ─── Derived table columns ────────────────────────────────────────────────────
@@ -969,238 +647,6 @@ fn build_cte_scope(with: Option<&With>, schema: &Schema, config: &ResolverConfig
     ctes
 }
 
-// ─── Parameter resolution ─────────────────────────────────────────────────────
-
-fn collect_params_from_expr(expr: &Expr, ctx: &mut ResolverContext) {
-    match expr {
-        Expr::BinaryOp { left, op, right } => {
-            // Infer param type from any comparison: col = $N, col < $N, col > $N, etc.
-            // Only use column-based types for parameter inference, not bare literals
-            // (a literal like `-1` would give Integer, masking a BigInt column type).
-            if matches!(op, BinaryOperator::Eq | BinaryOperator::NotEq | BinaryOperator::Lt | BinaryOperator::LtEq | BinaryOperator::Gt | BinaryOperator::GtEq)
-            {
-                // col OP $N
-                if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = &**right {
-                    if let Some(idx) = placeholder_idx(p) {
-                        if !is_literal_expr(left) {
-                            if let Some(rc) = resolve_expr(left, ctx.alias_map, ctx.all_tables, ctx.config) {
-                                ctx.mapping.entry(idx).or_insert((rc.name, rc.sql_type, rc.nullable));
-                            }
-                        }
-                    }
-                }
-                // $N OP col
-                if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = &**left {
-                    if let Some(idx) = placeholder_idx(p) {
-                        if !is_literal_expr(right) {
-                            if let Some(rc) = resolve_expr(right, ctx.alias_map, ctx.all_tables, ctx.config) {
-                                ctx.mapping.entry(idx).or_insert((rc.name, rc.sql_type, rc.nullable));
-                            }
-                        }
-                    }
-                }
-            }
-            collect_params_from_expr(left, ctx);
-            collect_params_from_expr(right, ctx);
-        },
-        Expr::InSubquery { expr, subquery, .. } => {
-            collect_params_from_expr(expr, ctx);
-            collect_params_from_subquery(subquery, ctx.schema, ctx.config, ctx.mapping);
-        },
-        Expr::Subquery(q) => {
-            collect_params_from_subquery(q, ctx.schema, ctx.config, ctx.mapping);
-        },
-        Expr::Nested(inner) => {
-            collect_params_from_expr(inner, ctx);
-        },
-        Expr::IsNull(inner) | Expr::IsNotNull(inner) => {
-            collect_params_from_expr(inner, ctx);
-        },
-        Expr::InList { expr, list, .. } => {
-            // col IN ($1, $2, …) — infer param type from the expression being tested
-            let resolved = resolve_expr(expr, ctx.alias_map, ctx.all_tables, ctx.config);
-            for item in list {
-                if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = item {
-                    if let Some(idx) = placeholder_idx(p) {
-                        if let Some(rc) = &resolved {
-                            ctx.mapping.entry(idx).or_insert((rc.name.clone(), rc.sql_type.clone(), rc.nullable));
-                        }
-                    }
-                }
-                collect_params_from_expr(item, ctx);
-            }
-            collect_params_from_expr(expr, ctx);
-        },
-        Expr::Between { expr, low, high, .. } => {
-            // col BETWEEN $1 AND $2 — infer both param types from the tested expression
-            let resolved = resolve_expr(expr, ctx.alias_map, ctx.all_tables, ctx.config);
-            for bound in [low.as_ref(), high.as_ref()] {
-                if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = bound {
-                    if let Some(idx) = placeholder_idx(p) {
-                        if let Some(rc) = &resolved {
-                            ctx.mapping.entry(idx).or_insert((rc.name.clone(), rc.sql_type.clone(), rc.nullable));
-                        }
-                    }
-                }
-                collect_params_from_expr(bound, ctx);
-            }
-            collect_params_from_expr(expr, ctx);
-        },
-        Expr::Like { expr, pattern, .. } | Expr::ILike { expr, pattern, .. } => {
-            // col LIKE $1 — infer param type from the column
-            if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = pattern.as_ref() {
-                if let Some(idx) = placeholder_idx(p) {
-                    if let Some(rc) = resolve_expr(expr, ctx.alias_map, ctx.all_tables, ctx.config) {
-                        ctx.mapping.entry(idx).or_insert((rc.name, rc.sql_type, rc.nullable));
-                    }
-                }
-            }
-            collect_params_from_expr(expr, ctx);
-            collect_params_from_expr(pattern, ctx);
-        },
-        Expr::UnaryOp { expr, .. } | Expr::Cast { expr, .. } => {
-            collect_params_from_expr(expr, ctx);
-        },
-        Expr::Case { operand, conditions, else_result, .. } => {
-            if let Some(op) = operand {
-                collect_params_from_expr(op, ctx);
-            }
-            for cw in conditions {
-                collect_params_from_expr(&cw.condition, ctx);
-                collect_params_from_expr(&cw.result, ctx);
-            }
-            if let Some(el) = else_result {
-                collect_params_from_expr(el, ctx);
-            }
-        },
-        Expr::Function(func) => {
-            if let FunctionArguments::List(arg_list) = &func.args {
-                for arg in &arg_list.args {
-                    if let FunctionArg::Unnamed(FunctionArgExpr::Expr(inner)) = arg {
-                        collect_params_from_expr(inner, ctx);
-                    }
-                }
-            }
-        },
-        _ => {},
-    }
-}
-
-/// Returns true if the expression is a bare literal (number, string, boolean,
-/// null, or unary +/- on a literal). Used to skip literal-based inference in
-/// parameter type resolution — column-based types are always more accurate.
-fn is_literal_expr(expr: &Expr) -> bool {
-    match expr {
-        Expr::Value(ValueWithSpan { value, .. }) => !matches!(value, Value::Placeholder(_)),
-        Expr::UnaryOp { op: UnaryOperator::Minus | UnaryOperator::Plus, expr } => is_literal_expr(expr),
-        Expr::Nested(inner) => is_literal_expr(inner),
-        _ => false,
-    }
-}
-
-/// Recursively collect typed parameter mappings from a subquery.
-///
-/// Builds the subquery's FROM scope, recurses into any nested WITH clauses,
-/// and collects parameters from the WHERE clause. Handles both scalar
-/// subqueries (`Expr::Subquery`) and IN-subquery expressions.
-fn collect_params_from_subquery(q: &SqlQuery, schema: &Schema, config: &ResolverConfig, mapping: &mut HashMap<usize, (String, SqlType, bool)>) {
-    collect_cte_params(q.with.as_ref(), schema, config, mapping);
-    let SetExpr::Select(select) = q.body.as_ref() else { return };
-    let all_tables = collect_from_tables(select, schema, &[], config);
-    if all_tables.is_empty() {
-        return;
-    }
-    let alias_map = build_alias_map(&all_tables);
-    let ctx = &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping };
-    if let Some(expr) = &select.selection {
-        collect_params_from_expr(expr, ctx);
-    }
-    collect_join_params(select, ctx);
-    if let Some(expr) = &select.having {
-        collect_params_from_expr(expr, ctx);
-    }
-    collect_limit_offset_params(q, ctx.mapping);
-}
-
-/// Collect typed parameter mappings from JOIN ON conditions.
-fn collect_join_params(select: &Select, ctx: &mut ResolverContext) {
-    for twj in &select.from {
-        for join in &twj.joins {
-            let constraint = match &join.join_operator {
-                JoinOperator::Join(c)
-                | JoinOperator::Inner(c)
-                | JoinOperator::Left(c)
-                | JoinOperator::LeftOuter(c)
-                | JoinOperator::Right(c)
-                | JoinOperator::RightOuter(c)
-                | JoinOperator::FullOuter(c)
-                | JoinOperator::CrossJoin(c)
-                | JoinOperator::Semi(c)
-                | JoinOperator::LeftSemi(c)
-                | JoinOperator::RightSemi(c)
-                | JoinOperator::LeftAnti(c)
-                | JoinOperator::RightAnti(c)
-                | JoinOperator::Anti(c)
-                | JoinOperator::StraightJoin(c) => c,
-                JoinOperator::CrossApply | JoinOperator::OuterApply => return,
-                JoinOperator::AsOf { constraint, .. } => constraint,
-            };
-            if let JoinConstraint::On(expr) = constraint {
-                collect_params_from_expr(expr, ctx);
-            }
-        }
-    }
-}
-
-/// Collect parameter mappings from LIMIT and OFFSET expressions.
-///
-/// LIMIT/OFFSET params are always typed as `BigInt` since they control row counts.
-fn collect_limit_offset_params(q: &SqlQuery, mapping: &mut HashMap<usize, (String, SqlType, bool)>) {
-    if let Some(LimitClause::LimitOffset { limit, offset, .. }) = &q.limit_clause {
-        if let Some(Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. })) = limit {
-            if let Some(idx) = placeholder_idx(p) {
-                mapping.entry(idx).or_insert(("limit".into(), SqlType::BigInt, false));
-            }
-        }
-        if let Some(off) = offset {
-            if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = &off.value {
-                if let Some(idx) = placeholder_idx(p) {
-                    mapping.entry(idx).or_insert(("offset".into(), SqlType::BigInt, false));
-                }
-            }
-        }
-    }
-}
-
-/// Collect typed parameter mappings from ORDER BY expressions.
-///
-/// Walks each ORDER BY expression to find placeholders inside CASE, function
-/// calls, and other complex expressions used for sorting.
-fn collect_order_by_params(q: &SqlQuery, ctx: &mut ResolverContext) {
-    if let Some(order_by) = &q.order_by {
-        if let OrderByKind::Expressions(exprs) = &order_by.kind {
-            for obe in exprs {
-                collect_params_from_expr(&obe.expr, ctx);
-            }
-        }
-    }
-}
-
-/// Collect typed parameter mappings from projection (SELECT list) expressions.
-///
-/// Walks each select item's expression to find placeholders inside CASE, function
-/// calls, and other complex expressions that appear in the SELECT list.
-fn collect_projection_params(select: &Select, ctx: &mut ResolverContext) {
-    for item in &select.projection {
-        match item {
-            SelectItem::UnnamedExpr(expr) | SelectItem::ExprWithAlias { expr, .. } => {
-                collect_params_from_expr(expr, ctx);
-            },
-            _ => {},
-        }
-    }
-}
-
 fn build_params(mapping: HashMap<usize, (String, SqlType, bool)>, count: usize) -> Vec<Parameter> {
     // Track how many times each name has been used so we can deduplicate.
     // e.g. `price BETWEEN $1 AND $2` → both get name "price" from the column,
@@ -1247,10 +693,6 @@ fn resolve_returning(items: &[SelectItem], table: &Table, config: &ResolverConfi
 }
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
-
-fn col_to_result(col: &Column) -> ResultColumn {
-    ResultColumn { name: col.name.clone(), sql_type: col.sql_type.clone(), nullable: col.nullable }
-}
 
 /// Build a fallback query with no type information for parameters or result columns.
 ///
@@ -1522,6 +964,85 @@ mod tests {
         assert_eq!(q.result_columns.len(), 2);
         assert_eq!(q.result_columns[1].name, "title");
         assert_eq!(q.params[0].sql_type, SqlType::BigInt);
+    }
+
+    // ─── Outer join nullability ──────────────────────────────────────────────
+
+    #[test]
+    fn left_join_makes_right_side_nullable() {
+        // posts columns should become nullable because posts is on the right side of a LEFT JOIN
+        let sql = "-- name: GetUserWithPost :one\n\
+            SELECT u.id, u.name, p.id, p.title FROM users u LEFT JOIN posts p ON p.user_id = u.id WHERE u.id = $1;";
+        let q = &parse_queries(sql, &make_join_schema()).unwrap()[0];
+        assert_eq!(q.result_columns.len(), 4);
+        // Left side (users) keeps original nullability
+        assert!(!q.result_columns[0].nullable, "users.id should remain non-nullable");
+        assert!(!q.result_columns[1].nullable, "users.name should remain non-nullable");
+        // Right side (posts) becomes nullable
+        assert!(q.result_columns[2].nullable, "posts.id should become nullable in LEFT JOIN");
+        assert!(q.result_columns[3].nullable, "posts.title should become nullable in LEFT JOIN");
+    }
+
+    #[test]
+    fn right_join_makes_left_side_nullable() {
+        // users columns should become nullable because users is on the left side of a RIGHT JOIN
+        let sql = "-- name: GetPostWithUser :one\n\
+            SELECT u.name, p.title FROM users u RIGHT JOIN posts p ON p.user_id = u.id WHERE p.id = $1;";
+        let q = &parse_queries(sql, &make_join_schema()).unwrap()[0];
+        assert_eq!(q.result_columns.len(), 2);
+        // Left side (users) becomes nullable
+        assert!(q.result_columns[0].nullable, "users.name should become nullable in RIGHT JOIN");
+        // Right side (posts) keeps original nullability
+        assert!(!q.result_columns[1].nullable, "posts.title should remain non-nullable");
+    }
+
+    #[test]
+    fn full_outer_join_makes_both_sides_nullable() {
+        let sql = "-- name: AllUsersAndPosts :many\n\
+            SELECT u.name, p.title FROM users u FULL OUTER JOIN posts p ON p.user_id = u.id;";
+        let q = &parse_queries(sql, &make_join_schema()).unwrap()[0];
+        assert_eq!(q.result_columns.len(), 2);
+        assert!(q.result_columns[0].nullable, "users.name should become nullable in FULL OUTER JOIN");
+        assert!(q.result_columns[1].nullable, "posts.title should become nullable in FULL OUTER JOIN");
+    }
+
+    #[test]
+    fn inner_join_preserves_nullability() {
+        // INNER JOIN should not change nullability — both sides must match
+        let sql = "-- name: GetUserPost :one\n\
+            SELECT u.id, u.name, p.title FROM users u INNER JOIN posts p ON p.user_id = u.id WHERE u.id = $1;";
+        let q = &parse_queries(sql, &make_join_schema()).unwrap()[0];
+        assert!(!q.result_columns[0].nullable, "users.id should remain non-nullable in INNER JOIN");
+        assert!(!q.result_columns[1].nullable, "users.name should remain non-nullable in INNER JOIN");
+        assert!(!q.result_columns[2].nullable, "posts.title should remain non-nullable in INNER JOIN");
+    }
+
+    #[test]
+    fn left_join_wildcard_makes_right_side_nullable() {
+        // SELECT * with LEFT JOIN — right-side columns become nullable
+        let sql = "-- name: AllUserPosts :many\n\
+            SELECT * FROM users u LEFT JOIN posts p ON p.user_id = u.id;";
+        let q = &parse_queries(sql, &make_join_schema()).unwrap()[0];
+        // users(2) + posts(3) = 5
+        assert_eq!(q.result_columns.len(), 5);
+        // users columns (first 2) stay non-nullable
+        assert!(!q.result_columns[0].nullable, "users.id should remain non-nullable");
+        assert!(!q.result_columns[1].nullable, "users.name should remain non-nullable");
+        // posts columns (last 3) become nullable
+        assert!(q.result_columns[2].nullable, "posts.id should become nullable");
+        assert!(q.result_columns[3].nullable, "posts.user_id should become nullable");
+        assert!(q.result_columns[4].nullable, "posts.title should become nullable");
+    }
+
+    #[test]
+    fn left_join_unqualified_column_from_right_becomes_nullable() {
+        // Unqualified column that resolves to the outer-joined table
+        let sql = "-- name: GetUserTitle :one\n\
+            SELECT u.name, title FROM users u LEFT JOIN posts p ON p.user_id = u.id WHERE u.id = $1;";
+        let q = &parse_queries(sql, &make_join_schema()).unwrap()[0];
+        assert_eq!(q.result_columns.len(), 2);
+        assert!(!q.result_columns[0].nullable, "users.name should remain non-nullable");
+        assert!(q.result_columns[1].nullable, "title (from posts via LEFT JOIN) should become nullable");
     }
 
     // ─── Derived-table tests (JOIN (SELECT …) alias) ─────────────────────────
