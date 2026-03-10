@@ -67,9 +67,9 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | CTE (`WITH` … `SELECT`) | ✅ chained, joined with schema tables | ✅ | ✅ |
 | Multiple query files | ✅ | ✅ | ✅ |
 | Glob patterns for `schema` / `queries` paths | ⚠️ queries only | ⚠️ queries only | ⚠️ queries only |
-| `UNION` / `INTERSECT` result columns | ❌ | ❌ | ❌ |
+| `UNION` / `INTERSECT` / `EXCEPT` result columns | ✅ | ✅ | ✅ |
 | `CAST(x AS type)` result type | ❌ | ❌ | ❌ |
-| `HAVING` parameters | ❌ | ❌ | ❌ |
+| `HAVING` parameters | ✅ | ✅ | ✅ |
 | Schema-qualified table refs (`schema.table`) | ❌ | ❌ | ❌ |
 | `CREATE TYPE … AS ENUM` | ❌ | — | — |
 
@@ -169,8 +169,8 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 
 | | Java | Kotlin | Rust | Go | Python | TypeScript | JavaScript |
 |---|---|---|---|---|---|---|---|
-| Current target | JDBC | JDBC | sqlx | — | psycopg3 (psycopg) / sqlite3 (stdlib) | — | — |
-| Planned target | JDBC | JDBC | sqlx | database/sql | psycopg3 | postgres.js / better-sqlite3 / mysql2 | postgres.js / better-sqlite3 / mysql2 |
+| Current target | JDBC | JDBC | sqlx | — | psycopg3 / sqlite3 / mysql-connector | pg / better-sqlite3 / mysql2 | pg / better-sqlite3 / mysql2 |
+| Planned target | JDBC | JDBC | sqlx | database/sql | psycopg3 / sqlite3 / mysql-connector | pg / better-sqlite3 / mysql2 | pg / better-sqlite3 / mysql2 |
 
 ---
 
@@ -178,11 +178,11 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 
 | | Java | Kotlin | Rust | Go | Python | TypeScript | JavaScript |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| Example project | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ | ❌ |
-| PostgreSQL (real DB) | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ | ❌ |
-| SQLite (in-memory) | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ | ❌ |
-| MySQL (real DB) | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ | ❌ |
-| Makefile (`make run`) | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ | ❌ |
+| Example project | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ |
+| PostgreSQL (real DB) | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ |
+| SQLite (in-memory) | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ |
+| MySQL (real DB) | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ |
+| Makefile (`make run`) | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ |
 
 ---
 
@@ -191,17 +191,17 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | Module | Tests |
 |---|---|
 | Config | 3 |
-| Frontend — PostgreSQL | 42 |
-| Frontend — SQLite | 16 |
-| Frontend — MySQL | 32 |
-| Frontend — common (query parser, CTEs, subqueries, named params, list params) | 63 |
-| Backend — Java | 36 |
-| Backend — Kotlin | 37 |
-| Backend — Rust | 15 |
-| Backend — Python | 28 |
-| Backend — common | 17 |
-| Backend — TypeScript / JavaScript | 18 |
-| **Total** | **307 (all passing)** |
+| Frontend — PostgreSQL (typemap + schema + query) | 49 |
+| Frontend — SQLite (typemap + schema + query) | 39 |
+| Frontend — MySQL (typemap + schema + query) | 34 |
+| Frontend — common (query parser, CTEs, subqueries, named params, list params) | 107 |
+| Backend — Java | 40 |
+| Backend — Kotlin | 41 |
+| Backend — Rust | 32 |
+| Backend — Python | 41 |
+| Backend — common | 22 |
+| Backend — TypeScript / JavaScript | 33 |
+| **Total** | **441 (435 passing, 6 ignored)** |
 
 ---
 

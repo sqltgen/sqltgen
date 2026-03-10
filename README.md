@@ -1,7 +1,8 @@
 # sqltgen
 
 A multi-language SQL-to-code generator. Annotate your SQL queries; sqltgen emits
-idiomatic, type-safe database access code in Java, Kotlin, Rust, and Python.
+idiomatic, type-safe database access code in Java, Kotlin, Rust, Python,
+TypeScript, and JavaScript.
 
 Inspired by [sqlc](https://sqlc.dev). Written in Rust.
 
@@ -50,10 +51,12 @@ RETURNING *;
   "schema": "migrations/",
   "queries": "queries.sql",
   "gen": {
-    "java":   { "out": "gen", "package": "com.example.db" },
-    "kotlin": { "out": "gen", "package": "com.example.db" },
-    "rust":   { "out": "src/db", "package": "" },
-    "python": { "out": "gen",   "package": "" }
+    "java":       { "out": "gen", "package": "com.example.db" },
+    "kotlin":     { "out": "gen", "package": "com.example.db" },
+    "rust":       { "out": "src/db", "package": "" },
+    "python":     { "out": "gen",   "package": "" },
+    "typescript": { "out": "src/db", "package": "" },
+    "javascript": { "out": "src/db", "package": "" }
   }
 }
 ```
@@ -71,7 +74,8 @@ public static Optional<Author> createAuthor(Connection conn, String name, String
                                             Integer birthYear) throws SQLException { … }
 ```
 
-And equivalently in Kotlin, Rust (sqlx async functions), and Python (psycopg3).
+And equivalently in Kotlin, Rust (sqlx async functions), Python (psycopg3),
+TypeScript (pg / better-sqlite3 / mysql2), and JavaScript (with JSDoc types).
 
 ---
 
@@ -128,8 +132,9 @@ SELECT * FROM book WHERE id IN (@ids);
 | Kotlin | JDBC | ✅ |
 | Rust | sqlx (async) | ✅ |
 | Python | psycopg3 / sqlite3 / mysql-connector | ✅ |
+| TypeScript | pg / better-sqlite3 / mysql2 | ✅ |
+| JavaScript | pg / better-sqlite3 / mysql2 | ✅ |
 | Go | database/sql | 🚧 planned |
-| TypeScript | postgres.js | 🚧 planned |
 
 ---
 
@@ -163,10 +168,12 @@ cargo install sqltgen
   "schema":  "migrations/", // path to a .sql file or directory of migration files
   "queries": "queries.sql", // path, list of paths, or glob pattern
   "gen": {
-    "rust":   { "out": "src/db",  "package": "" },
-    "java":   { "out": "gen",     "package": "com.example.db" },
-    "kotlin": { "out": "gen",     "package": "com.example.db" },
-    "python": { "out": "gen",     "package": "" }
+    "rust":       { "out": "src/db",  "package": "" },
+    "java":       { "out": "gen",     "package": "com.example.db" },
+    "kotlin":     { "out": "gen",     "package": "com.example.db" },
+    "python":     { "out": "gen",     "package": "" },
+    "typescript": { "out": "src/db",  "package": "" },
+    "javascript": { "out": "src/db",  "package": "" }
   }
 }
 ```
@@ -178,7 +185,7 @@ The `schema` field accepts a directory; files are loaded in lexicographic order
 
 ## Examples
 
-Runnable examples for all four backends × three dialects live in `examples/`.
+Runnable examples for all six backends × three dialects live in `examples/`.
 Each is a self-contained project with a `Makefile`:
 
 ```sh

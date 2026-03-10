@@ -81,7 +81,7 @@ SQL files
 | `rust.rs` | ✅ | `sqlx` async functions + `#[derive(FromRow)]` structs; `mod.rs` generated |
 | `python.rs` | ✅ | `@dataclass` models + psycopg3 / sqlite3 / mysql-connector functions |
 | `go.rs` | 🚧 | Stub — `unimplemented!()` |
-| `typescript.rs` | 🚧 | Stub — `unimplemented!()` |
+| `typescript.rs` | ✅ | TypeScript (interfaces) + JavaScript (JSDoc) output; pg / better-sqlite3 / mysql2 drivers |
 
 ## CLI (`src/main.rs`)
 
@@ -124,13 +124,11 @@ sqltgen aims for excellent JSON support across all backends. Current state and g
 
 ### Medium priority
 
-1. **`UNION` / `INTERSECT` result columns** — resolve from left branch of `SetExpr::SetOperation`
-2. **`CAST(x AS type)` result type** — call `typemap::map()` on the cast's `DataType`
-3. **`HAVING` params** — same `collect_params_from_expr` walk on `select.having`
-4. **TypeScript backend** — generate interfaces + `postgres.js` functions
-5. **Type overrides config** — map a DB type or `table.column` to a custom target-language type
-6. **Better error messages** — surface parse errors with line numbers
-7. **Glob patterns** for `schema` and `queries` config fields
+1. **`CAST(x AS type)` result type** — call `typemap::map()` on the cast's `DataType`
+2. **Literal expression resolution** — `resolve_expr` doesn't handle NULL/number/string/bool literals in projections (task 024)
+3. **Type overrides config** — map a DB type or `table.column` to a custom target-language type
+4. **Better error messages** — surface parse errors with line numbers
+5. **Glob patterns** for `schema` and `queries` config fields
 
 ### Low priority / future
 

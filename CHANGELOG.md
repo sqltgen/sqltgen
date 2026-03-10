@@ -3,13 +3,33 @@
 All notable changes to sqltgen will be documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
-sqltgen uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+While pre-release, sqltgen uses date-based versions (`0.0.YYYYMMDD`).
+Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
 ## [Unreleased]
 
-## [0.1.0] — unreleased
+### Added
+- **TypeScript backend** — generates typed interfaces + async query functions for
+  pg (PostgreSQL), better-sqlite3 (SQLite), and mysql2 (MySQL) drivers
+- **JavaScript backend** — same codegen engine as TypeScript but emits JSDoc type
+  annotations instead of inline TypeScript types
+- TypeScript and JavaScript examples for all three dialects (PostgreSQL, SQLite, MySQL)
+- `UNION` / `UNION ALL` / `INTERSECT` / `EXCEPT` result column typing — resolves
+  result columns from the leftmost SELECT branch (SQL standard)
+- E2E snapshot test suite — 14 backend × dialect combinations with golden file comparison
+- E2E runtime tests — Rust + SQLite (in-memory) and Rust + PostgreSQL (Docker)
+
+### Fixed
+- Parameter type inference in ORDER BY expressions (e.g. `ORDER BY CASE WHEN id = $1 ...`)
+- Parameter type inference in HAVING, JOIN ON, LIMIT/OFFSET, IN list, and BETWEEN
+  (all expression contexts now covered)
+- Duplicate parameter names in generated function signatures — `BETWEEN $1 AND $2`
+  on the same column now produces `price, price_2` instead of `price, price`
+- Non-deterministic import ordering in Rust backend — `HashSet` replaced with sorted `Vec`
+
+## [0.0.20260310] — unreleased
 
 First public release.
 
@@ -57,5 +77,5 @@ First public release.
 - `make run-all` at the repo root runs all examples using one shared container per
   engine (1× PG, 1× MySQL, no containers for SQLite)
 
-[Unreleased]: https://github.com/sqltgen/sqltgen/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/sqltgen/sqltgen/releases/tag/v0.1.0
+[Unreleased]: https://github.com/sqltgen/sqltgen/compare/v0.0.20260310...HEAD
+[0.0.20260310]: https://github.com/sqltgen/sqltgen/releases/tag/v0.0.20260310
