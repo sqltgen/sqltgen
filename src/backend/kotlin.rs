@@ -883,6 +883,7 @@ mod tests {
         let src = get_file(&files, "Queries.kt");
         assert!(src.contains("ids: List<Long>"), "should use List<Long> for list param");
         assert!(src.contains("joinToString"), "dynamic builds IN at runtime");
+        assert!(src.contains("forEachIndexed"), "dynamic must have a bind loop for list elements");
     }
 
     #[test]
@@ -898,6 +899,7 @@ mod tests {
         let files = KotlinCodegen { target: KotlinTarget::Sqlite }.generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.kt");
         assert!(src.contains("json_each(?)"), "SQLite native should use json_each");
+        assert!(!src.contains("IN ($1)"), "IN clause must be replaced by json_each rewrite");
         assert!(!src.contains("JSON_TABLE"), "SQLite should not use MySQL JSON_TABLE");
         assert!(src.contains("ps.setString"), "should bind JSON string");
     }
