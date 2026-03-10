@@ -404,69 +404,33 @@ fn emit_row_constructor(query: &Query, schema: &Schema) -> String {
 // ─── Type helpers ─────────────────────────────────────────────────────────────
 
 pub fn java_type(sql_type: &SqlType, nullable: bool) -> String {
-    match sql_type {
-        SqlType::Boolean => {
-            if nullable {
-                "Boolean".into()
-            } else {
-                "boolean".into()
-            }
-        },
-        SqlType::SmallInt => {
-            if nullable {
-                "Short".into()
-            } else {
-                "short".into()
-            }
-        },
-        SqlType::Integer => {
-            if nullable {
-                "Integer".into()
-            } else {
-                "int".into()
-            }
-        },
-        SqlType::BigInt => {
-            if nullable {
-                "Long".into()
-            } else {
-                "long".into()
-            }
-        },
-        SqlType::Real => {
-            if nullable {
-                "Float".into()
-            } else {
-                "float".into()
-            }
-        },
-        SqlType::Double => {
-            if nullable {
-                "Double".into()
-            } else {
-                "double".into()
-            }
-        },
-        SqlType::Decimal => "java.math.BigDecimal".into(),
-        SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_) => "String".into(),
-        SqlType::Bytes => "byte[]".into(),
-        SqlType::Date => "java.time.LocalDate".into(),
-        SqlType::Time => "java.time.LocalTime".into(),
-        SqlType::Timestamp => "java.time.LocalDateTime".into(),
-        SqlType::TimestampTz => "java.time.OffsetDateTime".into(),
-        SqlType::Interval => "String".into(),
-        SqlType::Uuid => "java.util.UUID".into(),
-        SqlType::Json | SqlType::Jsonb => "String".into(),
+    // Each variant maps to (non_nullable_type, nullable_type). Java primitives
+    // use their boxed counterparts when nullable; reference types are the same
+    // regardless of nullability.
+    let (base, boxed) = match sql_type {
+        SqlType::Boolean => ("boolean", "Boolean"),
+        SqlType::SmallInt => ("short", "Short"),
+        SqlType::Integer => ("int", "Integer"),
+        SqlType::BigInt => ("long", "Long"),
+        SqlType::Real => ("float", "Float"),
+        SqlType::Double => ("double", "Double"),
+        SqlType::Decimal => ("java.math.BigDecimal", "java.math.BigDecimal"),
+        SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_) => ("String", "String"),
+        SqlType::Bytes => ("byte[]", "byte[]"),
+        SqlType::Date => ("java.time.LocalDate", "java.time.LocalDate"),
+        SqlType::Time => ("java.time.LocalTime", "java.time.LocalTime"),
+        SqlType::Timestamp => ("java.time.LocalDateTime", "java.time.LocalDateTime"),
+        SqlType::TimestampTz => ("java.time.OffsetDateTime", "java.time.OffsetDateTime"),
+        SqlType::Interval => ("String", "String"),
+        SqlType::Uuid => ("java.util.UUID", "java.util.UUID"),
+        SqlType::Json | SqlType::Jsonb => ("String", "String"),
         SqlType::Array(inner) => {
             let t = format!("java.util.List<{}>", java_type_boxed(inner));
-            if nullable {
-                format!("@Nullable {t}")
-            } else {
-                t
-            }
+            return if nullable { format!("@Nullable {t}") } else { t };
         },
-        SqlType::Custom(_) => "Object".into(),
-    }
+        SqlType::Custom(_) => ("Object", "Object"),
+    };
+    (if nullable { boxed } else { base }).into()
 }
 
 fn java_type_boxed(sql_type: &SqlType) -> String {
