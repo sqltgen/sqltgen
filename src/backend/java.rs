@@ -171,7 +171,10 @@ fn emit_java_list_query(
             writeln!(src, "        String marks = {lp_name}.stream().map(x -> \"?\").collect(java.util.stream.Collectors.joining(\", \"));")?;
             writeln!(src, "        String sql = \"{before_esc}\" + \"IN (\" + marks + \"){after_esc};\";")?;
             writeln!(src, "        try (PreparedStatement ps = conn.prepareStatement(sql)) {{")?;
-            for (i, sp) in scalar_params.iter().enumerate() {
+            // Split scalars into before/after the list param by SQL occurrence order.
+            let before_scalars: Vec<_> = scalar_params.iter().filter(|p| p.index < lp.index).collect();
+            let after_scalars: Vec<_> = scalar_params.iter().filter(|p| p.index > lp.index).collect();
+            for (i, sp) in before_scalars.iter().enumerate() {
                 let idx = i + 1;
                 if sp.nullable {
                     writeln!(src, "            ps.setObject({idx}, {});", to_camel_case(&sp.name))?;
@@ -179,10 +182,18 @@ fn emit_java_list_query(
                     writeln!(src, "            ps.{}({idx}, {});", jdbc_setter(&sp.sql_type), to_camel_case(&sp.name))?;
                 }
             }
-            let base = scalar_params.len();
+            let base = before_scalars.len();
             writeln!(src, "            for (int i = 0; i < {lp_name}.size(); i++) {{")?;
             writeln!(src, "                ps.{}({base} + i + 1, {lp_name}.get(i));", jdbc_setter(&lp.sql_type))?;
             writeln!(src, "            }}")?;
+            for (i, sp) in after_scalars.iter().enumerate() {
+                let name = to_camel_case(&sp.name);
+                if sp.nullable {
+                    writeln!(src, "            ps.setObject({} + {lp_name}.size() + {}, {name});", base, i + 1)?;
+                } else {
+                    writeln!(src, "            ps.{}({} + {lp_name}.size() + {}, {name});", jdbc_setter(&sp.sql_type), base, i + 1)?;
+                }
+            }
             emit_java_result_block(src, query, schema)?;
             writeln!(src, "        }}")?;
             writeln!(src, "    }}")?;
@@ -195,10 +206,7 @@ fn emit_java_list_query(
             writeln!(src, "    private static final String {sql_const} =")?;
             writeln!(src, "        \"{};\";", sql.replace('\n', " ").replace('"', "\\\""))?;
             writeln!(src, "    public static {return_type} {method_name}({params_sig}) throws SQLException {{")?;
-            writeln!(
-                src,
-                "        String json = \"[\" + {lp_name}.stream().map(Object::toString).collect(java.util.stream.Collectors.joining(\",\")) + \"]\";"
-            )?;
+            emit_java_json_builder(src, lp)?;
             writeln!(src, "        try (PreparedStatement ps = conn.prepareStatement({sql_const})) {{")?;
             for (jdbc_idx, p) in jdbc_bind_sequence(query) {
                 if p.is_list {
@@ -222,10 +230,7 @@ fn emit_java_list_query(
             writeln!(src, "    private static final String {sql_const} =")?;
             writeln!(src, "        \"{};\";", sql.replace('\n', " ").replace('"', "\\\""))?;
             writeln!(src, "    public static {return_type} {method_name}({params_sig}) throws SQLException {{")?;
-            writeln!(
-                src,
-                "        String json = \"[\" + {lp_name}.stream().map(Object::toString).collect(java.util.stream.Collectors.joining(\",\")) + \"]\";"
-            )?;
+            emit_java_json_builder(src, lp)?;
             writeln!(src, "        try (PreparedStatement ps = conn.prepareStatement({sql_const})) {{")?;
             for (jdbc_idx, p) in jdbc_bind_sequence(query) {
                 if p.is_list {
@@ -240,6 +245,23 @@ fn emit_java_list_query(
             writeln!(src, "        }}")?;
             writeln!(src, "    }}")?;
         },
+    }
+    Ok(())
+}
+
+/// Emit the `String json = …` line that builds a JSON array from a list param.
+///
+/// Text-like types need per-element quoting and escaping; numeric/boolean types
+/// can use plain `Object::toString`.
+fn emit_java_json_builder(src: &mut String, lp: &Parameter) -> anyhow::Result<()> {
+    let lp_name = to_camel_case(&lp.name);
+    if lp.sql_type.needs_json_quoting() {
+        writeln!(
+            src,
+            "        String json = \"[\" + {lp_name}.stream().map(x -> \"\\\"\" + x.toString().replace(\"\\\\\", \"\\\\\\\\\").replace(\"\\\"\", \"\\\\\\\"\") + \"\\\"\").collect(java.util.stream.Collectors.joining(\",\")) + \"]\";"
+        )?;
+    } else {
+        writeln!(src, "        String json = \"[\" + {lp_name}.stream().map(Object::toString).collect(java.util.stream.Collectors.joining(\",\")) + \"]\";")?;
     }
     Ok(())
 }
@@ -968,7 +990,6 @@ mod tests {
     // ─── Bug A: JSON escaping for text list params in native strategy ────────────
 
     #[test]
-    #[ignore = "exposes bug A (task 023): fix before enabling"]
     fn test_bug_a_sqlite_native_text_list_json_escaping() {
         // Bug A: The SQLite/MySQL native strategy uses Object::toString for all
         // element types. For Text params this produces bare unquoted strings —
@@ -1012,7 +1033,6 @@ mod tests {
     // ─── Bug B: dynamic strategy binds scalars at wrong slot when scalar follows IN
 
     #[test]
-    #[ignore = "exposes bug B (task 023): fix before enabling"]
     fn test_bug_b_dynamic_scalar_after_in_binding_order() {
         // Bug B: when a scalar param appears *after* the IN clause in the SQL, the
         // Dynamic strategy incorrectly binds it at slot 1 (before list elements).

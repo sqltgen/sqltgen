@@ -162,7 +162,10 @@ fn emit_kotlin_list_query(
             writeln!(src, "        val marks = {lp_name}.joinToString(\", \") {{ \"?\" }}")?;
             writeln!(src, "        val sql = \"{before_esc}\" + \"IN (${{marks}}){after_esc};\"")?;
             writeln!(src, "        conn.prepareStatement(sql).use {{ ps ->")?;
-            for (i, sp) in scalar_params.iter().enumerate() {
+            // Split scalars into before/after the list param by SQL occurrence order.
+            let before_scalars: Vec<_> = scalar_params.iter().filter(|p| p.index < lp.index).collect();
+            let after_scalars: Vec<_> = scalar_params.iter().filter(|p| p.index > lp.index).collect();
+            for (i, sp) in before_scalars.iter().enumerate() {
                 let idx = i + 1;
                 if sp.nullable {
                     writeln!(src, "            ps.setObject({idx}, {})", to_camel_case(&sp.name))?;
@@ -170,8 +173,16 @@ fn emit_kotlin_list_query(
                     writeln!(src, "            ps.{}({idx}, {})", jdbc_setter(&sp.sql_type), to_camel_case(&sp.name))?;
                 }
             }
-            let base = scalar_params.len();
+            let base = before_scalars.len();
             writeln!(src, "            {lp_name}.forEachIndexed {{ i, v -> ps.{}({base} + i + 1, v) }}", jdbc_setter(&lp.sql_type))?;
+            for (i, sp) in after_scalars.iter().enumerate() {
+                let name = to_camel_case(&sp.name);
+                if sp.nullable {
+                    writeln!(src, "            ps.setObject({} + {lp_name}.size + {}, {name})", base, i + 1)?;
+                } else {
+                    writeln!(src, "            ps.{}({} + {lp_name}.size + {}, {name})", jdbc_setter(&sp.sql_type), base, i + 1)?;
+                }
+            }
             emit_kotlin_result_block(src, query, schema)?;
             writeln!(src, "        }}")?;
             writeln!(src, "    }}")?;
@@ -183,7 +194,7 @@ fn emit_kotlin_list_query(
             let sql_const = sql_const_name(&query.name);
             writeln!(src, "    private const val {sql_const} = \"{};\"", sql.replace('\n', " ").replace('"', "\\\""))?;
             writeln!(src, "    fun {method_name}({params_sig}): {return_type} {{")?;
-            writeln!(src, "        val json = \"[\" + {lp_name}.joinToString(\",\") + \"]\"")?;
+            emit_kotlin_json_builder(src, lp)?;
             writeln!(src, "        conn.prepareStatement({sql_const}).use {{ ps ->")?;
             for (jdbc_idx, p) in jdbc_bind_sequence(query) {
                 if p.is_list {
@@ -206,7 +217,7 @@ fn emit_kotlin_list_query(
             let sql_const = sql_const_name(&query.name);
             writeln!(src, "    private const val {sql_const} = \"{};\"", sql.replace('\n', " ").replace('"', "\\\""))?;
             writeln!(src, "    fun {method_name}({params_sig}): {return_type} {{")?;
-            writeln!(src, "        val json = \"[\" + {lp_name}.joinToString(\",\") + \"]\"")?;
+            emit_kotlin_json_builder(src, lp)?;
             writeln!(src, "        conn.prepareStatement({sql_const}).use {{ ps ->")?;
             for (jdbc_idx, p) in jdbc_bind_sequence(query) {
                 if p.is_list {
@@ -221,6 +232,23 @@ fn emit_kotlin_list_query(
             writeln!(src, "        }}")?;
             writeln!(src, "    }}")?;
         },
+    }
+    Ok(())
+}
+
+/// Emit the `val json = …` line that builds a JSON array from a list param.
+///
+/// Text-like types need per-element quoting and escaping; numeric/boolean types
+/// can use plain `joinToString`.
+fn emit_kotlin_json_builder(src: &mut String, lp: &Parameter) -> anyhow::Result<()> {
+    let lp_name = to_camel_case(&lp.name);
+    if lp.sql_type.needs_json_quoting() {
+        writeln!(
+            src,
+            r#"        val json = "[" + {lp_name}.joinToString(",") {{ "\"" + it.toString().replace("\\", "\\\\").replace("\"", "\\\"") + "\"" }} + "]""#
+        )?;
+    } else {
+        writeln!(src, "        val json = \"[\" + {lp_name}.joinToString(\",\") + \"]\"")?;
     }
     Ok(())
 }
@@ -883,7 +911,6 @@ mod tests {
     // ─── Bug A: JSON escaping for text list params in native strategy ────────────
 
     #[test]
-    #[ignore = "exposes bug A (task 023): fix before enabling"]
     fn test_bug_a_sqlite_native_text_list_json_escaping() {
         // Bug A: The SQLite/MySQL native strategy uses joinToString(",") with no
         // transform for all element types. For Text params this produces bare
@@ -927,7 +954,6 @@ mod tests {
     // ─── Bug B: dynamic strategy binds scalars at wrong slot when scalar follows IN
 
     #[test]
-    #[ignore = "exposes bug B (task 023): fix before enabling"]
     fn test_bug_b_dynamic_scalar_after_in_binding_order() {
         // Bug B: when a scalar param appears *after* the IN clause in the SQL, the
         // Dynamic strategy incorrectly binds it at slot 1 (before list elements).

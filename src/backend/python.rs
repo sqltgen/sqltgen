@@ -316,23 +316,21 @@ fn emit_python_list_query(
             let (before_raw, after_raw) = split_at_in_clause(&query.sql, lp.index).unwrap_or_else(|| (query.sql.clone(), String::new()));
             let before = normalize_sql(&before_raw, target).replace('"', "\\\"").replace('\n', " ");
             let after = normalize_sql(&after_raw, target).replace('"', "\\\"").replace('\n', " ");
-            let scalar_names: Vec<String> = scalar_params.iter().map(|p| to_snake_case(&p.name)).collect();
-            let scalar_tuple = build_arg_tuple(&scalar_names);
+            let args_expr = build_dynamic_args(&scalar_params, lp);
             writeln!(src, "    placeholders = \", \".join([\"%s\"] * len({lp_name}))")?;
             writeln!(src, "    sql = f\"{before}IN ({{placeholders}}){after}\"")?;
             writeln!(src, "    with conn.cursor() as cur:")?;
-            writeln!(src, "        cur.execute(sql, {scalar_tuple} + tuple({lp_name}))")?;
+            writeln!(src, "        cur.execute(sql, {args_expr})")?;
             emit_python_result_block(src, query, schema, "cur", "        ")?;
         },
         (PythonTarget::Sqlite, ListParamStrategy::Dynamic) => {
             let (before_raw, after_raw) = split_at_in_clause(&query.sql, lp.index).unwrap_or_else(|| (query.sql.clone(), String::new()));
             let before = rewrite_to_anon_params(&before_raw).replace('"', "\\\"").replace('\n', " ");
             let after = rewrite_to_anon_params(&after_raw).replace('"', "\\\"").replace('\n', " ");
-            let scalar_names: Vec<String> = scalar_params.iter().map(|p| to_snake_case(&p.name)).collect();
-            let scalar_tuple = build_arg_tuple(&scalar_names);
+            let args_expr = build_dynamic_args(&scalar_params, lp);
             writeln!(src, "    placeholders = \", \".join([\"?\"] * len({lp_name}))")?;
             writeln!(src, "    sql = f\"{before}IN ({{placeholders}}){after}\"")?;
-            writeln!(src, "    cur = conn.execute(sql, {scalar_tuple} + tuple({lp_name}))")?;
+            writeln!(src, "    cur = conn.execute(sql, {args_expr})")?;
             emit_python_result_block(src, query, schema, "cur", "    ")?;
         },
     }
@@ -378,6 +376,23 @@ fn build_arg_tuple(args: &[String]) -> String {
         0 => "()".to_string(),
         1 => format!("({},)", args[0]),
         _ => format!("({})", args.join(", ")),
+    }
+}
+
+/// Build the args expression for dynamic list strategy, respecting SQL occurrence order.
+///
+/// Scalars before the list param come first, then `tuple(lp)`, then scalars after.
+fn build_dynamic_args(scalar_params: &[&Parameter], lp: &Parameter) -> String {
+    let lp_name = to_snake_case(&lp.name);
+    let before: Vec<String> = scalar_params.iter().filter(|p| p.index < lp.index).map(|p| to_snake_case(&p.name)).collect();
+    let after: Vec<String> = scalar_params.iter().filter(|p| p.index > lp.index).map(|p| to_snake_case(&p.name)).collect();
+    let before_tuple = build_arg_tuple(&before);
+    let after_tuple = build_arg_tuple(&after);
+    match (before.is_empty(), after.is_empty()) {
+        (true, true) => format!("tuple({lp_name})"),
+        (false, true) => format!("{before_tuple} + tuple({lp_name})"),
+        (true, false) => format!("tuple({lp_name}) + {after_tuple}"),
+        (false, false) => format!("{before_tuple} + tuple({lp_name}) + {after_tuple}"),
     }
 }
 
@@ -1165,7 +1180,6 @@ mod tests {
     // ─── Bug B: dynamic strategy binds scalars at wrong position when scalar follows IN
 
     #[test]
-    #[ignore = "exposes bug B (task 023): fix before enabling"]
     fn test_bug_b_postgres_dynamic_scalar_after_in_binding_order() {
         // Bug B: when a scalar param appears *after* the IN clause in the SQL, the
         // Dynamic strategy incorrectly places it *before* the list elements in the
@@ -1260,7 +1274,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "exposes bug B (task 023): fix before enabling"]
     fn test_bug_b_sqlite_dynamic_scalar_after_in_binding_order() {
         // Bug B also affects the SQLite Dynamic branch which uses conn.execute.
         // This test fails until the root cause is fixed.
