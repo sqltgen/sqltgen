@@ -22,6 +22,12 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
 - E2E runtime tests — Rust + SQLite (in-memory) and Rust + PostgreSQL (Docker)
 
 ### Fixed
+- **Java/Kotlin**: native list strategy now correctly JSON-quotes text elements when
+  building JSON arrays for SQLite `json_each` and MySQL `JSON_TABLE` — previously
+  produced invalid JSON for string values containing `"` or `\`
+- **Java/Kotlin/Python**: dynamic list strategy now binds scalar params at the correct
+  JDBC/cursor slots when a scalar appears after the `IN` clause in the SQL — previously
+  bound scalars before list elements regardless of their position
 - Parameter type inference in ORDER BY expressions (e.g. `ORDER BY CASE WHEN id = $1 ...`)
 - Parameter type inference in HAVING, JOIN ON, LIMIT/OFFSET, IN list, and BETWEEN
   (all expression contexts now covered)

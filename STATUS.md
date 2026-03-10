@@ -201,7 +201,7 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | Backend — Python | 41 |
 | Backend — common | 22 |
 | Backend — TypeScript / JavaScript | 33 |
-| **Total** | **441 (435 passing, 6 ignored)** |
+| **Total** | **441** |
 
 ---
 
