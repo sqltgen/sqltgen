@@ -4,7 +4,7 @@ use crate::frontend::common::query::{parse_queries_with_config, ResolverConfig};
 use crate::ir::{Query, Schema};
 
 pub(crate) fn parse_queries(sql: &str, schema: &Schema) -> anyhow::Result<Vec<Query>> {
-    parse_queries_with_config(&SQLiteDialect {}, sql, schema, &ResolverConfig::default())
+    parse_queries_with_config(&SQLiteDialect {}, sql, schema, &ResolverConfig { typemap: crate::frontend::sqlite::typemap::map, ..ResolverConfig::default() })
 }
 
 #[cfg(test)]

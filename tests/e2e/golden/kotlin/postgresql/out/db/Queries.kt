@@ -342,7 +342,7 @@ object Queries {
         val id: Long,
         val title: String,
         val price: java.math.BigDecimal,
-        val priceLabel: Any?
+        val priceLabel: String
     )
 
     private const val SQL_GET_BOOK_PRICE_LABEL = "SELECT id, title, price,        CASE WHEN price > ? THEN 'expensive' ELSE 'affordable' END AS price_label FROM book ORDER BY title;"
@@ -351,7 +351,7 @@ object Queries {
             ps.setBigDecimal(1, price)
             val rows = mutableListOf<GetBookPriceLabelRow>()
             ps.executeQuery().use { rs ->
-                while (rs.next()) rows.add(GetBookPriceLabelRow(rs.getLong(1), rs.getString(2), rs.getBigDecimal(3), rs.getObject(4)))
+                while (rs.next()) rows.add(GetBookPriceLabelRow(rs.getLong(1), rs.getString(2), rs.getBigDecimal(3), rs.getString(4)))
             }
             return rows
         }
@@ -360,7 +360,7 @@ object Queries {
     data class GetBookPriceOrDefaultRow(
         val id: Long,
         val title: String,
-        val effectivePrice: Any?
+        val effectivePrice: java.math.BigDecimal
     )
 
     private const val SQL_GET_BOOK_PRICE_OR_DEFAULT = "SELECT id, title, COALESCE(price, ?) AS effective_price FROM book ORDER BY title;"
@@ -369,7 +369,7 @@ object Queries {
             ps.setString(1, param1)
             val rows = mutableListOf<GetBookPriceOrDefaultRow>()
             ps.executeQuery().use { rs ->
-                while (rs.next()) rows.add(GetBookPriceOrDefaultRow(rs.getLong(1), rs.getString(2), rs.getObject(3)))
+                while (rs.next()) rows.add(GetBookPriceOrDefaultRow(rs.getLong(1), rs.getString(2), rs.getBigDecimal(3)))
             }
             return rows
         }
@@ -485,8 +485,8 @@ object Queries {
     data class GetAuthorStatsRow(
         val id: Long,
         val name: String,
-        val numBooks: Any?,
-        val totalSold: Any?
+        val numBooks: Long,
+        val totalSold: Long
     )
 
     private const val SQL_GET_AUTHOR_STATS = "WITH book_counts AS (     SELECT author_id, COUNT(*) AS num_books     FROM book     GROUP BY author_id ), sale_counts AS (     SELECT b.author_id, SUM(si.quantity) AS total_sold     FROM sale_item si     JOIN book b ON b.id = si.book_id     GROUP BY b.author_id ) SELECT a.id, a.name,        COALESCE(bc.num_books, 0) AS num_books,        COALESCE(sc.total_sold, 0) AS total_sold FROM author a LEFT JOIN book_counts bc ON bc.author_id = a.id LEFT JOIN sale_counts sc ON sc.author_id = a.id ORDER BY a.name;"
@@ -494,7 +494,7 @@ object Queries {
         conn.prepareStatement(SQL_GET_AUTHOR_STATS).use { ps ->
             val rows = mutableListOf<GetAuthorStatsRow>()
             ps.executeQuery().use { rs ->
-                while (rs.next()) rows.add(GetAuthorStatsRow(rs.getLong(1), rs.getString(2), rs.getObject(3), rs.getObject(4)))
+                while (rs.next()) rows.add(GetAuthorStatsRow(rs.getLong(1), rs.getString(2), rs.getLong(3), rs.getLong(4)))
             }
             return rows
         }

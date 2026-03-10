@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use sqlparser::ast::{
-    Assignment, AssignmentTarget, BinaryOperator, Delete, Expr, FromTable, FunctionArg, FunctionArgExpr, FunctionArguments, Insert, JoinConstraint,
+    Assignment, AssignmentTarget, BinaryOperator, DataType, Delete, Expr, FromTable, FunctionArg, FunctionArgExpr, FunctionArguments, Insert, JoinConstraint,
     JoinOperator, LimitClause, ObjectNamePart, OrderByKind, Query as SqlQuery, Select, SelectItem, SelectItemQualifiedWildcardKind, SetExpr, Statement,
-    TableFactor, TableObject, TableWithJoins, Value, ValueWithSpan, Values, With,
+    TableFactor, TableObject, TableWithJoins, UnaryOperator, Value, ValueWithSpan, Values, With,
 };
 use sqlparser::dialect::Dialect;
 use sqlparser::parser::Parser;
@@ -16,11 +16,16 @@ pub(crate) struct ResolverConfig {
     /// Return type of SUM applied to integer columns.
     /// PostgreSQL: BigInt.  MySQL: Decimal.  SQLite: BigInt (same as PG).
     pub sum_integer_type: SqlType,
+    /// Maps a sqlparser `DataType` to `SqlType` using the active dialect's typemap.
+    ///
+    /// Used by `resolve_expr` for CAST expressions. Each dialect supplies its own
+    /// mapping function (e.g. `postgres::typemap::map`).
+    pub typemap: fn(&sqlparser::ast::DataType) -> SqlType,
 }
 
 impl Default for ResolverConfig {
     fn default() -> Self {
-        Self { sum_integer_type: SqlType::BigInt }
+        Self { sum_integer_type: SqlType::BigInt, typemap: crate::frontend::common::typemap::map_common_or_custom }
     }
 }
 
@@ -620,6 +625,7 @@ fn numeric_wider(a: &SqlType, b: &SqlType) -> SqlType {
 
 fn resolve_expr(expr: &Expr, alias_map: &HashMap<String, &Table>, all_tables: &[(Table, Option<String>)], config: &ResolverConfig) -> Option<ResultColumn> {
     match expr {
+        // ── Column references ────────────────────────────────────────────
         Expr::Identifier(ident) => {
             let col_name = ident_to_str(ident);
             all_tables.iter().flat_map(|(t, _)| t.columns.iter()).find(|c| c.name == col_name).map(col_to_result)
@@ -629,57 +635,265 @@ fn resolve_expr(expr: &Expr, alias_map: &HashMap<String, &Table>, all_tables: &[
             let col_name = ident_to_str(&parts[parts.len() - 1]);
             alias_map.get(&qualifier).and_then(|t| t.columns.iter().find(|c| c.name == col_name)).map(col_to_result)
         },
+
+        // ── Literals ─────────────────────────────────────────────────────
+        Expr::Value(ValueWithSpan { value, .. }) => resolve_literal(value),
+
+        // ── Parenthesized expression ─────────────────────────────────────
+        Expr::Nested(inner) => resolve_expr(inner, alias_map, all_tables, config),
+
+        // ── Arithmetic operators ─────────────────────────────────────────
         Expr::BinaryOp {
             left,
             op: BinaryOperator::Plus | BinaryOperator::Minus | BinaryOperator::Multiply | BinaryOperator::Divide | BinaryOperator::Modulo,
             right,
-        } => match (resolve_expr(left, alias_map, all_tables, config), resolve_expr(right, alias_map, all_tables, config)) {
-            (Some(l), Some(r)) => {
-                Some(ResultColumn { name: l.name.clone(), sql_type: numeric_wider(&l.sql_type, &r.sql_type), nullable: l.nullable || r.nullable })
-            },
-            (Some(l), None) => Some(l),
-            (None, Some(r)) => Some(r),
-            (None, None) => None,
+        } => resolve_binary_arithmetic(left, right, alias_map, all_tables, config),
+
+        // ── String concatenation (||) ────────────────────────────────────
+        Expr::BinaryOp { op: BinaryOperator::StringConcat, .. } => Some(ResultColumn { name: "concat".into(), sql_type: SqlType::Text, nullable: true }),
+
+        // ── Comparison operators → Boolean ───────────────────────────────
+        Expr::BinaryOp {
+            op: BinaryOperator::Eq | BinaryOperator::NotEq | BinaryOperator::Lt | BinaryOperator::LtEq | BinaryOperator::Gt | BinaryOperator::GtEq,
+            ..
+        }
+        | Expr::IsNull(_)
+        | Expr::IsNotNull(_)
+        | Expr::IsTrue(_)
+        | Expr::IsFalse(_)
+        | Expr::IsNotTrue(_)
+        | Expr::IsNotFalse(_)
+        | Expr::InList { .. }
+        | Expr::InSubquery { .. }
+        | Expr::Between { .. }
+        | Expr::Like { .. }
+        | Expr::ILike { .. }
+        | Expr::Exists { .. } => Some(ResultColumn { name: "bool".into(), sql_type: SqlType::Boolean, nullable: false }),
+
+        // ── Logical operators → Boolean ──────────────────────────────────
+        Expr::BinaryOp { op: BinaryOperator::And | BinaryOperator::Or | BinaryOperator::Xor, .. } => {
+            Some(ResultColumn { name: "bool".into(), sql_type: SqlType::Boolean, nullable: false })
         },
-        Expr::Function(func) => {
-            let fname = func
-                .name
-                .0
-                .last()
-                .and_then(|p| if let ObjectNamePart::Identifier(i) = p { Some(ident_to_str(i)) } else { None })
-                .unwrap_or_default()
-                .to_uppercase();
-            match fname.as_str() {
-                "COUNT" => Some(ResultColumn { name: "count".into(), sql_type: SqlType::BigInt, nullable: false }),
-                "SUM" => {
-                    if let FunctionArguments::List(arg_list) = &func.args {
-                        if let Some(FunctionArg::Unnamed(FunctionArgExpr::Expr(inner))) = arg_list.args.first() {
-                            return resolve_expr(inner, alias_map, all_tables, config).map(|rc| {
-                                let promoted = match rc.sql_type {
-                                    SqlType::SmallInt | SqlType::Integer => config.sum_integer_type.clone(),
-                                    other => other,
-                                };
-                                ResultColumn { sql_type: promoted, nullable: true, ..rc }
-                            });
-                        }
-                    }
-                    None
-                },
-                "MIN" | "MAX" | "AVG" => {
-                    // Propagate the type of the first argument; result is always nullable
-                    // because aggregate functions return NULL when applied to an empty set.
-                    if let FunctionArguments::List(arg_list) = &func.args {
-                        if let Some(FunctionArg::Unnamed(FunctionArgExpr::Expr(inner))) = arg_list.args.first() {
-                            return resolve_expr(inner, alias_map, all_tables, config).map(|rc| ResultColumn { nullable: true, ..rc });
-                        }
-                    }
-                    None
-                },
-                _ => None,
-            }
+
+        // ── Unary operators ──────────────────────────────────────────────
+        Expr::UnaryOp { op: UnaryOperator::Not, .. } => Some(ResultColumn { name: "not".into(), sql_type: SqlType::Boolean, nullable: false }),
+        Expr::UnaryOp { op: UnaryOperator::Minus, expr } => {
+            resolve_expr(expr, alias_map, all_tables, config).map(|rc| ResultColumn { name: rc.name, sql_type: rc.sql_type, nullable: rc.nullable })
         },
+        Expr::UnaryOp { op: UnaryOperator::Plus, expr } => resolve_expr(expr, alias_map, all_tables, config),
+
+        // ── CAST(expr AS type) ───────────────────────────────────────────
+        Expr::Cast { data_type, expr, .. } => {
+            let sql_type = (config.typemap)(data_type);
+            let inner = resolve_expr(expr, alias_map, all_tables, config);
+            let nullable = inner.as_ref().is_none_or(|rc| rc.nullable);
+            let name = inner.map_or_else(|| cast_name(data_type), |rc| rc.name);
+            Some(ResultColumn { name, sql_type, nullable })
+        },
+
+        // ── CASE WHEN … THEN … END ──────────────────────────────────────
+        Expr::Case { conditions, else_result, .. } => resolve_case(conditions, else_result.as_deref(), alias_map, all_tables, config),
+
+        // ── Functions ────────────────────────────────────────────────────
+        Expr::Function(func) => resolve_function(func, alias_map, all_tables, config),
+
         _ => None,
     }
+}
+
+/// Infer a result column from a SQL literal value.
+fn resolve_literal(value: &Value) -> Option<ResultColumn> {
+    match value {
+        Value::Number(s, _) => {
+            let sql_type = if s.contains('.') {
+                SqlType::Double
+            } else if s.parse::<i32>().is_ok() {
+                SqlType::Integer
+            } else {
+                SqlType::BigInt
+            };
+            Some(ResultColumn { name: "literal".into(), sql_type, nullable: false })
+        },
+        Value::SingleQuotedString(_) | Value::DoubleQuotedString(_) | Value::DollarQuotedString(_) => {
+            Some(ResultColumn { name: "literal".into(), sql_type: SqlType::Text, nullable: false })
+        },
+        Value::Boolean(_) => Some(ResultColumn { name: "literal".into(), sql_type: SqlType::Boolean, nullable: false }),
+        Value::Null => Some(ResultColumn { name: "literal".into(), sql_type: SqlType::Text, nullable: true }),
+        _ => None,
+    }
+}
+
+/// Resolve arithmetic binary ops with numeric widening.
+fn resolve_binary_arithmetic(
+    left: &Expr,
+    right: &Expr,
+    alias_map: &HashMap<String, &Table>,
+    all_tables: &[(Table, Option<String>)],
+    config: &ResolverConfig,
+) -> Option<ResultColumn> {
+    match (resolve_expr(left, alias_map, all_tables, config), resolve_expr(right, alias_map, all_tables, config)) {
+        (Some(l), Some(r)) => {
+            Some(ResultColumn { name: l.name.clone(), sql_type: numeric_wider(&l.sql_type, &r.sql_type), nullable: l.nullable || r.nullable })
+        },
+        (Some(l), None) => Some(l),
+        (None, Some(r)) => Some(r),
+        (None, None) => None,
+    }
+}
+
+/// Resolve CASE expressions: type comes from first THEN branch (or ELSE), nullable
+/// if any branch is nullable or an ELSE is absent.
+fn resolve_case(
+    conditions: &[sqlparser::ast::CaseWhen],
+    else_result: Option<&Expr>,
+    alias_map: &HashMap<String, &Table>,
+    all_tables: &[(Table, Option<String>)],
+    config: &ResolverConfig,
+) -> Option<ResultColumn> {
+    // Try each THEN branch, then ELSE; use the first resolvable one.
+    let mut resolved: Option<ResultColumn> = None;
+    let mut any_nullable = else_result.is_none(); // no ELSE means NULL is possible
+
+    for cw in conditions {
+        if let Some(rc) = resolve_expr(&cw.result, alias_map, all_tables, config) {
+            any_nullable = any_nullable || rc.nullable;
+            if resolved.is_none() {
+                resolved = Some(rc);
+            }
+        }
+    }
+    if let Some(el) = else_result {
+        if let Some(rc) = resolve_expr(el, alias_map, all_tables, config) {
+            any_nullable = any_nullable || rc.nullable;
+            if resolved.is_none() {
+                resolved = Some(rc);
+            }
+        }
+    }
+    resolved.map(|rc| ResultColumn { nullable: any_nullable, ..rc })
+}
+
+/// Generate a default column name from a CAST target type.
+fn cast_name(dt: &DataType) -> String {
+    format!("{dt}").to_lowercase().replace(' ', "_")
+}
+
+/// Resolve function calls: aggregates, string, math, date, and conditional functions.
+fn resolve_function(
+    func: &sqlparser::ast::Function,
+    alias_map: &HashMap<String, &Table>,
+    all_tables: &[(Table, Option<String>)],
+    config: &ResolverConfig,
+) -> Option<ResultColumn> {
+    let fname =
+        func.name.0.last().and_then(|p| if let ObjectNamePart::Identifier(i) = p { Some(ident_to_str(i)) } else { None }).unwrap_or_default().to_uppercase();
+
+    match fname.as_str() {
+        // ── Aggregates ───────────────────────────────────────────────
+        "COUNT" => Some(ResultColumn { name: "count".into(), sql_type: SqlType::BigInt, nullable: false }),
+        "SUM" => resolve_func_first_arg(func, alias_map, all_tables, config).map(|rc| {
+            let promoted = match rc.sql_type {
+                SqlType::SmallInt | SqlType::Integer => config.sum_integer_type.clone(),
+                other => other,
+            };
+            ResultColumn { sql_type: promoted, nullable: true, ..rc }
+        }),
+        "MIN" | "MAX" | "AVG" => resolve_func_first_arg(func, alias_map, all_tables, config).map(|rc| ResultColumn { nullable: true, ..rc }),
+
+        // ── String functions → Text ──────────────────────────────────
+        "UPPER" | "LOWER" | "TRIM" | "LTRIM" | "RTRIM" | "REPLACE" | "SUBSTR" | "SUBSTRING" | "CONCAT" | "LEFT" | "RIGHT" | "LPAD" | "RPAD" | "REVERSE"
+        | "REPEAT" | "TRANSLATE" | "INITCAP" | "MD5" | "ENCODE" | "DECODE" | "FORMAT" | "TO_CHAR" | "STRING_AGG" | "GROUP_CONCAT" => {
+            Some(ResultColumn { name: fname.to_lowercase(), sql_type: SqlType::Text, nullable: true })
+        },
+
+        // ── Length / position → Integer ──────────────────────────────
+        "LENGTH" | "CHAR_LENGTH" | "CHARACTER_LENGTH" | "OCTET_LENGTH" | "BIT_LENGTH" | "POSITION" | "STRPOS" => {
+            Some(ResultColumn { name: fname.to_lowercase(), sql_type: SqlType::Integer, nullable: true })
+        },
+
+        // ── Math functions → propagate type or return Double ─────────
+        "ABS" | "CEIL" | "CEILING" | "FLOOR" | "ROUND" | "TRUNC" | "TRUNCATE" | "SIGN" => {
+            resolve_func_first_arg(func, alias_map, all_tables, config).map(|rc| ResultColumn { nullable: true, ..rc })
+        },
+        "SQRT" | "CBRT" | "EXP" | "LN" | "LOG" | "LOG2" | "LOG10" | "POWER" | "POW" | "RANDOM" | "PI" | "DEGREES" | "RADIANS" | "SIN" | "COS" | "TAN"
+        | "ASIN" | "ACOS" | "ATAN" | "ATAN2" => Some(ResultColumn { name: fname.to_lowercase(), sql_type: SqlType::Double, nullable: true }),
+        "MOD" => Some(ResultColumn { name: "mod".into(), sql_type: SqlType::Integer, nullable: true }),
+
+        // ── Date/time functions ──────────────────────────────────────
+        "NOW" | "CURRENT_TIMESTAMP" | "LOCALTIMESTAMP" | "STATEMENT_TIMESTAMP" | "TRANSACTION_TIMESTAMP" | "CLOCK_TIMESTAMP" => {
+            Some(ResultColumn { name: fname.to_lowercase(), sql_type: SqlType::TimestampTz, nullable: false })
+        },
+        "CURRENT_DATE" | "DATE" => Some(ResultColumn { name: "date".into(), sql_type: SqlType::Date, nullable: false }),
+        "CURRENT_TIME" | "LOCALTIME" => Some(ResultColumn { name: "time".into(), sql_type: SqlType::Time, nullable: false }),
+
+        // ── Conditional / null-handling ───────────────────────────────
+        "COALESCE" => resolve_coalesce(func, alias_map, all_tables, config),
+        "NULLIF" => resolve_func_first_arg(func, alias_map, all_tables, config).map(|rc| ResultColumn { nullable: true, ..rc }),
+        "IFNULL" => resolve_func_first_arg(func, alias_map, all_tables, config).map(|rc| ResultColumn { nullable: false, ..rc }),
+        "GREATEST" | "LEAST" => resolve_func_first_arg(func, alias_map, all_tables, config).map(|rc| ResultColumn { nullable: true, ..rc }),
+
+        // ── Type-probing functions ───────────────────────────────────
+        "TYPEOF" => Some(ResultColumn { name: "typeof".into(), sql_type: SqlType::Text, nullable: false }),
+
+        // ── JSON functions ───────────────────────────────────────────
+        "JSON_EXTRACT" | "JSON_EXTRACT_PATH_TEXT" | "JSONB_EXTRACT_PATH_TEXT" | "JSON_VALUE" => {
+            Some(ResultColumn { name: fname.to_lowercase(), sql_type: SqlType::Text, nullable: true })
+        },
+        "JSON_OBJECT" | "JSON_BUILD_OBJECT" | "JSONB_BUILD_OBJECT" | "JSON_ARRAY" | "JSON_BUILD_ARRAY" | "JSONB_BUILD_ARRAY" | "JSON_AGG" | "JSONB_AGG"
+        | "JSON_ARRAYAGG" | "JSON_OBJECTAGG" => Some(ResultColumn { name: fname.to_lowercase(), sql_type: SqlType::Json, nullable: true }),
+
+        // ── Boolean functions ────────────────────────────────────────
+        "BOOL_AND" | "BOOL_OR" | "EVERY" => Some(ResultColumn { name: fname.to_lowercase(), sql_type: SqlType::Boolean, nullable: true }),
+
+        // ── Window functions that return integers ────────────────────
+        "ROW_NUMBER" | "RANK" | "DENSE_RANK" | "NTILE" => Some(ResultColumn { name: fname.to_lowercase(), sql_type: SqlType::BigInt, nullable: false }),
+        "CUME_DIST" | "PERCENT_RANK" => Some(ResultColumn { name: fname.to_lowercase(), sql_type: SqlType::Double, nullable: false }),
+        "LAG" | "LEAD" | "FIRST_VALUE" | "LAST_VALUE" | "NTH_VALUE" => {
+            resolve_func_first_arg(func, alias_map, all_tables, config).map(|rc| ResultColumn { nullable: true, ..rc })
+        },
+
+        _ => None,
+    }
+}
+
+/// Extract the first argument from a function and resolve its type.
+fn resolve_func_first_arg(
+    func: &sqlparser::ast::Function,
+    alias_map: &HashMap<String, &Table>,
+    all_tables: &[(Table, Option<String>)],
+    config: &ResolverConfig,
+) -> Option<ResultColumn> {
+    if let FunctionArguments::List(arg_list) = &func.args {
+        if let Some(FunctionArg::Unnamed(FunctionArgExpr::Expr(inner))) = arg_list.args.first() {
+            return resolve_expr(inner, alias_map, all_tables, config);
+        }
+    }
+    None
+}
+
+/// Resolve COALESCE: type from first argument, nullable only if all arguments are nullable.
+fn resolve_coalesce(
+    func: &sqlparser::ast::Function,
+    alias_map: &HashMap<String, &Table>,
+    all_tables: &[(Table, Option<String>)],
+    config: &ResolverConfig,
+) -> Option<ResultColumn> {
+    let FunctionArguments::List(arg_list) = &func.args else { return None };
+    let mut first: Option<ResultColumn> = None;
+    let mut all_nullable = true;
+    for arg in &arg_list.args {
+        if let FunctionArg::Unnamed(FunctionArgExpr::Expr(inner)) = arg {
+            if let Some(rc) = resolve_expr(inner, alias_map, all_tables, config) {
+                if !rc.nullable {
+                    all_nullable = false;
+                }
+                if first.is_none() {
+                    first = Some(rc);
+                }
+            }
+        }
+    }
+    first.map(|rc| ResultColumn { nullable: all_nullable, ..rc })
 }
 
 // ─── Derived table columns ────────────────────────────────────────────────────
@@ -761,21 +975,27 @@ fn collect_params_from_expr(expr: &Expr, ctx: &mut ResolverContext) {
     match expr {
         Expr::BinaryOp { left, op, right } => {
             // Infer param type from any comparison: col = $N, col < $N, col > $N, etc.
+            // Only use column-based types for parameter inference, not bare literals
+            // (a literal like `-1` would give Integer, masking a BigInt column type).
             if matches!(op, BinaryOperator::Eq | BinaryOperator::NotEq | BinaryOperator::Lt | BinaryOperator::LtEq | BinaryOperator::Gt | BinaryOperator::GtEq)
             {
                 // col OP $N
                 if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = &**right {
                     if let Some(idx) = placeholder_idx(p) {
-                        if let Some(rc) = resolve_expr(left, ctx.alias_map, ctx.all_tables, ctx.config) {
-                            ctx.mapping.entry(idx).or_insert((rc.name, rc.sql_type, rc.nullable));
+                        if !is_literal_expr(left) {
+                            if let Some(rc) = resolve_expr(left, ctx.alias_map, ctx.all_tables, ctx.config) {
+                                ctx.mapping.entry(idx).or_insert((rc.name, rc.sql_type, rc.nullable));
+                            }
                         }
                     }
                 }
                 // $N OP col
                 if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = &**left {
                     if let Some(idx) = placeholder_idx(p) {
-                        if let Some(rc) = resolve_expr(right, ctx.alias_map, ctx.all_tables, ctx.config) {
-                            ctx.mapping.entry(idx).or_insert((rc.name, rc.sql_type, rc.nullable));
+                        if !is_literal_expr(right) {
+                            if let Some(rc) = resolve_expr(right, ctx.alias_map, ctx.all_tables, ctx.config) {
+                                ctx.mapping.entry(idx).or_insert((rc.name, rc.sql_type, rc.nullable));
+                            }
                         }
                     }
                 }
@@ -863,6 +1083,18 @@ fn collect_params_from_expr(expr: &Expr, ctx: &mut ResolverContext) {
             }
         },
         _ => {},
+    }
+}
+
+/// Returns true if the expression is a bare literal (number, string, boolean,
+/// null, or unary +/- on a literal). Used to skip literal-based inference in
+/// parameter type resolution — column-based types are always more accurate.
+fn is_literal_expr(expr: &Expr) -> bool {
+    match expr {
+        Expr::Value(ValueWithSpan { value, .. }) => !matches!(value, Value::Placeholder(_)),
+        Expr::UnaryOp { op: UnaryOperator::Minus | UnaryOperator::Plus, expr } => is_literal_expr(expr),
+        Expr::Nested(inner) => is_literal_expr(inner),
+        _ => false,
     }
 }
 
@@ -2002,5 +2234,253 @@ mod tests {
         assert_eq!(q.result_columns[0].name, "id");
         assert_eq!(q.result_columns[0].sql_type, SqlType::BigInt);
         assert_eq!(q.params.len(), 0);
+    }
+
+    // ─── Expression type inference ──────────────────────────────────────
+
+    #[test]
+    fn expr_integer_literal() {
+        let schema = make_schema();
+        let sql = "-- name: GetOne :one\nSELECT 1 AS n FROM users;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.result_columns.len(), 1);
+        assert_eq!(q.result_columns[0].name, "n");
+        assert_eq!(q.result_columns[0].sql_type, SqlType::Integer);
+        assert!(!q.result_columns[0].nullable);
+    }
+
+    #[test]
+    fn expr_bigint_literal() {
+        let schema = make_schema();
+        let sql = "-- name: GetBig :one\nSELECT 9999999999 AS n FROM users;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.result_columns[0].sql_type, SqlType::BigInt);
+    }
+
+    #[test]
+    fn expr_float_literal() {
+        let schema = make_schema();
+        let sql = "-- name: GetPi :one\nSELECT 3.14 AS n FROM users;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.result_columns[0].sql_type, SqlType::Double);
+    }
+
+    #[test]
+    fn expr_string_literal() {
+        let schema = make_schema();
+        let sql = "-- name: GetHello :one\nSELECT 'hello' AS s FROM users;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.result_columns[0].sql_type, SqlType::Text);
+        assert!(!q.result_columns[0].nullable);
+    }
+
+    #[test]
+    fn expr_boolean_literal() {
+        let schema = make_schema();
+        let sql = "-- name: GetBool :one\nSELECT true AS b FROM users;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.result_columns[0].sql_type, SqlType::Boolean);
+    }
+
+    #[test]
+    fn expr_null_literal() {
+        let schema = make_schema();
+        let sql = "-- name: GetNull :one\nSELECT NULL AS n FROM users;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.result_columns[0].sql_type, SqlType::Text);
+        assert!(q.result_columns[0].nullable);
+    }
+
+    #[test]
+    fn expr_arithmetic_literals() {
+        let schema = make_schema();
+        let sql = "-- name: Calc :one\nSELECT 1 + 2 AS sum FROM users;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.result_columns[0].sql_type, SqlType::Integer);
+    }
+
+    #[test]
+    fn expr_arithmetic_promotes_to_wider() {
+        let schema = make_schema();
+        let sql = "-- name: Calc :one\nSELECT id + 1 AS result FROM users;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        // id is BigInt, 1 is Integer → BigInt (wider)
+        assert_eq!(q.result_columns[0].sql_type, SqlType::BigInt);
+    }
+
+    #[test]
+    fn expr_string_concat() {
+        let schema = make_schema();
+        let sql = "-- name: Concat :one\nSELECT name || ' ' || email AS full FROM users;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.result_columns[0].sql_type, SqlType::Text);
+    }
+
+    #[test]
+    fn expr_comparison_returns_boolean() {
+        let schema = make_schema();
+        let sql = "-- name: Check :one\nSELECT id > 5 AS is_high FROM users;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.result_columns[0].sql_type, SqlType::Boolean);
+    }
+
+    #[test]
+    fn expr_cast_to_text() {
+        let schema = make_schema();
+        let sql = "-- name: Str :one\nSELECT CAST(id AS TEXT) AS s FROM users;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.result_columns[0].sql_type, SqlType::Text);
+        assert!(!q.result_columns[0].nullable, "id is not nullable, so CAST should preserve that");
+    }
+
+    #[test]
+    fn expr_cast_to_integer() {
+        let schema = make_schema();
+        let sql = "-- name: Num :one\nSELECT CAST(name AS INTEGER) AS n FROM users;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.result_columns[0].sql_type, SqlType::Integer);
+    }
+
+    #[test]
+    fn expr_case_when_then_column() {
+        let schema = make_schema();
+        let sql = "-- name: Label :one\nSELECT CASE WHEN id > 5 THEN name ELSE 'unknown' END AS label FROM users;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.result_columns[0].sql_type, SqlType::Text);
+        // ELSE is present and not nullable → not nullable
+        assert!(!q.result_columns[0].nullable);
+    }
+
+    #[test]
+    fn expr_case_without_else_is_nullable() {
+        let schema = make_schema();
+        let sql = "-- name: Label :one\nSELECT CASE WHEN id > 5 THEN name END AS label FROM users;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.result_columns[0].sql_type, SqlType::Text);
+        assert!(q.result_columns[0].nullable, "CASE without ELSE is nullable");
+    }
+
+    #[test]
+    fn expr_coalesce_non_nullable_first() {
+        let schema = make_schema();
+        let sql = "-- name: CoalName :one\nSELECT COALESCE(name, 'fallback') AS n FROM users;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.result_columns[0].sql_type, SqlType::Text);
+        // name is not nullable → COALESCE is not nullable
+        assert!(!q.result_columns[0].nullable);
+    }
+
+    #[test]
+    fn expr_coalesce_all_nullable() {
+        let schema = make_schema();
+        let sql = "-- name: CoalBio :one\nSELECT COALESCE(bio, NULL) AS b FROM users;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.result_columns[0].sql_type, SqlType::Text);
+        assert!(q.result_columns[0].nullable, "all args nullable → result nullable");
+    }
+
+    #[test]
+    fn expr_upper_lower_return_text() {
+        let schema = make_schema();
+        let sql = "-- name: Upper :one\nSELECT UPPER(name) AS u, LOWER(email) AS l FROM users;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.result_columns.len(), 2);
+        assert_eq!(q.result_columns[0].sql_type, SqlType::Text);
+        assert_eq!(q.result_columns[1].sql_type, SqlType::Text);
+    }
+
+    #[test]
+    fn expr_length_returns_integer() {
+        let schema = make_schema();
+        let sql = "-- name: Len :one\nSELECT LENGTH(name) AS len FROM users;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.result_columns[0].sql_type, SqlType::Integer);
+    }
+
+    #[test]
+    fn expr_abs_preserves_type() {
+        let schema = make_schema();
+        let sql = "-- name: AbsId :one\nSELECT ABS(id) AS a FROM users;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.result_columns[0].sql_type, SqlType::BigInt);
+    }
+
+    #[test]
+    fn expr_sqrt_returns_double() {
+        let schema = make_schema();
+        let sql = "-- name: Root :one\nSELECT SQRT(id) AS r FROM users;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.result_columns[0].sql_type, SqlType::Double);
+    }
+
+    #[test]
+    fn expr_now_returns_timestamp_tz() {
+        let schema = make_schema();
+        let sql = "-- name: GetNow :one\nSELECT NOW() AS ts FROM users;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.result_columns[0].sql_type, SqlType::TimestampTz);
+        assert!(!q.result_columns[0].nullable);
+    }
+
+    #[test]
+    fn expr_nullif_always_nullable() {
+        let schema = make_schema();
+        let sql = "-- name: NullIf :one\nSELECT NULLIF(name, 'admin') AS n FROM users;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.result_columns[0].sql_type, SqlType::Text);
+        assert!(q.result_columns[0].nullable, "NULLIF can always return NULL");
+    }
+
+    #[test]
+    fn expr_row_number_returns_bigint() {
+        let schema = make_schema();
+        let sql = "-- name: WithRowNum :many\nSELECT id, ROW_NUMBER() OVER (ORDER BY id) AS rn FROM users;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.result_columns[1].name, "rn");
+        assert_eq!(q.result_columns[1].sql_type, SqlType::BigInt);
+    }
+
+    #[test]
+    fn expr_nested_parenthesized() {
+        let schema = make_schema();
+        let sql = "-- name: Parens :one\nSELECT (id + 1) AS n FROM users;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.result_columns[0].sql_type, SqlType::BigInt);
+    }
+
+    #[test]
+    fn expr_unary_minus() {
+        let schema = make_schema();
+        let sql = "-- name: Neg :one\nSELECT -id AS n FROM users;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.result_columns[0].sql_type, SqlType::BigInt);
+    }
+
+    #[test]
+    fn expr_not_returns_boolean() {
+        let schema = make_schema();
+        let sql = "-- name: NotCheck :one\nSELECT NOT (id > 5) AS flag FROM users;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.result_columns[0].sql_type, SqlType::Boolean);
+    }
+
+    #[test]
+    fn expr_unnamed_literal_produces_result_column() {
+        // Previously, `SELECT 1` (no alias) was silently skipped.
+        // Now it resolves as Integer.
+        let schema = make_schema();
+        let sql = "-- name: Bare :one\nSELECT 1 FROM users;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.result_columns.len(), 1);
+        assert_eq!(q.result_columns[0].sql_type, SqlType::Integer);
+    }
+
+    #[test]
+    fn expr_literal_does_not_override_param_type_from_column() {
+        // `@p = -1 or col = @p` — param type must come from col (BigInt), not from -1 (Integer).
+        let schema = make_schema();
+        let sql = "-- name: Filter :many\nSELECT id FROM users WHERE $1 = -1 OR id = $1;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.params[0].sql_type, SqlType::BigInt, "param type must come from column, not literal");
     }
 }

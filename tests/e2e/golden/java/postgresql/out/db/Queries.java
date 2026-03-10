@@ -371,7 +371,7 @@ public final class Queries {
         long id,
         String title,
         java.math.BigDecimal price,
-        Object priceLabel
+        String priceLabel
     ) {}
 
     private static final String SQL_GET_BOOK_PRICE_LABEL =
@@ -381,7 +381,7 @@ public final class Queries {
             ps.setBigDecimal(1, price);
             List<GetBookPriceLabelRow> rows = new ArrayList<>();
             try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) rows.add(new GetBookPriceLabelRow(rs.getLong(1), rs.getString(2), rs.getBigDecimal(3), rs.getObject(4)));
+                while (rs.next()) rows.add(new GetBookPriceLabelRow(rs.getLong(1), rs.getString(2), rs.getBigDecimal(3), rs.getString(4)));
             }
             return rows;
         }
@@ -390,7 +390,7 @@ public final class Queries {
     public record GetBookPriceOrDefaultRow(
         long id,
         String title,
-        Object effectivePrice
+        java.math.BigDecimal effectivePrice
     ) {}
 
     private static final String SQL_GET_BOOK_PRICE_OR_DEFAULT =
@@ -400,7 +400,7 @@ public final class Queries {
             ps.setString(1, param1);
             List<GetBookPriceOrDefaultRow> rows = new ArrayList<>();
             try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) rows.add(new GetBookPriceOrDefaultRow(rs.getLong(1), rs.getString(2), rs.getObject(3)));
+                while (rs.next()) rows.add(new GetBookPriceOrDefaultRow(rs.getLong(1), rs.getString(2), rs.getBigDecimal(3)));
             }
             return rows;
         }
@@ -523,8 +523,8 @@ public final class Queries {
     public record GetAuthorStatsRow(
         long id,
         String name,
-        Object numBooks,
-        Object totalSold
+        long numBooks,
+        long totalSold
     ) {}
 
     private static final String SQL_GET_AUTHOR_STATS =
@@ -533,7 +533,7 @@ public final class Queries {
         try (PreparedStatement ps = conn.prepareStatement(SQL_GET_AUTHOR_STATS)) {
             List<GetAuthorStatsRow> rows = new ArrayList<>();
             try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) rows.add(new GetAuthorStatsRow(rs.getLong(1), rs.getString(2), rs.getObject(3), rs.getObject(4)));
+                while (rs.next()) rows.add(new GetAuthorStatsRow(rs.getLong(1), rs.getString(2), rs.getLong(3), rs.getLong(4)));
             }
             return rows;
         }
