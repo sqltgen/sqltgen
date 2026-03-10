@@ -4,7 +4,7 @@ use anyhow::Context;
 use clap::{Parser, Subcommand};
 
 use sqltgen::backend::{self, Codegen};
-use sqltgen::config::{Engine, SqltgenConfig};
+use sqltgen::config::{Engine, Language, SqltgenConfig};
 use sqltgen::frontend::{mysql::MysqlParser, postgres::PostgresParser, sqlite::SqliteParser, DialectParser};
 
 #[derive(Parser)]
@@ -79,36 +79,18 @@ fn run_generate(config_path: &Path) -> anyhow::Result<()> {
 
     // Run each configured codegen target
     for (lang, output_config) in &cfg.gen {
-        let codegen: Box<dyn Codegen> = match lang.as_str() {
-            "java" => Box::new(backend::java::JavaCodegen { target: cfg.engine.into() }),
-            "kotlin" => Box::new(backend::kotlin::KotlinCodegen { target: cfg.engine.into() }),
-            "rust" => {
-                let target = match cfg.engine {
-                    Engine::Sqlite => backend::rust::RustTarget::Sqlite,
-                    Engine::Mysql => backend::rust::RustTarget::Mysql,
-                    Engine::Postgresql => backend::rust::RustTarget::Postgres,
-                };
-                Box::new(backend::rust::RustCodegen { target })
+        let codegen: Box<dyn Codegen> = match lang {
+            Language::Java => Box::new(backend::java::JavaCodegen { target: cfg.engine.into() }),
+            Language::Kotlin => Box::new(backend::kotlin::KotlinCodegen { target: cfg.engine.into() }),
+            Language::Rust => Box::new(backend::rust::RustCodegen { target: cfg.engine.into() }),
+            Language::Go => Box::new(backend::go::GoCodegen),
+            Language::Python => Box::new(backend::python::PythonCodegen { target: cfg.engine.into() }),
+            Language::TypeScript => {
+                Box::new(backend::typescript::TypeScriptCodegen { target: cfg.engine.into(), output: backend::typescript::JsOutput::TypeScript })
             },
-            "go" => Box::new(backend::go::GoCodegen),
-            "python" => {
-                let target = match cfg.engine {
-                    Engine::Sqlite => backend::python::PythonTarget::Sqlite,
-                    Engine::Postgresql => backend::python::PythonTarget::Postgres,
-                    Engine::Mysql => backend::python::PythonTarget::Mysql,
-                };
-                Box::new(backend::python::PythonCodegen { target })
+            Language::JavaScript => {
+                Box::new(backend::typescript::TypeScriptCodegen { target: cfg.engine.into(), output: backend::typescript::JsOutput::JavaScript })
             },
-            "typescript" | "javascript" => {
-                let target = match cfg.engine {
-                    Engine::Sqlite => backend::typescript::JsTarget::Sqlite,
-                    Engine::Mysql => backend::typescript::JsTarget::Mysql,
-                    Engine::Postgresql => backend::typescript::JsTarget::Postgres,
-                };
-                let output = if lang == "javascript" { backend::typescript::JsOutput::JavaScript } else { backend::typescript::JsOutput::TypeScript };
-                Box::new(backend::typescript::TypeScriptCodegen { target, output })
-            },
-            other => anyhow::bail!("unknown codegen target: {other}"),
         };
 
         let files = codegen.generate(&schema, &queries, output_config)?;

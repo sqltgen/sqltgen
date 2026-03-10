@@ -7,7 +7,7 @@ use crate::backend::common::{
     split_at_in_clause, sql_const_name, to_camel_case, to_pascal_case, ListRewriteTarget,
 };
 use crate::backend::{Codegen, GeneratedFile};
-use crate::config::{ListParamStrategy, OutputConfig};
+use crate::config::{Engine, ListParamStrategy, OutputConfig};
 use crate::ir::{Parameter, Query, QueryCmd, Schema, SqlType, Table};
 
 /// Database engine and npm driver to target for JS/TS output.
@@ -18,6 +18,16 @@ pub enum JsTarget {
     Sqlite,
     /// MySQL via mysql2.
     Mysql,
+}
+
+impl From<Engine> for JsTarget {
+    fn from(engine: Engine) -> Self {
+        match engine {
+            Engine::Postgresql => JsTarget::Postgres,
+            Engine::Sqlite => JsTarget::Sqlite,
+            Engine::Mysql => JsTarget::Mysql,
+        }
+    }
 }
 
 /// Whether to emit TypeScript (inline types) or JavaScript (JSDoc annotations).
