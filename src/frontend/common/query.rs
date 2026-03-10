@@ -139,7 +139,7 @@ fn build_query_with_dialect(dialect: &dyn Dialect, ann: &QueryAnnotation, sql: &
     let mut query = match &stmts[0] {
         Statement::Query(q) => build_select(ann, sql, q, schema, config),
         Statement::Insert(ins) => build_insert(ann, sql, ins, schema, config),
-        Statement::Update(u) => build_update(ann, sql, &u.table, &u.assignments, u.selection.as_ref(), u.returning.as_ref(), schema, config),
+        Statement::Update(u) => build_update(ann, sql, u, schema, config),
         Statement::Delete(del) => build_delete(ann, sql, del, schema, config),
         _ => unresolved_query(ann, sql),
     };
@@ -155,9 +155,7 @@ fn build_select(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, schema: &Schema,
     match q.body.as_ref() {
         SetExpr::Select(select) => build_select_body(ann, sql, q, select, schema, config, &ctes),
         SetExpr::Insert(Statement::Insert(ins)) => build_query_from_insert(ann, sql, q, ins, schema, config),
-        SetExpr::Update(Statement::Update(u)) => {
-            build_query_from_update(ann, sql, q, &u.table, &u.assignments, u.selection.as_ref(), u.returning.as_deref(), schema, config)
-        },
+        SetExpr::Update(Statement::Update(u)) => build_query_from_update(ann, sql, q, u, schema, config),
         SetExpr::SetOperation { .. } => build_set_operation(ann, sql, q, q.body.as_ref(), schema, config, &ctes),
         _ => unresolved_query(ann, sql),
     }
@@ -288,28 +286,21 @@ fn build_query_from_insert(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, ins: 
 }
 
 /// Handle `Statement::Query` where the body is `UPDATE … RETURNING` (data-modifying CTE pattern).
-#[allow(clippy::too_many_arguments)]
-fn build_query_from_update(
-    ann: &QueryAnnotation,
-    sql: &str,
-    q: &SqlQuery,
-    table: &TableWithJoins,
-    assignments: &[Assignment],
-    selection: Option<&Expr>,
-    returning: Option<&[SelectItem]>,
-    schema: &Schema,
-    config: &ResolverConfig,
-) -> Query {
+fn build_query_from_update(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, u: &sqlparser::ast::Update, schema: &Schema, config: &ResolverConfig) -> Query {
     let mut mapping = HashMap::new();
     collect_cte_params(q.with.as_ref(), schema, config, &mut mapping);
-    collect_update_params(table, assignments, selection, schema, config, &mut mapping);
+    collect_update_params(&u.table, &u.assignments, u.selection.as_ref(), schema, config, &mut mapping);
     let params = build_params(mapping, count_params(sql));
-    let table_name = match &table.relation {
+    let table_name = match &u.table.relation {
         TableFactor::Table { name, .. } => obj_name_to_str(name),
         _ => return unresolved_query(ann, sql),
     };
-    let result_columns =
-        schema.tables.iter().find(|t| t.name == table_name).and_then(|t| returning.map(|items| resolve_returning(items, t, config))).unwrap_or_default();
+    let result_columns = schema
+        .tables
+        .iter()
+        .find(|t| t.name == table_name)
+        .and_then(|t| u.returning.as_deref().map(|items| resolve_returning(items, t, config)))
+        .unwrap_or_default();
     Query { name: ann.name.clone(), cmd: ann.cmd.clone(), sql: sql.to_string(), params, result_columns }
 }
 
@@ -341,18 +332,8 @@ fn build_insert(ann: &QueryAnnotation, sql: &str, insert: &Insert, schema: &Sche
 
 // ─── UPDATE ──────────────────────────────────────────────────────────────────
 
-#[allow(clippy::too_many_arguments)]
-fn build_update(
-    ann: &QueryAnnotation,
-    sql: &str,
-    table_with_joins: &TableWithJoins,
-    assignments: &[Assignment],
-    selection: Option<&Expr>,
-    returning: Option<&Vec<SelectItem>>,
-    schema: &Schema,
-    config: &ResolverConfig,
-) -> Query {
-    let table_name = match &table_with_joins.relation {
+fn build_update(ann: &QueryAnnotation, sql: &str, u: &sqlparser::ast::Update, schema: &Schema, config: &ResolverConfig) -> Query {
+    let table_name = match &u.table.relation {
         TableFactor::Table { name, .. } => obj_name_to_str(name),
         _ => return unresolved_query(ann, sql),
     };
@@ -361,9 +342,9 @@ fn build_update(
     };
 
     let mut mapping: HashMap<usize, (String, SqlType, bool)> = HashMap::new();
-    collect_update_params(table_with_joins, assignments, selection, schema, config, &mut mapping);
+    collect_update_params(&u.table, &u.assignments, u.selection.as_ref(), schema, config, &mut mapping);
     let params = build_params(mapping, count_params(sql));
-    let result_columns = returning.map_or(vec![], |items| resolve_returning(items, table, config));
+    let result_columns = u.returning.as_deref().map_or(vec![], |items| resolve_returning(items, table, config));
     Query { name: ann.name.clone(), cmd: ann.cmd.clone(), sql: sql.to_string(), params, result_columns }
 }
 
