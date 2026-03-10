@@ -1,33 +1,18 @@
-use sqlparser::ast::{ObjectType, Statement};
 use sqlparser::dialect::MySqlDialect;
-use sqlparser::parser::Parser;
 
-use crate::frontend::common::{apply_alter_table, apply_drop_tables, build_create_table, AlterCaps};
+use crate::frontend::common::schema::parse_schema_impl;
+use crate::frontend::common::AlterCaps;
 use crate::frontend::mysql::typemap;
 use crate::ir::Schema;
 
-pub fn parse_schema(ddl: &str) -> anyhow::Result<Schema> {
-    let dialect = MySqlDialect {};
-    let stmts = Parser::parse_sql(&dialect, ddl).map_err(|e| anyhow::anyhow!("DDL parse error: {e}"))?;
-
-    let mut tables = Vec::new();
-
-    for stmt in stmts {
-        match stmt {
-            Statement::CreateTable(ct) => {
-                tables.push(build_create_table(&ct.name, &ct.columns, &ct.constraints, typemap::map));
-            },
-            Statement::AlterTable(a) => {
-                apply_alter_table(&a.name, &a.operations, &mut tables, typemap::map, AlterCaps::ALL);
-            },
-            Statement::Drop { object_type: ObjectType::Table, names, .. } => {
-                apply_drop_tables(&names, &mut tables);
-            },
-            _ => {},
-        }
-    }
-
-    Ok(Schema { tables })
+/// Parses MySQL DDL into a [Schema].
+///
+/// Processes `CREATE TABLE`, `ALTER TABLE`, and `DROP TABLE` statements in
+/// order.  All other statements are silently ignored.  Delegates to the shared
+/// [`parse_schema_impl`] with the MySQL dialect, full `ALTER TABLE`
+/// capabilities, and the MySQL type mapper.
+pub(crate) fn parse_schema(ddl: &str) -> anyhow::Result<Schema> {
+    parse_schema_impl(ddl, &MySqlDialect {}, typemap::map, AlterCaps::ALL)
 }
 
 #[cfg(test)]

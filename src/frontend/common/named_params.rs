@@ -34,7 +34,7 @@ pub(crate) struct NamedParam {
 /// not appear in the SQL body emits a warning and is ignored.
 pub(crate) fn preprocess_named_params(sql: &str) -> Option<(String, Vec<NamedParam>)> {
     let overrides = parse_param_annotations(sql);
-    let stripped = strip_annotation_lines(sql);
+    let stripped = strip_sql_comment_lines(sql);
     let param_names = collect_named_param_order(&stripped);
 
     if param_names.is_empty() {
@@ -192,11 +192,6 @@ fn parse_sql_type_str(s: &str) -> Option<SqlType> {
 /// an end-of-string comment once newlines are replaced with spaces.
 pub(crate) fn strip_sql_comment_lines(sql: &str) -> String {
     sql.lines().filter(|line| !line.trim().starts_with("--")).collect::<Vec<_>>().join("\n")
-}
-
-/// Convenience alias used internally; delegates to [`strip_sql_comment_lines`].
-fn strip_annotation_lines(sql: &str) -> String {
-    strip_sql_comment_lines(sql)
 }
 
 /// Scans `sql` for `@identifier` tokens outside comments and string literals,

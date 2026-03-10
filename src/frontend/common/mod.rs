@@ -1,5 +1,7 @@
 pub(crate) mod named_params;
 pub(crate) mod query;
+pub(crate) mod schema;
+pub(crate) mod typemap;
 
 use sqlparser::ast::{
     AlterColumnOperation, AlterTableOperation, ColumnDef, ColumnOption, DataType, Expr, Ident, ObjectName, ObjectNamePart, RenameTableNameKind, TableConstraint,

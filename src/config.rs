@@ -24,7 +24,7 @@ pub enum QueryPaths {
     Many(Vec<String>),
 }
 
-#[derive(Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum Engine {
     Postgresql,

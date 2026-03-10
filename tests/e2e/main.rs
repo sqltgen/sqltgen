@@ -8,8 +8,9 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use sqltgen::backend::java::{JavaCodegen, JavaTarget};
-use sqltgen::backend::kotlin::{KotlinCodegen, KotlinTarget};
+use sqltgen::backend::java::JavaCodegen;
+use sqltgen::backend::jdbc::JdbcTarget;
+use sqltgen::backend::kotlin::KotlinCodegen;
 use sqltgen::backend::python::{PythonCodegen, PythonTarget};
 use sqltgen::backend::rust::{RustCodegen, RustTarget};
 use sqltgen::backend::typescript::{JsOutput, JsTarget, TypeScriptCodegen};
@@ -173,14 +174,14 @@ fn snapshot_rust_mysql() {
 
 #[test]
 fn snapshot_java_postgresql() {
-    snapshot_test("postgresql", &PostgresParser, "java", &JavaCodegen { target: JavaTarget::Postgres });
+    snapshot_test("postgresql", &PostgresParser, "java", &JavaCodegen { target: JdbcTarget::Postgres });
 }
 
 // ─── Kotlin backend ────────────────────────────────────────────────────────
 
 #[test]
 fn snapshot_kotlin_postgresql() {
-    snapshot_test("postgresql", &PostgresParser, "kotlin", &KotlinCodegen { target: KotlinTarget::Postgres });
+    snapshot_test("postgresql", &PostgresParser, "kotlin", &KotlinCodegen { target: JdbcTarget::Postgres });
 }
 
 // ─── Python backend ────────────────────────────────────────────────────────
@@ -284,8 +285,8 @@ fn resilience_all_backends_empty_queries() {
     let backends: Vec<Box<dyn Codegen>> = vec![
         Box::new(RustCodegen { target: RustTarget::Postgres }),
         Box::new(PythonCodegen { target: PythonTarget::Postgres }),
-        Box::new(JavaCodegen { target: JavaTarget::Postgres }),
-        Box::new(KotlinCodegen { target: KotlinTarget::Postgres }),
+        Box::new(JavaCodegen { target: JdbcTarget::Postgres }),
+        Box::new(KotlinCodegen { target: JdbcTarget::Postgres }),
         Box::new(TypeScriptCodegen { target: JsTarget::Postgres, output: JsOutput::TypeScript }),
         Box::new(TypeScriptCodegen { target: JsTarget::Postgres, output: JsOutput::JavaScript }),
     ];

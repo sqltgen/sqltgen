@@ -1,35 +1,19 @@
 use sqlparser::ast::{ArrayElemTypeDef, DataType, ObjectName, TimezoneInfo};
 
+use crate::frontend::common::typemap::{custom_name_upper, fallback_custom, fallback_custom_name, map_common, map_custom_common};
 use crate::ir::SqlType;
 
 /// Maps a sqlparser [`DataType`] to the canonical [`SqlType`].
-pub fn map(dt: &DataType) -> SqlType {
+pub(crate) fn map(dt: &DataType) -> SqlType {
+    // Dialect-specific arms first
     match dt {
-        DataType::Boolean | DataType::Bool => SqlType::Boolean,
-
-        DataType::Int2(_) | DataType::SmallInt(_) => SqlType::SmallInt,
-
-        DataType::Int(_) | DataType::Int4(_) | DataType::Integer(_) | DataType::Unsigned | DataType::UnsignedInteger => SqlType::Integer,
-
-        DataType::Int8(_) | DataType::BigInt(_) | DataType::BigIntUnsigned(_) => SqlType::BigInt,
+        DataType::Varchar(_) | DataType::CharacterVarying(_) | DataType::Nvarchar(_) => SqlType::VarChar(None),
 
         DataType::Real | DataType::Float4 => SqlType::Real,
 
-        DataType::Double(_) | DataType::DoublePrecision | DataType::Float8 | DataType::Float64 => SqlType::Double,
-
         DataType::Float(_) => SqlType::Double,
 
-        DataType::Numeric(_) | DataType::Decimal(_) => SqlType::Decimal,
-
-        DataType::Text | DataType::Clob(_) => SqlType::Text,
-
-        DataType::Varchar(_) | DataType::CharacterVarying(_) | DataType::Nvarchar(_) => SqlType::VarChar(None),
-
-        DataType::Char(_) | DataType::Character(_) => SqlType::Char(None),
-
         DataType::Bytea => SqlType::Bytes,
-
-        DataType::Date => SqlType::Date,
 
         DataType::Time(_, TimezoneInfo::None) | DataType::Time(_, TimezoneInfo::WithoutTimeZone) => SqlType::Time,
         DataType::Time(_, _) => SqlType::TimestampTz,
@@ -51,32 +35,26 @@ pub fn map(dt: &DataType) -> SqlType {
 
         DataType::Custom(obj_name, _) => map_custom(obj_name),
 
-        _ => SqlType::Custom(format!("{dt}").to_lowercase()),
+        // Fall through to common mappings, then dialect fallback
+        other => map_common(other).unwrap_or_else(|| fallback_custom(dt)),
     }
 }
 
+/// Maps PostgreSQL-specific custom type names to [`SqlType`].
 fn map_custom(name: &ObjectName) -> SqlType {
-    use sqlparser::ast::ObjectNamePart;
-    let upper =
-        name.0.iter().filter_map(|p| if let ObjectNamePart::Identifier(i) = p { Some(i.value.to_uppercase()) } else { None }).collect::<Vec<_>>().join(".");
+    let upper = custom_name_upper(name);
     match upper.as_str() {
         "BIGSERIAL" | "SERIAL8" => SqlType::BigInt,
         "SERIAL" | "SERIAL4" => SqlType::Integer,
         "SMALLSERIAL" | "SERIAL2" => SqlType::SmallInt,
-        "INT2" => SqlType::SmallInt,
-        "INT4" => SqlType::Integer,
-        "INT8" => SqlType::BigInt,
         "OID" => SqlType::BigInt,
         "MONEY" => SqlType::Decimal,
         "BIT" | "VARBIT" => SqlType::Boolean,
         "BPCHAR" | "NAME" => SqlType::Text,
         "TIMESTAMPTZ" => SqlType::TimestampTz,
         "TIMETZ" => SqlType::TimestampTz,
-        "FLOAT4" => SqlType::Real,
-        "FLOAT8" | "FLOAT" => SqlType::Double,
-        "BOOL" => SqlType::Boolean,
-        "NUMERIC" | "DECIMAL" => SqlType::Decimal,
-        _ => SqlType::Custom(upper.to_lowercase()),
+        "FLOAT" => SqlType::Double,
+        _ => map_custom_common(&upper).unwrap_or_else(|| fallback_custom_name(&upper)),
     }
 }
 

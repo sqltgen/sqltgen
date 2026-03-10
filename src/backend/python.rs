@@ -3,8 +3,8 @@ use std::fmt::Write;
 use std::path::PathBuf;
 
 use crate::backend::common::{
-    has_inline_rows, infer_row_type_name, infer_table, mysql_json_table_col_type, positional_bind_names, replace_list_in_clause, rewrite_to_anon_params,
-    split_at_in_clause, sql_const_name, to_pascal_case, to_snake_case,
+    has_inline_rows, infer_row_type_name, infer_table, mysql_json_table_col_type, positional_bind_names, rewrite_list_sql_native, rewrite_to_anon_params,
+    rewrite_to_percent_s, split_at_in_clause, sql_const_name, to_pascal_case, to_snake_case, ListRewriteTarget,
 };
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::{ListParamStrategy, OutputConfig};
@@ -137,8 +137,11 @@ fn build_queries_file(queries: &[Query], schema: &Schema, target: &PythonTarget,
             continue;
         }
         let const_name = sql_const_name(&query.name);
-        let base_sql =
-            if let Some(lp) = query.params.iter().find(|p| p.is_list) { rewrite_list_sql_native(query.sql.as_str(), lp, target) } else { query.sql.clone() };
+        let base_sql = if let Some(lp) = query.params.iter().find(|p| p.is_list) {
+            rewrite_list_sql_native(&query.sql, lp, list_rewrite_target(lp, target))
+        } else {
+            query.sql.clone()
+        };
         let sql = normalize_sql(&base_sql, target).replace('"', "\\\"").replace('\n', " ");
         let sql = sql.trim_end().trim_end_matches(';');
         writeln!(src, r#"{const_name} = "{sql}""#)?;
@@ -396,21 +399,13 @@ fn build_dynamic_args(scalar_params: &[&Parameter], lp: &Parameter) -> String {
     }
 }
 
-/// Rewrite SQL for native list param strategy: replace `IN ($N)` with target-specific SQL.
-fn rewrite_list_sql_native(sql: &str, lp: &Parameter, target: &PythonTarget) -> String {
-    let replacement = match target {
-        PythonTarget::Postgres => format!("= ANY(${})", lp.index),
-        PythonTarget::Sqlite => "IN (SELECT value FROM json_each(?))".to_string(),
-        PythonTarget::Mysql => {
-            // Pass the full JSON array string directly as %s — no CONCAT wrapping.
-            let elem = mysql_json_table_col_type(&lp.sql_type);
-            format!("IN (SELECT value FROM JSON_TABLE(%s,'$[*]' COLUMNS(value {elem} PATH '$')) t)")
-        },
-    };
-    replace_list_in_clause(sql, lp.index, &replacement).unwrap_or_else(|| {
-        eprintln!("warning: list param {} not found in IN clause, treating as scalar", lp.name);
-        sql.to_string()
-    })
+/// Build the [`ListRewriteTarget`] for the current Python database target.
+fn list_rewrite_target(lp: &Parameter, target: &PythonTarget) -> ListRewriteTarget {
+    match target {
+        PythonTarget::Postgres => ListRewriteTarget::PgArray,
+        PythonTarget::Sqlite => ListRewriteTarget::JsonEach("?".to_string()),
+        PythonTarget::Mysql => ListRewriteTarget::JsonTable { placeholder: "%s".to_string(), col_type: mysql_json_table_col_type(&lp.sql_type).to_string() },
+    }
 }
 
 fn build_execute_call(const_name: &str, query: &Query) -> String {
@@ -512,26 +507,9 @@ impl TypeImports {
 fn normalize_sql(sql: &str, target: &PythonTarget) -> String {
     match target {
         // Both psycopg and mysql-connector-python use %s positional placeholders
-        PythonTarget::Postgres | PythonTarget::Mysql => rewrite_sql_postgres(sql),
+        PythonTarget::Postgres | PythonTarget::Mysql => rewrite_to_percent_s(sql),
         PythonTarget::Sqlite => rewrite_to_anon_params(sql),
     }
-}
-
-/// Replace `$N` or `?N` → `%s` for psycopg3.
-fn rewrite_sql_postgres(sql: &str) -> String {
-    let mut out = String::with_capacity(sql.len());
-    let mut chars = sql.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if (ch == '$' || ch == '?') && chars.peek().is_some_and(|c| c.is_ascii_digit()) {
-            out.push_str("%s");
-            while chars.peek().is_some_and(|c| c.is_ascii_digit()) {
-                chars.next();
-            }
-        } else {
-            out.push(ch);
-        }
-    }
-    out
 }
 
 // ─── Row helpers ──────────────────────────────────────────────────────────────

@@ -3,8 +3,8 @@ use std::fmt::Write;
 use std::path::PathBuf;
 
 use crate::backend::common::{
-    has_inline_rows, infer_row_type_name, infer_table, mysql_json_table_col_type, positional_bind_names, replace_list_in_clause, rewrite_to_anon_params,
-    split_at_in_clause, sql_const_name, to_camel_case, to_pascal_case,
+    has_inline_rows, infer_row_type_name, infer_table, mysql_json_table_col_type, positional_bind_names, rewrite_list_sql_native, rewrite_to_anon_params,
+    split_at_in_clause, sql_const_name, to_camel_case, to_pascal_case, ListRewriteTarget,
 };
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::{ListParamStrategy, OutputConfig};
@@ -242,7 +242,7 @@ fn emit_sql_constants(src: &mut String, queries: &[Query], target: &JsTarget, st
         let const_name = sql_const_name(&query.name);
         // NOTE: only one list parameter per query is currently supported.
         let base_sql = match query.params.iter().find(|p| p.is_list) {
-            Some(lp) => rewrite_list_sql_native(&query.sql, lp, target),
+            Some(lp) => rewrite_list_sql_native(&query.sql, lp, list_rewrite_target(lp, target)),
             None => query.sql.clone(),
         };
         let sql = normalize_sql(&base_sql, target).replace('"', "\\\"").replace('\n', " ");
@@ -265,20 +265,13 @@ fn normalize_sql(sql: &str, target: &JsTarget) -> String {
     }
 }
 
-/// Rewrite the `IN ($N)` / `IN (?N)` list-param placeholder to the native driver form.
-fn rewrite_list_sql_native(sql: &str, lp: &Parameter, target: &JsTarget) -> String {
-    let replacement = match target {
-        JsTarget::Postgres => format!("= ANY(${})", lp.index),
-        JsTarget::Sqlite => format!("IN (SELECT value FROM json_each(?{}))", lp.index),
-        JsTarget::Mysql => {
-            let col_type = mysql_json_table_col_type(&lp.sql_type);
-            format!("IN (SELECT value FROM JSON_TABLE(?,'$[*]' COLUMNS(value {col_type} PATH '$')) t)")
-        },
-    };
-    replace_list_in_clause(sql, lp.index, &replacement).unwrap_or_else(|| {
-        eprintln!("warning: list param '{}' not found in IN clause, treating as scalar", lp.name);
-        sql.to_string()
-    })
+/// Build the [`ListRewriteTarget`] for the current JS/TS database target.
+fn list_rewrite_target(lp: &Parameter, target: &JsTarget) -> ListRewriteTarget {
+    match target {
+        JsTarget::Postgres => ListRewriteTarget::PgArray,
+        JsTarget::Sqlite => ListRewriteTarget::JsonEach(format!("?{}", lp.index)),
+        JsTarget::Mysql => ListRewriteTarget::JsonTable { placeholder: "?".to_string(), col_type: mysql_json_table_col_type(&lp.sql_type).to_string() },
+    }
 }
 
 // ─── Query function emission ──────────────────────────────────────────────────

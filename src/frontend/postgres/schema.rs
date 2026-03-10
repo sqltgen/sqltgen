@@ -1,64 +1,18 @@
-use sqlparser::ast::{ObjectType, Statement};
 use sqlparser::dialect::PostgreSqlDialect;
-use sqlparser::parser::Parser;
-use sqlparser::tokenizer::{Token, Tokenizer};
 
-use crate::frontend::common::{apply_alter_table, apply_drop_tables, build_create_table, AlterCaps};
+use crate::frontend::common::schema::parse_schema_impl;
+use crate::frontend::common::AlterCaps;
 use crate::frontend::postgres::typemap;
 use crate::ir::Schema;
 
 /// Parses PostgreSQL DDL into a [Schema].
 ///
-/// Processes `CREATE TABLE` and `ALTER TABLE` statements in order.
-/// All other statements are silently ignored.
-///
-/// Uses sqlparser-rs's `Tokenizer` first so that the full DDL is correctly
-/// lexed (handling dollar-quoted strings, E-strings, identifiers, etc.) even
-/// when it contains statements the parser doesn't support (e.g. `CREATE
-/// FUNCTION` with PostgreSQL-specific options like `LEAKPROOF`).  Each
-/// statement is then parsed individually; unsupported ones are skipped.
-pub fn parse_schema(ddl: &str) -> anyhow::Result<Schema> {
-    let dialect = PostgreSqlDialect {};
-
-    let tokens = Tokenizer::new(&dialect, ddl).tokenize_with_location().map_err(|e| anyhow::anyhow!("DDL tokenize error: {e}"))?;
-
-    let mut parser = Parser::new(&dialect).with_tokens_with_locations(tokens);
-    let mut tables = Vec::new();
-
-    loop {
-        // Consume any inter-statement semicolons.
-        while parser.consume_token(&Token::SemiColon) {}
-
-        if matches!(parser.peek_token().token, Token::EOF) {
-            break;
-        }
-
-        match parser.parse_statement() {
-            Ok(stmt) => match stmt {
-                Statement::CreateTable(ct) => {
-                    tables.push(build_create_table(&ct.name, &ct.columns, &ct.constraints, typemap::map));
-                },
-                Statement::AlterTable(a) => {
-                    apply_alter_table(&a.name, &a.operations, &mut tables, typemap::map, AlterCaps::ALL);
-                },
-                Statement::Drop { object_type: ObjectType::Table, names, .. } => {
-                    apply_drop_tables(&names, &mut tables);
-                },
-                _ => {},
-            },
-            Err(_) => {
-                // Skip to the next semicolon so we can recover and continue.
-                loop {
-                    match parser.next_token().token {
-                        Token::SemiColon | Token::EOF => break,
-                        _ => {},
-                    }
-                }
-            },
-        }
-    }
-
-    Ok(Schema { tables })
+/// Processes `CREATE TABLE`, `ALTER TABLE`, and `DROP TABLE` statements in
+/// order.  All other statements are silently ignored.  Delegates to the shared
+/// [`parse_schema_impl`] with the PostgreSQL dialect, full `ALTER TABLE`
+/// capabilities, and the PostgreSQL type mapper.
+pub(crate) fn parse_schema(ddl: &str) -> anyhow::Result<Schema> {
+    parse_schema_impl(ddl, &PostgreSqlDialect {}, typemap::map, AlterCaps::ALL)
 }
 
 #[cfg(test)]

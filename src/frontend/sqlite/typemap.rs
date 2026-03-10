@@ -1,36 +1,20 @@
 use sqlparser::ast::{DataType, ObjectName};
 
+use crate::frontend::common::typemap::{custom_name_upper, fallback_custom, fallback_custom_name, map_common, map_custom_common};
 use crate::ir::SqlType;
 
 /// Maps a sqlparser [`DataType`] to [`SqlType`] using SQLite type affinity rules.
-pub fn map(dt: &DataType) -> SqlType {
+pub(crate) fn map(dt: &DataType) -> SqlType {
+    // Dialect-specific arms first
     match dt {
-        DataType::Boolean | DataType::Bool => SqlType::Boolean,
-
-        DataType::Int2(_) | DataType::SmallInt(_) => SqlType::SmallInt,
-
-        DataType::Int(_) | DataType::Int4(_) | DataType::Integer(_) | DataType::Unsigned | DataType::UnsignedInteger => SqlType::Integer,
-
-        DataType::Int8(_) | DataType::BigInt(_) | DataType::BigIntUnsigned(_) => SqlType::BigInt,
+        DataType::Varchar(_) | DataType::CharacterVarying(_) => SqlType::VarChar(None),
 
         DataType::Real | DataType::Float4 => SqlType::Real,
 
-        DataType::Double(_) | DataType::DoublePrecision | DataType::Float8 | DataType::Float64 => SqlType::Double,
-
         DataType::Float(_) => SqlType::Double,
-
-        DataType::Numeric(_) | DataType::Decimal(_) => SqlType::Decimal,
-
-        DataType::Text | DataType::Clob(_) => SqlType::Text,
-
-        DataType::Varchar(_) | DataType::CharacterVarying(_) => SqlType::VarChar(None),
-
-        DataType::Char(_) | DataType::Character(_) => SqlType::Char(None),
 
         // SQLite uses BLOB for binary data
         DataType::Blob(_) | DataType::Bytea | DataType::Varbinary(_) | DataType::Binary(_) => SqlType::Bytes,
-
-        DataType::Date => SqlType::Date,
 
         DataType::Time(_, _) => SqlType::Time,
 
@@ -38,11 +22,11 @@ pub fn map(dt: &DataType) -> SqlType {
 
         DataType::Custom(name, _) => map_custom(name),
 
-        _ => SqlType::Custom(format!("{dt}").to_lowercase()),
+        // Fall through to common mappings, then dialect fallback
+        other => map_common(other).unwrap_or_else(|| fallback_custom(dt)),
     }
 }
 
-/// Maps a SQLite custom type name string to [`SqlType`].
 /// Exposed for testing; callers should use [`map`] with a parsed [`DataType`].
 #[cfg(test)]
 fn map_custom_str(s: &str) -> SqlType {
@@ -51,25 +35,20 @@ fn map_custom_str(s: &str) -> SqlType {
     map_custom(&name)
 }
 
+/// Maps SQLite-specific custom type names to [`SqlType`].
 fn map_custom(name: &ObjectName) -> SqlType {
-    use sqlparser::ast::ObjectNamePart;
-    let upper =
-        name.0.iter().filter_map(|p| if let ObjectNamePart::Identifier(i) = p { Some(i.value.to_uppercase()) } else { None }).collect::<Vec<_>>().join(".");
+    let upper = custom_name_upper(name);
     match upper.as_str() {
-        "INT" | "INTEGER" | "INT4" => SqlType::Integer,
-        "INT2" | "SMALLINT" | "TINYINT" => SqlType::SmallInt,
-        "INT8" | "BIGINT" => SqlType::BigInt,
-        "REAL" | "FLOAT" | "FLOAT4" => SqlType::Real,
-        "DOUBLE" | "FLOAT8" => SqlType::Double,
-        "NUMERIC" | "DECIMAL" | "NUMBER" => SqlType::Decimal,
+        "INT" | "INTEGER" => SqlType::Integer,
+        "SMALLINT" | "TINYINT" => SqlType::SmallInt,
+        "BIGINT" => SqlType::BigInt,
+        "REAL" | "FLOAT" => SqlType::Real,
+        "DOUBLE" => SqlType::Double,
+        "NUMBER" => SqlType::Decimal,
         "TEXT" | "CLOB" | "VARCHAR" | "NVARCHAR" | "NCHAR" | "VARYING CHARACTER" => SqlType::Text,
         "BLOB" | "NONE" => SqlType::Bytes,
-        "BOOLEAN" | "BOOL" => SqlType::Boolean,
-        "DATE" => SqlType::Date,
-        "TIME" => SqlType::Time,
-        "DATETIME" | "TIMESTAMP" => SqlType::Timestamp,
-        "JSON" => SqlType::Json,
-        _ => SqlType::Custom(upper.to_lowercase()),
+        "DATETIME" => SqlType::Timestamp,
+        _ => map_custom_common(&upper).unwrap_or_else(|| fallback_custom_name(&upper)),
     }
 }
 
