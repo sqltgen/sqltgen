@@ -4,6 +4,8 @@ pub mod java;
 pub mod kotlin;
 pub mod python;
 pub mod rust;
+#[cfg(test)]
+pub mod test_helpers;
 pub mod typescript;
 
 use std::path::PathBuf;

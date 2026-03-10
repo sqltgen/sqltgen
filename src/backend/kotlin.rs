@@ -444,12 +444,9 @@ fn rs_read_expr(sql_type: &SqlType, nullable: bool, idx: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::backend::test_helpers::{cfg, get_file, user_table};
     use crate::config::OutputConfig;
-    use crate::ir::{Column, Parameter, Query, QueryCmd, ResultColumn, Schema, SqlType, Table};
-
-    fn cfg() -> OutputConfig {
-        OutputConfig { out: "out".to_string(), package: String::new(), list_params: None }
-    }
+    use crate::ir::{Parameter, Query, QueryCmd, ResultColumn, Schema, SqlType};
 
     fn cfg_pkg() -> OutputConfig {
         OutputConfig { out: "out".to_string(), package: "com.example.db".to_string(), list_params: None }
@@ -457,21 +454,6 @@ mod tests {
 
     fn pg() -> KotlinCodegen {
         KotlinCodegen { target: KotlinTarget::Postgres }
-    }
-
-    fn get_file<'a>(files: &'a [GeneratedFile], name: &str) -> &'a str {
-        files.iter().find(|f| f.path.file_name().is_some_and(|n| n == name)).unwrap_or_else(|| panic!("file {name:?} not found")).content.as_str()
-    }
-
-    fn user_table() -> Table {
-        Table {
-            name: "user".to_string(),
-            columns: vec![
-                Column { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
-                Column { name: "name".to_string(), sql_type: SqlType::Text, nullable: false, is_primary_key: false },
-                Column { name: "bio".to_string(), sql_type: SqlType::Text, nullable: true, is_primary_key: false },
-            ],
-        }
     }
 
     // ─── kotlin_type ───────────────────────────────────────────────────────
