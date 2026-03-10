@@ -60,6 +60,14 @@ pub(crate) fn map_custom_common(upper: &str) -> Option<SqlType> {
     }
 }
 
+/// Dialect-agnostic typemap: tries `map_common`, then falls back to `Custom`.
+///
+/// Used as the default `ResolverConfig::typemap` when no dialect-specific
+/// mapping is available.
+pub(crate) fn map_common_or_custom(dt: &DataType) -> SqlType {
+    map_common(dt).unwrap_or_else(|| fallback_custom(dt))
+}
+
 /// Produces the default fallback for an unrecognised [`DataType`]: a
 /// lowercased `Custom` variant.
 pub(crate) fn fallback_custom(dt: &DataType) -> SqlType {

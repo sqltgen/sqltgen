@@ -293,7 +293,7 @@ class GetBookPriceLabelRow:
     id: int
     title: str
     price: decimal.Decimal
-    price_label: Any | None
+    price_label: str
 
 
 def get_book_price_label(conn: psycopg.Connection, price: decimal.Decimal) -> list[GetBookPriceLabelRow]:
@@ -306,7 +306,7 @@ def get_book_price_label(conn: psycopg.Connection, price: decimal.Decimal) -> li
 class GetBookPriceOrDefaultRow:
     id: int
     title: str
-    effective_price: Any | None
+    effective_price: decimal.Decimal
 
 
 def get_book_price_or_default(conn: psycopg.Connection, param1: str) -> list[GetBookPriceOrDefaultRow]:
@@ -395,8 +395,8 @@ def get_book_with_author_name(conn: psycopg.Connection) -> list[GetBookWithAutho
 class GetAuthorStatsRow:
     id: int
     name: str
-    num_books: Any | None
-    total_sold: Any | None
+    num_books: int
+    total_sold: int
 
 
 def get_author_stats(conn: psycopg.Connection) -> list[GetAuthorStatsRow]:

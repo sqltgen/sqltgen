@@ -12,7 +12,12 @@ use crate::ir::{Query, Schema, SqlType};
 ///
 /// Future work: switch to proper bare `?` and named param (`:name` / `@name`) support.
 pub(crate) fn parse_queries(sql: &str, schema: &Schema) -> anyhow::Result<Vec<Query>> {
-    parse_queries_with_config(&GenericDialect {}, sql, schema, &ResolverConfig { sum_integer_type: SqlType::Decimal })
+    parse_queries_with_config(
+        &GenericDialect {},
+        sql,
+        schema,
+        &ResolverConfig { sum_integer_type: SqlType::Decimal, typemap: crate::frontend::mysql::typemap::map },
+    )
 }
 
 #[cfg(test)]

@@ -228,7 +228,7 @@ export interface GetBookPriceLabelRow {
   id: number;
   title: string;
   price: number;
-  price_label: unknown | null;
+  price_label: string;
 }
 
 export async function getBookPriceLabel(db: ClientBase, price: number): Promise<GetBookPriceLabelRow[]> {
@@ -239,7 +239,7 @@ export async function getBookPriceLabel(db: ClientBase, price: number): Promise<
 export interface GetBookPriceOrDefaultRow {
   id: number;
   title: string;
-  effective_price: unknown | null;
+  effective_price: number;
 }
 
 export async function getBookPriceOrDefault(db: ClientBase, param1: string): Promise<GetBookPriceOrDefaultRow[]> {
@@ -314,8 +314,8 @@ export async function getBookWithAuthorName(db: ClientBase): Promise<GetBookWith
 export interface GetAuthorStatsRow {
   id: number;
   name: string;
-  num_books: unknown | null;
-  total_sold: unknown | null;
+  num_books: number;
+  total_sold: number;
 }
 
 export async function getAuthorStats(db: ClientBase): Promise<GetAuthorStatsRow[]> {

@@ -75,14 +75,14 @@ pub struct GetBookPriceLabelRow {
     pub id: i32,
     pub title: String,
     pub price: f64,
-    pub price_label: Option<serde_json::Value>,
+    pub price_label: String,
 }
 
 #[derive(Debug, sqlx::FromRow)]
 pub struct GetBookPriceOrDefaultRow {
     pub id: i32,
     pub title: String,
-    pub effective_price: Option<serde_json::Value>,
+    pub effective_price: f64,
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -123,8 +123,8 @@ pub struct GetBookWithAuthorNameRow {
 pub struct GetAuthorStatsRow {
     pub id: i32,
     pub name: String,
-    pub num_books: Option<serde_json::Value>,
-    pub total_sold: Option<serde_json::Value>,
+    pub num_books: i64,
+    pub total_sold: i64,
 }
 
 #[derive(Debug, sqlx::FromRow)]

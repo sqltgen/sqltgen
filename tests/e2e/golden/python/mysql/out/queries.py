@@ -252,7 +252,7 @@ class GetBookPriceLabelRow:
     id: int
     title: str
     price: decimal.Decimal
-    price_label: Any | None
+    price_label: str
 
 
 def get_book_price_label(conn: mysql.connector.MySQLConnection, price: decimal.Decimal) -> list[GetBookPriceLabelRow]:
@@ -265,7 +265,7 @@ def get_book_price_label(conn: mysql.connector.MySQLConnection, price: decimal.D
 class GetBookPriceOrDefaultRow:
     id: int
     title: str
-    effective_price: Any | None
+    effective_price: decimal.Decimal
 
 
 def get_book_price_or_default(conn: mysql.connector.MySQLConnection, param1: str) -> list[GetBookPriceOrDefaultRow]:
@@ -354,8 +354,8 @@ def get_book_with_author_name(conn: mysql.connector.MySQLConnection) -> list[Get
 class GetAuthorStatsRow:
     id: int
     name: str
-    num_books: Any | None
-    total_sold: Any | None
+    num_books: int
+    total_sold: decimal.Decimal
 
 
 def get_author_stats(conn: mysql.connector.MySQLConnection) -> list[GetAuthorStatsRow]:

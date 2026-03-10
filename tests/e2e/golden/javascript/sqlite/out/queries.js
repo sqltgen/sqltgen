@@ -302,7 +302,7 @@ export async function getBooksInGenres(db, genre, genre2, genre3) {
  * @property {number} id
  * @property {string} title
  * @property {number} price
- * @property {unknown | null} price_label
+ * @property {string} price_label
  */
 
 /**
@@ -318,7 +318,7 @@ export async function getBookPriceLabel(db, price) {
  * @typedef {Object} GetBookPriceOrDefaultRow
  * @property {number} id
  * @property {string} title
- * @property {unknown | null} effective_price
+ * @property {number} effective_price
  */
 
 /**
@@ -430,8 +430,8 @@ export async function getBookWithAuthorName(db) {
  * @typedef {Object} GetAuthorStatsRow
  * @property {number} id
  * @property {string} name
- * @property {unknown | null} num_books
- * @property {unknown | null} total_sold
+ * @property {number} num_books
+ * @property {number} total_sold
  */
 
 /**
