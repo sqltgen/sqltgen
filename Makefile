@@ -2,8 +2,12 @@ SQLTGEN := ./target/debug/sqltgen
 
 .PHONY: all build test generate java kotlin rust python run-all \
        db-up db-down db-up-mysql db-down-mysql \
-       e2e e2e-snapshot e2e-runtime \
-       e2e-runtime-rust-sqlite e2e-runtime-rust-postgresql \
+       e2e e2e-snapshot e2e-runtime e2e-check-suite \
+       e2e-runtime-rust-sqlite e2e-runtime-rust-postgresql e2e-runtime-rust-mysql \
+       e2e-runtime-java-postgresql \
+       e2e-runtime-kotlin-postgresql \
+       e2e-runtime-python-sqlite e2e-runtime-python-postgresql \
+       e2e-runtime-typescript-sqlite e2e-runtime-typescript-postgresql \
        e2e-db-up e2e-db-down
 
 all: build test
@@ -74,21 +78,61 @@ E2E_RUNTIME := tests/e2e/runtime
 
 e2e: e2e-snapshot e2e-runtime
 
+# Check that all fixture dialects have the same queries and all runtime suites
+# cover every query. Exits 1 if any unexpected gap is found.
+e2e-check-suite:
+	python tests/e2e/check_suite.py --ci
+
 e2e-snapshot:
 	cargo test --test e2e
 
 # Runtime tests: regenerate code, then run each sub-project's tests.
 # SQLite tests need no Docker; PG/MySQL targets will start containers.
 
-e2e-runtime: e2e-runtime-rust-sqlite e2e-runtime-rust-postgresql
+e2e-runtime: \
+	e2e-runtime-python-sqlite \
+	e2e-runtime-typescript-sqlite \
+	e2e-runtime-rust-sqlite \
+	e2e-runtime-rust-postgresql \
+	e2e-runtime-rust-mysql \
+	e2e-runtime-java-postgresql \
+	e2e-runtime-kotlin-postgresql \
+	e2e-runtime-python-postgresql \
+	e2e-runtime-typescript-postgresql
+
+# ── No-Docker runtime tests (SQLite) ─────────────────────────────────────────
 
 e2e-runtime-rust-sqlite: $(SQLTGEN)
 	cd $(E2E_RUNTIME)/rust/sqlite && $(abspath $(SQLTGEN)) generate --config sqltgen.json
 	cd $(E2E_RUNTIME)/rust/sqlite && cargo test
 
+e2e-runtime-python-sqlite: $(SQLTGEN)
+	$(MAKE) -C $(E2E_RUNTIME)/python/sqlite test
+
+e2e-runtime-typescript-sqlite: $(SQLTGEN)
+	$(MAKE) -C $(E2E_RUNTIME)/typescript/sqlite install test
+
+# ── Docker-based runtime tests (PostgreSQL + MySQL) ───────────────────────────
+
 e2e-runtime-rust-postgresql: $(SQLTGEN) e2e-db-up
 	cd $(E2E_RUNTIME)/rust/postgresql && $(abspath $(SQLTGEN)) generate --config sqltgen.json
 	cd $(E2E_RUNTIME)/rust/postgresql && cargo test
+
+e2e-runtime-rust-mysql: $(SQLTGEN) e2e-db-up
+	cd $(E2E_RUNTIME)/rust/mysql && $(abspath $(SQLTGEN)) generate --config sqltgen.json
+	cd $(E2E_RUNTIME)/rust/mysql && cargo test
+
+e2e-runtime-java-postgresql: $(SQLTGEN) e2e-db-up
+	$(MAKE) -C $(E2E_RUNTIME)/java/postgresql test
+
+e2e-runtime-kotlin-postgresql: $(SQLTGEN) e2e-db-up
+	$(MAKE) -C $(E2E_RUNTIME)/kotlin/postgresql test
+
+e2e-runtime-python-postgresql: $(SQLTGEN) e2e-db-up
+	$(MAKE) -C $(E2E_RUNTIME)/python/postgresql test
+
+e2e-runtime-typescript-postgresql: $(SQLTGEN) e2e-db-up
+	$(MAKE) -C $(E2E_RUNTIME)/typescript/postgresql install test
 
 # ── E2E Docker lifecycle ────────────────────────────────────────────────────
 

@@ -1,0 +1,12 @@
+{
+    "version": "1",
+    "engine": "sqlite",
+    "schema": "../../../fixtures/sqlite/schema.sql",
+    "queries": "../../../fixtures/sqlite/queries.sql",
+    "gen": {
+        "typescript": {
+            "out": "gen",
+            "package": "db"
+        }
+    }
+}
