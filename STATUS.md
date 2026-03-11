@@ -190,18 +190,19 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 
 | Module | Tests |
 |---|---|
-| Config | 3 |
+| Config | 5 |
 | Frontend — PostgreSQL (typemap + schema + query) | 49 |
 | Frontend — SQLite (typemap + schema + query) | 39 |
 | Frontend — MySQL (typemap + schema + query) | 34 |
-| Frontend — common (query parser, CTEs, subqueries, named params, list params) | 107 |
-| Backend — Java | 40 |
-| Backend — Kotlin | 41 |
+| Frontend — common (query parser, CTEs, subqueries, named params, list params) | 164 |
+| Backend — Java | 45 |
+| Backend — Kotlin | 46 |
 | Backend — Rust | 32 |
 | Backend — Python | 41 |
-| Backend — common | 22 |
+| Backend — common | 31 |
+| Backend — JDBC | 12 |
 | Backend — TypeScript / JavaScript | 33 |
-| **Total** | **441** |
+| **Total** | **531** |
 
 ---
 
