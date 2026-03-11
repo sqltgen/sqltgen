@@ -49,6 +49,13 @@ SQL_ARCHIVE_AND_RETURN_BOOKS = "WITH archived AS (     DELETE FROM book     WHER
 SQL_GET_PRODUCT = "SELECT id, sku, name, active, weight_kg, rating, tags, metadata,        thumbnail, created_at, stock_count FROM product WHERE id = %s"
 SQL_LIST_ACTIVE_PRODUCTS = "SELECT id, sku, name, active, weight_kg, rating, tags, metadata,        created_at, stock_count FROM product WHERE active = %s ORDER BY name"
 SQL_INSERT_PRODUCT = "INSERT INTO product (id, sku, name, active, weight_kg, rating, tags, metadata, thumbnail, stock_count) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING *"
+SQL_GET_AUTHORS_WITH_NULL_BIO = "SELECT id, name, birth_year FROM author WHERE bio IS NULL ORDER BY name"
+SQL_GET_AUTHORS_WITH_BIO = "SELECT id, name, bio, birth_year FROM author WHERE bio IS NOT NULL ORDER BY name"
+SQL_GET_BOOKS_PUBLISHED_BETWEEN = "SELECT id, title, genre, price, published_at FROM book WHERE published_at IS NOT NULL   AND published_at BETWEEN %s AND %s ORDER BY published_at"
+SQL_GET_DISTINCT_GENRES = "SELECT DISTINCT genre FROM book ORDER BY genre"
+SQL_GET_BOOKS_WITH_SALES_COUNT = "SELECT b.id, b.title, b.genre,        COALESCE(SUM(si.quantity), 0) AS total_quantity FROM book b LEFT JOIN sale_item si ON si.book_id = b.id GROUP BY b.id, b.title, b.genre ORDER BY total_quantity DESC, b.title"
+SQL_COUNT_SALE_ITEMS = "SELECT COUNT(*) AS item_count FROM sale_item WHERE sale_id = %s"
+SQL_UPSERT_PRODUCT = "INSERT INTO product (id, sku, name, active, tags, stock_count) VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (id) DO UPDATE     SET name        = EXCLUDED.name,         active      = EXCLUDED.active,         tags        = EXCLUDED.tags,         stock_count = EXCLUDED.stock_count RETURNING id, sku, name, active, tags, stock_count"
 
 
 def create_author(conn: psycopg.Connection, name: str, bio: str | None, birth_year: int | None) -> Author | None:
@@ -309,9 +316,9 @@ class GetBookPriceOrDefaultRow:
     effective_price: decimal.Decimal
 
 
-def get_book_price_or_default(conn: psycopg.Connection, param1: str) -> list[GetBookPriceOrDefaultRow]:
+def get_book_price_or_default(conn: psycopg.Connection, price: decimal.Decimal | None) -> list[GetBookPriceOrDefaultRow]:
     with conn.cursor() as cur:
-        cur.execute(SQL_GET_BOOK_PRICE_OR_DEFAULT, (param1,))
+        cur.execute(SQL_GET_BOOK_PRICE_OR_DEFAULT, (price,))
         return [GetBookPriceOrDefaultRow(*row) for row in cur.fetchall()]
 
 
@@ -372,9 +379,9 @@ class GetBooksWithRecentSalesRow:
     genre: str
 
 
-def get_books_with_recent_sales(conn: psycopg.Connection, param1: str) -> list[GetBooksWithRecentSalesRow]:
+def get_books_with_recent_sales(conn: psycopg.Connection, ordered_at: datetime.datetime) -> list[GetBooksWithRecentSalesRow]:
     with conn.cursor() as cur:
-        cur.execute(SQL_GET_BOOKS_WITH_RECENT_SALES, (param1,))
+        cur.execute(SQL_GET_BOOKS_WITH_RECENT_SALES, (ordered_at,))
         return [GetBooksWithRecentSalesRow(*row) for row in cur.fetchall()]
 
 
@@ -455,3 +462,95 @@ def insert_product(conn: psycopg.Connection, id: uuid.UUID, sku: str, name: str,
         if row is None:
             return None
         return Product(*row)
+
+
+@dataclasses.dataclass
+class GetAuthorsWithNullBioRow:
+    id: int
+    name: str
+    birth_year: int | None
+
+
+def get_authors_with_null_bio(conn: psycopg.Connection) -> list[GetAuthorsWithNullBioRow]:
+    with conn.cursor() as cur:
+        cur.execute(SQL_GET_AUTHORS_WITH_NULL_BIO)
+        return [GetAuthorsWithNullBioRow(*row) for row in cur.fetchall()]
+
+
+def get_authors_with_bio(conn: psycopg.Connection) -> list[Author]:
+    with conn.cursor() as cur:
+        cur.execute(SQL_GET_AUTHORS_WITH_BIO)
+        return [Author(*row) for row in cur.fetchall()]
+
+
+@dataclasses.dataclass
+class GetBooksPublishedBetweenRow:
+    id: int
+    title: str
+    genre: str
+    price: decimal.Decimal
+    published_at: datetime.date | None
+
+
+def get_books_published_between(conn: psycopg.Connection, published_at: datetime.date | None, published_at_2: datetime.date | None) -> list[GetBooksPublishedBetweenRow]:
+    with conn.cursor() as cur:
+        cur.execute(SQL_GET_BOOKS_PUBLISHED_BETWEEN, (published_at, published_at_2))
+        return [GetBooksPublishedBetweenRow(*row) for row in cur.fetchall()]
+
+
+@dataclasses.dataclass
+class GetDistinctGenresRow:
+    genre: str
+
+
+def get_distinct_genres(conn: psycopg.Connection) -> list[GetDistinctGenresRow]:
+    with conn.cursor() as cur:
+        cur.execute(SQL_GET_DISTINCT_GENRES)
+        return [GetDistinctGenresRow(*row) for row in cur.fetchall()]
+
+
+@dataclasses.dataclass
+class GetBooksWithSalesCountRow:
+    id: int
+    title: str
+    genre: str
+    total_quantity: int
+
+
+def get_books_with_sales_count(conn: psycopg.Connection) -> list[GetBooksWithSalesCountRow]:
+    with conn.cursor() as cur:
+        cur.execute(SQL_GET_BOOKS_WITH_SALES_COUNT)
+        return [GetBooksWithSalesCountRow(*row) for row in cur.fetchall()]
+
+
+@dataclasses.dataclass
+class CountSaleItemsRow:
+    item_count: int
+
+
+def count_sale_items(conn: psycopg.Connection, sale_id: int) -> CountSaleItemsRow | None:
+    with conn.cursor() as cur:
+        cur.execute(SQL_COUNT_SALE_ITEMS, (sale_id,))
+        row = cur.fetchone()
+        if row is None:
+            return None
+        return CountSaleItemsRow(*row)
+
+
+@dataclasses.dataclass
+class UpsertProductRow:
+    id: uuid.UUID
+    sku: str
+    name: str
+    active: bool
+    tags: list[str]
+    stock_count: int
+
+
+def upsert_product(conn: psycopg.Connection, id: uuid.UUID, sku: str, name: str, active: bool, tags: list[str], stock_count: int) -> UpsertProductRow | None:
+    with conn.cursor() as cur:
+        cur.execute(SQL_UPSERT_PRODUCT, (id, sku, name, active, tags, stock_count))
+        row = cur.fetchone()
+        if row is None:
+            return None
+        return UpsertProductRow(*row)

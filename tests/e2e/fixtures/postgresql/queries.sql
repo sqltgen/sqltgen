@@ -235,3 +235,50 @@ ORDER BY name;
 INSERT INTO product (id, sku, name, active, weight_kg, rating, tags, metadata, thumbnail, stock_count)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 RETURNING *;
+
+-- name: GetAuthorsWithNullBio :many
+SELECT id, name, birth_year
+FROM author
+WHERE bio IS NULL
+ORDER BY name;
+
+-- name: GetAuthorsWithBio :many
+SELECT id, name, bio, birth_year
+FROM author
+WHERE bio IS NOT NULL
+ORDER BY name;
+
+-- name: GetBooksPublishedBetween :many
+SELECT id, title, genre, price, published_at
+FROM book
+WHERE published_at IS NOT NULL
+  AND published_at BETWEEN $1 AND $2
+ORDER BY published_at;
+
+-- name: GetDistinctGenres :many
+SELECT DISTINCT genre
+FROM book
+ORDER BY genre;
+
+-- name: GetBooksWithSalesCount :many
+SELECT b.id, b.title, b.genre,
+       COALESCE(SUM(si.quantity), 0) AS total_quantity
+FROM book b
+LEFT JOIN sale_item si ON si.book_id = b.id
+GROUP BY b.id, b.title, b.genre
+ORDER BY total_quantity DESC, b.title;
+
+-- name: CountSaleItems :one
+SELECT COUNT(*) AS item_count
+FROM sale_item
+WHERE sale_id = $1;
+
+-- name: UpsertProduct :one
+INSERT INTO product (id, sku, name, active, tags, stock_count)
+VALUES ($1, $2, $3, $4, $5, $6)
+ON CONFLICT (id) DO UPDATE
+    SET name        = EXCLUDED.name,
+        active      = EXCLUDED.active,
+        tags        = EXCLUDED.tags,
+        stock_count = EXCLUDED.stock_count
+RETURNING id, sku, name, active, tags, stock_count;

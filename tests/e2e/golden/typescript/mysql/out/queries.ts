@@ -41,6 +41,12 @@ const SQL_GET_BOOK_WITH_AUTHOR_NAME = "SELECT b.id, b.title,        (SELECT a.na
 const SQL_GET_AUTHOR_STATS = "WITH book_counts AS (     SELECT author_id, COUNT(*) AS num_books     FROM book     GROUP BY author_id ), sale_counts AS (     SELECT b.author_id, SUM(si.quantity) AS total_sold     FROM sale_item si     JOIN book b ON b.id = si.book_id     GROUP BY b.author_id ) SELECT a.id, a.name,        COALESCE(bc.num_books, 0) AS num_books,        COALESCE(sc.total_sold, 0) AS total_sold FROM author a LEFT JOIN book_counts bc ON bc.author_id = a.id LEFT JOIN sale_counts sc ON sc.author_id = a.id ORDER BY a.name";
 const SQL_GET_PRODUCT = "SELECT id, sku, name, active, weight_kg, rating, metadata,        thumbnail, created_at, stock_count FROM product WHERE id = ?";
 const SQL_LIST_ACTIVE_PRODUCTS = "SELECT id, sku, name, active, weight_kg, rating, metadata,        created_at, stock_count FROM product WHERE active = ? ORDER BY name";
+const SQL_GET_AUTHORS_WITH_NULL_BIO = "SELECT id, name, birth_year FROM author WHERE bio IS NULL ORDER BY name";
+const SQL_GET_AUTHORS_WITH_BIO = "SELECT id, name, bio, birth_year FROM author WHERE bio IS NOT NULL ORDER BY name";
+const SQL_GET_BOOKS_PUBLISHED_BETWEEN = "SELECT id, title, genre, price, published_at FROM book WHERE published_at IS NOT NULL   AND published_at BETWEEN ? AND ? ORDER BY published_at";
+const SQL_GET_DISTINCT_GENRES = "SELECT DISTINCT genre FROM book ORDER BY genre";
+const SQL_GET_BOOKS_WITH_SALES_COUNT = "SELECT b.id, b.title, b.genre,        COALESCE(SUM(si.quantity), 0) AS total_quantity FROM book b LEFT JOIN sale_item si ON si.book_id = b.id GROUP BY b.id, b.title, b.genre ORDER BY total_quantity DESC, b.title";
+const SQL_COUNT_SALE_ITEMS = "SELECT COUNT(*) AS item_count FROM sale_item WHERE sale_id = ?";
 
 export async function createAuthor(db: Connection, name: string, bio: string | null, birthYear: number | null): Promise<void> {
   await db.execute(SQL_CREATE_AUTHOR, [name, bio, birthYear]);
@@ -222,8 +228,8 @@ export interface GetBookPriceOrDefaultRow {
   effective_price: number;
 }
 
-export async function getBookPriceOrDefault(db: Connection, param1: string): Promise<GetBookPriceOrDefaultRow[]> {
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_GET_BOOK_PRICE_OR_DEFAULT, [param1]);
+export async function getBookPriceOrDefault(db: Connection, price: number | null): Promise<GetBookPriceOrDefaultRow[]> {
+  const [rows] = await db.execute<RowDataPacket[]>(SQL_GET_BOOK_PRICE_OR_DEFAULT, [price]);
   return rows as GetBookPriceOrDefaultRow[];
 }
 
@@ -275,8 +281,8 @@ export interface GetBooksWithRecentSalesRow {
   genre: string;
 }
 
-export async function getBooksWithRecentSales(db: Connection, param1: string): Promise<GetBooksWithRecentSalesRow[]> {
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_GET_BOOKS_WITH_RECENT_SALES, [param1]);
+export async function getBooksWithRecentSales(db: Connection, orderedAt: Date): Promise<GetBooksWithRecentSalesRow[]> {
+  const [rows] = await db.execute<RowDataPacket[]>(SQL_GET_BOOKS_WITH_RECENT_SALES, [orderedAt]);
   return rows as GetBooksWithRecentSalesRow[];
 }
 
@@ -323,4 +329,63 @@ export interface ListActiveProductsRow {
 export async function listActiveProducts(db: Connection, active: boolean): Promise<ListActiveProductsRow[]> {
   const [rows] = await db.execute<RowDataPacket[]>(SQL_LIST_ACTIVE_PRODUCTS, [active]);
   return rows as ListActiveProductsRow[];
+}
+
+export interface GetAuthorsWithNullBioRow {
+  id: number;
+  name: string;
+  birth_year: number | null;
+}
+
+export async function getAuthorsWithNullBio(db: Connection): Promise<GetAuthorsWithNullBioRow[]> {
+  const [rows] = await db.execute<RowDataPacket[]>(SQL_GET_AUTHORS_WITH_NULL_BIO, []);
+  return rows as GetAuthorsWithNullBioRow[];
+}
+
+export async function getAuthorsWithBio(db: Connection): Promise<Author[]> {
+  const [rows] = await db.execute<RowDataPacket[]>(SQL_GET_AUTHORS_WITH_BIO, []);
+  return rows as Author[];
+}
+
+export interface GetBooksPublishedBetweenRow {
+  id: number;
+  title: string;
+  genre: string;
+  price: number;
+  published_at: Date | null;
+}
+
+export async function getBooksPublishedBetween(db: Connection, publishedAt: Date | null, publishedAt2: Date | null): Promise<GetBooksPublishedBetweenRow[]> {
+  const [rows] = await db.execute<RowDataPacket[]>(SQL_GET_BOOKS_PUBLISHED_BETWEEN, [publishedAt, publishedAt2]);
+  return rows as GetBooksPublishedBetweenRow[];
+}
+
+export interface GetDistinctGenresRow {
+  genre: string;
+}
+
+export async function getDistinctGenres(db: Connection): Promise<GetDistinctGenresRow[]> {
+  const [rows] = await db.execute<RowDataPacket[]>(SQL_GET_DISTINCT_GENRES, []);
+  return rows as GetDistinctGenresRow[];
+}
+
+export interface GetBooksWithSalesCountRow {
+  id: number;
+  title: string;
+  genre: string;
+  total_quantity: number;
+}
+
+export async function getBooksWithSalesCount(db: Connection): Promise<GetBooksWithSalesCountRow[]> {
+  const [rows] = await db.execute<RowDataPacket[]>(SQL_GET_BOOKS_WITH_SALES_COUNT, []);
+  return rows as GetBooksWithSalesCountRow[];
+}
+
+export interface CountSaleItemsRow {
+  item_count: number;
+}
+
+export async function countSaleItems(db: Connection, saleId: number): Promise<CountSaleItemsRow | null> {
+  const [rows] = await db.execute<RowDataPacket[]>(SQL_COUNT_SALE_ITEMS, [saleId]);
+  return (rows[0] as CountSaleItemsRow | undefined) ?? null;
 }

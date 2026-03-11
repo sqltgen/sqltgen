@@ -115,6 +115,9 @@ pub(super) fn collect_params_from_expr(expr: &Expr, ctx: &mut ResolverContext) {
         Expr::IsNull(inner) | Expr::IsNotNull(inner) => {
             collect_params_from_expr(inner, ctx);
         },
+        Expr::Exists { subquery, .. } => {
+            collect_params_from_subquery(subquery, ctx.schema, ctx.config, ctx.mapping);
+        },
         Expr::InList { expr, list, .. } => {
             // col IN ($1, $2, …) — infer param type from the expression being tested
             let resolved = resolve_expr(expr, ctx.alias_map, ctx.all_tables, ctx.config);
@@ -174,8 +177,32 @@ pub(super) fn collect_params_from_expr(expr: &Expr, ctx: &mut ResolverContext) {
         },
         Expr::Function(func) => {
             if let FunctionArguments::List(arg_list) = &func.args {
+                let func_name =
+                    func.name.0.last().and_then(|p| if let sqlparser::ast::ObjectNamePart::Identifier(i) = p { Some(i.value.to_uppercase()) } else { None });
+                let is_coalesce = matches!(func_name.as_deref(), Some("COALESCE" | "IFNULL" | "NULLIF" | "NVL"));
+                // For COALESCE-family functions, infer placeholder types from the first
+                // resolvable non-placeholder argument (the column that determines the type).
+                let coalesce_type = if is_coalesce {
+                    arg_list.args.iter().find_map(|a| {
+                        if let FunctionArg::Unnamed(FunctionArgExpr::Expr(inner)) = a {
+                            if !matches!(inner, Expr::Value(ValueWithSpan { value: Value::Placeholder(_), .. })) {
+                                return resolve_expr(inner, ctx.alias_map, ctx.all_tables, ctx.config);
+                            }
+                        }
+                        None
+                    })
+                } else {
+                    None
+                };
                 for arg in &arg_list.args {
                     if let FunctionArg::Unnamed(FunctionArgExpr::Expr(inner)) = arg {
+                        if let Some(ref rc) = coalesce_type {
+                            if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = inner {
+                                if let Some(idx) = placeholder_idx(p) {
+                                    ctx.mapping.entry(idx).or_insert((rc.name.clone(), rc.sql_type.clone(), true));
+                                }
+                            }
+                        }
                         collect_params_from_expr(inner, ctx);
                     }
                 }

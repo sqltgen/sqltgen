@@ -165,6 +165,50 @@ pub struct ListActiveProductsRow {
     pub stock_count: i16,
 }
 
+#[derive(Debug, sqlx::FromRow)]
+pub struct GetAuthorsWithNullBioRow {
+    pub id: i64,
+    pub name: String,
+    pub birth_year: Option<i32>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct GetBooksPublishedBetweenRow {
+    pub id: i64,
+    pub title: String,
+    pub genre: String,
+    pub price: rust_decimal::Decimal,
+    pub published_at: Option<time::Date>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct GetDistinctGenresRow {
+    pub genre: String,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct GetBooksWithSalesCountRow {
+    pub id: i64,
+    pub title: String,
+    pub genre: String,
+    pub total_quantity: i64,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct CountSaleItemsRow {
+    pub item_count: i64,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct UpsertProductRow {
+    pub id: uuid::Uuid,
+    pub sku: String,
+    pub name: String,
+    pub active: bool,
+    pub tags: Vec<String>,
+    pub stock_count: i16,
+}
+
 pub async fn create_author(pool: &PgPool, name: String, bio: Option<String>, birth_year: Option<i32>) -> Result<Option<Author>, sqlx::Error> {
     sqlx::query_as::<_, Author>("INSERT INTO author (name, bio, birth_year) VALUES ($1, $2, $3) RETURNING *")
         .bind(name)
@@ -336,9 +380,9 @@ pub async fn get_book_price_label(pool: &PgPool, price: rust_decimal::Decimal) -
         .await
 }
 
-pub async fn get_book_price_or_default(pool: &PgPool, param1: String) -> Result<Vec<GetBookPriceOrDefaultRow>, sqlx::Error> {
+pub async fn get_book_price_or_default(pool: &PgPool, price: Option<rust_decimal::Decimal>) -> Result<Vec<GetBookPriceOrDefaultRow>, sqlx::Error> {
     sqlx::query_as::<_, GetBookPriceOrDefaultRow>("SELECT id, title, COALESCE(price, $1) AS effective_price FROM book ORDER BY title")
-        .bind(param1)
+        .bind(price)
         .fetch_all(pool)
         .await
 }
@@ -378,9 +422,9 @@ pub async fn get_books_not_by_author(pool: &PgPool, name: String) -> Result<Vec<
         .await
 }
 
-pub async fn get_books_with_recent_sales(pool: &PgPool, param1: String) -> Result<Vec<GetBooksWithRecentSalesRow>, sqlx::Error> {
+pub async fn get_books_with_recent_sales(pool: &PgPool, ordered_at: time::PrimitiveDateTime) -> Result<Vec<GetBooksWithRecentSalesRow>, sqlx::Error> {
     sqlx::query_as::<_, GetBooksWithRecentSalesRow>("SELECT id, title, genre FROM book WHERE EXISTS (     SELECT 1 FROM sale_item si     JOIN sale s ON s.id = si.sale_id     WHERE si.book_id = book.id AND s.ordered_at > $1 ) ORDER BY title")
-        .bind(param1)
+        .bind(ordered_at)
         .fetch_all(pool)
         .await
 }
@@ -429,6 +473,57 @@ pub async fn insert_product(pool: &PgPool, id: uuid::Uuid, sku: String, name: St
         .bind(tags)
         .bind(metadata)
         .bind(thumbnail)
+        .bind(stock_count)
+        .fetch_optional(pool)
+        .await
+}
+
+pub async fn get_authors_with_null_bio(pool: &PgPool) -> Result<Vec<GetAuthorsWithNullBioRow>, sqlx::Error> {
+    sqlx::query_as::<_, GetAuthorsWithNullBioRow>("SELECT id, name, birth_year FROM author WHERE bio IS NULL ORDER BY name")
+        .fetch_all(pool)
+        .await
+}
+
+pub async fn get_authors_with_bio(pool: &PgPool) -> Result<Vec<Author>, sqlx::Error> {
+    sqlx::query_as::<_, Author>("SELECT id, name, bio, birth_year FROM author WHERE bio IS NOT NULL ORDER BY name")
+        .fetch_all(pool)
+        .await
+}
+
+pub async fn get_books_published_between(pool: &PgPool, published_at: Option<time::Date>, published_at_2: Option<time::Date>) -> Result<Vec<GetBooksPublishedBetweenRow>, sqlx::Error> {
+    sqlx::query_as::<_, GetBooksPublishedBetweenRow>("SELECT id, title, genre, price, published_at FROM book WHERE published_at IS NOT NULL   AND published_at BETWEEN $1 AND $2 ORDER BY published_at")
+        .bind(published_at)
+        .bind(published_at_2)
+        .fetch_all(pool)
+        .await
+}
+
+pub async fn get_distinct_genres(pool: &PgPool) -> Result<Vec<GetDistinctGenresRow>, sqlx::Error> {
+    sqlx::query_as::<_, GetDistinctGenresRow>("SELECT DISTINCT genre FROM book ORDER BY genre")
+        .fetch_all(pool)
+        .await
+}
+
+pub async fn get_books_with_sales_count(pool: &PgPool) -> Result<Vec<GetBooksWithSalesCountRow>, sqlx::Error> {
+    sqlx::query_as::<_, GetBooksWithSalesCountRow>("SELECT b.id, b.title, b.genre,        COALESCE(SUM(si.quantity), 0) AS total_quantity FROM book b LEFT JOIN sale_item si ON si.book_id = b.id GROUP BY b.id, b.title, b.genre ORDER BY total_quantity DESC, b.title")
+        .fetch_all(pool)
+        .await
+}
+
+pub async fn count_sale_items(pool: &PgPool, sale_id: i64) -> Result<Option<CountSaleItemsRow>, sqlx::Error> {
+    sqlx::query_as::<_, CountSaleItemsRow>("SELECT COUNT(*) AS item_count FROM sale_item WHERE sale_id = $1")
+        .bind(sale_id)
+        .fetch_optional(pool)
+        .await
+}
+
+pub async fn upsert_product(pool: &PgPool, id: uuid::Uuid, sku: String, name: String, active: bool, tags: Vec<String>, stock_count: i16) -> Result<Option<UpsertProductRow>, sqlx::Error> {
+    sqlx::query_as::<_, UpsertProductRow>("INSERT INTO product (id, sku, name, active, tags, stock_count) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO UPDATE     SET name        = EXCLUDED.name,         active      = EXCLUDED.active,         tags        = EXCLUDED.tags,         stock_count = EXCLUDED.stock_count RETURNING id, sku, name, active, tags, stock_count")
+        .bind(id)
+        .bind(sku)
+        .bind(name)
+        .bind(active)
+        .bind(tags)
         .bind(stock_count)
         .fetch_optional(pool)
         .await

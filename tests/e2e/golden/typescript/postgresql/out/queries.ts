@@ -43,6 +43,13 @@ const SQL_ARCHIVE_AND_RETURN_BOOKS = "WITH archived AS (     DELETE FROM book   
 const SQL_GET_PRODUCT = "SELECT id, sku, name, active, weight_kg, rating, tags, metadata,        thumbnail, created_at, stock_count FROM product WHERE id = $1";
 const SQL_LIST_ACTIVE_PRODUCTS = "SELECT id, sku, name, active, weight_kg, rating, tags, metadata,        created_at, stock_count FROM product WHERE active = $1 ORDER BY name";
 const SQL_INSERT_PRODUCT = "INSERT INTO product (id, sku, name, active, weight_kg, rating, tags, metadata, thumbnail, stock_count) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *";
+const SQL_GET_AUTHORS_WITH_NULL_BIO = "SELECT id, name, birth_year FROM author WHERE bio IS NULL ORDER BY name";
+const SQL_GET_AUTHORS_WITH_BIO = "SELECT id, name, bio, birth_year FROM author WHERE bio IS NOT NULL ORDER BY name";
+const SQL_GET_BOOKS_PUBLISHED_BETWEEN = "SELECT id, title, genre, price, published_at FROM book WHERE published_at IS NOT NULL   AND published_at BETWEEN $1 AND $2 ORDER BY published_at";
+const SQL_GET_DISTINCT_GENRES = "SELECT DISTINCT genre FROM book ORDER BY genre";
+const SQL_GET_BOOKS_WITH_SALES_COUNT = "SELECT b.id, b.title, b.genre,        COALESCE(SUM(si.quantity), 0) AS total_quantity FROM book b LEFT JOIN sale_item si ON si.book_id = b.id GROUP BY b.id, b.title, b.genre ORDER BY total_quantity DESC, b.title";
+const SQL_COUNT_SALE_ITEMS = "SELECT COUNT(*) AS item_count FROM sale_item WHERE sale_id = $1";
+const SQL_UPSERT_PRODUCT = "INSERT INTO product (id, sku, name, active, tags, stock_count) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO UPDATE     SET name        = EXCLUDED.name,         active      = EXCLUDED.active,         tags        = EXCLUDED.tags,         stock_count = EXCLUDED.stock_count RETURNING id, sku, name, active, tags, stock_count";
 
 export async function createAuthor(db: ClientBase, name: string, bio: string | null, birthYear: number | null): Promise<Author | null> {
   const result = await db.query<Author>(SQL_CREATE_AUTHOR, [name, bio, birthYear]);
@@ -242,8 +249,8 @@ export interface GetBookPriceOrDefaultRow {
   effective_price: number;
 }
 
-export async function getBookPriceOrDefault(db: ClientBase, param1: string): Promise<GetBookPriceOrDefaultRow[]> {
-  const result = await db.query<GetBookPriceOrDefaultRow>(SQL_GET_BOOK_PRICE_OR_DEFAULT, [param1]);
+export async function getBookPriceOrDefault(db: ClientBase, price: number | null): Promise<GetBookPriceOrDefaultRow[]> {
+  const result = await db.query<GetBookPriceOrDefaultRow>(SQL_GET_BOOK_PRICE_OR_DEFAULT, [price]);
   return result.rows;
 }
 
@@ -295,8 +302,8 @@ export interface GetBooksWithRecentSalesRow {
   genre: string;
 }
 
-export async function getBooksWithRecentSales(db: ClientBase, param1: string): Promise<GetBooksWithRecentSalesRow[]> {
-  const result = await db.query<GetBooksWithRecentSalesRow>(SQL_GET_BOOKS_WITH_RECENT_SALES, [param1]);
+export async function getBooksWithRecentSales(db: ClientBase, orderedAt: Date): Promise<GetBooksWithRecentSalesRow[]> {
+  const result = await db.query<GetBooksWithRecentSalesRow>(SQL_GET_BOOKS_WITH_RECENT_SALES, [orderedAt]);
   return result.rows;
 }
 
@@ -360,5 +367,78 @@ export async function listActiveProducts(db: ClientBase, active: boolean): Promi
 
 export async function insertProduct(db: ClientBase, id: string, sku: string, name: string, active: boolean, weightKg: number | null, rating: number | null, tags: string[], metadata: unknown | null, thumbnail: Buffer | null, stockCount: number): Promise<Product | null> {
   const result = await db.query<Product>(SQL_INSERT_PRODUCT, [id, sku, name, active, weightKg, rating, tags, metadata, thumbnail, stockCount]);
+  return result.rows[0] ?? null;
+}
+
+export interface GetAuthorsWithNullBioRow {
+  id: number;
+  name: string;
+  birth_year: number | null;
+}
+
+export async function getAuthorsWithNullBio(db: ClientBase): Promise<GetAuthorsWithNullBioRow[]> {
+  const result = await db.query<GetAuthorsWithNullBioRow>(SQL_GET_AUTHORS_WITH_NULL_BIO, []);
+  return result.rows;
+}
+
+export async function getAuthorsWithBio(db: ClientBase): Promise<Author[]> {
+  const result = await db.query<Author>(SQL_GET_AUTHORS_WITH_BIO, []);
+  return result.rows;
+}
+
+export interface GetBooksPublishedBetweenRow {
+  id: number;
+  title: string;
+  genre: string;
+  price: number;
+  published_at: Date | null;
+}
+
+export async function getBooksPublishedBetween(db: ClientBase, publishedAt: Date | null, publishedAt2: Date | null): Promise<GetBooksPublishedBetweenRow[]> {
+  const result = await db.query<GetBooksPublishedBetweenRow>(SQL_GET_BOOKS_PUBLISHED_BETWEEN, [publishedAt, publishedAt2]);
+  return result.rows;
+}
+
+export interface GetDistinctGenresRow {
+  genre: string;
+}
+
+export async function getDistinctGenres(db: ClientBase): Promise<GetDistinctGenresRow[]> {
+  const result = await db.query<GetDistinctGenresRow>(SQL_GET_DISTINCT_GENRES, []);
+  return result.rows;
+}
+
+export interface GetBooksWithSalesCountRow {
+  id: number;
+  title: string;
+  genre: string;
+  total_quantity: number;
+}
+
+export async function getBooksWithSalesCount(db: ClientBase): Promise<GetBooksWithSalesCountRow[]> {
+  const result = await db.query<GetBooksWithSalesCountRow>(SQL_GET_BOOKS_WITH_SALES_COUNT, []);
+  return result.rows;
+}
+
+export interface CountSaleItemsRow {
+  item_count: number;
+}
+
+export async function countSaleItems(db: ClientBase, saleId: number): Promise<CountSaleItemsRow | null> {
+  const result = await db.query<CountSaleItemsRow>(SQL_COUNT_SALE_ITEMS, [saleId]);
+  return result.rows[0] ?? null;
+}
+
+export interface UpsertProductRow {
+  id: string;
+  sku: string;
+  name: string;
+  active: boolean;
+  tags: string[];
+  stock_count: number;
+}
+
+export async function upsertProduct(db: ClientBase, id: string, sku: string, name: string, active: boolean, tags: string[], stockCount: number): Promise<UpsertProductRow | null> {
+  const result = await db.query<UpsertProductRow>(SQL_UPSERT_PRODUCT, [id, sku, name, active, tags, stockCount]);
   return result.rows[0] ?? null;
 }
