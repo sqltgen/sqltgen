@@ -525,7 +525,7 @@ object Queries {
             ps.setObject(1, id)
             ps.executeQuery().use { rs ->
                 if (!rs.next()) return null
-                return Product(rs.getObject(1, java.util.UUID::class.java), rs.getString(2), rs.getString(3), rs.getBoolean(4), rs.getObject(5, java.lang.Float::class.java)?.toFloat(), rs.getObject(6, java.lang.Double::class.java)?.toDouble(), rs.getObject(7), rs.getObject(8), rs.getBytes(9), rs.getObject(10, java.time.LocalDateTime::class.java), rs.getShort(11))
+                return Product(rs.getObject(1, java.util.UUID::class.java), rs.getString(2), rs.getString(3), rs.getBoolean(4), rs.getObject(5, java.lang.Float::class.java)?.toFloat(), rs.getObject(6, java.lang.Double::class.java)?.toDouble(), (rs.getArray(7).array as Array<String>).toList(), rs.getString(8), rs.getBytes(9), rs.getObject(10, java.time.LocalDateTime::class.java), rs.getShort(11))
             }
         }
     }
@@ -549,7 +549,7 @@ object Queries {
             ps.setBoolean(1, active)
             val rows = mutableListOf<ListActiveProductsRow>()
             ps.executeQuery().use { rs ->
-                while (rs.next()) rows.add(ListActiveProductsRow(rs.getObject(1, java.util.UUID::class.java), rs.getString(2), rs.getString(3), rs.getBoolean(4), rs.getObject(5, java.lang.Float::class.java)?.toFloat(), rs.getObject(6, java.lang.Double::class.java)?.toDouble(), rs.getObject(7), rs.getObject(8), rs.getObject(9, java.time.LocalDateTime::class.java), rs.getShort(10)))
+                while (rs.next()) rows.add(ListActiveProductsRow(rs.getObject(1, java.util.UUID::class.java), rs.getString(2), rs.getString(3), rs.getBoolean(4), rs.getObject(5, java.lang.Float::class.java)?.toFloat(), rs.getObject(6, java.lang.Double::class.java)?.toDouble(), (rs.getArray(7).array as Array<String>).toList(), rs.getString(8), rs.getObject(9, java.time.LocalDateTime::class.java), rs.getShort(10)))
             }
             return rows
         }
@@ -564,13 +564,13 @@ object Queries {
             ps.setBoolean(4, active)
             ps.setObject(5, weightKg)
             ps.setObject(6, rating)
-            ps.setObject(7, tags)
-            ps.setObject(8, metadata)
+            ps.setArray(7, conn.createArrayOf("text", tags.toArray()))
+            ps.setObject(8, metadata, java.sql.Types.OTHER)
             ps.setObject(9, thumbnail)
             ps.setShort(10, stockCount)
             ps.executeQuery().use { rs ->
                 if (!rs.next()) return null
-                return Product(rs.getObject(1, java.util.UUID::class.java), rs.getString(2), rs.getString(3), rs.getBoolean(4), rs.getObject(5, java.lang.Float::class.java)?.toFloat(), rs.getObject(6, java.lang.Double::class.java)?.toDouble(), rs.getObject(7), rs.getObject(8), rs.getBytes(9), rs.getObject(10, java.time.LocalDateTime::class.java), rs.getShort(11))
+                return Product(rs.getObject(1, java.util.UUID::class.java), rs.getString(2), rs.getString(3), rs.getBoolean(4), rs.getObject(5, java.lang.Float::class.java)?.toFloat(), rs.getObject(6, java.lang.Double::class.java)?.toDouble(), (rs.getArray(7).array as Array<String>).toList(), rs.getString(8), rs.getBytes(9), rs.getObject(10, java.time.LocalDateTime::class.java), rs.getShort(11))
             }
         }
     }

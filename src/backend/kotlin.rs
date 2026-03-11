@@ -335,14 +335,25 @@ fn resultset_read_expr(sql_type: &SqlType, nullable: bool, idx: usize) -> String
         SqlType::Real => format!("rs.getFloat({idx})"),
         SqlType::Double => format!("rs.getDouble({idx})"),
         SqlType::Decimal => format!("rs.getBigDecimal({idx})"),
-        SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_) => format!("rs.getString({idx})"),
+        SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_) | SqlType::Json | SqlType::Jsonb | SqlType::Interval => format!("rs.getString({idx})"),
         SqlType::Bytes => format!("rs.getBytes({idx})"),
         SqlType::Date => format!("rs.getObject({idx}, java.time.LocalDate::class.java)"),
         SqlType::Time => format!("rs.getObject({idx}, java.time.LocalTime::class.java)"),
         SqlType::Timestamp => format!("rs.getObject({idx}, java.time.LocalDateTime::class.java)"),
         SqlType::TimestampTz => format!("rs.getObject({idx}, java.time.OffsetDateTime::class.java)"),
         SqlType::Uuid => format!("rs.getObject({idx}, java.util.UUID::class.java)"),
+        SqlType::Array(inner) => jdbc_array_read_expr(inner, nullable, idx),
         _ => format!("rs.getObject({idx})"),
+    }
+}
+
+/// Build a JDBC expression that reads a SQL ARRAY column and converts it to `List<T>`.
+fn jdbc_array_read_expr(inner: &SqlType, nullable: bool, idx: usize) -> String {
+    let kt = kotlin_type(inner, false);
+    if nullable {
+        format!("rs.getArray({idx})?.let {{ (it.array as Array<{kt}>).toList() }}")
+    } else {
+        format!("(rs.getArray({idx}).array as Array<{kt}>).toList()")
     }
 }
 
@@ -442,6 +453,18 @@ mod tests {
     fn test_kotlin_type_array_of_integers() {
         // Inner type is non-nullable (List element, not the List itself)
         assert_eq!(kotlin_type(&SqlType::Array(Box::new(SqlType::Integer)), false), "List<Int>");
+    }
+
+    #[test]
+    fn test_resultset_read_array_text() {
+        let expr = resultset_read_expr(&SqlType::Array(Box::new(SqlType::Text)), false, 3);
+        assert_eq!(expr, "(rs.getArray(3).array as Array<String>).toList()");
+    }
+
+    #[test]
+    fn test_resultset_read_array_nullable() {
+        let expr = resultset_read_expr(&SqlType::Array(Box::new(SqlType::Text)), true, 5);
+        assert_eq!(expr, "rs.getArray(5)?.let { (it.array as Array<String>).toList() }");
     }
 
     #[test]
@@ -807,6 +830,68 @@ mod tests {
         assert!(!src.contains("IN ($1)"), "IN clause must be replaced by json_each rewrite");
         assert!(!src.contains("JSON_TABLE"), "SQLite should not use MySQL JSON_TABLE");
         assert!(src.contains("ps.setString"), "should bind JSON string");
+    }
+
+    // ─── Array column reads and Array/JSON param binds ─────────────────────
+
+    #[test]
+    fn test_generate_array_result_column_uses_get_array() {
+        // Bug: Array columns previously fell through to rs.getObject(idx),
+        // which returns a raw JDBC Array object instead of a typed List.
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "GetTags".to_string(),
+            cmd: QueryCmd::One,
+            sql: "SELECT tags FROM t WHERE id = $1".to_string(),
+            params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
+            result_columns: vec![ResultColumn { name: "tags".to_string(), sql_type: SqlType::Array(Box::new(SqlType::Text)), nullable: false }],
+        };
+        let files = pg().generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "Queries.kt");
+        assert!(src.contains("rs.getArray(1)"), "should read array column via getArray: {src}");
+        assert!(!src.contains("rs.getObject(1)"), "should not fall through to getObject for array column");
+        assert!(src.contains("rs.getArray(1).array as Array<String>"), "should cast array to Array<String>");
+    }
+
+    #[test]
+    fn test_generate_array_param_uses_set_array() {
+        // Bug: Array params previously used ps.setObject(idx, val),
+        // which doesn't work with PostgreSQL JDBC for array types.
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "UpdateTags".to_string(),
+            cmd: QueryCmd::Exec,
+            sql: "UPDATE t SET tags = $1 WHERE id = $2".to_string(),
+            params: vec![
+                Parameter::scalar(1, "tags", SqlType::Array(Box::new(SqlType::Text)), false),
+                Parameter::scalar(2, "id", SqlType::BigInt, false),
+            ],
+            result_columns: vec![],
+        };
+        let files = pg().generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "Queries.kt");
+        assert!(src.contains("createArrayOf(\"text\", tags.toArray())"), "should create JDBC array: {src}");
+        assert!(src.contains("ps.setArray(1,"), "should bind array param via setArray: {src}");
+    }
+
+    #[test]
+    fn test_generate_jsonb_param_uses_types_other() {
+        // Bug: JSONB params previously used ps.setObject(idx, val) without
+        // the Types.OTHER hint, which PostgreSQL JDBC rejects.
+        let schema = Schema { tables: vec![] };
+        let query = Query {
+            name: "UpdateMeta".to_string(),
+            cmd: QueryCmd::Exec,
+            sql: "UPDATE t SET meta = $1 WHERE id = $2".to_string(),
+            params: vec![
+                Parameter::scalar(1, "metadata", SqlType::Jsonb, false),
+                Parameter::scalar(2, "id", SqlType::BigInt, false),
+            ],
+            result_columns: vec![],
+        };
+        let files = pg().generate(&schema, &[query], &cfg()).unwrap();
+        let src = get_file(&files, "Queries.kt");
+        assert!(src.contains("ps.setObject(1, metadata, java.sql.Types.OTHER)"), "JSONB must use Types.OTHER: {src}");
     }
 
     // ─── Bug A: JSON escaping for text list params in native strategy ────────────

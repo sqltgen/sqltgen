@@ -566,7 +566,7 @@ public final class Queries {
             ps.setObject(1, id);
             try (ResultSet rs = ps.executeQuery()) {
                 if (!rs.next()) return Optional.empty();
-                return Optional.of(new Product(rs.getObject(1, java.util.UUID.class), rs.getString(2), rs.getString(3), rs.getBoolean(4), rs.getObject(5, Float.class), rs.getObject(6, Double.class), rs.getObject(7), rs.getObject(8), rs.getBytes(9), rs.getObject(10, java.time.LocalDateTime.class), rs.getShort(11)));
+                return Optional.of(new Product(rs.getObject(1, java.util.UUID.class), rs.getString(2), rs.getString(3), rs.getBoolean(4), rs.getObject(5, Float.class), rs.getObject(6, Double.class), java.util.Arrays.asList((String[]) rs.getArray(7).getArray()), rs.getString(8), rs.getBytes(9), rs.getObject(10, java.time.LocalDateTime.class), rs.getShort(11)));
             }
         }
     }
@@ -591,7 +591,7 @@ public final class Queries {
             ps.setBoolean(1, active);
             List<ListActiveProductsRow> rows = new ArrayList<>();
             try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) rows.add(new ListActiveProductsRow(rs.getObject(1, java.util.UUID.class), rs.getString(2), rs.getString(3), rs.getBoolean(4), rs.getObject(5, Float.class), rs.getObject(6, Double.class), rs.getObject(7), rs.getObject(8), rs.getObject(9, java.time.LocalDateTime.class), rs.getShort(10)));
+                while (rs.next()) rows.add(new ListActiveProductsRow(rs.getObject(1, java.util.UUID.class), rs.getString(2), rs.getString(3), rs.getBoolean(4), rs.getObject(5, Float.class), rs.getObject(6, Double.class), java.util.Arrays.asList((String[]) rs.getArray(7).getArray()), rs.getString(8), rs.getObject(9, java.time.LocalDateTime.class), rs.getShort(10)));
             }
             return rows;
         }
@@ -607,13 +607,13 @@ public final class Queries {
             ps.setBoolean(4, active);
             ps.setObject(5, weightKg);
             ps.setObject(6, rating);
-            ps.setObject(7, tags);
-            ps.setObject(8, metadata);
+            ps.setArray(7, conn.createArrayOf("text", tags.toArray()));
+            ps.setObject(8, metadata, java.sql.Types.OTHER);
             ps.setObject(9, thumbnail);
             ps.setShort(10, stockCount);
             try (ResultSet rs = ps.executeQuery()) {
                 if (!rs.next()) return Optional.empty();
-                return Optional.of(new Product(rs.getObject(1, java.util.UUID.class), rs.getString(2), rs.getString(3), rs.getBoolean(4), rs.getObject(5, Float.class), rs.getObject(6, Double.class), rs.getObject(7), rs.getObject(8), rs.getBytes(9), rs.getObject(10, java.time.LocalDateTime.class), rs.getShort(11)));
+                return Optional.of(new Product(rs.getObject(1, java.util.UUID.class), rs.getString(2), rs.getString(3), rs.getBoolean(4), rs.getObject(5, Float.class), rs.getObject(6, Double.class), java.util.Arrays.asList((String[]) rs.getArray(7).getArray()), rs.getString(8), rs.getBytes(9), rs.getObject(10, java.time.LocalDateTime.class), rs.getShort(11)));
             }
         }
     }

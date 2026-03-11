@@ -1,8 +1,8 @@
 use std::fmt::Write;
 
 use crate::backend::common::{
-    infer_row_type_name, infer_table, jdbc_bind_sequence, jdbc_setter, mysql_json_table_col_type, replace_list_in_clause, rewrite_to_anon_params,
-    split_at_in_clause, sql_const_name, to_camel_case, to_pascal_case,
+    infer_row_type_name, infer_table, jdbc_bind_sequence, jdbc_setter, mysql_json_table_col_type, pg_array_type_name, replace_list_in_clause,
+    rewrite_to_anon_params, split_at_in_clause, sql_const_name, to_camel_case, to_pascal_case,
 };
 use crate::config::{Engine, ListParamStrategy};
 use crate::ir::{Parameter, Query, QueryCmd, Schema, SqlType};
@@ -65,6 +65,12 @@ pub fn emit_jdbc_binds(src: &mut String, query: &Query, list_bind_expr: &str, se
     for (jdbc_idx, p) in jdbc_bind_sequence(query) {
         if p.is_list {
             writeln!(src, "            ps.{list_setter}({jdbc_idx}, {list_bind_expr}){se}")?;
+        } else if let SqlType::Array(inner) = &p.sql_type {
+            let name = to_camel_case(&p.name);
+            let type_name = pg_array_type_name(inner);
+            writeln!(src, "            ps.setArray({jdbc_idx}, conn.createArrayOf(\"{type_name}\", {name}.toArray())){se}")?;
+        } else if matches!(p.sql_type, SqlType::Json | SqlType::Jsonb) {
+            writeln!(src, "            ps.setObject({jdbc_idx}, {}, java.sql.Types.OTHER){se}", to_camel_case(&p.name))?;
         } else if p.nullable {
             writeln!(src, "            ps.setObject({jdbc_idx}, {}){se}", to_camel_case(&p.name))?;
         } else {
@@ -315,6 +321,38 @@ mod tests {
         emit_jdbc_binds(&mut src, &q, "", "").unwrap();
         assert!(src.contains("ps.setLong(1, userId)"));
         assert!(!src.contains("ps.setLong(1, userId);"));
+    }
+
+    #[test]
+    fn test_emit_jdbc_binds_array_param_uses_set_array() {
+        let p = Parameter::scalar(1, "tags", SqlType::Array(Box::new(SqlType::Text)), false);
+        let q = make_query("UpdateTags", "UPDATE t SET tags = $1", vec![p]);
+
+        let mut src = String::new();
+        emit_jdbc_binds(&mut src, &q, "", ";").unwrap();
+        assert!(src.contains("createArrayOf(\"text\", tags.toArray())"), "should create a JDBC array: {src}");
+        assert!(src.contains("ps.setArray(1,"), "should use setArray, not setObject: {src}");
+    }
+
+    #[test]
+    fn test_emit_jdbc_binds_json_param_uses_types_other() {
+        let p = Parameter::scalar(1, "metadata", SqlType::Jsonb, false);
+        let q = make_query("UpdateMeta", "UPDATE t SET meta = $1", vec![p]);
+
+        let mut src = String::new();
+        emit_jdbc_binds(&mut src, &q, "", ";").unwrap();
+        assert!(src.contains("java.sql.Types.OTHER"), "JSONB should use Types.OTHER: {src}");
+        assert!(src.contains("ps.setObject(1, metadata, java.sql.Types.OTHER)"), "full setObject call: {src}");
+    }
+
+    #[test]
+    fn test_emit_jdbc_binds_json_plain_also_uses_types_other() {
+        let p = Parameter::scalar(1, "data", SqlType::Json, false);
+        let q = make_query("SetData", "UPDATE t SET data = $1", vec![p]);
+
+        let mut src = String::new();
+        emit_jdbc_binds(&mut src, &q, "", ";").unwrap();
+        assert!(src.contains("java.sql.Types.OTHER"), "JSON should use Types.OTHER: {src}");
     }
 
     #[test]
