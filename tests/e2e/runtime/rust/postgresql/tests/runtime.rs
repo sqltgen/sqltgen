@@ -612,6 +612,47 @@ async fn test_get_books_by_ids() {
 // ─── Product type coverage (UUID, BOOLEAN, REAL, DOUBLE, TEXT[], JSONB, BYTEA, SMALLINT) ─
 
 #[tokio::test]
+async fn test_get_product() {
+    let pool = setup_db().await;
+
+    let product_id = Uuid::new_v4();
+    queries::insert_product(
+        &pool, product_id, "SKU-GET".into(), "GetWidget".into(), true,
+        None, None, vec![], None, None, 1,
+    ).await.unwrap();
+
+    let fetched = queries::get_product(&pool, product_id).await.unwrap().unwrap();
+    assert_eq!(fetched.id, product_id);
+    assert_eq!(fetched.name, "GetWidget");
+}
+
+#[tokio::test]
+async fn test_insert_product() {
+    let pool = setup_db().await;
+
+    let product_id = Uuid::new_v4();
+    let metadata = serde_json::json!({"color": "blue"});
+
+    let product = queries::insert_product(
+        &pool,
+        product_id,
+        "SKU-INS".into(),
+        "InsWidget".into(),
+        true,
+        Some(2.0),
+        Some(3.5),
+        vec!["tag".into()],
+        Some(metadata),
+        None,
+        7,
+    ).await.unwrap().unwrap();
+
+    assert_eq!(product.id, product_id);
+    assert_eq!(product.name, "InsWidget");
+    assert_eq!(product.stock_count, 7);
+}
+
+#[tokio::test]
 async fn test_insert_and_get_product() {
     let pool = setup_db().await;
 
@@ -687,6 +728,153 @@ async fn test_product_with_nulls() {
     assert!(product.tags.is_empty());
     assert!(product.metadata.is_none());
     assert!(product.thumbnail.is_none());
+}
+
+// ─── GetBookPriceOrDefault test ──────────────────────────────────────────
+
+#[tokio::test]
+async fn test_get_book_price_or_default() {
+    let pool = setup_db().await;
+    seed(&pool).await;
+
+    // Books with prices should return their own price; no NULL prices in seed data
+    let rows = queries::get_book_price_or_default(&pool, Some(Decimal::from_str("0.00").unwrap()))
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 4);
+    // All books in seed have non-null prices, so effective_price == their own price
+    assert!(rows.iter().all(|r| r.effective_price > Decimal::ZERO));
+}
+
+// ─── CreateCustomer / CreateSale tests ───────────────────────────────────
+
+#[tokio::test]
+async fn test_create_customer() {
+    let pool = setup_db().await;
+
+    let cust = queries::create_customer(&pool, "Bob".into(), "bob@example.com".into())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(cust.id, 1);
+}
+
+#[tokio::test]
+async fn test_create_sale() {
+    let pool = setup_db().await;
+
+    let cust = queries::create_customer(&pool, "Bob".into(), "bob@example.com".into())
+        .await
+        .unwrap()
+        .unwrap();
+    let sale = queries::create_sale(&pool, cust.id).await.unwrap().unwrap();
+    assert_eq!(sale.id, 1);
+}
+
+// ─── IS NULL / IS NOT NULL tests ─────────────────────────────────────────
+
+#[tokio::test]
+async fn test_get_authors_with_null_bio() {
+    let pool = setup_db().await;
+    seed(&pool).await;
+
+    let rows = queries::get_authors_with_null_bio(&pool).await.unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].name, "Herbert");
+}
+
+#[tokio::test]
+async fn test_get_authors_with_bio() {
+    let pool = setup_db().await;
+    seed(&pool).await;
+
+    let rows = queries::get_authors_with_bio(&pool).await.unwrap();
+    assert_eq!(rows.len(), 2);
+    let names: Vec<&str> = rows.iter().map(|r| r.name.as_str()).collect();
+    assert!(names.contains(&"Asimov"));
+    assert!(names.contains(&"Le Guin"));
+}
+
+// ─── Date range tests ─────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_get_books_published_between() {
+    let pool = setup_db().await;
+    seed(&pool).await;
+
+    let rows = queries::get_books_published_between(
+        &pool,
+        Some(Date::from_calendar_date(1951, time::Month::January, 1).unwrap()),
+        Some(Date::from_calendar_date(1966, time::Month::January, 1).unwrap()),
+    ).await.unwrap();
+    assert_eq!(rows.len(), 2);
+    let titles: Vec<&str> = rows.iter().map(|r| r.title.as_str()).collect();
+    assert!(titles.contains(&"Foundation"));
+    assert!(titles.contains(&"Dune"));
+}
+
+// ─── DISTINCT tests ───────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_get_distinct_genres() {
+    let pool = setup_db().await;
+    seed(&pool).await;
+
+    let rows = queries::get_distinct_genres(&pool).await.unwrap();
+    assert_eq!(rows.len(), 2);
+    let genres: std::collections::HashSet<&str> = rows.iter().map(|r| r.genre.as_str()).collect();
+    assert!(genres.contains("sci-fi"));
+    assert!(genres.contains("fantasy"));
+}
+
+// ─── LEFT JOIN aggregate tests ────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_get_books_with_sales_count() {
+    let pool = setup_db().await;
+    seed(&pool).await;
+
+    let rows = queries::get_books_with_sales_count(&pool).await.unwrap();
+    assert_eq!(rows.len(), 4);
+
+    let foundation = rows.iter().find(|r| r.title == "Foundation").unwrap();
+    assert_eq!(foundation.total_quantity, 2);
+
+    let earthsea = rows.iter().find(|r| r.title == "Earthsea").unwrap();
+    assert_eq!(earthsea.total_quantity, 0);
+}
+
+// ─── Scalar aggregate tests ───────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_count_sale_items() {
+    let pool = setup_db().await;
+    seed(&pool).await;
+
+    let row = queries::count_sale_items(&pool, 1).await.unwrap().unwrap();
+    assert_eq!(row.item_count, 2);
+}
+
+// ─── Upsert tests (PostgreSQL-specific) ─────────────────────────────────
+
+#[tokio::test]
+async fn test_upsert_product() {
+    let pool = setup_db().await;
+
+    let product_id = Uuid::new_v4();
+
+    let inserted = queries::upsert_product(
+        &pool, product_id, "SKU-001".into(), "Widget".into(), true, vec!["tag1".into()], 10,
+    ).await.unwrap().unwrap();
+    assert_eq!(inserted.name, "Widget");
+    assert_eq!(inserted.stock_count, 10);
+
+    let updated = queries::upsert_product(
+        &pool, product_id, "SKU-001".into(), "Widget Pro".into(), true,
+        vec!["tag1".into(), "tag2".into()], 25,
+    ).await.unwrap().unwrap();
+    assert_eq!(updated.name, "Widget Pro");
+    assert_eq!(updated.stock_count, 25);
 }
 
 // ─── CASE / COALESCE tests ─────────────────────────────────────────────

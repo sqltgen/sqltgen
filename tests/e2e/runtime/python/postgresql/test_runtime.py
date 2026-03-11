@@ -120,6 +120,109 @@ def test_list_books_by_genre_or_all(conn):
     assert len(sci_fi) == 3
 
 
+# ─── UpdateAuthorBio / DeleteAuthor tests ────────────────────────────────────
+
+def test_update_author_bio(conn):
+    seed(conn)
+    updated = queries.update_author_bio(conn, "Updated bio", 1)
+    assert updated is not None
+    assert updated.name == "Asimov"
+    assert updated.bio == "Updated bio"
+
+
+def test_delete_author(conn):
+    # Create a standalone author with no books
+    queries.create_author(conn, "Temp", None, None)
+    # Get the id of the newly created author
+    row = conn.execute("SELECT id FROM author WHERE name = 'Temp'").fetchone()
+    temp_id = row[0]
+    deleted = queries.delete_author(conn, temp_id)
+    assert deleted is not None
+    assert deleted.name == "Temp"
+    assert queries.get_author(conn, temp_id) is None
+
+
+# ─── CreateBook / AddSaleItem tests ──────────────────────────────────────────
+
+def test_create_book(conn):
+    seed(conn)
+    book = queries.create_book(conn, 1, "New Book", "mystery",
+                               __import__("decimal").Decimal("14.50"), None)
+    assert book is not None
+    assert book.title == "New Book"
+    assert book.genre == "mystery"
+    assert book.published_at is None
+
+
+def test_add_sale_item(conn):
+    seed(conn)
+    # Add an extra item to sale 1 (Earthsea / book 4, qty 1)
+    queries.add_sale_item(conn, 1, 4, 1, __import__("decimal").Decimal("8.99"))
+    count = conn.execute("SELECT COUNT(*) FROM sale_item WHERE sale_id = 1").fetchone()[0]
+    assert count == 3
+
+
+# ─── CASE / COALESCE tests ────────────────────────────────────────────────────
+
+def test_get_book_price_label(conn):
+    seed(conn)
+    import decimal
+    rows = queries.get_book_price_label(conn, decimal.Decimal("10.00"))
+    assert len(rows) == 4
+    dune = next(r for r in rows if r.title == "Dune")
+    assert dune.price_label == "expensive"
+    earthsea = next(r for r in rows if r.title == "Earthsea")
+    assert earthsea.price_label == "affordable"
+
+
+def test_get_book_price_or_default(conn):
+    seed(conn)
+    import decimal
+    rows = queries.get_book_price_or_default(conn, decimal.Decimal("0.00"))
+    assert len(rows) == 4
+    # All seeded books have non-null prices
+    assert all(r.effective_price > 0 for r in rows)
+
+
+# ─── Product type coverage ────────────────────────────────────────────────────
+
+def test_get_product(conn):
+    import uuid
+    product_id = uuid.UUID("00000000-0000-0000-0000-000000000002")
+    queries.insert_product(conn, product_id, "SKU-002", "Widget", True,
+                           1.5, 4.7, ["tag1"], None, None, 5)
+    row = queries.get_product(conn, product_id)
+    assert row is not None
+    assert row.id == product_id
+    assert row.name == "Widget"
+    assert row.stock_count == 5
+
+
+def test_list_active_products(conn):
+    import uuid
+    queries.insert_product(conn, uuid.uuid4(), "ACT-1", "Active", True,
+                           None, None, [], None, None, 10)
+    queries.insert_product(conn, uuid.uuid4(), "INACT-1", "Inactive", False,
+                           None, None, [], None, None, 0)
+    active = queries.list_active_products(conn, True)
+    assert len(active) == 1
+    assert active[0].name == "Active"
+    inactive = queries.list_active_products(conn, False)
+    assert len(inactive) == 1
+    assert inactive[0].name == "Inactive"
+
+
+def test_insert_product(conn):
+    import uuid
+    product_id = uuid.UUID("00000000-0000-0000-0000-000000000003")
+    product = queries.insert_product(conn, product_id, "SKU-003", "Gadget", True,
+                                     None, None, ["electronics"], None, None, 20)
+    assert product is not None
+    assert product.id == product_id
+    assert product.name == "Gadget"
+    assert product.stock_count == 20
+
+
 # ─── :exec tests ──────────────────────────────────────────────────────────────
 
 def test_create_author_returns_row(conn):
@@ -128,6 +231,22 @@ def test_create_author_returns_row(conn):
     assert author.name == "Test"
     assert author.bio is None
     assert author.birth_year is None
+
+
+# ─── CreateCustomer / CreateSale tests ───────────────────────────────────────
+
+def test_create_customer(conn):
+    cust = queries.create_customer(conn, "Solo", "solo@example.com")
+    assert cust is not None
+    assert cust.id > 0
+
+
+def test_create_sale(conn):
+    cust = queries.create_customer(conn, "Solo", "solo@example.com")
+    assert cust is not None
+    sale = queries.create_sale(conn, cust.id)
+    assert sale is not None
+    assert sale.id > 0
 
 
 # ─── :execrows tests ──────────────────────────────────────────────────────────

@@ -126,6 +126,113 @@ class RuntimeTest {
         assertEquals(3, Queries.listBooksByGenreOrAll(conn, "sci-fi").size)
     }
 
+    // ─── UpdateAuthorBio / DeleteAuthor tests ─────────────────────────────────
+
+    @Test
+    fun testUpdateAuthorBio() {
+        seed()
+        val updated = Queries.updateAuthorBio(conn, "Updated bio", 1)!!
+        assertEquals("Asimov", updated.name)
+        assertEquals("Updated bio", updated.bio)
+    }
+
+    @Test
+    fun testDeleteAuthor() {
+        // Create an author with no books so FK won't block delete
+        Queries.createAuthor(conn, "Temp", null, null)!!
+        val tempId = conn.createStatement().use { s ->
+            s.executeQuery("SELECT id FROM author WHERE name = 'Temp'").use { rs ->
+                rs.next(); rs.getLong(1)
+            }
+        }
+        val deleted = Queries.deleteAuthor(conn, tempId)!!
+        assertEquals("Temp", deleted.name)
+        assertNull(Queries.getAuthor(conn, tempId))
+    }
+
+    // ─── CreateBook / AddSaleItem tests ───────────────────────────────────────
+
+    @Test
+    fun testCreateBook() {
+        seed()
+        val book = Queries.createBook(conn, 1L, "New Book", "mystery",
+            BigDecimal("14.50"), null)!!
+        assertEquals("New Book", book.title)
+        assertEquals("mystery", book.genre)
+        assertNull(book.publishedAt)
+    }
+
+    @Test
+    fun testAddSaleItem() {
+        seed()
+        // Add an extra item to sale 1 (Earthsea, qty 1)
+        Queries.addSaleItem(conn, 1L, 4L, 1, BigDecimal("8.99"))
+        val count = conn.createStatement().use { s ->
+            s.executeQuery("SELECT COUNT(*) FROM sale_item WHERE sale_id = 1").use { rs ->
+                rs.next(); rs.getLong(1)
+            }
+        }
+        assertEquals(3L, count)
+    }
+
+    // ─── CASE / COALESCE tests ────────────────────────────────────────────────
+
+    @Test
+    fun testGetBookPriceLabel() {
+        seed()
+        val rows = Queries.getBookPriceLabel(conn, BigDecimal("10.00"))
+        assertEquals(4, rows.size)
+        val dune = rows.first { it.title == "Dune" }
+        assertEquals("expensive", dune.priceLabel)
+        val earthsea = rows.first { it.title == "Earthsea" }
+        assertEquals("affordable", earthsea.priceLabel)
+    }
+
+    @Test
+    fun testGetBookPriceOrDefault() {
+        seed()
+        val rows = Queries.getBookPriceOrDefault(conn, BigDecimal("0.00"))
+        assertEquals(4, rows.size)
+        assertTrue(rows.all { it.effectivePrice > BigDecimal.ZERO })
+    }
+
+    // ─── Product type coverage ────────────────────────────────────────────────
+
+    @Test
+    fun testGetProduct() {
+        val productId = UUID.fromString("00000000-0000-0000-0000-000000000002")
+        Queries.insertProduct(conn, productId, "SKU-002", "Widget", true,
+            1.5f, 4.7, listOf("tag1"), null, null, 5)
+        val row = Queries.getProduct(conn, productId)!!
+        assertEquals(productId, row.id)
+        assertEquals("Widget", row.name)
+        assertEquals(5.toShort(), row.stockCount)
+    }
+
+    @Test
+    fun testListActiveProducts() {
+        val id1 = UUID.randomUUID()
+        val id2 = UUID.randomUUID()
+        Queries.insertProduct(conn, id1, "ACT-1", "Active", true, null, null, listOf(), null, null, 10)
+        Queries.insertProduct(conn, id2, "INACT-1", "Inactive", false, null, null, listOf(), null, null, 0)
+        val active = Queries.listActiveProducts(conn, true)
+        assertEquals(1, active.size)
+        assertEquals("Active", active[0].name)
+        val inactive = Queries.listActiveProducts(conn, false)
+        assertEquals(1, inactive.size)
+        assertEquals("Inactive", inactive[0].name)
+    }
+
+    @Test
+    fun testInsertProduct() {
+        val productId = UUID.fromString("00000000-0000-0000-0000-000000000003")
+        val product = Queries.insertProduct(conn, productId, "SKU-003", "Gadget", true,
+            null, null, listOf("electronics"), null, null, 20)!!
+        assertEquals(productId, product.id)
+        assertEquals("Gadget", product.name)
+        assertEquals(20.toShort(), product.stockCount)
+    }
+
     // ─── :exec tests ──────────────────────────────────────────────────────────
 
     @Test
@@ -134,6 +241,22 @@ class RuntimeTest {
         assertEquals("Test", author.name)
         assertNull(author.bio)
         assertNull(author.birthYear)
+    }
+
+    // ─── CreateCustomer / CreateSale tests ───────────────────────────────────
+
+    @Test
+    fun testCreateCustomer() {
+        val cust = Queries.createCustomer(conn, "Solo", "solo@example.com")!!
+        assertEquals("Solo", cust.name)
+        assertTrue(cust.id > 0)
+    }
+
+    @Test
+    fun testCreateSale() {
+        val cust = Queries.createCustomer(conn, "Solo", "solo@example.com")!!
+        val sale = Queries.createSale(conn, cust.id)!!
+        assertTrue(sale.id > 0)
     }
 
     // ─── :execrows tests ──────────────────────────────────────────────────────

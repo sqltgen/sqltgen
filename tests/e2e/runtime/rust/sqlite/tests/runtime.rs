@@ -471,6 +471,315 @@ async fn test_get_all_book_fields() {
     assert!(!books[0].genre.is_empty());
 }
 
+// ─── CreateBook test ──────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_create_book_exec() {
+    let pool = setup_db().await;
+    seed(&pool).await;
+
+    queries::create_book(&pool, 1, "New Book".into(), "mystery".into(), 14.50, None)
+        .await
+        .unwrap();
+
+    let book = queries::get_book(&pool, 5).await.unwrap().unwrap();
+    assert_eq!(book.title, "New Book");
+    assert_eq!(book.genre, "mystery");
+}
+
+// ─── CreateCustomer / CreateSale / AddSaleItem tests ─────────────────────
+
+#[tokio::test]
+async fn test_create_customer_exec() {
+    let pool = setup_db().await;
+
+    queries::create_customer(&pool, "Bob".into(), "bob@example.com".into())
+        .await
+        .unwrap();
+
+    // Verify via a SELECT that the row was inserted
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM customer WHERE name = 'Bob'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 1);
+}
+
+#[tokio::test]
+async fn test_create_sale_exec() {
+    let pool = setup_db().await;
+    seed(&pool).await;
+
+    // Alice is customer id 1; seed already creates one sale; add another
+    queries::create_sale(&pool, 1).await.unwrap();
+
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sale WHERE customer_id = 1")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 2);
+}
+
+#[tokio::test]
+async fn test_add_sale_item_exec() {
+    let pool = setup_db().await;
+    seed(&pool).await;
+
+    // Add a new sale item to sale 1 (book 4 = Earthsea, not yet ordered)
+    queries::add_sale_item(&pool, 1, 4, 3, 8.99).await.unwrap();
+
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sale_item WHERE sale_id = 1")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 3);
+}
+
+// ─── CASE / COALESCE tests ─────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_get_book_price_label() {
+    let pool = setup_db().await;
+    seed(&pool).await;
+
+    let rows = queries::get_book_price_label(&pool, 10.0).await.unwrap();
+    assert_eq!(rows.len(), 4);
+
+    let dune = rows.iter().find(|r| r.title == "Dune").unwrap();
+    assert_eq!(dune.price_label, "expensive");
+
+    let earthsea = rows.iter().find(|r| r.title == "Earthsea").unwrap();
+    assert_eq!(earthsea.price_label, "affordable");
+}
+
+#[tokio::test]
+async fn test_get_book_price_or_default() {
+    let pool = setup_db().await;
+    seed(&pool).await;
+
+    let rows = queries::get_book_price_or_default(&pool, Some(0.0)).await.unwrap();
+    assert_eq!(rows.len(), 4);
+    // All seeded books have non-null prices
+    assert!(rows.iter().all(|r| r.effective_price > 0.0));
+}
+
+// ─── Product type coverage ────────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_get_product() {
+    let pool = setup_db().await;
+
+    let pid = uuid::Uuid::new_v4().to_string();
+    queries::insert_product(
+        &pool, pid.clone(), "SKU-GET".into(), "GetWidget".into(),
+        1, None, None, None, None, 3,
+    ).await.unwrap();
+
+    let row = queries::get_product(&pool, pid.clone()).await.unwrap().unwrap();
+    assert_eq!(row.id, pid);
+    assert_eq!(row.name, "GetWidget");
+}
+
+#[tokio::test]
+async fn test_insert_and_get_product_sqlite() {
+    let pool = setup_db().await;
+
+    let product_id = uuid::Uuid::new_v4().to_string();
+
+    queries::insert_product(
+        &pool,
+        product_id.clone(),
+        "SKU-001".into(),
+        "Widget".into(),
+        1,
+        Some(1.5),
+        Some(4.7),
+        Some(r#"{"color":"red"}"#.into()),
+        None,
+        42,
+    ).await.unwrap();
+
+    let fetched = queries::get_product(&pool, product_id.clone()).await.unwrap().unwrap();
+    assert_eq!(fetched.id, product_id);
+    assert_eq!(fetched.name, "Widget");
+    assert_eq!(fetched.stock_count, 42);
+}
+
+#[tokio::test]
+async fn test_list_active_products_sqlite() {
+    let pool = setup_db().await;
+
+    queries::insert_product(
+        &pool, uuid::Uuid::new_v4().to_string(), "ACT-1".into(), "Active".into(),
+        1, None, None, None, None, 10,
+    ).await.unwrap();
+
+    queries::insert_product(
+        &pool, uuid::Uuid::new_v4().to_string(), "INACT-1".into(), "Inactive".into(),
+        0, None, None, None, None, 0,
+    ).await.unwrap();
+
+    let active = queries::list_active_products(&pool, 1).await.unwrap();
+    assert_eq!(active.len(), 1);
+    assert_eq!(active[0].name, "Active");
+
+    let inactive = queries::list_active_products(&pool, 0).await.unwrap();
+    assert_eq!(inactive.len(), 1);
+    assert_eq!(inactive[0].name, "Inactive");
+}
+
+// ─── UpdateAuthorBio / DeleteAuthor tests (after fixture update) ─────────
+
+#[tokio::test]
+async fn test_update_author_bio_exec() {
+    let pool = setup_db().await;
+    seed(&pool).await;
+
+    queries::update_author_bio(&pool, Some("Updated bio".into()), 1)
+        .await
+        .unwrap();
+
+    let author = queries::get_author(&pool, 1).await.unwrap().unwrap();
+    assert_eq!(author.bio, Some("Updated bio".into()));
+}
+
+#[tokio::test]
+async fn test_delete_author_exec() {
+    let pool = setup_db().await;
+    // Create an author with no books so FK won't block delete
+    queries::create_author(&pool, "Temp".into(), None, None).await.unwrap();
+
+    queries::delete_author(&pool, 1).await.unwrap();
+
+    let gone = queries::get_author(&pool, 1).await.unwrap();
+    assert!(gone.is_none());
+}
+
+// ─── InsertProduct / UpsertProduct tests (after fixture update) ──────────
+
+#[tokio::test]
+async fn test_insert_product_exec() {
+    let pool = setup_db().await;
+
+    let pid = uuid::Uuid::new_v4().to_string();
+    queries::insert_product(
+        &pool, pid.clone(), "SKU-002".into(), "Gadget".into(),
+        1, None, None, None, None, 5,
+    ).await.unwrap();
+
+    let row = queries::get_product(&pool, pid).await.unwrap().unwrap();
+    assert_eq!(row.name, "Gadget");
+    assert_eq!(row.stock_count, 5);
+}
+
+#[tokio::test]
+async fn test_upsert_product_exec() {
+    let pool = setup_db().await;
+
+    let pid = uuid::Uuid::new_v4().to_string();
+    queries::upsert_product(
+        &pool, pid.clone(), "SKU-003".into(), "Thing".into(), 1, None, 10,
+    ).await.unwrap();
+
+    let row = queries::get_product(&pool, pid.clone()).await.unwrap().unwrap();
+    assert_eq!(row.name, "Thing");
+    assert_eq!(row.stock_count, 10);
+
+    // Upsert again — should update
+    queries::upsert_product(
+        &pool, pid.clone(), "SKU-003".into(), "Thing Pro".into(), 1, None, 20,
+    ).await.unwrap();
+
+    let updated = queries::get_product(&pool, pid).await.unwrap().unwrap();
+    assert_eq!(updated.name, "Thing Pro");
+    assert_eq!(updated.stock_count, 20);
+}
+
+// ─── IS NULL / IS NOT NULL tests ─────────────────────────────────────────
+
+#[tokio::test]
+async fn test_get_authors_with_null_bio() {
+    let pool = setup_db().await;
+    seed(&pool).await;
+
+    let rows = queries::get_authors_with_null_bio(&pool).await.unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].name, "Herbert");
+}
+
+#[tokio::test]
+async fn test_get_authors_with_bio() {
+    let pool = setup_db().await;
+    seed(&pool).await;
+
+    let rows = queries::get_authors_with_bio(&pool).await.unwrap();
+    assert_eq!(rows.len(), 2);
+    let names: Vec<&str> = rows.iter().map(|r| r.name.as_str()).collect();
+    assert!(names.contains(&"Asimov"));
+    assert!(names.contains(&"Le Guin"));
+}
+
+// ─── Date range tests ─────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_get_books_published_between() {
+    let pool = setup_db().await;
+    seed(&pool).await;
+
+    // 1951-01-01 to 1966-01-01 → Foundation (1951) and Dune (1965)
+    let rows = queries::get_books_published_between(
+        &pool,
+        Some("1951-01-01".into()),
+        Some("1966-01-01".into()),
+    ).await.unwrap();
+    assert_eq!(rows.len(), 2);
+    let titles: Vec<&str> = rows.iter().map(|r| r.title.as_str()).collect();
+    assert!(titles.contains(&"Foundation"));
+    assert!(titles.contains(&"Dune"));
+}
+
+// ─── DISTINCT tests ───────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_get_distinct_genres() {
+    let pool = setup_db().await;
+    seed(&pool).await;
+
+    let rows = queries::get_distinct_genres(&pool).await.unwrap();
+    assert_eq!(rows.len(), 2);
+    let genres: std::collections::HashSet<&str> = rows.iter().map(|r| r.genre.as_str()).collect();
+    assert!(genres.contains("sci-fi"));
+    assert!(genres.contains("fantasy"));
+}
+
+// ─── LEFT JOIN aggregate tests ────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_get_books_with_sales_count() {
+    let pool = setup_db().await;
+    seed(&pool).await;
+
+    let rows = queries::get_books_with_sales_count(&pool).await.unwrap();
+    assert_eq!(rows.len(), 4);
+
+    let foundation = rows.iter().find(|r| r.title == "Foundation").unwrap();
+    assert_eq!(foundation.total_quantity, 2);
+
+    let earthsea = rows.iter().find(|r| r.title == "Earthsea").unwrap();
+    assert_eq!(earthsea.total_quantity, 0);
+}
+
+// ─── Scalar aggregate tests ───────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_count_sale_items() {
+    let pool = setup_db().await;
+    seed(&pool).await;
+
+    let row = queries::count_sale_items(&pool, 1).await.unwrap().unwrap();
+    assert_eq!(row.item_count, 2);
+}
+
 // ─── List param tests ────────────────────────────────────────────────────
 
 #[tokio::test]
