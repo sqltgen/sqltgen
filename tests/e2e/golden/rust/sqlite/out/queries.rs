@@ -140,6 +140,40 @@ pub struct ListActiveProductsRow {
     pub stock_count: i32,
 }
 
+#[derive(Debug, sqlx::FromRow)]
+pub struct GetAuthorsWithNullBioRow {
+    pub id: i32,
+    pub name: String,
+    pub birth_year: Option<i32>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct GetBooksPublishedBetweenRow {
+    pub id: i32,
+    pub title: String,
+    pub genre: String,
+    pub price: f64,
+    pub published_at: Option<String>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct GetDistinctGenresRow {
+    pub genre: String,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct GetBooksWithSalesCountRow {
+    pub id: i32,
+    pub title: String,
+    pub genre: String,
+    pub total_quantity: i64,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct CountSaleItemsRow {
+    pub item_count: i64,
+}
+
 pub async fn create_author(pool: &SqlitePool, name: String, bio: Option<String>, birth_year: Option<i32>) -> Result<(), sqlx::Error> {
     sqlx::query("INSERT INTO author (name, bio, birth_year) VALUES (?, ?, ?)")
         .bind(name)
@@ -302,9 +336,9 @@ pub async fn get_book_price_label(pool: &SqlitePool, price: f64) -> Result<Vec<G
         .await
 }
 
-pub async fn get_book_price_or_default(pool: &SqlitePool, param1: String) -> Result<Vec<GetBookPriceOrDefaultRow>, sqlx::Error> {
+pub async fn get_book_price_or_default(pool: &SqlitePool, price: Option<f64>) -> Result<Vec<GetBookPriceOrDefaultRow>, sqlx::Error> {
     sqlx::query_as::<_, GetBookPriceOrDefaultRow>("SELECT id, title, COALESCE(price, ?) AS effective_price FROM book ORDER BY title")
-        .bind(param1)
+        .bind(price)
         .fetch_all(pool)
         .await
 }
@@ -344,9 +378,9 @@ pub async fn get_books_not_by_author(pool: &SqlitePool, name: String) -> Result<
         .await
 }
 
-pub async fn get_books_with_recent_sales(pool: &SqlitePool, param1: String) -> Result<Vec<GetBooksWithRecentSalesRow>, sqlx::Error> {
+pub async fn get_books_with_recent_sales(pool: &SqlitePool, ordered_at: serde_json::Value) -> Result<Vec<GetBooksWithRecentSalesRow>, sqlx::Error> {
     sqlx::query_as::<_, GetBooksWithRecentSalesRow>("SELECT id, title, genre FROM book WHERE EXISTS (     SELECT 1 FROM sale_item si     JOIN sale s ON s.id = si.sale_id     WHERE si.book_id = book.id AND s.ordered_at > ? ) ORDER BY title")
-        .bind(param1)
+        .bind(ordered_at)
         .fetch_all(pool)
         .await
 }
@@ -374,5 +408,44 @@ pub async fn list_active_products(pool: &SqlitePool, active: i32) -> Result<Vec<
     sqlx::query_as::<_, ListActiveProductsRow>("SELECT id, sku, name, active, weight_kg, rating, metadata,        created_at, stock_count FROM product WHERE active = ? ORDER BY name")
         .bind(active)
         .fetch_all(pool)
+        .await
+}
+
+pub async fn get_authors_with_null_bio(pool: &SqlitePool) -> Result<Vec<GetAuthorsWithNullBioRow>, sqlx::Error> {
+    sqlx::query_as::<_, GetAuthorsWithNullBioRow>("SELECT id, name, birth_year FROM author WHERE bio IS NULL ORDER BY name")
+        .fetch_all(pool)
+        .await
+}
+
+pub async fn get_authors_with_bio(pool: &SqlitePool) -> Result<Vec<Author>, sqlx::Error> {
+    sqlx::query_as::<_, Author>("SELECT id, name, bio, birth_year FROM author WHERE bio IS NOT NULL ORDER BY name")
+        .fetch_all(pool)
+        .await
+}
+
+pub async fn get_books_published_between(pool: &SqlitePool, published_at: Option<String>, published_at_2: Option<String>) -> Result<Vec<GetBooksPublishedBetweenRow>, sqlx::Error> {
+    sqlx::query_as::<_, GetBooksPublishedBetweenRow>("SELECT id, title, genre, price, published_at FROM book WHERE published_at IS NOT NULL   AND published_at BETWEEN ? AND ? ORDER BY published_at")
+        .bind(published_at)
+        .bind(published_at_2)
+        .fetch_all(pool)
+        .await
+}
+
+pub async fn get_distinct_genres(pool: &SqlitePool) -> Result<Vec<GetDistinctGenresRow>, sqlx::Error> {
+    sqlx::query_as::<_, GetDistinctGenresRow>("SELECT DISTINCT genre FROM book ORDER BY genre")
+        .fetch_all(pool)
+        .await
+}
+
+pub async fn get_books_with_sales_count(pool: &SqlitePool) -> Result<Vec<GetBooksWithSalesCountRow>, sqlx::Error> {
+    sqlx::query_as::<_, GetBooksWithSalesCountRow>("SELECT b.id, b.title, b.genre,        COALESCE(SUM(si.quantity), 0) AS total_quantity FROM book b LEFT JOIN sale_item si ON si.book_id = b.id GROUP BY b.id, b.title, b.genre ORDER BY total_quantity DESC, b.title")
+        .fetch_all(pool)
+        .await
+}
+
+pub async fn count_sale_items(pool: &SqlitePool, sale_id: i32) -> Result<Option<CountSaleItemsRow>, sqlx::Error> {
+    sqlx::query_as::<_, CountSaleItemsRow>("SELECT COUNT(*) AS item_count FROM sale_item WHERE sale_id = ?")
+        .bind(sale_id)
+        .fetch_optional(pool)
         .await
 }

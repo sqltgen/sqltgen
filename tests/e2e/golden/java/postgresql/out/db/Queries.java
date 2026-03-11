@@ -395,9 +395,9 @@ public final class Queries {
 
     private static final String SQL_GET_BOOK_PRICE_OR_DEFAULT =
         "SELECT id, title, COALESCE(price, ?) AS effective_price FROM book ORDER BY title;";
-    public static List<GetBookPriceOrDefaultRow> getBookPriceOrDefault(Connection conn, String param1) throws SQLException {
+    public static List<GetBookPriceOrDefaultRow> getBookPriceOrDefault(Connection conn, java.math.BigDecimal price) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_GET_BOOK_PRICE_OR_DEFAULT)) {
-            ps.setString(1, param1);
+            ps.setObject(1, price);
             List<GetBookPriceOrDefaultRow> rows = new ArrayList<>();
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) rows.add(new GetBookPriceOrDefaultRow(rs.getLong(1), rs.getString(2), rs.getBigDecimal(3)));
@@ -491,9 +491,9 @@ public final class Queries {
 
     private static final String SQL_GET_BOOKS_WITH_RECENT_SALES =
         "SELECT id, title, genre FROM book WHERE EXISTS (     SELECT 1 FROM sale_item si     JOIN sale s ON s.id = si.sale_id     WHERE si.book_id = book.id AND s.ordered_at > ? ) ORDER BY title;";
-    public static List<GetBooksWithRecentSalesRow> getBooksWithRecentSales(Connection conn, String param1) throws SQLException {
+    public static List<GetBooksWithRecentSalesRow> getBooksWithRecentSales(Connection conn, java.time.LocalDateTime orderedAt) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_GET_BOOKS_WITH_RECENT_SALES)) {
-            ps.setString(1, param1);
+            ps.setObject(1, orderedAt);
             List<GetBooksWithRecentSalesRow> rows = new ArrayList<>();
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) rows.add(new GetBooksWithRecentSalesRow(rs.getLong(1), rs.getString(2), rs.getString(3)));
@@ -614,6 +614,135 @@ public final class Queries {
             try (ResultSet rs = ps.executeQuery()) {
                 if (!rs.next()) return Optional.empty();
                 return Optional.of(new Product(rs.getObject(1, java.util.UUID.class), rs.getString(2), rs.getString(3), rs.getBoolean(4), rs.getObject(5, Float.class), rs.getObject(6, Double.class), java.util.Arrays.asList((String[]) rs.getArray(7).getArray()), rs.getString(8), rs.getBytes(9), rs.getObject(10, java.time.LocalDateTime.class), rs.getShort(11)));
+            }
+        }
+    }
+
+    public record GetAuthorsWithNullBioRow(
+        long id,
+        String name,
+        Integer birthYear
+    ) {}
+
+    private static final String SQL_GET_AUTHORS_WITH_NULL_BIO =
+        "SELECT id, name, birth_year FROM author WHERE bio IS NULL ORDER BY name;";
+    public static List<GetAuthorsWithNullBioRow> getAuthorsWithNullBio(Connection conn) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(SQL_GET_AUTHORS_WITH_NULL_BIO)) {
+            List<GetAuthorsWithNullBioRow> rows = new ArrayList<>();
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) rows.add(new GetAuthorsWithNullBioRow(rs.getLong(1), rs.getString(2), rs.getObject(3, Integer.class)));
+            }
+            return rows;
+        }
+    }
+
+    private static final String SQL_GET_AUTHORS_WITH_BIO =
+        "SELECT id, name, bio, birth_year FROM author WHERE bio IS NOT NULL ORDER BY name;";
+    public static List<Author> getAuthorsWithBio(Connection conn) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(SQL_GET_AUTHORS_WITH_BIO)) {
+            List<Author> rows = new ArrayList<>();
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) rows.add(new Author(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getObject(4, Integer.class)));
+            }
+            return rows;
+        }
+    }
+
+    public record GetBooksPublishedBetweenRow(
+        long id,
+        String title,
+        String genre,
+        java.math.BigDecimal price,
+        java.time.LocalDate publishedAt
+    ) {}
+
+    private static final String SQL_GET_BOOKS_PUBLISHED_BETWEEN =
+        "SELECT id, title, genre, price, published_at FROM book WHERE published_at IS NOT NULL   AND published_at BETWEEN ? AND ? ORDER BY published_at;";
+    public static List<GetBooksPublishedBetweenRow> getBooksPublishedBetween(Connection conn, java.time.LocalDate publishedAt, java.time.LocalDate publishedAt2) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(SQL_GET_BOOKS_PUBLISHED_BETWEEN)) {
+            ps.setObject(1, publishedAt);
+            ps.setObject(2, publishedAt2);
+            List<GetBooksPublishedBetweenRow> rows = new ArrayList<>();
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) rows.add(new GetBooksPublishedBetweenRow(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getBigDecimal(4), rs.getObject(5, java.time.LocalDate.class)));
+            }
+            return rows;
+        }
+    }
+
+    public record GetDistinctGenresRow(
+        String genre
+    ) {}
+
+    private static final String SQL_GET_DISTINCT_GENRES =
+        "SELECT DISTINCT genre FROM book ORDER BY genre;";
+    public static List<GetDistinctGenresRow> getDistinctGenres(Connection conn) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(SQL_GET_DISTINCT_GENRES)) {
+            List<GetDistinctGenresRow> rows = new ArrayList<>();
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) rows.add(new GetDistinctGenresRow(rs.getString(1)));
+            }
+            return rows;
+        }
+    }
+
+    public record GetBooksWithSalesCountRow(
+        long id,
+        String title,
+        String genre,
+        long totalQuantity
+    ) {}
+
+    private static final String SQL_GET_BOOKS_WITH_SALES_COUNT =
+        "SELECT b.id, b.title, b.genre,        COALESCE(SUM(si.quantity), 0) AS total_quantity FROM book b LEFT JOIN sale_item si ON si.book_id = b.id GROUP BY b.id, b.title, b.genre ORDER BY total_quantity DESC, b.title;";
+    public static List<GetBooksWithSalesCountRow> getBooksWithSalesCount(Connection conn) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(SQL_GET_BOOKS_WITH_SALES_COUNT)) {
+            List<GetBooksWithSalesCountRow> rows = new ArrayList<>();
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) rows.add(new GetBooksWithSalesCountRow(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getLong(4)));
+            }
+            return rows;
+        }
+    }
+
+    public record CountSaleItemsRow(
+        long itemCount
+    ) {}
+
+    private static final String SQL_COUNT_SALE_ITEMS =
+        "SELECT COUNT(*) AS item_count FROM sale_item WHERE sale_id = ?;";
+    public static Optional<CountSaleItemsRow> countSaleItems(Connection conn, long saleId) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(SQL_COUNT_SALE_ITEMS)) {
+            ps.setLong(1, saleId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) return Optional.empty();
+                return Optional.of(new CountSaleItemsRow(rs.getLong(1)));
+            }
+        }
+    }
+
+    public record UpsertProductRow(
+        java.util.UUID id,
+        String sku,
+        String name,
+        boolean active,
+        java.util.List<String> tags,
+        short stockCount
+    ) {}
+
+    private static final String SQL_UPSERT_PRODUCT =
+        "INSERT INTO product (id, sku, name, active, tags, stock_count) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE     SET name        = EXCLUDED.name,         active      = EXCLUDED.active,         tags        = EXCLUDED.tags,         stock_count = EXCLUDED.stock_count RETURNING id, sku, name, active, tags, stock_count;";
+    public static Optional<UpsertProductRow> upsertProduct(Connection conn, java.util.UUID id, String sku, String name, boolean active, java.util.List<String> tags, short stockCount) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(SQL_UPSERT_PRODUCT)) {
+            ps.setObject(1, id);
+            ps.setString(2, sku);
+            ps.setString(3, name);
+            ps.setBoolean(4, active);
+            ps.setArray(5, conn.createArrayOf("text", tags.toArray()));
+            ps.setShort(6, stockCount);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) return Optional.empty();
+                return Optional.of(new UpsertProductRow(rs.getObject(1, java.util.UUID.class), rs.getString(2), rs.getString(3), rs.getBoolean(4), java.util.Arrays.asList((String[]) rs.getArray(5).getArray()), rs.getShort(6)));
             }
         }
     }

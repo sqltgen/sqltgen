@@ -73,8 +73,8 @@ class QueriesDs(private val dataSource: DataSource) {
     fun getBookPriceLabel(price: java.math.BigDecimal): List<Queries.GetBookPriceLabelRow> =
         dataSource.connection.use { conn -> Queries.getBookPriceLabel(conn, price) }
 
-    fun getBookPriceOrDefault(param1: String): List<Queries.GetBookPriceOrDefaultRow> =
-        dataSource.connection.use { conn -> Queries.getBookPriceOrDefault(conn, param1) }
+    fun getBookPriceOrDefault(price: java.math.BigDecimal?): List<Queries.GetBookPriceOrDefaultRow> =
+        dataSource.connection.use { conn -> Queries.getBookPriceOrDefault(conn, price) }
 
     fun deleteBookById(id: Long): Long =
         dataSource.connection.use { conn -> Queries.deleteBookById(conn, id) }
@@ -91,8 +91,8 @@ class QueriesDs(private val dataSource: DataSource) {
     fun getBooksNotByAuthor(name: String): List<Queries.GetBooksNotByAuthorRow> =
         dataSource.connection.use { conn -> Queries.getBooksNotByAuthor(conn, name) }
 
-    fun getBooksWithRecentSales(param1: String): List<Queries.GetBooksWithRecentSalesRow> =
-        dataSource.connection.use { conn -> Queries.getBooksWithRecentSales(conn, param1) }
+    fun getBooksWithRecentSales(orderedAt: java.time.LocalDateTime): List<Queries.GetBooksWithRecentSalesRow> =
+        dataSource.connection.use { conn -> Queries.getBooksWithRecentSales(conn, orderedAt) }
 
     fun getBookWithAuthorName(): List<Queries.GetBookWithAuthorNameRow> =
         dataSource.connection.use { conn -> Queries.getBookWithAuthorName(conn) }
@@ -111,4 +111,25 @@ class QueriesDs(private val dataSource: DataSource) {
 
     fun insertProduct(id: java.util.UUID, sku: String, name: String, active: Boolean, weightKg: Float?, rating: Double?, tags: List<String>, metadata: String?, thumbnail: ByteArray?, stockCount: Short): Product? =
         dataSource.connection.use { conn -> Queries.insertProduct(conn, id, sku, name, active, weightKg, rating, tags, metadata, thumbnail, stockCount) }
+
+    fun getAuthorsWithNullBio(): List<Queries.GetAuthorsWithNullBioRow> =
+        dataSource.connection.use { conn -> Queries.getAuthorsWithNullBio(conn) }
+
+    fun getAuthorsWithBio(): List<Author> =
+        dataSource.connection.use { conn -> Queries.getAuthorsWithBio(conn) }
+
+    fun getBooksPublishedBetween(publishedAt: java.time.LocalDate?, publishedAt2: java.time.LocalDate?): List<Queries.GetBooksPublishedBetweenRow> =
+        dataSource.connection.use { conn -> Queries.getBooksPublishedBetween(conn, publishedAt, publishedAt2) }
+
+    fun getDistinctGenres(): List<Queries.GetDistinctGenresRow> =
+        dataSource.connection.use { conn -> Queries.getDistinctGenres(conn) }
+
+    fun getBooksWithSalesCount(): List<Queries.GetBooksWithSalesCountRow> =
+        dataSource.connection.use { conn -> Queries.getBooksWithSalesCount(conn) }
+
+    fun countSaleItems(saleId: Long): Queries.CountSaleItemsRow? =
+        dataSource.connection.use { conn -> Queries.countSaleItems(conn, saleId) }
+
+    fun upsertProduct(id: java.util.UUID, sku: String, name: String, active: Boolean, tags: List<String>, stockCount: Short): Queries.UpsertProductRow? =
+        dataSource.connection.use { conn -> Queries.upsertProduct(conn, id, sku, name, active, tags, stockCount) }
 }

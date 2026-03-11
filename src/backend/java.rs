@@ -906,10 +906,7 @@ mod tests {
             name: "UpdateTags".to_string(),
             cmd: QueryCmd::Exec,
             sql: "UPDATE t SET tags = $1 WHERE id = $2".to_string(),
-            params: vec![
-                Parameter::scalar(1, "tags", SqlType::Array(Box::new(SqlType::Text)), false),
-                Parameter::scalar(2, "id", SqlType::BigInt, false),
-            ],
+            params: vec![Parameter::scalar(1, "tags", SqlType::Array(Box::new(SqlType::Text)), false), Parameter::scalar(2, "id", SqlType::BigInt, false)],
             result_columns: vec![],
         };
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
@@ -927,10 +924,7 @@ mod tests {
             name: "UpdateMeta".to_string(),
             cmd: QueryCmd::Exec,
             sql: "UPDATE t SET meta = $1 WHERE id = $2".to_string(),
-            params: vec![
-                Parameter::scalar(1, "metadata", SqlType::Jsonb, false),
-                Parameter::scalar(2, "id", SqlType::BigInt, false),
-            ],
+            params: vec![Parameter::scalar(1, "metadata", SqlType::Jsonb, false), Parameter::scalar(2, "id", SqlType::BigInt, false)],
             result_columns: vec![],
         };
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();

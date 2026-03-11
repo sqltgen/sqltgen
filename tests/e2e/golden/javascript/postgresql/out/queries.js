@@ -43,6 +43,13 @@ const SQL_ARCHIVE_AND_RETURN_BOOKS = "WITH archived AS (     DELETE FROM book   
 const SQL_GET_PRODUCT = "SELECT id, sku, name, active, weight_kg, rating, tags, metadata,        thumbnail, created_at, stock_count FROM product WHERE id = $1";
 const SQL_LIST_ACTIVE_PRODUCTS = "SELECT id, sku, name, active, weight_kg, rating, tags, metadata,        created_at, stock_count FROM product WHERE active = $1 ORDER BY name";
 const SQL_INSERT_PRODUCT = "INSERT INTO product (id, sku, name, active, weight_kg, rating, tags, metadata, thumbnail, stock_count) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *";
+const SQL_GET_AUTHORS_WITH_NULL_BIO = "SELECT id, name, birth_year FROM author WHERE bio IS NULL ORDER BY name";
+const SQL_GET_AUTHORS_WITH_BIO = "SELECT id, name, bio, birth_year FROM author WHERE bio IS NOT NULL ORDER BY name";
+const SQL_GET_BOOKS_PUBLISHED_BETWEEN = "SELECT id, title, genre, price, published_at FROM book WHERE published_at IS NOT NULL   AND published_at BETWEEN $1 AND $2 ORDER BY published_at";
+const SQL_GET_DISTINCT_GENRES = "SELECT DISTINCT genre FROM book ORDER BY genre";
+const SQL_GET_BOOKS_WITH_SALES_COUNT = "SELECT b.id, b.title, b.genre,        COALESCE(SUM(si.quantity), 0) AS total_quantity FROM book b LEFT JOIN sale_item si ON si.book_id = b.id GROUP BY b.id, b.title, b.genre ORDER BY total_quantity DESC, b.title";
+const SQL_COUNT_SALE_ITEMS = "SELECT COUNT(*) AS item_count FROM sale_item WHERE sale_id = $1";
+const SQL_UPSERT_PRODUCT = "INSERT INTO product (id, sku, name, active, tags, stock_count) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO UPDATE     SET name        = EXCLUDED.name,         active      = EXCLUDED.active,         tags        = EXCLUDED.tags,         stock_count = EXCLUDED.stock_count RETURNING id, sku, name, active, tags, stock_count";
 
 /**
  * @param {ClientBase} db
@@ -381,11 +388,11 @@ export async function getBookPriceLabel(db, price) {
 
 /**
  * @param {ClientBase} db
- * @param {string} param1
+ * @param {number | null} price
  * @returns {Promise<GetBookPriceOrDefaultRow[]>}
  */
-export async function getBookPriceOrDefault(db, param1) {
-  const result = await db.query(SQL_GET_BOOK_PRICE_OR_DEFAULT, [param1]);
+export async function getBookPriceOrDefault(db, price) {
+  const result = await db.query(SQL_GET_BOOK_PRICE_OR_DEFAULT, [price]);
   return result.rows;
 }
 
@@ -467,11 +474,11 @@ export async function getBooksNotByAuthor(db, name) {
 
 /**
  * @param {ClientBase} db
- * @param {string} param1
+ * @param {Date} orderedAt
  * @returns {Promise<GetBooksWithRecentSalesRow[]>}
  */
-export async function getBooksWithRecentSales(db, param1) {
-  const result = await db.query(SQL_GET_BOOKS_WITH_RECENT_SALES, [param1]);
+export async function getBooksWithRecentSales(db, orderedAt) {
+  const result = await db.query(SQL_GET_BOOKS_WITH_RECENT_SALES, [orderedAt]);
   return result.rows;
 }
 
@@ -576,5 +583,121 @@ export async function listActiveProducts(db, active) {
  */
 export async function insertProduct(db, id, sku, name, active, weightKg, rating, tags, metadata, thumbnail, stockCount) {
   const result = await db.query(SQL_INSERT_PRODUCT, [id, sku, name, active, weightKg, rating, tags, metadata, thumbnail, stockCount]);
+  return result.rows[0] ?? null;
+}
+
+/**
+ * @typedef {Object} GetAuthorsWithNullBioRow
+ * @property {number} id
+ * @property {string} name
+ * @property {number | null} birth_year
+ */
+
+/**
+ * @param {ClientBase} db
+ * @returns {Promise<GetAuthorsWithNullBioRow[]>}
+ */
+export async function getAuthorsWithNullBio(db) {
+  const result = await db.query(SQL_GET_AUTHORS_WITH_NULL_BIO, []);
+  return result.rows;
+}
+
+/**
+ * @param {ClientBase} db
+ * @returns {Promise<Author[]>}
+ */
+export async function getAuthorsWithBio(db) {
+  const result = await db.query(SQL_GET_AUTHORS_WITH_BIO, []);
+  return result.rows;
+}
+
+/**
+ * @typedef {Object} GetBooksPublishedBetweenRow
+ * @property {number} id
+ * @property {string} title
+ * @property {string} genre
+ * @property {number} price
+ * @property {Date | null} published_at
+ */
+
+/**
+ * @param {ClientBase} db
+ * @param {Date | null} publishedAt
+ * @param {Date | null} publishedAt2
+ * @returns {Promise<GetBooksPublishedBetweenRow[]>}
+ */
+export async function getBooksPublishedBetween(db, publishedAt, publishedAt2) {
+  const result = await db.query(SQL_GET_BOOKS_PUBLISHED_BETWEEN, [publishedAt, publishedAt2]);
+  return result.rows;
+}
+
+/**
+ * @typedef {Object} GetDistinctGenresRow
+ * @property {string} genre
+ */
+
+/**
+ * @param {ClientBase} db
+ * @returns {Promise<GetDistinctGenresRow[]>}
+ */
+export async function getDistinctGenres(db) {
+  const result = await db.query(SQL_GET_DISTINCT_GENRES, []);
+  return result.rows;
+}
+
+/**
+ * @typedef {Object} GetBooksWithSalesCountRow
+ * @property {number} id
+ * @property {string} title
+ * @property {string} genre
+ * @property {number} total_quantity
+ */
+
+/**
+ * @param {ClientBase} db
+ * @returns {Promise<GetBooksWithSalesCountRow[]>}
+ */
+export async function getBooksWithSalesCount(db) {
+  const result = await db.query(SQL_GET_BOOKS_WITH_SALES_COUNT, []);
+  return result.rows;
+}
+
+/**
+ * @typedef {Object} CountSaleItemsRow
+ * @property {number} item_count
+ */
+
+/**
+ * @param {ClientBase} db
+ * @param {number} saleId
+ * @returns {Promise<CountSaleItemsRow | null>}
+ */
+export async function countSaleItems(db, saleId) {
+  const result = await db.query(SQL_COUNT_SALE_ITEMS, [saleId]);
+  return result.rows[0] ?? null;
+}
+
+/**
+ * @typedef {Object} UpsertProductRow
+ * @property {string} id
+ * @property {string} sku
+ * @property {string} name
+ * @property {boolean} active
+ * @property {string[]} tags
+ * @property {number} stock_count
+ */
+
+/**
+ * @param {ClientBase} db
+ * @param {string} id
+ * @param {string} sku
+ * @param {string} name
+ * @param {boolean} active
+ * @param {string[]} tags
+ * @param {number} stockCount
+ * @returns {Promise<UpsertProductRow | null>}
+ */
+export async function upsertProduct(db, id, sku, name, active, tags, stockCount) {
+  const result = await db.query(SQL_UPSERT_PRODUCT, [id, sku, name, active, tags, stockCount]);
   return result.rows[0] ?? null;
 }

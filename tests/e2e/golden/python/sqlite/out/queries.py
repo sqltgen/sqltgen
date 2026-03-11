@@ -43,6 +43,12 @@ SQL_GET_BOOK_WITH_AUTHOR_NAME = "SELECT b.id, b.title,        (SELECT a.name FRO
 SQL_GET_AUTHOR_STATS = "WITH book_counts AS (     SELECT author_id, COUNT(*) AS num_books     FROM book     GROUP BY author_id ), sale_counts AS (     SELECT b.author_id, SUM(si.quantity) AS total_sold     FROM sale_item si     JOIN book b ON b.id = si.book_id     GROUP BY b.author_id ) SELECT a.id, a.name,        COALESCE(bc.num_books, 0) AS num_books,        COALESCE(sc.total_sold, 0) AS total_sold FROM author a LEFT JOIN book_counts bc ON bc.author_id = a.id LEFT JOIN sale_counts sc ON sc.author_id = a.id ORDER BY a.name"
 SQL_GET_PRODUCT = "SELECT id, sku, name, active, weight_kg, rating, metadata,        thumbnail, created_at, stock_count FROM product WHERE id = ?"
 SQL_LIST_ACTIVE_PRODUCTS = "SELECT id, sku, name, active, weight_kg, rating, metadata,        created_at, stock_count FROM product WHERE active = ? ORDER BY name"
+SQL_GET_AUTHORS_WITH_NULL_BIO = "SELECT id, name, birth_year FROM author WHERE bio IS NULL ORDER BY name"
+SQL_GET_AUTHORS_WITH_BIO = "SELECT id, name, bio, birth_year FROM author WHERE bio IS NOT NULL ORDER BY name"
+SQL_GET_BOOKS_PUBLISHED_BETWEEN = "SELECT id, title, genre, price, published_at FROM book WHERE published_at IS NOT NULL   AND published_at BETWEEN ? AND ? ORDER BY published_at"
+SQL_GET_DISTINCT_GENRES = "SELECT DISTINCT genre FROM book ORDER BY genre"
+SQL_GET_BOOKS_WITH_SALES_COUNT = "SELECT b.id, b.title, b.genre,        COALESCE(SUM(si.quantity), 0) AS total_quantity FROM book b LEFT JOIN sale_item si ON si.book_id = b.id GROUP BY b.id, b.title, b.genre ORDER BY total_quantity DESC, b.title"
+SQL_COUNT_SALE_ITEMS = "SELECT COUNT(*) AS item_count FROM sale_item WHERE sale_id = ?"
 
 
 def create_author(conn: sqlite3.Connection, name: str, bio: str | None, birth_year: int | None) -> None:
@@ -219,8 +225,8 @@ class GetBookPriceOrDefaultRow:
     effective_price: decimal.Decimal
 
 
-def get_book_price_or_default(conn: sqlite3.Connection, param1: str) -> list[GetBookPriceOrDefaultRow]:
-    return [GetBookPriceOrDefaultRow(*row) for row in conn.execute(SQL_GET_BOOK_PRICE_OR_DEFAULT, (param1,)).fetchall()]
+def get_book_price_or_default(conn: sqlite3.Connection, price: decimal.Decimal | None) -> list[GetBookPriceOrDefaultRow]:
+    return [GetBookPriceOrDefaultRow(*row) for row in conn.execute(SQL_GET_BOOK_PRICE_OR_DEFAULT, (price,)).fetchall()]
 
 
 def delete_book_by_id(conn: sqlite3.Connection, id: int) -> int:
@@ -270,8 +276,8 @@ class GetBooksWithRecentSalesRow:
     genre: str
 
 
-def get_books_with_recent_sales(conn: sqlite3.Connection, param1: str) -> list[GetBooksWithRecentSalesRow]:
-    return [GetBooksWithRecentSalesRow(*row) for row in conn.execute(SQL_GET_BOOKS_WITH_RECENT_SALES, (param1,)).fetchall()]
+def get_books_with_recent_sales(conn: sqlite3.Connection, ordered_at: Any) -> list[GetBooksWithRecentSalesRow]:
+    return [GetBooksWithRecentSalesRow(*row) for row in conn.execute(SQL_GET_BOOKS_WITH_RECENT_SALES, (ordered_at,)).fetchall()]
 
 
 @dataclasses.dataclass
@@ -319,3 +325,64 @@ class ListActiveProductsRow:
 
 def list_active_products(conn: sqlite3.Connection, active: int) -> list[ListActiveProductsRow]:
     return [ListActiveProductsRow(*row) for row in conn.execute(SQL_LIST_ACTIVE_PRODUCTS, (active,)).fetchall()]
+
+
+@dataclasses.dataclass
+class GetAuthorsWithNullBioRow:
+    id: int
+    name: str
+    birth_year: int | None
+
+
+def get_authors_with_null_bio(conn: sqlite3.Connection) -> list[GetAuthorsWithNullBioRow]:
+    return [GetAuthorsWithNullBioRow(*row) for row in conn.execute(SQL_GET_AUTHORS_WITH_NULL_BIO).fetchall()]
+
+
+def get_authors_with_bio(conn: sqlite3.Connection) -> list[Author]:
+    return [Author(*row) for row in conn.execute(SQL_GET_AUTHORS_WITH_BIO).fetchall()]
+
+
+@dataclasses.dataclass
+class GetBooksPublishedBetweenRow:
+    id: int
+    title: str
+    genre: str
+    price: decimal.Decimal
+    published_at: str | None
+
+
+def get_books_published_between(conn: sqlite3.Connection, published_at: str | None, published_at_2: str | None) -> list[GetBooksPublishedBetweenRow]:
+    return [GetBooksPublishedBetweenRow(*row) for row in conn.execute(SQL_GET_BOOKS_PUBLISHED_BETWEEN, (published_at, published_at_2)).fetchall()]
+
+
+@dataclasses.dataclass
+class GetDistinctGenresRow:
+    genre: str
+
+
+def get_distinct_genres(conn: sqlite3.Connection) -> list[GetDistinctGenresRow]:
+    return [GetDistinctGenresRow(*row) for row in conn.execute(SQL_GET_DISTINCT_GENRES).fetchall()]
+
+
+@dataclasses.dataclass
+class GetBooksWithSalesCountRow:
+    id: int
+    title: str
+    genre: str
+    total_quantity: int
+
+
+def get_books_with_sales_count(conn: sqlite3.Connection) -> list[GetBooksWithSalesCountRow]:
+    return [GetBooksWithSalesCountRow(*row) for row in conn.execute(SQL_GET_BOOKS_WITH_SALES_COUNT).fetchall()]
+
+
+@dataclasses.dataclass
+class CountSaleItemsRow:
+    item_count: int
+
+
+def count_sale_items(conn: sqlite3.Connection, sale_id: int) -> CountSaleItemsRow | None:
+    row = conn.execute(SQL_COUNT_SALE_ITEMS, (sale_id,)).fetchone()
+    if row is None:
+        return None
+    return CountSaleItemsRow(*row)

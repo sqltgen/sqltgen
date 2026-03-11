@@ -11,6 +11,7 @@ import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -72,10 +73,18 @@ class RuntimeTest {
         Queries.createBook(conn, 3, "Earthsea", "fantasy", new BigDecimal("8.99"),
             LocalDate.of(1968, 1, 1));
 
-        var cust = Queries.createCustomer(conn, "Alice", "alice@example.com").orElseThrow();
-        var sale = Queries.createSale(conn, cust.id()).orElseThrow();
-        Queries.addSaleItem(conn, sale.id(), 1, 2, new BigDecimal("9.99"));
-        Queries.addSaleItem(conn, sale.id(), 3, 1, new BigDecimal("12.99"));
+        var alice = Queries.createCustomer(conn, "Alice", "alice@example.com").orElseThrow();
+        var bob   = Queries.createCustomer(conn, "Bob",   "bob@example.com").orElseThrow();
+
+        // Alice buys Foundation (qty 2) + Dune (qty 1)
+        var sale1 = Queries.createSale(conn, alice.id()).orElseThrow();
+        Queries.addSaleItem(conn, sale1.id(), 1, 2, new BigDecimal("9.99"));
+        Queries.addSaleItem(conn, sale1.id(), 3, 1, new BigDecimal("12.99"));
+
+        // Bob buys Earthsea (qty 1) + Foundation (qty 1)
+        var sale2 = Queries.createSale(conn, bob.id()).orElseThrow();
+        Queries.addSaleItem(conn, sale2.id(), 4, 1, new BigDecimal("8.99"));
+        Queries.addSaleItem(conn, sale2.id(), 1, 1, new BigDecimal("9.99"));
     }
 
     // ─── :one tests ────────────────────────────────────────────────────────
@@ -213,11 +222,9 @@ class RuntimeTest {
     void testGetBooksNeverOrdered() throws SQLException {
         seed();
         var books = Queries.getBooksNeverOrdered(conn);
-        // I Robot and Earthsea were not ordered
-        assertEquals(2, books.size());
-        var titles = books.stream().map(Book::title).toList();
-        assertTrue(titles.contains("I Robot"));
-        assertTrue(titles.contains("Earthsea"));
+        // Only I Robot was never ordered (Earthsea was bought by Bob)
+        assertEquals(1, books.size());
+        assertEquals("I Robot", books.get(0).title());
     }
 
     // ─── CTE tests ────────────────────────────────────────────────────────
@@ -227,16 +234,17 @@ class RuntimeTest {
         seed();
         var rows = Queries.getTopSellingBooks(conn);
         assertFalse(rows.isEmpty());
-        // Foundation had qty 2, Dune had qty 1
+        // Foundation: qty 2 (Alice) + qty 1 (Bob) = 3
         assertEquals("Foundation", rows.get(0).title());
-        assertEquals(2L, rows.get(0).unitsSold());
+        assertEquals(3L, rows.get(0).unitsSold());
     }
 
     @Test
     void testGetBestCustomers() throws SQLException {
         seed();
         var rows = Queries.getBestCustomers(conn);
-        assertEquals(1, rows.size());
+        // Alice: 2*9.99 + 12.99 = 32.97; Bob: 8.99 + 9.99 = 18.98
+        assertEquals(2, rows.size());
         assertEquals("Alice", rows.get(0).name());
         assertNotNull(rows.get(0).totalSpent());
     }
@@ -463,5 +471,136 @@ class RuntimeTest {
         assertEquals(List.of(), product.tags());
         assertNull(product.metadata());
         assertNull(product.thumbnail());
+    }
+
+    // ─── IS NULL / IS NOT NULL tests ─────────────────────────────────────
+
+    @Test
+    void testGetAuthorsWithNullBio() throws SQLException {
+        seed();
+        var authors = Queries.getAuthorsWithNullBio(conn);
+        assertEquals(1, authors.size());
+        assertEquals("Herbert", authors.get(0).name());
+    }
+
+    @Test
+    void testGetAuthorsWithBio() throws SQLException {
+        seed();
+        var authors = Queries.getAuthorsWithBio(conn);
+        // Asimov and Le Guin have bios; ordered by name
+        assertEquals(2, authors.size());
+        assertEquals("Asimov", authors.get(0).name());
+        assertEquals("Le Guin", authors.get(1).name());
+    }
+
+    // ─── Date BETWEEN tests ───────────────────────────────────────────────
+
+    @Test
+    void testGetBooksPublishedBetween() throws SQLException {
+        seed();
+        var early = Queries.getBooksPublishedBetween(conn,
+            LocalDate.of(1950, 1, 1), LocalDate.of(1960, 1, 1));
+        assertEquals(2, early.size());
+        var earlyTitles = early.stream().map(Queries.GetBooksPublishedBetweenRow::title).toList();
+        assertTrue(earlyTitles.contains("Foundation"));
+        assertTrue(earlyTitles.contains("I Robot"));
+
+        var later = Queries.getBooksPublishedBetween(conn,
+            LocalDate.of(1961, 1, 1), LocalDate.of(1970, 1, 1));
+        assertEquals(2, later.size());
+        var laterTitles = later.stream().map(Queries.GetBooksPublishedBetweenRow::title).toList();
+        assertTrue(laterTitles.contains("Dune"));
+        assertTrue(laterTitles.contains("Earthsea"));
+    }
+
+    // ─── DISTINCT tests ───────────────────────────────────────────────────
+
+    @Test
+    void testGetDistinctGenres() throws SQLException {
+        seed();
+        var genres = Queries.getDistinctGenres(conn);
+        assertEquals(2, genres.size());
+        assertEquals("fantasy", genres.get(0).genre());
+        assertEquals("sci-fi", genres.get(1).genre());
+    }
+
+    // ─── LEFT JOIN aggregate tests ────────────────────────────────────────
+
+    @Test
+    void testGetBooksWithSalesCount() throws SQLException {
+        seed();
+        var rows = Queries.getBooksWithSalesCount(conn);
+        assertEquals(4, rows.size());
+        // Foundation: qty 2 (Alice) + qty 1 (Bob) = 3 → highest
+        assertEquals("Foundation", rows.get(0).title());
+        assertEquals(3L, rows.get(0).totalQuantity());
+        // I Robot: never sold → 0
+        var iRobot = rows.stream()
+            .filter(r -> r.title().equals("I Robot")).findFirst().orElseThrow();
+        assertEquals(0L, iRobot.totalQuantity());
+    }
+
+    // ─── :one COUNT aggregate ─────────────────────────────────────────────
+
+    @Test
+    void testCountSaleItems() throws SQLException {
+        seed();
+        // Sale 1 (Alice): Foundation + Dune = 2 items
+        var count1 = Queries.countSaleItems(conn, 1).orElseThrow();
+        assertEquals(2L, count1.itemCount());
+        // Sale 2 (Bob): Earthsea + Foundation = 2 items
+        var count2 = Queries.countSaleItems(conn, 2).orElseThrow();
+        assertEquals(2L, count2.itemCount());
+    }
+
+    // ─── ON CONFLICT upsert tests ─────────────────────────────────────────
+
+    @Test
+    void testUpsertProduct() throws SQLException {
+        var id = UUID.randomUUID();
+        // Initial insert
+        Queries.upsertProduct(conn, id, "SKU-U1", "Original", true, List.of("a"), (short) 5);
+        // Upsert same id with changed name and stock
+        var result = Queries.upsertProduct(conn, id, "SKU-U1", "Updated", true,
+            List.of("a", "b"), (short) 10).orElseThrow();
+        assertEquals(id, result.id());
+        assertEquals("Updated", result.name());
+        assertEquals(List.of("a", "b"), result.tags());
+        assertEquals((short) 10, result.stockCount());
+    }
+
+    // ─── Existing untested query coverage ────────────────────────────────
+
+    @Test
+    void testGetBooksWithRecentSales() throws SQLException {
+        seed();
+        // All sales happened just now; epoch cutoff → Foundation, Dune, Earthsea all qualify
+        var rows = Queries.getBooksWithRecentSales(conn, LocalDateTime.of(1970, 1, 1, 0, 0));
+        assertEquals(3, rows.size());
+        var titles = rows.stream().map(Queries.GetBooksWithRecentSalesRow::title).toList();
+        assertTrue(titles.contains("Foundation"));
+        assertTrue(titles.contains("Dune"));
+        assertTrue(titles.contains("Earthsea"));
+    }
+
+    @Test
+    void testGetBookWithAuthorName() throws SQLException {
+        seed();
+        var rows = Queries.getBookWithAuthorName(conn);
+        assertEquals(4, rows.size());
+        var foundation = rows.stream()
+            .filter(r -> r.title().equals("Foundation")).findFirst().orElseThrow();
+        assertEquals("Asimov", foundation.authorName());
+    }
+
+    @Test
+    void testGetBookPriceOrDefault() throws SQLException {
+        seed();
+        var rows = Queries.getBookPriceOrDefault(conn, new BigDecimal("0.00"));
+        // All 4 books have explicit prices; COALESCE returns the actual price
+        assertEquals(4, rows.size());
+        var dune = rows.stream()
+            .filter(r -> r.title().equals("Dune")).findFirst().orElseThrow();
+        assertEquals(new BigDecimal("12.99"), dune.effectivePrice());
     }
 }

@@ -151,9 +151,9 @@ public final class QueriesDs {
         }
     }
 
-    public List<Queries.GetBookPriceOrDefaultRow> getBookPriceOrDefault(String param1) throws SQLException {
+    public List<Queries.GetBookPriceOrDefaultRow> getBookPriceOrDefault(java.math.BigDecimal price) throws SQLException {
         try (Connection conn = dataSource.getConnection()) {
-            return Queries.getBookPriceOrDefault(conn, param1);
+            return Queries.getBookPriceOrDefault(conn, price);
         }
     }
 
@@ -187,9 +187,9 @@ public final class QueriesDs {
         }
     }
 
-    public List<Queries.GetBooksWithRecentSalesRow> getBooksWithRecentSales(String param1) throws SQLException {
+    public List<Queries.GetBooksWithRecentSalesRow> getBooksWithRecentSales(java.time.LocalDateTime orderedAt) throws SQLException {
         try (Connection conn = dataSource.getConnection()) {
-            return Queries.getBooksWithRecentSales(conn, param1);
+            return Queries.getBooksWithRecentSales(conn, orderedAt);
         }
     }
 
@@ -226,6 +226,48 @@ public final class QueriesDs {
     public Optional<Product> insertProduct(java.util.UUID id, String sku, String name, boolean active, Float weightKg, Double rating, java.util.List<String> tags, String metadata, byte[] thumbnail, short stockCount) throws SQLException {
         try (Connection conn = dataSource.getConnection()) {
             return Queries.insertProduct(conn, id, sku, name, active, weightKg, rating, tags, metadata, thumbnail, stockCount);
+        }
+    }
+
+    public List<Queries.GetAuthorsWithNullBioRow> getAuthorsWithNullBio() throws SQLException {
+        try (Connection conn = dataSource.getConnection()) {
+            return Queries.getAuthorsWithNullBio(conn);
+        }
+    }
+
+    public List<Author> getAuthorsWithBio() throws SQLException {
+        try (Connection conn = dataSource.getConnection()) {
+            return Queries.getAuthorsWithBio(conn);
+        }
+    }
+
+    public List<Queries.GetBooksPublishedBetweenRow> getBooksPublishedBetween(java.time.LocalDate publishedAt, java.time.LocalDate publishedAt2) throws SQLException {
+        try (Connection conn = dataSource.getConnection()) {
+            return Queries.getBooksPublishedBetween(conn, publishedAt, publishedAt2);
+        }
+    }
+
+    public List<Queries.GetDistinctGenresRow> getDistinctGenres() throws SQLException {
+        try (Connection conn = dataSource.getConnection()) {
+            return Queries.getDistinctGenres(conn);
+        }
+    }
+
+    public List<Queries.GetBooksWithSalesCountRow> getBooksWithSalesCount() throws SQLException {
+        try (Connection conn = dataSource.getConnection()) {
+            return Queries.getBooksWithSalesCount(conn);
+        }
+    }
+
+    public Optional<Queries.CountSaleItemsRow> countSaleItems(long saleId) throws SQLException {
+        try (Connection conn = dataSource.getConnection()) {
+            return Queries.countSaleItems(conn, saleId);
+        }
+    }
+
+    public Optional<Queries.UpsertProductRow> upsertProduct(java.util.UUID id, String sku, String name, boolean active, java.util.List<String> tags, short stockCount) throws SQLException {
+        try (Connection conn = dataSource.getConnection()) {
+            return Queries.upsertProduct(conn, id, sku, name, active, tags, stockCount);
         }
     }
 }

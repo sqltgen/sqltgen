@@ -364,9 +364,9 @@ object Queries {
     )
 
     private const val SQL_GET_BOOK_PRICE_OR_DEFAULT = "SELECT id, title, COALESCE(price, ?) AS effective_price FROM book ORDER BY title;"
-    fun getBookPriceOrDefault(conn: Connection, param1: String): List<GetBookPriceOrDefaultRow> {
+    fun getBookPriceOrDefault(conn: Connection, price: java.math.BigDecimal?): List<GetBookPriceOrDefaultRow> {
         conn.prepareStatement(SQL_GET_BOOK_PRICE_OR_DEFAULT).use { ps ->
-            ps.setString(1, param1)
+            ps.setObject(1, price)
             val rows = mutableListOf<GetBookPriceOrDefaultRow>()
             ps.executeQuery().use { rs ->
                 while (rs.next()) rows.add(GetBookPriceOrDefaultRow(rs.getLong(1), rs.getString(2), rs.getBigDecimal(3)))
@@ -454,9 +454,9 @@ object Queries {
     )
 
     private const val SQL_GET_BOOKS_WITH_RECENT_SALES = "SELECT id, title, genre FROM book WHERE EXISTS (     SELECT 1 FROM sale_item si     JOIN sale s ON s.id = si.sale_id     WHERE si.book_id = book.id AND s.ordered_at > ? ) ORDER BY title;"
-    fun getBooksWithRecentSales(conn: Connection, param1: String): List<GetBooksWithRecentSalesRow> {
+    fun getBooksWithRecentSales(conn: Connection, orderedAt: java.time.LocalDateTime): List<GetBooksWithRecentSalesRow> {
         conn.prepareStatement(SQL_GET_BOOKS_WITH_RECENT_SALES).use { ps ->
-            ps.setString(1, param1)
+            ps.setObject(1, orderedAt)
             val rows = mutableListOf<GetBooksWithRecentSalesRow>()
             ps.executeQuery().use { rs ->
                 while (rs.next()) rows.add(GetBooksWithRecentSalesRow(rs.getLong(1), rs.getString(2), rs.getString(3)))
@@ -571,6 +571,128 @@ object Queries {
             ps.executeQuery().use { rs ->
                 if (!rs.next()) return null
                 return Product(rs.getObject(1, java.util.UUID::class.java), rs.getString(2), rs.getString(3), rs.getBoolean(4), rs.getObject(5, java.lang.Float::class.java)?.toFloat(), rs.getObject(6, java.lang.Double::class.java)?.toDouble(), (rs.getArray(7).array as Array<String>).toList(), rs.getString(8), rs.getBytes(9), rs.getObject(10, java.time.LocalDateTime::class.java), rs.getShort(11))
+            }
+        }
+    }
+
+    data class GetAuthorsWithNullBioRow(
+        val id: Long,
+        val name: String,
+        val birthYear: Int?
+    )
+
+    private const val SQL_GET_AUTHORS_WITH_NULL_BIO = "SELECT id, name, birth_year FROM author WHERE bio IS NULL ORDER BY name;"
+    fun getAuthorsWithNullBio(conn: Connection): List<GetAuthorsWithNullBioRow> {
+        conn.prepareStatement(SQL_GET_AUTHORS_WITH_NULL_BIO).use { ps ->
+            val rows = mutableListOf<GetAuthorsWithNullBioRow>()
+            ps.executeQuery().use { rs ->
+                while (rs.next()) rows.add(GetAuthorsWithNullBioRow(rs.getLong(1), rs.getString(2), rs.getObject(3, java.lang.Integer::class.java)?.toInt()))
+            }
+            return rows
+        }
+    }
+
+    private const val SQL_GET_AUTHORS_WITH_BIO = "SELECT id, name, bio, birth_year FROM author WHERE bio IS NOT NULL ORDER BY name;"
+    fun getAuthorsWithBio(conn: Connection): List<Author> {
+        conn.prepareStatement(SQL_GET_AUTHORS_WITH_BIO).use { ps ->
+            val rows = mutableListOf<Author>()
+            ps.executeQuery().use { rs ->
+                while (rs.next()) rows.add(Author(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getObject(4, java.lang.Integer::class.java)?.toInt()))
+            }
+            return rows
+        }
+    }
+
+    data class GetBooksPublishedBetweenRow(
+        val id: Long,
+        val title: String,
+        val genre: String,
+        val price: java.math.BigDecimal,
+        val publishedAt: java.time.LocalDate?
+    )
+
+    private const val SQL_GET_BOOKS_PUBLISHED_BETWEEN = "SELECT id, title, genre, price, published_at FROM book WHERE published_at IS NOT NULL   AND published_at BETWEEN ? AND ? ORDER BY published_at;"
+    fun getBooksPublishedBetween(conn: Connection, publishedAt: java.time.LocalDate?, publishedAt2: java.time.LocalDate?): List<GetBooksPublishedBetweenRow> {
+        conn.prepareStatement(SQL_GET_BOOKS_PUBLISHED_BETWEEN).use { ps ->
+            ps.setObject(1, publishedAt)
+            ps.setObject(2, publishedAt2)
+            val rows = mutableListOf<GetBooksPublishedBetweenRow>()
+            ps.executeQuery().use { rs ->
+                while (rs.next()) rows.add(GetBooksPublishedBetweenRow(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getBigDecimal(4), rs.getObject(5, java.time.LocalDate::class.java)))
+            }
+            return rows
+        }
+    }
+
+    data class GetDistinctGenresRow(
+        val genre: String
+    )
+
+    private const val SQL_GET_DISTINCT_GENRES = "SELECT DISTINCT genre FROM book ORDER BY genre;"
+    fun getDistinctGenres(conn: Connection): List<GetDistinctGenresRow> {
+        conn.prepareStatement(SQL_GET_DISTINCT_GENRES).use { ps ->
+            val rows = mutableListOf<GetDistinctGenresRow>()
+            ps.executeQuery().use { rs ->
+                while (rs.next()) rows.add(GetDistinctGenresRow(rs.getString(1)))
+            }
+            return rows
+        }
+    }
+
+    data class GetBooksWithSalesCountRow(
+        val id: Long,
+        val title: String,
+        val genre: String,
+        val totalQuantity: Long
+    )
+
+    private const val SQL_GET_BOOKS_WITH_SALES_COUNT = "SELECT b.id, b.title, b.genre,        COALESCE(SUM(si.quantity), 0) AS total_quantity FROM book b LEFT JOIN sale_item si ON si.book_id = b.id GROUP BY b.id, b.title, b.genre ORDER BY total_quantity DESC, b.title;"
+    fun getBooksWithSalesCount(conn: Connection): List<GetBooksWithSalesCountRow> {
+        conn.prepareStatement(SQL_GET_BOOKS_WITH_SALES_COUNT).use { ps ->
+            val rows = mutableListOf<GetBooksWithSalesCountRow>()
+            ps.executeQuery().use { rs ->
+                while (rs.next()) rows.add(GetBooksWithSalesCountRow(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getLong(4)))
+            }
+            return rows
+        }
+    }
+
+    data class CountSaleItemsRow(
+        val itemCount: Long
+    )
+
+    private const val SQL_COUNT_SALE_ITEMS = "SELECT COUNT(*) AS item_count FROM sale_item WHERE sale_id = ?;"
+    fun countSaleItems(conn: Connection, saleId: Long): CountSaleItemsRow? {
+        conn.prepareStatement(SQL_COUNT_SALE_ITEMS).use { ps ->
+            ps.setLong(1, saleId)
+            ps.executeQuery().use { rs ->
+                if (!rs.next()) return null
+                return CountSaleItemsRow(rs.getLong(1))
+            }
+        }
+    }
+
+    data class UpsertProductRow(
+        val id: java.util.UUID,
+        val sku: String,
+        val name: String,
+        val active: Boolean,
+        val tags: List<String>,
+        val stockCount: Short
+    )
+
+    private const val SQL_UPSERT_PRODUCT = "INSERT INTO product (id, sku, name, active, tags, stock_count) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE     SET name        = EXCLUDED.name,         active      = EXCLUDED.active,         tags        = EXCLUDED.tags,         stock_count = EXCLUDED.stock_count RETURNING id, sku, name, active, tags, stock_count;"
+    fun upsertProduct(conn: Connection, id: java.util.UUID, sku: String, name: String, active: Boolean, tags: List<String>, stockCount: Short): UpsertProductRow? {
+        conn.prepareStatement(SQL_UPSERT_PRODUCT).use { ps ->
+            ps.setObject(1, id)
+            ps.setString(2, sku)
+            ps.setString(3, name)
+            ps.setBoolean(4, active)
+            ps.setArray(5, conn.createArrayOf("text", tags.toArray()))
+            ps.setShort(6, stockCount)
+            ps.executeQuery().use { rs ->
+                if (!rs.next()) return null
+                return UpsertProductRow(rs.getObject(1, java.util.UUID::class.java), rs.getString(2), rs.getString(3), rs.getBoolean(4), (rs.getArray(5).array as Array<String>).toList(), rs.getShort(6))
             }
         }
     }

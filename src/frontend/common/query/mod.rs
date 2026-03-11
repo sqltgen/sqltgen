@@ -2021,4 +2021,23 @@ mod tests {
         let q = &parse_queries(sql, &schema).unwrap()[0];
         assert_eq!(q.params[0].sql_type, SqlType::BigInt, "param type must come from column, not literal");
     }
+
+    #[test]
+    fn test_param_type_inferred_from_exists_subquery() {
+        // $1 is inside an EXISTS subquery WHERE clause — must still be typed from the column.
+        let schema = make_join_schema();
+        let sql = "-- name: GetActive :many\nSELECT id FROM users WHERE EXISTS (SELECT 1 FROM posts WHERE posts.user_id = users.id AND posts.id > $1);";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.params[0].sql_type, SqlType::BigInt, "param inside EXISTS subquery must be typed from column");
+    }
+
+    #[test]
+    fn test_param_type_inferred_from_coalesce() {
+        // $1 is the fallback in COALESCE(id, $1) — must be typed BigInt from the first arg's column.
+        // (Text is the default for untyped params, so using a BigInt column proves inference works.)
+        let schema = make_schema();
+        let sql = "-- name: GetId :many\nSELECT COALESCE(id, $1) AS effective_id FROM users;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.params[0].sql_type, SqlType::BigInt, "COALESCE fallback param must be typed from the first arg");
+    }
 }
