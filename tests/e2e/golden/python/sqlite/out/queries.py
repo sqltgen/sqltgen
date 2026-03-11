@@ -284,7 +284,7 @@ def get_books_with_recent_sales(conn: sqlite3.Connection, ordered_at: Any) -> li
 class GetBookWithAuthorNameRow:
     id: int
     title: str
-    author_name: Any | None
+    author_name: str | None
 
 
 def get_book_with_author_name(conn: sqlite3.Connection) -> list[GetBookWithAuthorNameRow]:

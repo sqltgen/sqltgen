@@ -468,7 +468,7 @@ object Queries {
     data class GetBookWithAuthorNameRow(
         val id: Long,
         val title: String,
-        val authorName: Any?
+        val authorName: String?
     )
 
     private const val SQL_GET_BOOK_WITH_AUTHOR_NAME = "SELECT b.id, b.title,        (SELECT a.name FROM author a WHERE a.id = b.author_id) AS author_name FROM book b ORDER BY b.title;"
@@ -476,7 +476,7 @@ object Queries {
         conn.prepareStatement(SQL_GET_BOOK_WITH_AUTHOR_NAME).use { ps ->
             val rows = mutableListOf<GetBookWithAuthorNameRow>()
             ps.executeQuery().use { rs ->
-                while (rs.next()) rows.add(GetBookWithAuthorNameRow(rs.getLong(1), rs.getString(2), rs.getObject(3)))
+                while (rs.next()) rows.add(GetBookWithAuthorNameRow(rs.getLong(1), rs.getString(2), rs.getString(3)))
             }
             return rows
         }
@@ -564,7 +564,7 @@ object Queries {
             ps.setBoolean(4, active)
             ps.setObject(5, weightKg)
             ps.setObject(6, rating)
-            ps.setArray(7, conn.createArrayOf("text", tags.toArray()))
+            ps.setArray(7, conn.createArrayOf("text", tags.toTypedArray()))
             ps.setObject(8, metadata, java.sql.Types.OTHER)
             ps.setObject(9, thumbnail)
             ps.setShort(10, stockCount)
@@ -688,7 +688,7 @@ object Queries {
             ps.setString(2, sku)
             ps.setString(3, name)
             ps.setBoolean(4, active)
-            ps.setArray(5, conn.createArrayOf("text", tags.toArray()))
+            ps.setArray(5, conn.createArrayOf("text", tags.toTypedArray()))
             ps.setShort(6, stockCount)
             ps.executeQuery().use { rs ->
                 if (!rs.next()) return null

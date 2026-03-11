@@ -463,7 +463,7 @@ export async function getBooksWithRecentSales(db, orderedAt) {
  * @typedef {Object} GetBookWithAuthorNameRow
  * @property {number} id
  * @property {string} title
- * @property {unknown | null} author_name
+ * @property {string | null} author_name
  */
 
 /**

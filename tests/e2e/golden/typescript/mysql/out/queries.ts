@@ -289,7 +289,7 @@ export async function getBooksWithRecentSales(db: Connection, orderedAt: Date): 
 export interface GetBookWithAuthorNameRow {
   id: number;
   title: string;
-  author_name: unknown | null;
+  author_name: string | null;
 }
 
 export async function getBookWithAuthorName(db: Connection): Promise<GetBookWithAuthorNameRow[]> {

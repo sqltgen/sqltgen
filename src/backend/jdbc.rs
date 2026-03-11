@@ -59,8 +59,10 @@ pub fn ds_result_row_type(query: &Query, schema: &Schema, fallback: &str) -> Str
 ///
 /// For the list parameter slot, emits a bind using `list_bind_expr` (e.g. `"arr"`
 /// for PostgreSQL arrays, `"json"` for JSON strings). `se` is the statement-end
-/// string: `";"` for Java, `""` for Kotlin.
-pub fn emit_jdbc_binds(src: &mut String, query: &Query, list_bind_expr: &str, se: &str) -> anyhow::Result<()> {
+/// string: `";"` for Java, `""` for Kotlin. `to_array_call` is the method to
+/// convert a `List` to a plain array for `createArrayOf`: `"toArray()"` for Java,
+/// `"toTypedArray()"` for Kotlin.
+pub fn emit_jdbc_binds(src: &mut String, query: &Query, list_bind_expr: &str, se: &str, to_array_call: &str) -> anyhow::Result<()> {
     let list_setter = if list_bind_expr == "arr" { "setArray" } else { "setString" };
     for (jdbc_idx, p) in jdbc_bind_sequence(query) {
         if p.is_list {
@@ -68,7 +70,7 @@ pub fn emit_jdbc_binds(src: &mut String, query: &Query, list_bind_expr: &str, se
         } else if let SqlType::Array(inner) = &p.sql_type {
             let name = to_camel_case(&p.name);
             let type_name = pg_array_type_name(inner);
-            writeln!(src, "            ps.setArray({jdbc_idx}, conn.createArrayOf(\"{type_name}\", {name}.toArray())){se}")?;
+            writeln!(src, "            ps.setArray({jdbc_idx}, conn.createArrayOf(\"{type_name}\", {name}.{to_array_call})){se}")?;
         } else if matches!(p.sql_type, SqlType::Json | SqlType::Jsonb) {
             writeln!(src, "            ps.setObject({jdbc_idx}, {}, java.sql.Types.OTHER){se}", to_camel_case(&p.name))?;
         } else if p.nullable {
@@ -313,25 +315,38 @@ mod tests {
         let q = make_query("Test", "WHERE id = $1 AND name = $2", vec![p1, p2]);
 
         let mut src = String::new();
-        emit_jdbc_binds(&mut src, &q, "", ";").unwrap();
+        emit_jdbc_binds(&mut src, &q, "", ";", "toArray()").unwrap();
         assert!(src.contains("ps.setLong(1, userId);"));
         assert!(src.contains("ps.setObject(2, name);"));
 
         let mut src = String::new();
-        emit_jdbc_binds(&mut src, &q, "", "").unwrap();
+        emit_jdbc_binds(&mut src, &q, "", "", "toTypedArray()").unwrap();
         assert!(src.contains("ps.setLong(1, userId)"));
         assert!(!src.contains("ps.setLong(1, userId);"));
     }
 
     #[test]
-    fn test_emit_jdbc_binds_array_param_uses_set_array() {
+    fn test_emit_jdbc_binds_array_param_java_uses_to_array() {
         let p = Parameter::scalar(1, "tags", SqlType::Array(Box::new(SqlType::Text)), false);
         let q = make_query("UpdateTags", "UPDATE t SET tags = $1", vec![p]);
 
         let mut src = String::new();
-        emit_jdbc_binds(&mut src, &q, "", ";").unwrap();
-        assert!(src.contains("createArrayOf(\"text\", tags.toArray())"), "should create a JDBC array: {src}");
+        emit_jdbc_binds(&mut src, &q, "", ";", "toArray()").unwrap();
+        assert!(src.contains("createArrayOf(\"text\", tags.toArray())"), "Java should use toArray(): {src}");
         assert!(src.contains("ps.setArray(1,"), "should use setArray, not setObject: {src}");
+    }
+
+    #[test]
+    fn test_emit_jdbc_binds_array_param_kotlin_uses_to_typed_array() {
+        // Regression: Kotlin generated `tags.toArray()` which is Java syntax and
+        // does not compile under the Kotlin compiler. Kotlin requires `toTypedArray()`.
+        let p = Parameter::scalar(1, "tags", SqlType::Array(Box::new(SqlType::Text)), false);
+        let q = make_query("UpdateTags", "UPDATE t SET tags = $1", vec![p]);
+
+        let mut src = String::new();
+        emit_jdbc_binds(&mut src, &q, "", "", "toTypedArray()").unwrap();
+        assert!(src.contains("createArrayOf(\"text\", tags.toTypedArray())"), "Kotlin should use toTypedArray(): {src}");
+        assert!(!src.contains(".toArray()"), "Kotlin must not emit Java toArray(): {src}");
     }
 
     #[test]
@@ -340,7 +355,7 @@ mod tests {
         let q = make_query("UpdateMeta", "UPDATE t SET meta = $1", vec![p]);
 
         let mut src = String::new();
-        emit_jdbc_binds(&mut src, &q, "", ";").unwrap();
+        emit_jdbc_binds(&mut src, &q, "", ";", "toArray()").unwrap();
         assert!(src.contains("java.sql.Types.OTHER"), "JSONB should use Types.OTHER: {src}");
         assert!(src.contains("ps.setObject(1, metadata, java.sql.Types.OTHER)"), "full setObject call: {src}");
     }
@@ -351,7 +366,7 @@ mod tests {
         let q = make_query("SetData", "UPDATE t SET data = $1", vec![p]);
 
         let mut src = String::new();
-        emit_jdbc_binds(&mut src, &q, "", ";").unwrap();
+        emit_jdbc_binds(&mut src, &q, "", ";", "toArray()").unwrap();
         assert!(src.contains("java.sql.Types.OTHER"), "JSON should use Types.OTHER: {src}");
     }
 

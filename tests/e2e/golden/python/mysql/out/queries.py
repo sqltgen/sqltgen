@@ -6,7 +6,6 @@ import dataclasses
 import mysql.connector
 import decimal
 import datetime
-from typing import Any
 
 from .author import Author
 from .book import Book
@@ -347,7 +346,7 @@ def get_books_with_recent_sales(conn: mysql.connector.MySQLConnection, ordered_a
 class GetBookWithAuthorNameRow:
     id: int
     title: str
-    author_name: Any | None
+    author_name: str | None
 
 
 def get_book_with_author_name(conn: mysql.connector.MySQLConnection) -> list[GetBookWithAuthorNameRow]:
