@@ -4,8 +4,8 @@ mod resolve;
 use std::collections::HashMap;
 
 use sqlparser::ast::{
-    Assignment, AssignmentTarget, Delete, Expr, FromTable, Insert, JoinOperator, ObjectNamePart, Query as SqlQuery, Select, SelectItem, SetExpr, Statement,
-    TableFactor, TableObject, TableWithJoins, Value, ValueWithSpan, Values, With,
+    Assignment, AssignmentTarget, Delete, Expr, FromTable, Insert, JoinOperator, ObjectNamePart, OnConflictAction, OnInsert, Query as SqlQuery, Select,
+    SelectItem, SetExpr, Statement, TableFactor, TableObject, TableWithJoins, Value, ValueWithSpan, Values, With,
 };
 use sqlparser::dialect::Dialect;
 use sqlparser::parser::Parser;
@@ -286,22 +286,36 @@ fn build_insert(ann: &QueryAnnotation, sql: &str, insert: &Insert, schema: &Sche
         return unresolved_query(ann, sql);
     };
 
-    let col_names: Vec<String> = insert.columns.iter().map(ident_to_str).collect();
-    let count = count_params(sql);
-
-    let params = (1..=count)
-        .map(|idx| {
-            let (name, sql_type, nullable) = match col_names.get(idx - 1).and_then(|n| table.columns.iter().find(|c| &c.name == n)) {
-                Some(col) => (col.name.clone(), col.sql_type.clone(), col.nullable),
-                None => (format!("param{idx}"), SqlType::Text, false),
-            };
-            Parameter::scalar(idx, name, sql_type, nullable)
-        })
-        .collect();
-
+    let mut mapping = HashMap::new();
+    collect_insert_value_params(insert, schema, &mut mapping);
+    collect_on_conflict_params(insert, table, config, &mut mapping);
+    let params = build_params(mapping, count_params(sql));
     let result_columns = insert.returning.as_deref().map_or(vec![], |items| resolve_returning(items, table, config));
 
     Query { name: ann.name.clone(), cmd: ann.cmd.clone(), sql: sql.to_string(), params, result_columns }
+}
+
+/// Collect typed parameter mappings from an `ON CONFLICT DO UPDATE` clause.
+///
+/// The `excluded` pseudo-table is treated as an alias for the target table,
+/// so `excluded.col + $N` correctly types `$N` from `col`'s schema type.
+fn collect_on_conflict_params(insert: &Insert, table: &Table, config: &ResolverConfig, mapping: &mut HashMap<usize, (String, SqlType, bool)>) {
+    let Some(OnInsert::OnConflict(on_conflict)) = &insert.on else { return };
+    let OnConflictAction::DoUpdate(do_update) = &on_conflict.action else { return };
+
+    // Expose the target table under the "excluded" pseudo-alias so that
+    // expressions like `excluded.col + $N` resolve correctly.
+    let excluded_table = (table.clone(), Some("excluded".to_string()));
+    let all_tables = [excluded_table];
+    let alias_map = build_alias_map(&all_tables);
+    let ctx = &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema: &Schema { tables: vec![table.clone()] }, config, mapping };
+
+    for assignment in &do_update.assignments {
+        collect_params_from_expr(&assignment.value, ctx);
+    }
+    if let Some(selection) = &do_update.selection {
+        collect_params_from_expr(selection, ctx);
+    }
 }
 
 // ─── UPDATE ──────────────────────────────────────────────────────────────────
@@ -2020,6 +2034,33 @@ mod tests {
         let sql = "-- name: Filter :many\nSELECT id FROM users WHERE $1 = -1 OR id = $1;";
         let q = &parse_queries(sql, &schema).unwrap()[0];
         assert_eq!(q.params[0].sql_type, SqlType::BigInt, "param type must come from column, not literal");
+    }
+
+    fn make_upsert_schema() -> Schema {
+        Schema {
+            tables: vec![Table {
+                name: "item".into(),
+                columns: vec![
+                    Column { name: "id".into(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
+                    Column { name: "count".into(), sql_type: SqlType::Integer, nullable: false, is_primary_key: false },
+                ],
+            }],
+        }
+    }
+
+    #[test]
+    fn test_param_type_inferred_from_on_conflict_set() {
+        // $2 (increment) is only referenced in the ON CONFLICT SET clause, not in VALUES.
+        // build_insert used to map params by col_names position, which would either
+        // give the wrong column type or fall through to Text.
+        let schema = make_upsert_schema();
+        let sql = "-- name: UpsertItem :one\n\
+            INSERT INTO item (id) VALUES ($1)\n\
+            ON CONFLICT (id) DO UPDATE SET count = excluded.count + $2\n\
+            RETURNING id, count;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.params[0].sql_type, SqlType::BigInt, "$1 (id) must be BigInt");
+        assert_eq!(q.params[1].sql_type, SqlType::Integer, "$2 (increment) must be Integer from count column");
     }
 
     #[test]
