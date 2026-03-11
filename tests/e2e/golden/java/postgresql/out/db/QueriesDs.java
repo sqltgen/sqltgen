@@ -270,4 +270,16 @@ public final class QueriesDs {
             return Queries.upsertProduct(conn, id, sku, name, active, tags, stockCount);
         }
     }
+
+    public Optional<Queries.GetSaleItemQuantityAggregatesRow> getSaleItemQuantityAggregates() throws SQLException {
+        try (Connection conn = dataSource.getConnection()) {
+            return Queries.getSaleItemQuantityAggregates(conn);
+        }
+    }
+
+    public Optional<Queries.GetBookPriceAggregatesRow> getBookPriceAggregates() throws SQLException {
+        try (Connection conn = dataSource.getConnection()) {
+            return Queries.getBookPriceAggregates(conn);
+        }
+    }
 }

@@ -557,4 +557,29 @@ class RuntimeTest {
         val remaining = Queries.listBooksByGenre(conn, "sci-fi")
         assertFalse(remaining.any { it.title == "I Robot" })
     }
+
+    // ─── MIN/MAX/SUM/AVG aggregate tests ─────────────────────────────────────
+
+    @Test
+    fun testGetSaleItemQuantityAggregates() {
+        seed()
+        // Sale items: Foundation qty 2 (Alice), Dune qty 1 (Alice), Earthsea qty 1 (Bob)
+        // → min=1, max=2, sum=4, avg≈1.33
+        val row = Queries.getSaleItemQuantityAggregates(conn)!!
+        assertEquals(1, row.minQty)
+        assertEquals(2, row.maxQty)
+        assertEquals(4L, row.sumQty)
+        assertTrue(Math.abs(row.avgQty!!.toDouble() - (4.0 / 3.0)) < 0.01)
+    }
+
+    @Test
+    fun testGetBookPriceAggregates() {
+        seed()
+        // Book prices: 9.99, 7.99, 12.99, 8.99 → min=7.99, max=12.99, sum=39.96, avg=9.99
+        val row = Queries.getBookPriceAggregates(conn)!!
+        assertEquals(BigDecimal("7.99"), row.minPrice)
+        assertEquals(BigDecimal("12.99"), row.maxPrice)
+        assertEquals(BigDecimal("39.96"), row.sumPrice)
+        assertTrue(row.avgPrice!!.subtract(BigDecimal("9.99")).abs() < BigDecimal("0.01"))
+    }
 }

@@ -529,3 +529,28 @@ def test_archive_and_return_books(conn):
     # Verify it's gone from the main table
     books = queries.list_books_by_genre(conn, "sci-fi")
     assert all(b.title != "I Robot" for b in books)
+
+
+# ─── MIN/MAX/SUM/AVG aggregate tests ─────────────────────────────────────────
+
+def test_get_sale_item_quantity_aggregates(conn):
+    seed(conn)
+    # Sale items: Foundation qty 2 (Alice), Dune qty 1 (Alice), Earthsea qty 1 (Bob)
+    # → min=1, max=2, sum=4, avg≈1.33
+    row = queries.get_sale_item_quantity_aggregates(conn)
+    assert row is not None
+    assert row.min_qty == 1
+    assert row.max_qty == 2
+    assert row.sum_qty == 4
+    assert abs(float(row.avg_qty) - 4.0 / 3.0) < 0.01
+
+
+def test_get_book_price_aggregates(conn):
+    seed(conn)
+    # Book prices: 9.99, 7.99, 12.99, 8.99 → min=7.99, max=12.99, sum=39.96, avg=9.99
+    row = queries.get_book_price_aggregates(conn)
+    assert row is not None
+    assert row.min_price == decimal.Decimal("7.99")
+    assert row.max_price == decimal.Decimal("12.99")
+    assert row.sum_price == decimal.Decimal("39.96")
+    assert abs(float(row.avg_price) - 9.99) < 0.01

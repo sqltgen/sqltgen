@@ -174,6 +174,22 @@ pub struct CountSaleItemsRow {
     pub item_count: i64,
 }
 
+#[derive(Debug, sqlx::FromRow)]
+pub struct GetSaleItemQuantityAggregatesRow {
+    pub min_qty: Option<i32>,
+    pub max_qty: Option<i32>,
+    pub sum_qty: Option<rust_decimal::Decimal>,
+    pub avg_qty: Option<f64>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct GetBookPriceAggregatesRow {
+    pub min_price: Option<rust_decimal::Decimal>,
+    pub max_price: Option<rust_decimal::Decimal>,
+    pub sum_price: Option<rust_decimal::Decimal>,
+    pub avg_price: Option<rust_decimal::Decimal>,
+}
+
 pub async fn create_author(pool: &MySqlPool, name: String, bio: Option<String>, birth_year: Option<i32>) -> Result<(), sqlx::Error> {
     sqlx::query("INSERT INTO author (name, bio, birth_year) VALUES (?, ?, ?)")
         .bind(name)
@@ -463,6 +479,18 @@ pub async fn get_books_with_sales_count(pool: &MySqlPool) -> Result<Vec<GetBooks
 pub async fn count_sale_items(pool: &MySqlPool, sale_id: i64) -> Result<Option<CountSaleItemsRow>, sqlx::Error> {
     sqlx::query_as::<_, CountSaleItemsRow>("SELECT COUNT(*) AS item_count FROM sale_item WHERE sale_id = ?")
         .bind(sale_id)
+        .fetch_optional(pool)
+        .await
+}
+
+pub async fn get_sale_item_quantity_aggregates(pool: &MySqlPool) -> Result<Option<GetSaleItemQuantityAggregatesRow>, sqlx::Error> {
+    sqlx::query_as::<_, GetSaleItemQuantityAggregatesRow>("SELECT MIN(quantity)  AS min_qty,        MAX(quantity)  AS max_qty,        SUM(quantity)  AS sum_qty,        AVG(quantity)  AS avg_qty FROM sale_item")
+        .fetch_optional(pool)
+        .await
+}
+
+pub async fn get_book_price_aggregates(pool: &MySqlPool) -> Result<Option<GetBookPriceAggregatesRow>, sqlx::Error> {
+    sqlx::query_as::<_, GetBookPriceAggregatesRow>("SELECT MIN(price)  AS min_price,        MAX(price)  AS max_price,        SUM(price)  AS sum_price,        AVG(price)  AS avg_price FROM book")
         .fetch_optional(pool)
         .await
 }

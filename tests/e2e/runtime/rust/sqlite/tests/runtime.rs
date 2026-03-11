@@ -780,6 +780,39 @@ async fn test_count_sale_items() {
     assert_eq!(row.item_count, 2);
 }
 
+// ─── MIN/MAX/SUM/AVG aggregate tests ─────────────────────────────────────
+
+#[tokio::test]
+async fn test_get_sale_item_quantity_aggregates() {
+    let pool = setup_db().await;
+    seed(&pool).await;
+
+    // Seed: Foundation qty 2 + Dune qty 1 → min=1, max=2, sum=3, avg=1.5
+    let row = queries::get_sale_item_quantity_aggregates(&pool).await.unwrap().unwrap();
+    assert_eq!(row.min_qty, Some(1));
+    assert_eq!(row.max_qty, Some(2));
+    assert_eq!(row.sum_qty, Some(3));
+    let avg = row.avg_qty.unwrap();
+    assert!((avg - 1.5_f64).abs() < 0.01);
+}
+
+#[tokio::test]
+async fn test_get_book_price_aggregates() {
+    let pool = setup_db().await;
+    seed(&pool).await;
+
+    // Seed: 9.99, 7.99, 12.99, 8.99 → min=7.99, max=12.99, sum=39.96, avg=9.99
+    let row = queries::get_book_price_aggregates(&pool).await.unwrap().unwrap();
+    let min = row.min_price.unwrap();
+    let max = row.max_price.unwrap();
+    let sum = row.sum_price.unwrap();
+    let avg = row.avg_price.unwrap();
+    assert!((min - 7.99_f64).abs() < 0.01);
+    assert!((max - 12.99_f64).abs() < 0.01);
+    assert!((sum - 39.96_f64).abs() < 0.01);
+    assert!((avg - 9.99_f64).abs() < 0.01);
+}
+
 // ─── List param tests ────────────────────────────────────────────────────
 
 #[tokio::test]

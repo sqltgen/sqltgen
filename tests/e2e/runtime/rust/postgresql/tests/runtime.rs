@@ -855,6 +855,36 @@ async fn test_count_sale_items() {
     assert_eq!(row.item_count, 2);
 }
 
+// ─── MIN/MAX/SUM/AVG aggregate tests ─────────────────────────────────────
+
+#[tokio::test]
+async fn test_get_sale_item_quantity_aggregates() {
+    let pool = setup_db().await;
+    seed(&pool).await;
+
+    // Seed: Foundation qty 2 + Dune qty 1 → min=1, max=2, sum=3, avg=1.5
+    let row = queries::get_sale_item_quantity_aggregates(&pool).await.unwrap().unwrap();
+    assert_eq!(row.min_qty, Some(1));
+    assert_eq!(row.max_qty, Some(2));
+    assert_eq!(row.sum_qty, Some(3));
+    let avg = row.avg_qty.unwrap();
+    assert!((avg - Decimal::from_str("1.5").unwrap()).abs() < Decimal::from_str("0.01").unwrap());
+}
+
+#[tokio::test]
+async fn test_get_book_price_aggregates() {
+    let pool = setup_db().await;
+    seed(&pool).await;
+
+    // Seed: 9.99, 7.99, 12.99, 8.99 → min=7.99, max=12.99, sum=39.96, avg=9.99
+    let row = queries::get_book_price_aggregates(&pool).await.unwrap().unwrap();
+    assert_eq!(row.min_price, Some(Decimal::from_str("7.99").unwrap()));
+    assert_eq!(row.max_price, Some(Decimal::from_str("12.99").unwrap()));
+    assert_eq!(row.sum_price, Some(Decimal::from_str("39.96").unwrap()));
+    let avg = row.avg_price.unwrap();
+    assert!((avg - Decimal::from_str("9.99").unwrap()).abs() < Decimal::from_str("0.01").unwrap());
+}
+
 // ─── Upsert tests (PostgreSQL-specific) ─────────────────────────────────
 
 #[tokio::test]

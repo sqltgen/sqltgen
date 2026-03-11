@@ -746,4 +746,40 @@ public final class Queries {
             }
         }
     }
+
+    public record GetSaleItemQuantityAggregatesRow(
+        Integer minQty,
+        Integer maxQty,
+        Long sumQty,
+        java.math.BigDecimal avgQty
+    ) {}
+
+    private static final String SQL_GET_SALE_ITEM_QUANTITY_AGGREGATES =
+        "SELECT MIN(quantity)  AS min_qty,        MAX(quantity)  AS max_qty,        SUM(quantity)  AS sum_qty,        AVG(quantity)  AS avg_qty FROM sale_item;";
+    public static Optional<GetSaleItemQuantityAggregatesRow> getSaleItemQuantityAggregates(Connection conn) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(SQL_GET_SALE_ITEM_QUANTITY_AGGREGATES)) {
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) return Optional.empty();
+                return Optional.of(new GetSaleItemQuantityAggregatesRow(rs.getObject(1, Integer.class), rs.getObject(2, Integer.class), rs.getObject(3, Long.class), rs.getBigDecimal(4)));
+            }
+        }
+    }
+
+    public record GetBookPriceAggregatesRow(
+        java.math.BigDecimal minPrice,
+        java.math.BigDecimal maxPrice,
+        java.math.BigDecimal sumPrice,
+        java.math.BigDecimal avgPrice
+    ) {}
+
+    private static final String SQL_GET_BOOK_PRICE_AGGREGATES =
+        "SELECT MIN(price)  AS min_price,        MAX(price)  AS max_price,        SUM(price)  AS sum_price,        AVG(price)  AS avg_price FROM book;";
+    public static Optional<GetBookPriceAggregatesRow> getBookPriceAggregates(Connection conn) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(SQL_GET_BOOK_PRICE_AGGREGATES)) {
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) return Optional.empty();
+                return Optional.of(new GetBookPriceAggregatesRow(rs.getBigDecimal(1), rs.getBigDecimal(2), rs.getBigDecimal(3), rs.getBigDecimal(4)));
+            }
+        }
+    }
 }

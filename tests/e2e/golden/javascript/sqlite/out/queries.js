@@ -45,6 +45,12 @@ const SQL_GET_BOOKS_PUBLISHED_BETWEEN = "SELECT id, title, genre, price, publish
 const SQL_GET_DISTINCT_GENRES = "SELECT DISTINCT genre FROM book ORDER BY genre";
 const SQL_GET_BOOKS_WITH_SALES_COUNT = "SELECT b.id, b.title, b.genre,        COALESCE(SUM(si.quantity), 0) AS total_quantity FROM book b LEFT JOIN sale_item si ON si.book_id = b.id GROUP BY b.id, b.title, b.genre ORDER BY total_quantity DESC, b.title";
 const SQL_COUNT_SALE_ITEMS = "SELECT COUNT(*) AS item_count FROM sale_item WHERE sale_id = ?";
+const SQL_UPDATE_AUTHOR_BIO = "UPDATE author SET bio = ? WHERE id = ?";
+const SQL_DELETE_AUTHOR = "DELETE FROM author WHERE id = ?";
+const SQL_INSERT_PRODUCT = "INSERT INTO product (id, sku, name, active, weight_kg, rating, metadata, thumbnail, stock_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+const SQL_UPSERT_PRODUCT = "INSERT INTO product (id, sku, name, active, metadata, stock_count) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE     SET name        = EXCLUDED.name,         active      = EXCLUDED.active,         metadata    = EXCLUDED.metadata,         stock_count = EXCLUDED.stock_count";
+const SQL_GET_SALE_ITEM_QUANTITY_AGGREGATES = "SELECT MIN(quantity)  AS min_qty,        MAX(quantity)  AS max_qty,        SUM(quantity)  AS sum_qty,        AVG(quantity)  AS avg_qty FROM sale_item";
+const SQL_GET_BOOK_PRICE_AGGREGATES = "SELECT MIN(price)  AS min_price,        MAX(price)  AS max_price,        SUM(price)  AS sum_price,        AVG(price)  AS avg_price FROM book";
 
 /**
  * @param {Database} db
@@ -563,5 +569,89 @@ export async function getBooksWithSalesCount(db) {
  */
 export async function countSaleItems(db, saleId) {
   const row = db.prepare(SQL_COUNT_SALE_ITEMS).get(saleId);
+  return row ?? null;
+}
+
+/**
+ * @param {Database} db
+ * @param {string | null} bio
+ * @param {number} id
+ * @returns {Promise<void>}
+ */
+export async function updateAuthorBio(db, bio, id) {
+  db.prepare(SQL_UPDATE_AUTHOR_BIO).run(bio, id);
+}
+
+/**
+ * @param {Database} db
+ * @param {number} id
+ * @returns {Promise<void>}
+ */
+export async function deleteAuthor(db, id) {
+  db.prepare(SQL_DELETE_AUTHOR).run(id);
+}
+
+/**
+ * @param {Database} db
+ * @param {string} id
+ * @param {string} sku
+ * @param {string} name
+ * @param {number} active
+ * @param {number | null} weightKg
+ * @param {number | null} rating
+ * @param {string | null} metadata
+ * @param {Buffer | null} thumbnail
+ * @param {number} stockCount
+ * @returns {Promise<void>}
+ */
+export async function insertProduct(db, id, sku, name, active, weightKg, rating, metadata, thumbnail, stockCount) {
+  db.prepare(SQL_INSERT_PRODUCT).run(id, sku, name, active, weightKg, rating, metadata, thumbnail, stockCount);
+}
+
+/**
+ * @param {Database} db
+ * @param {string} id
+ * @param {string} sku
+ * @param {string} name
+ * @param {number} active
+ * @param {string | null} metadata
+ * @param {number} stockCount
+ * @returns {Promise<void>}
+ */
+export async function upsertProduct(db, id, sku, name, active, metadata, stockCount) {
+  db.prepare(SQL_UPSERT_PRODUCT).run(id, sku, name, active, metadata, stockCount);
+}
+
+/**
+ * @typedef {Object} GetSaleItemQuantityAggregatesRow
+ * @property {number | null} min_qty
+ * @property {number | null} max_qty
+ * @property {number | null} sum_qty
+ * @property {number | null} avg_qty
+ */
+
+/**
+ * @param {Database} db
+ * @returns {Promise<GetSaleItemQuantityAggregatesRow | null>}
+ */
+export async function getSaleItemQuantityAggregates(db) {
+  const row = db.prepare(SQL_GET_SALE_ITEM_QUANTITY_AGGREGATES).get();
+  return row ?? null;
+}
+
+/**
+ * @typedef {Object} GetBookPriceAggregatesRow
+ * @property {number | null} min_price
+ * @property {number | null} max_price
+ * @property {number | null} sum_price
+ * @property {number | null} avg_price
+ */
+
+/**
+ * @param {Database} db
+ * @returns {Promise<GetBookPriceAggregatesRow | null>}
+ */
+export async function getBookPriceAggregates(db) {
+  const row = db.prepare(SQL_GET_BOOK_PRICE_AGGREGATES).get();
   return row ?? null;
 }

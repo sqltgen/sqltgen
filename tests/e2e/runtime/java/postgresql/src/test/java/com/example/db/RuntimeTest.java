@@ -642,4 +642,32 @@ class RuntimeTest {
             .filter(r -> r.title().equals("Dune")).findFirst().orElseThrow();
         assertEquals(new BigDecimal("12.99"), dune.effectivePrice());
     }
+
+    // ─── MIN/MAX/SUM/AVG aggregate tests ─────────────────────────────────
+
+    @Test
+    void testGetSaleItemQuantityAggregates() throws SQLException {
+        seed();
+        // Sale items: Foundation qty 2 (Alice), Dune qty 1 (Alice),
+        //             Earthsea qty 1 (Bob), Foundation qty 1 (Bob)
+        // → min=1, max=2, sum=5, avg=1.25
+        var row = Queries.getSaleItemQuantityAggregates(conn).orElseThrow();
+        assertEquals(1, row.minQty());
+        assertEquals(2, row.maxQty());
+        assertEquals(5L, row.sumQty());
+        assertTrue(Math.abs(row.avgQty().doubleValue() - 1.25) < 0.01);
+    }
+
+    @Test
+    void testGetBookPriceAggregates() throws SQLException {
+        seed();
+        // Book prices: 9.99, 7.99, 12.99, 8.99
+        // → min=7.99, max=12.99, sum=39.96, avg=9.99
+        var row = Queries.getBookPriceAggregates(conn).orElseThrow();
+        assertEquals(new BigDecimal("7.99"), row.minPrice());
+        assertEquals(new BigDecimal("12.99"), row.maxPrice());
+        assertEquals(new BigDecimal("39.96"), row.sumPrice());
+        assertTrue(row.avgPrice().subtract(new BigDecimal("9.99")).abs()
+            .compareTo(new BigDecimal("0.01")) < 0);
+    }
 }

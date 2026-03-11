@@ -681,3 +681,36 @@ describe('CTE DELETE queries', () => {
     } finally { await teardown(client, schema); }
   });
 });
+
+// ─── MIN/MAX/SUM/AVG aggregate tests ─────────────────────────────────────────
+
+describe('MIN/MAX/SUM/AVG aggregate queries', () => {
+  it('getSaleItemQuantityAggregates returns correct aggregates', async () => {
+    const { client, schema } = await makeClient();
+    try {
+      await seed(client);
+      // Sale items: Foundation qty 2 (Alice), Dune qty 1 (Alice), Earthsea qty 1 (Bob)
+      // → min=1, max=2, sum=4, avg≈1.33
+      const row = await queries.getSaleItemQuantityAggregates(client);
+      assert.ok(row !== null);
+      assert.equal(row!.min_qty, 1);
+      assert.equal(row!.max_qty, 2);
+      assert.equal(Number(row!.sum_qty), 4);
+      assert.ok(Math.abs(Number(row!.avg_qty) - 4 / 3) < 0.01);
+    } finally { await teardown(client, schema); }
+  });
+
+  it('getBookPriceAggregates returns correct aggregates', async () => {
+    const { client, schema } = await makeClient();
+    try {
+      await seed(client);
+      // Book prices: 9.99, 7.99, 12.99, 8.99 → min=7.99, max=12.99, sum=39.96, avg=9.99
+      const row = await queries.getBookPriceAggregates(client);
+      assert.ok(row !== null);
+      assert.ok(Math.abs(Number(row!.min_price) - 7.99) < 0.01);
+      assert.ok(Math.abs(Number(row!.max_price) - 12.99) < 0.01);
+      assert.ok(Math.abs(Number(row!.sum_price) - 39.96) < 0.01);
+      assert.ok(Math.abs(Number(row!.avg_price) - 9.99) < 0.01);
+    } finally { await teardown(client, schema); }
+  });
+});

@@ -597,3 +597,29 @@ def test_count_sale_items():
     # COUNT(*) always returns a row, even for non-existent sale_id
     assert row is not None
     assert row.item_count == 0
+
+
+# ─── MIN/MAX/SUM/AVG aggregate tests ─────────────────────────────────────────
+
+def test_get_sale_item_quantity_aggregates():
+    conn = make_db()
+    seed(conn)
+    # Seed: Foundation qty 2 + Dune qty 1 → min=1, max=2, sum=3, avg=1.5
+    row = queries.get_sale_item_quantity_aggregates(conn)
+    assert row is not None
+    assert row.min_qty == 1
+    assert row.max_qty == 2
+    assert row.sum_qty == 3
+    assert abs(float(row.avg_qty) - 1.5) < 0.01
+
+
+def test_get_book_price_aggregates():
+    conn = make_db()
+    seed(conn)
+    # Book prices: 9.99, 7.99, 12.99, 8.99 → min=7.99, max=12.99, sum=39.96, avg=9.99
+    row = queries.get_book_price_aggregates(conn)
+    assert row is not None
+    assert abs(float(row.min_price) - 7.99) < 0.01
+    assert abs(float(row.max_price) - 12.99) < 0.01
+    assert abs(float(row.sum_price) - 39.96) < 0.01
+    assert abs(float(row.avg_price) - 9.99) < 0.01

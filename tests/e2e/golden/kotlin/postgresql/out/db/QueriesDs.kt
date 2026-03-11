@@ -132,4 +132,10 @@ class QueriesDs(private val dataSource: DataSource) {
 
     fun upsertProduct(id: java.util.UUID, sku: String, name: String, active: Boolean, tags: List<String>, stockCount: Short): Queries.UpsertProductRow? =
         dataSource.connection.use { conn -> Queries.upsertProduct(conn, id, sku, name, active, tags, stockCount) }
+
+    fun getSaleItemQuantityAggregates(): Queries.GetSaleItemQuantityAggregatesRow? =
+        dataSource.connection.use { conn -> Queries.getSaleItemQuantityAggregates(conn) }
+
+    fun getBookPriceAggregates(): Queries.GetBookPriceAggregatesRow? =
+        dataSource.connection.use { conn -> Queries.getBookPriceAggregates(conn) }
 }
