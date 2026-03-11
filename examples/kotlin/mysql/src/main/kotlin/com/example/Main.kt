@@ -10,7 +10,7 @@ private const val USER      = "sqltgen"
 private const val PASS      = "sqltgen"
 private const val ROOT_USER = "root"
 private const val ROOT_PASS = "sqltgen_root"
-private const val OPTS      = "?allowPublicKeyRetrieval=true&useSSL=false"
+private const val OPTS      = "?allowPublicKeyRetrieval=true&useSSL=false&allowMultiQueries=true"
 
 fun main() {
     val migrationsDir = System.getenv("MIGRATIONS_DIR")
@@ -35,12 +35,7 @@ fun main() {
             .filter { it.toString().endsWith(".sql") }.sorted().toList()
         DriverManager.getConnection(dbUrl, USER, PASS).use { c ->
             c.createStatement().use { s ->
-                files.forEach { f ->
-                    Files.readString(f).split(";").forEach { stmt ->
-                        val sql = stmt.trim()
-                        if (sql.isNotEmpty()) s.execute(sql)
-                    }
-                }
+                files.forEach { f -> s.execute(Files.readString(f)) }
             }
         }
         Demo.run(dbUrl)

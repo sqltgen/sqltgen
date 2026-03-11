@@ -29,12 +29,7 @@ fun main() {
             .filter { it.toString().endsWith(".sql") }.sorted().toList()
         DriverManager.getConnection(dbUrl, USER, PASS).use { c ->
             c.createStatement().use { s ->
-                files.forEach { f ->
-                    Files.readString(f).split(";").forEach { stmt ->
-                        val sql = stmt.trim()
-                        if (sql.isNotEmpty()) s.execute(sql)
-                    }
-                }
+                files.forEach { f -> s.execute(Files.readString(f)) }
             }
         }
         Demo.run(dbUrl)

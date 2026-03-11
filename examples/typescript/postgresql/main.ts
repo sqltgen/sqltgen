@@ -127,10 +127,7 @@ async function main(): Promise<void> {
       .map(f => path.join(migrationsDir, f));
     for (const f of migrationFiles) {
       const sql = fs.readFileSync(f, 'utf8');
-      for (const stmt of sql.split(';')) {
-        const s = stmt.trim();
-        if (s) await client.query(s);
-      }
+      await client.query(sql);
     }
     await run(client);
   } finally {

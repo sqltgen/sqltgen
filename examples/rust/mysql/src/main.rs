@@ -122,12 +122,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         entries.sort_by_key(|e| e.file_name());
         for entry in entries {
             let content = std::fs::read_to_string(entry.path())?;
-            for stmt in content.split(';') {
-                let stmt = stmt.trim();
-                if !stmt.is_empty() {
-                    sqlx::raw_sql(stmt).execute(&pool).await?;
-                }
-            }
+            sqlx::raw_sql(&content).execute(&pool).await?;
         }
 
         let result = run_demo(&pool).await;

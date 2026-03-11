@@ -4,6 +4,7 @@ import secrets
 from pathlib import Path
 
 import mysql.connector
+import pymysql
 
 from gen import queries
 
@@ -118,19 +119,17 @@ def main() -> None:
         cur.execute(f"GRANT ALL ON `{db_name}`.* TO '{_USER}'@'%'")
         cur.close()
 
-        mig_conn = mysql.connector.connect(
+        mig_conn = pymysql.connect(
             host=_HOST, port=_PORT,
             user=_USER, password=_PASS,
             database=db_name,
             autocommit=True,
+            client_flag=pymysql.constants.CLIENT.MULTI_STATEMENTS,
         )
         try:
             cur = mig_conn.cursor()
             for f in sorted(Path(migrations_dir).glob("*.sql")):
-                for stmt in f.read_text().split(";"):
-                    stmt = stmt.strip()
-                    if stmt:
-                        cur.execute(stmt)
+                cur.execute(f.read_text())
             cur.close()
         finally:
             mig_conn.close()

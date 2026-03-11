@@ -12,12 +12,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pool = sqlx::SqlitePool::connect("sqlite::memory:").await?;
 
     for migration in [M1, M2, M3, M4] {
-        for stmt in migration.split(';') {
-            let s = stmt.trim();
-            if !s.is_empty() {
-                sqlx::query(s).execute(&pool).await?;
-            }
-        }
+        sqlx::raw_sql(migration).execute(&pool).await?;
     }
 
     q::create_author(&pool, "Ursula K. Le Guin".into(), Some("Science fiction and fantasy author".into()), Some(1929)).await?;
