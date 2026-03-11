@@ -16,7 +16,7 @@ public class Main {
     private static final String PASS      = "sqltgen";
     private static final String ROOT_USER = "root";
     private static final String ROOT_PASS = "sqltgen_root";
-    private static final String OPTS      = "?allowPublicKeyRetrieval=true&useSSL=false";
+    private static final String OPTS      = "?allowPublicKeyRetrieval=true&useSSL=false&allowMultiQueries=true";
 
     public static void main(String[] args) throws Exception {
         String migrationsDir = System.getenv("MIGRATIONS_DIR");
@@ -57,10 +57,7 @@ public class Main {
         try (Connection c = DriverManager.getConnection(url, USER, PASS);
              Statement  s = c.createStatement()) {
             for (Path f : files) {
-                for (String stmt : Files.readString(f).split(";")) {
-                    String sql = stmt.strip();
-                    if (!sql.isEmpty()) s.execute(sql);
-                }
+                s.execute(Files.readString(f));
             }
         }
     }

@@ -8,11 +8,7 @@ from gen import queries
 def apply_migrations(conn: sqlite3.Connection) -> None:
     migrations_dir = pathlib.Path("../../common/sqlite/migrations")
     for path in sorted(migrations_dir.glob("*.sql")):
-        sql = path.read_text()
-        for stmt in sql.split(";"):
-            s = stmt.strip()
-            if s:
-                conn.execute(s)
+        conn.executescript(path.read_text())
     conn.commit()
 
 

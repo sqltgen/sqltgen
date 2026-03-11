@@ -110,10 +110,7 @@ def main() -> None:
         migration_files = sorted(Path(migrations_dir).glob("*.sql"))
         with psycopg.connect(db_url, autocommit=True) as conn:
             for f in migration_files:
-                for stmt in f.read_text().split(";"):
-                    stmt = stmt.strip()
-                    if stmt:
-                        conn.execute(stmt)
+                conn.execute(f.read_text())
         run(db_url)
     finally:
         try:

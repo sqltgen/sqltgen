@@ -13,11 +13,7 @@ function applyMigrations(db: Database.Database): void {
     .sort()
     .map(f => path.join(MIGRATIONS_DIR, f));
   for (const f of files) {
-    const sql = fs.readFileSync(f, 'utf8');
-    for (const stmt of sql.split(';')) {
-      const s = stmt.trim();
-      if (s) db.exec(s);
-    }
+    db.exec(fs.readFileSync(f, 'utf8'));
   }
 }
 

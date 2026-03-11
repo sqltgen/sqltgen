@@ -120,7 +120,7 @@ async function main(): Promise<void> {
       host: HOST, port: PORT,
       user: USER, password: PASS,
       database: dbName,
-      multipleStatements: false,
+      multipleStatements: true,
     });
     try {
       const migrationFiles = fs.readdirSync(migrationsDir)
@@ -128,11 +128,7 @@ async function main(): Promise<void> {
         .sort()
         .map(f => path.join(migrationsDir, f));
       for (const f of migrationFiles) {
-        const sql = fs.readFileSync(f, 'utf8');
-        for (const stmt of sql.split(';')) {
-          const s = stmt.trim();
-          if (s) await migConn.execute(s);
-        }
+        await migConn.query(fs.readFileSync(f, 'utf8'));
       }
     } finally {
       await migConn.end();

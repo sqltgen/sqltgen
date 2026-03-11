@@ -52,10 +52,7 @@ public class Main {
         try (Connection c = DriverManager.getConnection(url, USER, PASS);
              Statement  s = c.createStatement()) {
             for (Path f : files) {
-                for (String stmt : Files.readString(f).split(";")) {
-                    String sql = stmt.strip();
-                    if (!sql.isEmpty()) s.execute(sql);
-                }
+                s.execute(Files.readString(f));
             }
         }
     }
