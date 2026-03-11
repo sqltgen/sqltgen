@@ -2099,4 +2099,52 @@ mod tests {
         let q = &parse_queries(sql, &schema).unwrap()[0];
         assert_eq!(q.params[0].sql_type, SqlType::BigInt, "COALESCE fallback param must be typed from the first arg");
     }
+
+    fn make_json_schema() -> Schema {
+        Schema {
+            tables: vec![Table {
+                name: "docs".into(),
+                columns: vec![
+                    Column { name: "id".into(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
+                    Column { name: "data".into(), sql_type: SqlType::Jsonb, nullable: false, is_primary_key: false },
+                ],
+            }],
+        }
+    }
+
+    #[test]
+    fn test_param_type_inferred_from_json_arrow() {
+        // data -> $1 — key param must be Text (JSON field access by name).
+        let schema = make_json_schema();
+        let sql = "-- name: GetField :many\nSELECT data -> $1 FROM docs;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.params[0].sql_type, SqlType::Text, "JSON -> key param must be Text");
+    }
+
+    #[test]
+    fn test_param_type_inferred_from_json_long_arrow() {
+        // data ->> $1 — key param must be Text (JSON field access as text).
+        let schema = make_json_schema();
+        let sql = "-- name: GetFieldText :many\nSELECT data ->> $1 FROM docs;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.params[0].sql_type, SqlType::Text, "JSON ->> key param must be Text");
+    }
+
+    #[test]
+    fn test_param_type_inferred_from_json_path_arrow() {
+        // data #> $1 — path param must be Text[] (JSON path access by key array).
+        let schema = make_json_schema();
+        let sql = "-- name: GetPath :many\nSELECT data #> $1 FROM docs;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.params[0].sql_type, SqlType::Array(Box::new(SqlType::Text)), "JSON #> path param must be Text[]");
+    }
+
+    #[test]
+    fn test_param_type_inferred_from_json_contains() {
+        // data @> $1 — $1 must be Jsonb (JSONB containment; symmetric types).
+        let schema = make_json_schema();
+        let sql = "-- name: Contains :many\nSELECT id FROM docs WHERE data @> $1;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.params[0].sql_type, SqlType::Jsonb, "JSONB @> param must be Jsonb");
+    }
 }

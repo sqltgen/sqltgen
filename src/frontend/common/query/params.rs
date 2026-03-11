@@ -95,6 +95,9 @@ pub(super) fn collect_params_from_expr(expr: &Expr, ctx: &mut ResolverContext) {
                     | BinaryOperator::BitwiseXor
                     | BinaryOperator::PGBitwiseShiftLeft
                     | BinaryOperator::PGBitwiseShiftRight
+                    // JSON containment: both operands are the same JSONB type
+                    | BinaryOperator::AtArrow
+                    | BinaryOperator::ArrowAt
             ) {
                 // col OP $N
                 if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = &**right {
@@ -114,6 +117,25 @@ pub(super) fn collect_params_from_expr(expr: &Expr, ctx: &mut ResolverContext) {
                                 ctx.mapping.entry(idx).or_insert((rc.name, rc.sql_type, rc.nullable));
                             }
                         }
+                    }
+                }
+            }
+            // JSON field access: col -> $key or col ->> $key.
+            // The key is Text (field name) or Integer (array index); Text is the
+            // common case and a reasonable default when the type is unknown.
+            if matches!(op, BinaryOperator::Arrow | BinaryOperator::LongArrow) {
+                if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = &**right {
+                    if let Some(idx) = placeholder_idx(p) {
+                        ctx.mapping.entry(idx).or_insert(("key".into(), SqlType::Text, false));
+                    }
+                }
+            }
+            // JSON path access: col #> $path or col #>> $path.
+            // The path is always a Text[] array of key segments.
+            if matches!(op, BinaryOperator::HashArrow | BinaryOperator::HashLongArrow) {
+                if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = &**right {
+                    if let Some(idx) = placeholder_idx(p) {
+                        ctx.mapping.entry(idx).or_insert(("path".into(), SqlType::Array(Box::new(SqlType::Text)), false));
                     }
                 }
             }
