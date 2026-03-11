@@ -19,7 +19,13 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
 - `UNION` / `UNION ALL` / `INTERSECT` / `EXCEPT` result column typing — resolves
   result columns from the leftmost SELECT branch (SQL standard)
 - E2E snapshot test suite — 14 backend × dialect combinations with golden file comparison
-- E2E runtime tests — Rust + SQLite (in-memory) and Rust + PostgreSQL (Docker)
+- E2E runtime tests — Rust + SQLite (in-memory), Rust + PostgreSQL (Docker), and
+  Java + PostgreSQL (Docker, 10+ test methods covering IS NULL, date range, DISTINCT,
+  LEFT JOIN aggregates, ON CONFLICT upsert, EXISTS subquery, scalar subquery, COALESCE)
+- New e2e fixture queries across all three dialects: `GetAuthorsWithNullBio`,
+  `GetAuthorsWithBio`, `GetBooksPublishedBetween`, `GetDistinctGenres`,
+  `GetBooksWithSalesCount`, `CountSaleItems`; `UpsertProduct` (PostgreSQL only,
+  uses ON CONFLICT DO UPDATE RETURNING)
 
 ### Fixed
 - **Java/Kotlin**: native list strategy now correctly JSON-quotes text elements when
@@ -31,6 +37,18 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
 - Parameter type inference in ORDER BY expressions (e.g. `ORDER BY CASE WHEN id = $1 ...`)
 - Parameter type inference in HAVING, JOIN ON, LIMIT/OFFSET, IN list, and BETWEEN
   (all expression contexts now covered)
+- Parameter type inference inside `EXISTS` subqueries — params in the subquery
+  `WHERE` clause were previously untyped (defaulting to Text)
+- Parameter type inference for COALESCE fallback placeholders — `COALESCE(col, $1)`
+  now infers `$1`'s type from the first non-placeholder argument
+- Parameter type inference for `ON CONFLICT DO UPDATE SET` — params in the SET
+  assignments were previously untyped; `excluded.col` references are now resolved
+  correctly against the target table
+- Parameter type inference for arithmetic operators (`+`, `-`, `*`, `/`, `%`),
+  string concatenation (`||`), and bitwise operators (`&`, `|`, `^`, `<<`, `>>`)
+- Parameter type inference for JSON operators: `->` / `->>` (right-hand param
+  typed as `Text`), `#>` / `#>>` (right-hand param typed as `Text[]`), and
+  `@>` / `<@` (both operands typed from the JSONB column)
 - Duplicate parameter names in generated function signatures — `BETWEEN $1 AND $2`
   on the same column now produces `price, price_2` instead of `price, price`
 - Non-deterministic import ordering in Rust backend — `HashSet` replaced with sorted `Vec`
