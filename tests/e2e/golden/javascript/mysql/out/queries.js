@@ -48,6 +48,8 @@ const SQL_GET_BOOKS_PUBLISHED_BETWEEN = "SELECT id, title, genre, price, publish
 const SQL_GET_DISTINCT_GENRES = "SELECT DISTINCT genre FROM book ORDER BY genre";
 const SQL_GET_BOOKS_WITH_SALES_COUNT = "SELECT b.id, b.title, b.genre,        COALESCE(SUM(si.quantity), 0) AS total_quantity FROM book b LEFT JOIN sale_item si ON si.book_id = b.id GROUP BY b.id, b.title, b.genre ORDER BY total_quantity DESC, b.title";
 const SQL_COUNT_SALE_ITEMS = "SELECT COUNT(*) AS item_count FROM sale_item WHERE sale_id = ?";
+const SQL_GET_SALE_ITEM_QUANTITY_AGGREGATES = "SELECT MIN(quantity)  AS min_qty,        MAX(quantity)  AS max_qty,        SUM(quantity)  AS sum_qty,        AVG(quantity)  AS avg_qty FROM sale_item";
+const SQL_GET_BOOK_PRICE_AGGREGATES = "SELECT MIN(price)  AS min_price,        MAX(price)  AS max_price,        SUM(price)  AS sum_price,        AVG(price)  AS avg_price FROM book";
 
 /**
  * @param {Connection} db
@@ -613,5 +615,39 @@ export async function getBooksWithSalesCount(db) {
  */
 export async function countSaleItems(db, saleId) {
   const [rows] = await db.execute(SQL_COUNT_SALE_ITEMS, [saleId]);
+  return (rows[0]) ?? null;
+}
+
+/**
+ * @typedef {Object} GetSaleItemQuantityAggregatesRow
+ * @property {number | null} min_qty
+ * @property {number | null} max_qty
+ * @property {number | null} sum_qty
+ * @property {number | null} avg_qty
+ */
+
+/**
+ * @param {Connection} db
+ * @returns {Promise<GetSaleItemQuantityAggregatesRow | null>}
+ */
+export async function getSaleItemQuantityAggregates(db) {
+  const [rows] = await db.execute(SQL_GET_SALE_ITEM_QUANTITY_AGGREGATES, []);
+  return (rows[0]) ?? null;
+}
+
+/**
+ * @typedef {Object} GetBookPriceAggregatesRow
+ * @property {number | null} min_price
+ * @property {number | null} max_price
+ * @property {number | null} sum_price
+ * @property {number | null} avg_price
+ */
+
+/**
+ * @param {Connection} db
+ * @returns {Promise<GetBookPriceAggregatesRow | null>}
+ */
+export async function getBookPriceAggregates(db) {
+  const [rows] = await db.execute(SQL_GET_BOOK_PRICE_AGGREGATES, []);
   return (rows[0]) ?? null;
 }

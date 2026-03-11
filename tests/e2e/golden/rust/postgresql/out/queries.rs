@@ -209,6 +209,22 @@ pub struct UpsertProductRow {
     pub stock_count: i16,
 }
 
+#[derive(Debug, sqlx::FromRow)]
+pub struct GetSaleItemQuantityAggregatesRow {
+    pub min_qty: Option<i32>,
+    pub max_qty: Option<i32>,
+    pub sum_qty: Option<i64>,
+    pub avg_qty: Option<rust_decimal::Decimal>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct GetBookPriceAggregatesRow {
+    pub min_price: Option<rust_decimal::Decimal>,
+    pub max_price: Option<rust_decimal::Decimal>,
+    pub sum_price: Option<rust_decimal::Decimal>,
+    pub avg_price: Option<rust_decimal::Decimal>,
+}
+
 pub async fn create_author(pool: &PgPool, name: String, bio: Option<String>, birth_year: Option<i32>) -> Result<Option<Author>, sqlx::Error> {
     sqlx::query_as::<_, Author>("INSERT INTO author (name, bio, birth_year) VALUES ($1, $2, $3) RETURNING *")
         .bind(name)
@@ -525,6 +541,18 @@ pub async fn upsert_product(pool: &PgPool, id: uuid::Uuid, sku: String, name: St
         .bind(active)
         .bind(tags)
         .bind(stock_count)
+        .fetch_optional(pool)
+        .await
+}
+
+pub async fn get_sale_item_quantity_aggregates(pool: &PgPool) -> Result<Option<GetSaleItemQuantityAggregatesRow>, sqlx::Error> {
+    sqlx::query_as::<_, GetSaleItemQuantityAggregatesRow>("SELECT MIN(quantity)  AS min_qty,        MAX(quantity)  AS max_qty,        SUM(quantity)  AS sum_qty,        AVG(quantity)  AS avg_qty FROM sale_item")
+        .fetch_optional(pool)
+        .await
+}
+
+pub async fn get_book_price_aggregates(pool: &PgPool) -> Result<Option<GetBookPriceAggregatesRow>, sqlx::Error> {
+    sqlx::query_as::<_, GetBookPriceAggregatesRow>("SELECT MIN(price)  AS min_price,        MAX(price)  AS max_price,        SUM(price)  AS sum_price,        AVG(price)  AS avg_price FROM book")
         .fetch_optional(pool)
         .await
 }

@@ -174,6 +174,22 @@ pub struct CountSaleItemsRow {
     pub item_count: i64,
 }
 
+#[derive(Debug, sqlx::FromRow)]
+pub struct GetSaleItemQuantityAggregatesRow {
+    pub min_qty: Option<i32>,
+    pub max_qty: Option<i32>,
+    pub sum_qty: Option<i64>,
+    pub avg_qty: Option<f64>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct GetBookPriceAggregatesRow {
+    pub min_price: Option<f64>,
+    pub max_price: Option<f64>,
+    pub sum_price: Option<f64>,
+    pub avg_price: Option<f64>,
+}
+
 pub async fn create_author(pool: &SqlitePool, name: String, bio: Option<String>, birth_year: Option<i32>) -> Result<(), sqlx::Error> {
     sqlx::query("INSERT INTO author (name, bio, birth_year) VALUES (?, ?, ?)")
         .bind(name)
@@ -446,6 +462,64 @@ pub async fn get_books_with_sales_count(pool: &SqlitePool) -> Result<Vec<GetBook
 pub async fn count_sale_items(pool: &SqlitePool, sale_id: i32) -> Result<Option<CountSaleItemsRow>, sqlx::Error> {
     sqlx::query_as::<_, CountSaleItemsRow>("SELECT COUNT(*) AS item_count FROM sale_item WHERE sale_id = ?")
         .bind(sale_id)
+        .fetch_optional(pool)
+        .await
+}
+
+pub async fn update_author_bio(pool: &SqlitePool, bio: Option<String>, id: i32) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE author SET bio = ? WHERE id = ?")
+        .bind(bio)
+        .bind(id)
+        .execute(pool)
+        .await
+        .map(|_| ())
+}
+
+pub async fn delete_author(pool: &SqlitePool, id: i32) -> Result<(), sqlx::Error> {
+    sqlx::query("DELETE FROM author WHERE id = ?")
+        .bind(id)
+        .execute(pool)
+        .await
+        .map(|_| ())
+}
+
+pub async fn insert_product(pool: &SqlitePool, id: String, sku: String, name: String, active: i32, weight_kg: Option<f32>, rating: Option<f32>, metadata: Option<String>, thumbnail: Option<Vec<u8>>, stock_count: i32) -> Result<(), sqlx::Error> {
+    sqlx::query("INSERT INTO product (id, sku, name, active, weight_kg, rating, metadata, thumbnail, stock_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .bind(id)
+        .bind(sku)
+        .bind(name)
+        .bind(active)
+        .bind(weight_kg)
+        .bind(rating)
+        .bind(metadata)
+        .bind(thumbnail)
+        .bind(stock_count)
+        .execute(pool)
+        .await
+        .map(|_| ())
+}
+
+pub async fn upsert_product(pool: &SqlitePool, id: String, sku: String, name: String, active: i32, metadata: Option<String>, stock_count: i32) -> Result<(), sqlx::Error> {
+    sqlx::query("INSERT INTO product (id, sku, name, active, metadata, stock_count) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE     SET name        = EXCLUDED.name,         active      = EXCLUDED.active,         metadata    = EXCLUDED.metadata,         stock_count = EXCLUDED.stock_count")
+        .bind(id)
+        .bind(sku)
+        .bind(name)
+        .bind(active)
+        .bind(metadata)
+        .bind(stock_count)
+        .execute(pool)
+        .await
+        .map(|_| ())
+}
+
+pub async fn get_sale_item_quantity_aggregates(pool: &SqlitePool) -> Result<Option<GetSaleItemQuantityAggregatesRow>, sqlx::Error> {
+    sqlx::query_as::<_, GetSaleItemQuantityAggregatesRow>("SELECT MIN(quantity)  AS min_qty,        MAX(quantity)  AS max_qty,        SUM(quantity)  AS sum_qty,        AVG(quantity)  AS avg_qty FROM sale_item")
+        .fetch_optional(pool)
+        .await
+}
+
+pub async fn get_book_price_aggregates(pool: &SqlitePool) -> Result<Option<GetBookPriceAggregatesRow>, sqlx::Error> {
+    sqlx::query_as::<_, GetBookPriceAggregatesRow>("SELECT MIN(price)  AS min_price,        MAX(price)  AS max_price,        SUM(price)  AS sum_price,        AVG(price)  AS avg_price FROM book")
         .fetch_optional(pool)
         .await
 }

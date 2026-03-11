@@ -266,3 +266,17 @@ ON CONFLICT (id) DO UPDATE
         active      = EXCLUDED.active,
         metadata    = EXCLUDED.metadata,
         stock_count = EXCLUDED.stock_count;
+
+-- name: GetSaleItemQuantityAggregates :one
+SELECT MIN(quantity)  AS min_qty,
+       MAX(quantity)  AS max_qty,
+       SUM(quantity)  AS sum_qty,
+       AVG(quantity)  AS avg_qty
+FROM sale_item;
+
+-- name: GetBookPriceAggregates :one
+SELECT MIN(price)  AS min_price,
+       MAX(price)  AS max_price,
+       SUM(price)  AS sum_price,
+       AVG(price)  AS avg_price
+FROM book;

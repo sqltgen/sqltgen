@@ -50,6 +50,8 @@ const SQL_GET_DISTINCT_GENRES = "SELECT DISTINCT genre FROM book ORDER BY genre"
 const SQL_GET_BOOKS_WITH_SALES_COUNT = "SELECT b.id, b.title, b.genre,        COALESCE(SUM(si.quantity), 0) AS total_quantity FROM book b LEFT JOIN sale_item si ON si.book_id = b.id GROUP BY b.id, b.title, b.genre ORDER BY total_quantity DESC, b.title";
 const SQL_COUNT_SALE_ITEMS = "SELECT COUNT(*) AS item_count FROM sale_item WHERE sale_id = $1";
 const SQL_UPSERT_PRODUCT = "INSERT INTO product (id, sku, name, active, tags, stock_count) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO UPDATE     SET name        = EXCLUDED.name,         active      = EXCLUDED.active,         tags        = EXCLUDED.tags,         stock_count = EXCLUDED.stock_count RETURNING id, sku, name, active, tags, stock_count";
+const SQL_GET_SALE_ITEM_QUANTITY_AGGREGATES = "SELECT MIN(quantity)  AS min_qty,        MAX(quantity)  AS max_qty,        SUM(quantity)  AS sum_qty,        AVG(quantity)  AS avg_qty FROM sale_item";
+const SQL_GET_BOOK_PRICE_AGGREGATES = "SELECT MIN(price)  AS min_price,        MAX(price)  AS max_price,        SUM(price)  AS sum_price,        AVG(price)  AS avg_price FROM book";
 
 export async function createAuthor(db: ClientBase, name: string, bio: string | null, birthYear: number | null): Promise<Author | null> {
   const result = await db.query<Author>(SQL_CREATE_AUTHOR, [name, bio, birthYear]);
@@ -440,5 +442,29 @@ export interface UpsertProductRow {
 
 export async function upsertProduct(db: ClientBase, id: string, sku: string, name: string, active: boolean, tags: string[], stockCount: number): Promise<UpsertProductRow | null> {
   const result = await db.query<UpsertProductRow>(SQL_UPSERT_PRODUCT, [id, sku, name, active, tags, stockCount]);
+  return result.rows[0] ?? null;
+}
+
+export interface GetSaleItemQuantityAggregatesRow {
+  min_qty: number | null;
+  max_qty: number | null;
+  sum_qty: number | null;
+  avg_qty: number | null;
+}
+
+export async function getSaleItemQuantityAggregates(db: ClientBase): Promise<GetSaleItemQuantityAggregatesRow | null> {
+  const result = await db.query<GetSaleItemQuantityAggregatesRow>(SQL_GET_SALE_ITEM_QUANTITY_AGGREGATES, []);
+  return result.rows[0] ?? null;
+}
+
+export interface GetBookPriceAggregatesRow {
+  min_price: number | null;
+  max_price: number | null;
+  sum_price: number | null;
+  avg_price: number | null;
+}
+
+export async function getBookPriceAggregates(db: ClientBase): Promise<GetBookPriceAggregatesRow | null> {
+  const result = await db.query<GetBookPriceAggregatesRow>(SQL_GET_BOOK_PRICE_AGGREGATES, []);
   return result.rows[0] ?? null;
 }

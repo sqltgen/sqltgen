@@ -586,3 +586,31 @@ describe('scalar aggregate queries', () => {
     assert.equal(row.item_count, 0);
   });
 });
+
+// ─── MIN/MAX/SUM/AVG aggregate tests ─────────────────────────────────────────
+
+describe('MIN/MAX/SUM/AVG aggregate queries', () => {
+  it('getSaleItemQuantityAggregates returns correct aggregates', async () => {
+    const db = makeDb();
+    await seed(db);
+    // Seed: Foundation qty 2 + Dune qty 1 → min=1, max=2, sum=3, avg=1.5
+    const row = await queries.getSaleItemQuantityAggregates(db);
+    assert.ok(row !== null);
+    assert.equal(row!.min_qty, 1);
+    assert.equal(row!.max_qty, 2);
+    assert.equal(row!.sum_qty, 3);
+    assert.ok(Math.abs((row!.avg_qty as number) - 1.5) < 0.01);
+  });
+
+  it('getBookPriceAggregates returns correct aggregates', async () => {
+    const db = makeDb();
+    await seed(db);
+    // Book prices: 9.99, 7.99, 12.99, 8.99 → min=7.99, max=12.99, sum=39.96, avg=9.99
+    const row = await queries.getBookPriceAggregates(db);
+    assert.ok(row !== null);
+    assert.ok(Math.abs((row!.min_price as number) - 7.99) < 0.01);
+    assert.ok(Math.abs((row!.max_price as number) - 12.99) < 0.01);
+    assert.ok(Math.abs((row!.sum_price as number) - 39.96) < 0.01);
+    assert.ok(Math.abs((row!.avg_price as number) - 9.99) < 0.01);
+  });
+});

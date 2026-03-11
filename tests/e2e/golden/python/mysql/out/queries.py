@@ -51,6 +51,8 @@ SQL_GET_BOOKS_PUBLISHED_BETWEEN = "SELECT id, title, genre, price, published_at 
 SQL_GET_DISTINCT_GENRES = "SELECT DISTINCT genre FROM book ORDER BY genre"
 SQL_GET_BOOKS_WITH_SALES_COUNT = "SELECT b.id, b.title, b.genre,        COALESCE(SUM(si.quantity), 0) AS total_quantity FROM book b LEFT JOIN sale_item si ON si.book_id = b.id GROUP BY b.id, b.title, b.genre ORDER BY total_quantity DESC, b.title"
 SQL_COUNT_SALE_ITEMS = "SELECT COUNT(*) AS item_count FROM sale_item WHERE sale_id = %s"
+SQL_GET_SALE_ITEM_QUANTITY_AGGREGATES = "SELECT MIN(quantity)  AS min_qty,        MAX(quantity)  AS max_qty,        SUM(quantity)  AS sum_qty,        AVG(quantity)  AS avg_qty FROM sale_item"
+SQL_GET_BOOK_PRICE_AGGREGATES = "SELECT MIN(price)  AS min_price,        MAX(price)  AS max_price,        SUM(price)  AS sum_price,        AVG(price)  AS avg_price FROM book"
 
 
 def create_author(conn: mysql.connector.MySQLConnection, name: str, bio: str | None, birth_year: int | None) -> None:
@@ -468,3 +470,37 @@ def count_sale_items(conn: mysql.connector.MySQLConnection, sale_id: int) -> Cou
         if row is None:
             return None
         return CountSaleItemsRow(*row)
+
+
+@dataclasses.dataclass
+class GetSaleItemQuantityAggregatesRow:
+    min_qty: int | None
+    max_qty: int | None
+    sum_qty: decimal.Decimal | None
+    avg_qty: float | None
+
+
+def get_sale_item_quantity_aggregates(conn: mysql.connector.MySQLConnection) -> GetSaleItemQuantityAggregatesRow | None:
+    with conn.cursor() as cur:
+        cur.execute(SQL_GET_SALE_ITEM_QUANTITY_AGGREGATES)
+        row = cur.fetchone()
+        if row is None:
+            return None
+        return GetSaleItemQuantityAggregatesRow(*row)
+
+
+@dataclasses.dataclass
+class GetBookPriceAggregatesRow:
+    min_price: decimal.Decimal | None
+    max_price: decimal.Decimal | None
+    sum_price: decimal.Decimal | None
+    avg_price: decimal.Decimal | None
+
+
+def get_book_price_aggregates(conn: mysql.connector.MySQLConnection) -> GetBookPriceAggregatesRow | None:
+    with conn.cursor() as cur:
+        cur.execute(SQL_GET_BOOK_PRICE_AGGREGATES)
+        row = cur.fetchone()
+        if row is None:
+            return None
+        return GetBookPriceAggregatesRow(*row)

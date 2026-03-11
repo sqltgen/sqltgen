@@ -284,13 +284,25 @@ fn resolve_function(
         // ── Aggregates ───────────────────────────────────────────────
         "COUNT" => Some(ResultColumn { name: "count".into(), sql_type: SqlType::BigInt, nullable: false }),
         "SUM" => resolve_func_first_arg(func, alias_map, all_tables, config).map(|rc| {
+            // Integer inputs are widened to avoid overflow; other types are preserved.
             let promoted = match rc.sql_type {
                 SqlType::SmallInt | SqlType::Integer => config.sum_integer_type.clone(),
+                SqlType::BigInt => config.sum_bigint_type.clone(),
                 other => other,
             };
             ResultColumn { sql_type: promoted, nullable: true, ..rc }
         }),
-        "MIN" | "MAX" | "AVG" => resolve_func_first_arg(func, alias_map, all_tables, config).map(|rc| ResultColumn { nullable: true, ..rc }),
+        "MIN" | "MAX" => resolve_func_first_arg(func, alias_map, all_tables, config)
+            .map(|rc| ResultColumn { nullable: true, ..rc }),
+        "AVG" => resolve_func_first_arg(func, alias_map, all_tables, config).map(|rc| {
+            // Averaging integers produces a fractional result; widen to the
+            // dialect-specific fractional type (Decimal for PG, Double for MySQL/SQLite).
+            let promoted = match rc.sql_type {
+                SqlType::SmallInt | SqlType::Integer | SqlType::BigInt => config.avg_integer_type.clone(),
+                other => other,
+            };
+            ResultColumn { sql_type: promoted, nullable: true, ..rc }
+        }),
 
         // ── String functions → Text ──────────────────────────────────
         "UPPER" | "LOWER" | "TRIM" | "LTRIM" | "RTRIM" | "REPLACE" | "SUBSTR" | "SUBSTRING" | "CONCAT" | "LEFT" | "RIGHT" | "LPAD" | "RPAD" | "REVERSE"

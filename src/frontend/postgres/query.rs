@@ -1,14 +1,20 @@
 use sqlparser::dialect::PostgreSqlDialect;
 
 use crate::frontend::common::query::{parse_queries_with_config, ResolverConfig};
-use crate::ir::{Query, Schema};
+use crate::ir::{Query, Schema, SqlType};
 
 pub(crate) fn parse_queries(sql: &str, schema: &Schema) -> anyhow::Result<Vec<Query>> {
     parse_queries_with_config(
         &PostgreSqlDialect {},
         sql,
         schema,
-        &ResolverConfig { typemap: crate::frontend::postgres::typemap::map, ..ResolverConfig::default() },
+        &ResolverConfig {
+            typemap: crate::frontend::postgres::typemap::map,
+            // PG: SUM(bigint) → numeric, AVG(integer/bigint) → numeric
+            sum_bigint_type: SqlType::Decimal,
+            avg_integer_type: SqlType::Decimal,
+            ..ResolverConfig::default()
+        },
     )
 }
 

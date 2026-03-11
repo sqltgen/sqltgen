@@ -696,4 +696,38 @@ object Queries {
             }
         }
     }
+
+    data class GetSaleItemQuantityAggregatesRow(
+        val minQty: Int?,
+        val maxQty: Int?,
+        val sumQty: Long?,
+        val avgQty: java.math.BigDecimal?
+    )
+
+    private const val SQL_GET_SALE_ITEM_QUANTITY_AGGREGATES = "SELECT MIN(quantity)  AS min_qty,        MAX(quantity)  AS max_qty,        SUM(quantity)  AS sum_qty,        AVG(quantity)  AS avg_qty FROM sale_item;"
+    fun getSaleItemQuantityAggregates(conn: Connection): GetSaleItemQuantityAggregatesRow? {
+        conn.prepareStatement(SQL_GET_SALE_ITEM_QUANTITY_AGGREGATES).use { ps ->
+            ps.executeQuery().use { rs ->
+                if (!rs.next()) return null
+                return GetSaleItemQuantityAggregatesRow(rs.getObject(1, java.lang.Integer::class.java)?.toInt(), rs.getObject(2, java.lang.Integer::class.java)?.toInt(), rs.getObject(3, java.lang.Long::class.java)?.toLong(), rs.getBigDecimal(4))
+            }
+        }
+    }
+
+    data class GetBookPriceAggregatesRow(
+        val minPrice: java.math.BigDecimal?,
+        val maxPrice: java.math.BigDecimal?,
+        val sumPrice: java.math.BigDecimal?,
+        val avgPrice: java.math.BigDecimal?
+    )
+
+    private const val SQL_GET_BOOK_PRICE_AGGREGATES = "SELECT MIN(price)  AS min_price,        MAX(price)  AS max_price,        SUM(price)  AS sum_price,        AVG(price)  AS avg_price FROM book;"
+    fun getBookPriceAggregates(conn: Connection): GetBookPriceAggregatesRow? {
+        conn.prepareStatement(SQL_GET_BOOK_PRICE_AGGREGATES).use { ps ->
+            ps.executeQuery().use { rs ->
+                if (!rs.next()) return null
+                return GetBookPriceAggregatesRow(rs.getBigDecimal(1), rs.getBigDecimal(2), rs.getBigDecimal(3), rs.getBigDecimal(4))
+            }
+        }
+    }
 }

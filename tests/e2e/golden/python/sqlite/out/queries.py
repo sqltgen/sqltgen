@@ -49,6 +49,12 @@ SQL_GET_BOOKS_PUBLISHED_BETWEEN = "SELECT id, title, genre, price, published_at 
 SQL_GET_DISTINCT_GENRES = "SELECT DISTINCT genre FROM book ORDER BY genre"
 SQL_GET_BOOKS_WITH_SALES_COUNT = "SELECT b.id, b.title, b.genre,        COALESCE(SUM(si.quantity), 0) AS total_quantity FROM book b LEFT JOIN sale_item si ON si.book_id = b.id GROUP BY b.id, b.title, b.genre ORDER BY total_quantity DESC, b.title"
 SQL_COUNT_SALE_ITEMS = "SELECT COUNT(*) AS item_count FROM sale_item WHERE sale_id = ?"
+SQL_UPDATE_AUTHOR_BIO = "UPDATE author SET bio = ? WHERE id = ?"
+SQL_DELETE_AUTHOR = "DELETE FROM author WHERE id = ?"
+SQL_INSERT_PRODUCT = "INSERT INTO product (id, sku, name, active, weight_kg, rating, metadata, thumbnail, stock_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+SQL_UPSERT_PRODUCT = "INSERT INTO product (id, sku, name, active, metadata, stock_count) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE     SET name        = EXCLUDED.name,         active      = EXCLUDED.active,         metadata    = EXCLUDED.metadata,         stock_count = EXCLUDED.stock_count"
+SQL_GET_SALE_ITEM_QUANTITY_AGGREGATES = "SELECT MIN(quantity)  AS min_qty,        MAX(quantity)  AS max_qty,        SUM(quantity)  AS sum_qty,        AVG(quantity)  AS avg_qty FROM sale_item"
+SQL_GET_BOOK_PRICE_AGGREGATES = "SELECT MIN(price)  AS min_price,        MAX(price)  AS max_price,        SUM(price)  AS sum_price,        AVG(price)  AS avg_price FROM book"
 
 
 def create_author(conn: sqlite3.Connection, name: str, bio: str | None, birth_year: int | None) -> None:
@@ -386,3 +392,49 @@ def count_sale_items(conn: sqlite3.Connection, sale_id: int) -> CountSaleItemsRo
     if row is None:
         return None
     return CountSaleItemsRow(*row)
+
+
+def update_author_bio(conn: sqlite3.Connection, bio: str | None, id: int) -> None:
+    conn.execute(SQL_UPDATE_AUTHOR_BIO, (bio, id))
+
+
+def delete_author(conn: sqlite3.Connection, id: int) -> None:
+    conn.execute(SQL_DELETE_AUTHOR, (id,))
+
+
+def insert_product(conn: sqlite3.Connection, id: str, sku: str, name: str, active: int, weight_kg: float | None, rating: float | None, metadata: str | None, thumbnail: bytes | None, stock_count: int) -> None:
+    conn.execute(SQL_INSERT_PRODUCT, (id, sku, name, active, weight_kg, rating, metadata, thumbnail, stock_count))
+
+
+def upsert_product(conn: sqlite3.Connection, id: str, sku: str, name: str, active: int, metadata: str | None, stock_count: int) -> None:
+    conn.execute(SQL_UPSERT_PRODUCT, (id, sku, name, active, metadata, stock_count))
+
+
+@dataclasses.dataclass
+class GetSaleItemQuantityAggregatesRow:
+    min_qty: int | None
+    max_qty: int | None
+    sum_qty: int | None
+    avg_qty: float | None
+
+
+def get_sale_item_quantity_aggregates(conn: sqlite3.Connection) -> GetSaleItemQuantityAggregatesRow | None:
+    row = conn.execute(SQL_GET_SALE_ITEM_QUANTITY_AGGREGATES).fetchone()
+    if row is None:
+        return None
+    return GetSaleItemQuantityAggregatesRow(*row)
+
+
+@dataclasses.dataclass
+class GetBookPriceAggregatesRow:
+    min_price: decimal.Decimal | None
+    max_price: decimal.Decimal | None
+    sum_price: decimal.Decimal | None
+    avg_price: decimal.Decimal | None
+
+
+def get_book_price_aggregates(conn: sqlite3.Connection) -> GetBookPriceAggregatesRow | None:
+    row = conn.execute(SQL_GET_BOOK_PRICE_AGGREGATES).fetchone()
+    if row is None:
+        return None
+    return GetBookPriceAggregatesRow(*row)
