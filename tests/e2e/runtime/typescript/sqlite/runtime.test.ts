@@ -101,6 +101,151 @@ describe(':many queries', () => {
   });
 });
 
+// ─── CreateBook tests ─────────────────────────────────────────────────────────
+
+describe('createBook queries', () => {
+  it('createBook inserts a row', async () => {
+    const db = makeDb();
+    await seed(db);
+    await queries.createBook(db, 1, 'New Book', 'mystery', 14.50, null);
+    const book = await queries.getBook(db, 5);
+    assert.ok(book);
+    assert.equal(book.title, 'New Book');
+    assert.equal(book.genre, 'mystery');
+  });
+});
+
+// ─── CreateCustomer / CreateSale / AddSaleItem tests ──────────────────────────
+
+describe('createCustomer / createSale / addSaleItem queries', () => {
+  it('createCustomer inserts a row', async () => {
+    const db = makeDb();
+    await queries.createCustomer(db, 'Bob', 'bob@example.com');
+    const count = db.prepare('SELECT COUNT(*) as c FROM customer WHERE name = ?').get('Bob') as { c: number };
+    assert.equal(count.c, 1);
+  });
+
+  it('createSale inserts a sale row', async () => {
+    const db = makeDb();
+    await seed(db);
+    await queries.createSale(db, 1);
+    const count = db.prepare('SELECT COUNT(*) as c FROM sale WHERE customer_id = ?').get(1) as { c: number };
+    assert.equal(count.c, 2);
+  });
+
+  it('addSaleItem inserts without error', async () => {
+    const db = makeDb();
+    await seed(db);
+    await queries.addSaleItem(db, 1, 4, 1, 8.99);
+    const count = db.prepare('SELECT COUNT(*) as c FROM sale_item WHERE sale_id = ?').get(1) as { c: number };
+    assert.equal(count.c, 3);
+  });
+});
+
+// ─── CASE / COALESCE tests ────────────────────────────────────────────────────
+
+describe('CASE / COALESCE queries', () => {
+  it('getBookPriceLabel returns price label for each book', async () => {
+    const db = makeDb();
+    await seed(db);
+    const rows = await queries.getBookPriceLabel(db, 10);
+    assert.equal(rows.length, 4);
+    const dune = rows.find(r => r.title === 'Dune');
+    assert.ok(dune);
+    assert.equal(dune.price_label, 'expensive');
+    const earthsea = rows.find(r => r.title === 'Earthsea');
+    assert.ok(earthsea);
+    assert.equal(earthsea.price_label, 'affordable');
+  });
+
+  it('getBookPriceOrDefault returns effective price', async () => {
+    const db = makeDb();
+    await seed(db);
+    const rows = await queries.getBookPriceOrDefault(db, 0);
+    assert.equal(rows.length, 4);
+    assert.ok(rows.every(r => (r.effective_price as number) > 0));
+  });
+});
+
+// ─── Product type coverage ────────────────────────────────────────────────────
+
+describe('product queries', () => {
+  it('getProduct returns the inserted product', async () => {
+    const db = makeDb();
+    db.prepare('INSERT INTO product (id, sku, name, active, stock_count) VALUES (?, ?, ?, ?, ?)')
+      .run('prod-001', 'SKU-001', 'Widget', 1, 5);
+    const row = await queries.getProduct(db, 'prod-001');
+    assert.ok(row);
+    assert.equal(row.id, 'prod-001');
+    assert.equal(row.name, 'Widget');
+    assert.equal(row.stock_count, 5);
+  });
+
+  it('listActiveProducts filters by active flag', async () => {
+    const db = makeDb();
+    db.prepare('INSERT INTO product (id, sku, name, active, stock_count) VALUES (?, ?, ?, ?, ?)')
+      .run('act-1', 'ACT-1', 'Active', 1, 10);
+    db.prepare('INSERT INTO product (id, sku, name, active, stock_count) VALUES (?, ?, ?, ?, ?)')
+      .run('inact-1', 'INACT-1', 'Inactive', 0, 0);
+    const active = await queries.listActiveProducts(db, 1);
+    assert.equal(active.length, 1);
+    assert.equal(active[0].name, 'Active');
+    const inactive = await queries.listActiveProducts(db, 0);
+    assert.equal(inactive.length, 1);
+    assert.equal(inactive[0].name, 'Inactive');
+  });
+});
+
+// ─── UpdateAuthorBio / DeleteAuthor tests (new fixture queries) ────────────────
+
+describe('updateAuthorBio / deleteAuthor queries', () => {
+  it('updateAuthorBio updates the row', async () => {
+    const db = makeDb();
+    await seed(db);
+    await queries.updateAuthorBio(db, 'Updated bio', 1);
+    const author = await queries.getAuthor(db, 1);
+    assert.ok(author);
+    assert.equal(author.bio, 'Updated bio');
+  });
+
+  it('deleteAuthor removes the row', async () => {
+    const db = makeDb();
+    await queries.createAuthor(db, 'Temp', null, null);
+    await queries.deleteAuthor(db, 1);
+    assert.equal(await queries.getAuthor(db, 1), null);
+  });
+});
+
+// ─── InsertProduct / UpsertProduct tests (new fixture queries) ────────────────
+
+describe('insertProduct / upsertProduct queries', () => {
+  it('insertProduct inserts a product row', async () => {
+    const db = makeDb();
+    const pid = 'test-insert-product-1';
+    await queries.insertProduct(db, pid, 'SKU-NEW', 'Gadget', 1, null, null, null, null, 7);
+    const row = await queries.getProduct(db, pid);
+    assert.ok(row);
+    assert.equal(row.name, 'Gadget');
+    assert.equal(row.stock_count, 7);
+  });
+
+  it('upsertProduct inserts then updates on conflict', async () => {
+    const db = makeDb();
+    const pid = 'test-upsert-product-1';
+    await queries.upsertProduct(db, pid, 'SKU-UP', 'Thing', 1, null, 10);
+    const row = await queries.getProduct(db, pid);
+    assert.ok(row);
+    assert.equal(row.name, 'Thing');
+    assert.equal(row.stock_count, 10);
+
+    await queries.upsertProduct(db, pid, 'SKU-UP', 'Thing Pro', 1, null, 20);
+    const updated = await queries.getProduct(db, pid);
+    assert.ok(updated);
+    assert.equal(updated.name, 'Thing Pro');
+    assert.equal(updated.stock_count, 20);
+  });
+});
+
 // ─── :exec tests ──────────────────────────────────────────────────────────────
 
 describe(':exec queries', () => {

@@ -132,6 +132,136 @@ describe(':many queries', () => {
   });
 });
 
+// ─── UpdateAuthorBio / DeleteAuthor tests ─────────────────────────────────────
+
+describe('updateAuthorBio / deleteAuthor queries', () => {
+  it('updateAuthorBio updates and returns the row', async () => {
+    const { client, schema } = await makeClient();
+    try {
+      await seed(client);
+      const updated = await queries.updateAuthorBio(client, 'Updated bio', 1);
+      assert.ok(updated);
+      assert.equal(updated.name, 'Asimov');
+      assert.equal(updated.bio, 'Updated bio');
+    } finally { await teardown(client, schema); }
+  });
+
+  it('deleteAuthor removes the row and returns it', async () => {
+    const { client, schema } = await makeClient();
+    try {
+      const author = await queries.createAuthor(client, 'Temp', null, null);
+      assert.ok(author);
+      const deleted = await queries.deleteAuthor(client, author.id);
+      assert.ok(deleted);
+      assert.equal(deleted.name, 'Temp');
+      assert.equal(await queries.getAuthor(client, author.id), null);
+    } finally { await teardown(client, schema); }
+  });
+});
+
+// ─── CreateBook / AddSaleItem tests ───────────────────────────────────────────
+
+describe('createBook / addSaleItem queries', () => {
+  it('createBook inserts and returns the row', async () => {
+    const { client, schema } = await makeClient();
+    try {
+      await seed(client);
+      const book = await queries.createBook(client, 1, 'New Book', 'mystery', 14.50, null);
+      assert.ok(book);
+      assert.equal(book.title, 'New Book');
+      assert.equal(book.genre, 'mystery');
+      assert.equal(book.published_at, null);
+    } finally { await teardown(client, schema); }
+  });
+
+  it('addSaleItem inserts without error', async () => {
+    const { client, schema } = await makeClient();
+    try {
+      await seed(client);
+      // Add Earthsea (book 4) to sale 1
+      await queries.addSaleItem(client, 1, 4, 1, 8.99);
+      const { rows } = await client.query('SELECT COUNT(*) FROM sale_item WHERE sale_id = 1');
+      assert.equal(Number(rows[0].count), 3);
+    } finally { await teardown(client, schema); }
+  });
+});
+
+// ─── CASE / COALESCE tests ────────────────────────────────────────────────────
+
+describe('CASE / COALESCE queries', () => {
+  it('getBookPriceLabel returns price label for each book', async () => {
+    const { client, schema } = await makeClient();
+    try {
+      await seed(client);
+      const rows = await queries.getBookPriceLabel(client, 10);
+      assert.equal(rows.length, 4);
+      const dune = rows.find(r => r.title === 'Dune');
+      assert.ok(dune);
+      assert.equal(dune.price_label, 'expensive');
+      const earthsea = rows.find(r => r.title === 'Earthsea');
+      assert.ok(earthsea);
+      assert.equal(earthsea.price_label, 'affordable');
+    } finally { await teardown(client, schema); }
+  });
+
+  it('getBookPriceOrDefault returns effective price', async () => {
+    const { client, schema } = await makeClient();
+    try {
+      await seed(client);
+      const rows = await queries.getBookPriceOrDefault(client, 0);
+      assert.equal(rows.length, 4);
+      assert.ok(rows.every(r => Number(r.effective_price) > 0));
+    } finally { await teardown(client, schema); }
+  });
+});
+
+// ─── Product type coverage ────────────────────────────────────────────────────
+
+describe('product queries', () => {
+  it('getProduct returns the inserted product', async () => {
+    const { client, schema } = await makeClient();
+    try {
+      const productId = '00000000-0000-0000-0000-000000000002';
+      await queries.insertProduct(client, productId, 'SKU-002', 'Widget', true,
+        1.5, 4.7, ['tag1'], null, null, 5);
+      const row = await queries.getProduct(client, productId);
+      assert.ok(row);
+      assert.equal(row.id, productId);
+      assert.equal(row.name, 'Widget');
+      assert.equal(row.stock_count, 5);
+    } finally { await teardown(client, schema); }
+  });
+
+  it('listActiveProducts filters by active flag', async () => {
+    const { client, schema } = await makeClient();
+    try {
+      await queries.insertProduct(client, '00000000-0000-0000-0000-000000000010',
+        'ACT-1', 'Active', true, null, null, [], null, null, 10);
+      await queries.insertProduct(client, '00000000-0000-0000-0000-000000000011',
+        'INACT-1', 'Inactive', false, null, null, [], null, null, 0);
+      const active = await queries.listActiveProducts(client, true);
+      assert.equal(active.length, 1);
+      assert.equal(active[0].name, 'Active');
+      const inactive = await queries.listActiveProducts(client, false);
+      assert.equal(inactive.length, 1);
+      assert.equal(inactive[0].name, 'Inactive');
+    } finally { await teardown(client, schema); }
+  });
+
+  it('insertProduct inserts and returns full row', async () => {
+    const { client, schema } = await makeClient();
+    try {
+      const productId = '00000000-0000-0000-0000-000000000003';
+      const product = await queries.insertProduct(client, productId, 'SKU-003', 'Gadget', true,
+        null, null, ['electronics'], null, null, 20);
+      assert.ok(product);
+      assert.equal(product.id, productId);
+      assert.equal(product.name, 'Gadget');
+      assert.equal(product.stock_count, 20);
+    } finally { await teardown(client, schema); }
+  });
+});
+
 // ─── :exec tests ──────────────────────────────────────────────────────────────
 
 describe(':exec queries', () => {
@@ -143,6 +273,31 @@ describe(':exec queries', () => {
       assert.equal(author.name, 'Test');
       assert.equal(author.bio, null);
       assert.equal(author.birth_year, null);
+    } finally { await teardown(client, schema); }
+  });
+});
+
+// ─── CreateCustomer / CreateSale tests ───────────────────────────────────────
+
+describe('createCustomer / createSale queries', () => {
+  it('createCustomer inserts and returns the row', async () => {
+    const { client, schema } = await makeClient();
+    try {
+      const cust = await queries.createCustomer(client, 'Solo', 'solo@example.com');
+      assert.ok(cust);
+      assert.equal(cust.name, 'Solo');
+      assert.ok(cust.id > 0);
+    } finally { await teardown(client, schema); }
+  });
+
+  it('createSale inserts and returns the row', async () => {
+    const { client, schema } = await makeClient();
+    try {
+      const cust = await queries.createCustomer(client, 'Solo', 'solo@example.com');
+      assert.ok(cust);
+      const sale = await queries.createSale(client, cust.id);
+      assert.ok(sale);
+      assert.ok(sale.id > 0);
     } finally { await teardown(client, schema); }
   });
 });

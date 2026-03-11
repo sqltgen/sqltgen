@@ -246,3 +246,23 @@ ORDER BY total_quantity DESC, b.title;
 SELECT COUNT(*) AS item_count
 FROM sale_item
 WHERE sale_id = ?1;
+
+-- name: UpdateAuthorBio :exec
+-- @bio null
+UPDATE author SET bio = @bio WHERE id = @id;
+
+-- name: DeleteAuthor :exec
+DELETE FROM author WHERE id = @id;
+
+-- name: InsertProduct :exec
+INSERT INTO product (id, sku, name, active, weight_kg, rating, metadata, thumbnail, stock_count)
+VALUES (@id, @sku, @name, @active, @weight_kg, @rating, @metadata, @thumbnail, @stock_count);
+
+-- name: UpsertProduct :exec
+INSERT INTO product (id, sku, name, active, metadata, stock_count)
+VALUES (@id, @sku, @name, @active, @metadata, @stock_count)
+ON CONFLICT (id) DO UPDATE
+    SET name        = EXCLUDED.name,
+        active      = EXCLUDED.active,
+        metadata    = EXCLUDED.metadata,
+        stock_count = EXCLUDED.stock_count;

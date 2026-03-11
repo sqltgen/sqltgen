@@ -111,6 +111,168 @@ def test_list_books_by_genre_or_all():
     assert len(sci_fi) == 3
 
 
+# ─── CreateBook tests ─────────────────────────────────────────────────────────
+
+def test_create_book():
+    conn = make_db()
+    seed(conn)
+    queries.create_book(conn, 1, "New Book", "mystery", decimal.Decimal("14.50"), None)
+    conn.commit()
+    book = queries.get_book(conn, 5)
+    assert book is not None
+    assert book.title == "New Book"
+    assert book.genre == "mystery"
+
+
+# ─── CreateCustomer tests ─────────────────────────────────────────────────────
+
+def test_create_customer():
+    conn = make_db()
+    queries.create_customer(conn, "Bob", "bob@example.com")
+    conn.commit()
+    count = conn.execute("SELECT COUNT(*) FROM customer WHERE name = 'Bob'").fetchone()[0]
+    assert count == 1
+
+
+# ─── CreateSale tests ─────────────────────────────────────────────────────────
+
+def test_create_sale():
+    conn = make_db()
+    queries.create_author(conn, "Alice", None, None)
+    queries.create_customer(conn, "Alice", "alice@example.com")
+    conn.commit()
+    queries.create_sale(conn, 1)
+    conn.commit()
+    count = conn.execute("SELECT COUNT(*) FROM sale WHERE customer_id = 1").fetchone()[0]
+    assert count == 1
+
+
+# ─── AddSaleItem tests ────────────────────────────────────────────────────────
+
+def test_add_sale_item():
+    conn = make_db()
+    seed(conn)
+    # Add Earthsea (book 4) to sale 1
+    queries.add_sale_item(conn, 1, 4, 1, decimal.Decimal("8.99"))
+    conn.commit()
+    count = conn.execute("SELECT COUNT(*) FROM sale_item WHERE sale_id = 1").fetchone()[0]
+    assert count == 3
+
+
+# ─── CASE / COALESCE tests ────────────────────────────────────────────────────
+
+def test_get_book_price_label():
+    conn = make_db()
+    seed(conn)
+    rows = queries.get_book_price_label(conn, decimal.Decimal("10.00"))
+    assert len(rows) == 4
+    dune = next(r for r in rows if r.title == "Dune")
+    assert dune.price_label == "expensive"
+    earthsea = next(r for r in rows if r.title == "Earthsea")
+    assert earthsea.price_label == "affordable"
+
+
+def test_get_book_price_or_default():
+    conn = make_db()
+    seed(conn)
+    rows = queries.get_book_price_or_default(conn, decimal.Decimal("0.00"))
+    assert len(rows) == 4
+    assert all(r.effective_price > 0 for r in rows)
+
+
+# ─── Product type coverage ────────────────────────────────────────────────────
+
+def test_get_product():
+    conn = make_db()
+    import uuid
+    pid = str(uuid.uuid4())
+    conn.execute(
+        "INSERT INTO product (id, sku, name, active, stock_count) VALUES (?, ?, ?, ?, ?)",
+        (pid, "SKU-001", "Widget", 1, 5),
+    )
+    conn.commit()
+    row = queries.get_product(conn, pid)
+    assert row is not None
+    assert row.id == pid
+    assert row.name == "Widget"
+    assert row.stock_count == 5
+
+
+def test_list_active_products():
+    conn = make_db()
+    import uuid
+    pid1, pid2 = str(uuid.uuid4()), str(uuid.uuid4())
+    conn.execute(
+        "INSERT INTO product (id, sku, name, active, stock_count) VALUES (?, ?, ?, ?, ?)",
+        (pid1, "ACT-1", "Active", 1, 10),
+    )
+    conn.execute(
+        "INSERT INTO product (id, sku, name, active, stock_count) VALUES (?, ?, ?, ?, ?)",
+        (pid2, "INACT-1", "Inactive", 0, 0),
+    )
+    conn.commit()
+    active = queries.list_active_products(conn, 1)
+    assert len(active) == 1
+    assert active[0].name == "Active"
+    inactive = queries.list_active_products(conn, 0)
+    assert len(inactive) == 1
+    assert inactive[0].name == "Inactive"
+
+
+# ─── UpdateAuthorBio / DeleteAuthor tests (new fixture queries) ───────────────
+
+def test_update_author_bio():
+    conn = make_db()
+    seed(conn)
+    queries.update_author_bio(conn, "Updated bio", 1)
+    conn.commit()
+    author = queries.get_author(conn, 1)
+    assert author is not None
+    assert author.bio == "Updated bio"
+
+
+def test_delete_author():
+    conn = make_db()
+    queries.create_author(conn, "Temp", None, None)
+    conn.commit()
+    queries.delete_author(conn, 1)
+    conn.commit()
+    assert queries.get_author(conn, 1) is None
+
+
+# ─── InsertProduct / UpsertProduct tests (new fixture queries) ────────────────
+
+def test_insert_product():
+    conn = make_db()
+    import uuid
+    pid = str(uuid.uuid4())
+    queries.insert_product(conn, pid, "SKU-NEW", "Gadget", 1, None, None, None, None, 7)
+    conn.commit()
+    row = queries.get_product(conn, pid)
+    assert row is not None
+    assert row.name == "Gadget"
+    assert row.stock_count == 7
+
+
+def test_upsert_product():
+    conn = make_db()
+    import uuid
+    pid = str(uuid.uuid4())
+    queries.upsert_product(conn, pid, "SKU-UP", "Thing", 1, None, 10)
+    conn.commit()
+    row = queries.get_product(conn, pid)
+    assert row is not None
+    assert row.name == "Thing"
+    assert row.stock_count == 10
+
+    queries.upsert_product(conn, pid, "SKU-UP", "Thing Pro", 1, None, 20)
+    conn.commit()
+    updated = queries.get_product(conn, pid)
+    assert updated is not None
+    assert updated.name == "Thing Pro"
+    assert updated.stock_count == 20
+
+
 # ─── :exec tests ──────────────────────────────────────────────────────────────
 
 def test_create_author_exec():

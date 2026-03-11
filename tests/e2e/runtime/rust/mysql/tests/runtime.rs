@@ -77,6 +77,215 @@ async fn seed(pool: &MySqlPool) {
     queries::add_sale_item(pool, 1, 3, 1, price_1299).await.unwrap();
 }
 
+// ─── :exec tests (write operations without RETURNING) ────────────────────────
+
+#[tokio::test]
+async fn test_create_author_exec() {
+    let (pool, db) = setup_db().await;
+
+    queries::create_author(&pool, "Test".into(), None, None).await.unwrap();
+
+    let author = queries::get_author(&pool, 1).await.unwrap().unwrap();
+    assert_eq!(author.name, "Test");
+    assert!(author.bio.is_none());
+
+    teardown(pool, &db).await;
+}
+
+#[tokio::test]
+async fn test_update_author_bio_exec() {
+    let (pool, db) = setup_db().await;
+    seed(&pool).await;
+
+    queries::update_author_bio(&pool, Some("Updated bio".into()), 1).await.unwrap();
+
+    let author = queries::get_author(&pool, 1).await.unwrap().unwrap();
+    assert_eq!(author.bio, Some("Updated bio".into()));
+
+    teardown(pool, &db).await;
+}
+
+#[tokio::test]
+async fn test_delete_author_exec() {
+    let (pool, db) = setup_db().await;
+    queries::create_author(&pool, "Temp".into(), None, None).await.unwrap();
+
+    queries::delete_author(&pool, 1).await.unwrap();
+
+    let gone = queries::get_author(&pool, 1).await.unwrap();
+    assert!(gone.is_none());
+
+    teardown(pool, &db).await;
+}
+
+#[tokio::test]
+async fn test_create_book_exec() {
+    let (pool, db) = setup_db().await;
+    seed(&pool).await;
+
+    queries::create_book(
+        &pool, 1, "New Book".into(), "mystery".into(),
+        Decimal::from_str("14.50").unwrap(), None,
+    ).await.unwrap();
+
+    let book = queries::get_book(&pool, 5).await.unwrap().unwrap();
+    assert_eq!(book.title, "New Book");
+    assert_eq!(book.genre, "mystery");
+
+    teardown(pool, &db).await;
+}
+
+#[tokio::test]
+async fn test_create_customer_exec() {
+    let (pool, db) = setup_db().await;
+
+    queries::create_customer(&pool, "Bob".into(), "bob@example.com".into()).await.unwrap();
+
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM customer WHERE name = 'Bob'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 1);
+
+    teardown(pool, &db).await;
+}
+
+#[tokio::test]
+async fn test_create_sale_exec() {
+    let (pool, db) = setup_db().await;
+    seed(&pool).await;
+
+    queries::create_sale(&pool, 1).await.unwrap();
+
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sale WHERE customer_id = 1")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 2);
+
+    teardown(pool, &db).await;
+}
+
+#[tokio::test]
+async fn test_add_sale_item_exec() {
+    let (pool, db) = setup_db().await;
+    seed(&pool).await;
+
+    // Add sale_item for Earthsea (book 4) to sale 1
+    queries::add_sale_item(
+        &pool, 1, 4, 1, Decimal::from_str("8.99").unwrap(),
+    ).await.unwrap();
+
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sale_item WHERE sale_id = 1")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 3);
+
+    teardown(pool, &db).await;
+}
+
+// ─── CASE / COALESCE tests ────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_get_book_price_label() {
+    let (pool, db) = setup_db().await;
+    seed(&pool).await;
+
+    let rows = queries::get_book_price_label(&pool, Decimal::from_str("10.00").unwrap())
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 4);
+
+    let dune = rows.iter().find(|r| r.title == "Dune").unwrap();
+    assert_eq!(dune.price_label, "expensive");
+
+    let earthsea = rows.iter().find(|r| r.title == "Earthsea").unwrap();
+    assert_eq!(earthsea.price_label, "affordable");
+
+    teardown(pool, &db).await;
+}
+
+#[tokio::test]
+async fn test_get_book_price_or_default() {
+    let (pool, db) = setup_db().await;
+    seed(&pool).await;
+
+    let rows = queries::get_book_price_or_default(
+        &pool, Some(Decimal::from_str("0.00").unwrap()),
+    ).await.unwrap();
+    assert_eq!(rows.len(), 4);
+    // All seeded books have non-null prices
+    assert!(rows.iter().all(|r| r.effective_price > Decimal::ZERO));
+
+    teardown(pool, &db).await;
+}
+
+// ─── Product type coverage ────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn test_get_product_mysql() {
+    let (pool, db) = setup_db().await;
+
+    let pid = uuid::Uuid::new_v4().to_string();
+    sqlx::query(
+        "INSERT INTO product (id, sku, name, active, stock_count) VALUES (?, ?, ?, ?, ?)"
+    )
+    .bind(&pid)
+    .bind("SKU-001")
+    .bind("Widget")
+    .bind(true)
+    .bind(10i16)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let row = queries::get_product(&pool, pid.clone()).await.unwrap().unwrap();
+    assert_eq!(row.id, pid);
+    assert_eq!(row.name, "Widget");
+
+    teardown(pool, &db).await;
+}
+
+#[tokio::test]
+async fn test_list_active_products_mysql() {
+    let (pool, db) = setup_db().await;
+
+    sqlx::query(
+        "INSERT INTO product (id, sku, name, active, stock_count) VALUES (?, ?, ?, ?, ?)"
+    )
+    .bind(uuid::Uuid::new_v4().to_string())
+    .bind("ACT-1")
+    .bind("Active")
+    .bind(true)
+    .bind(10i16)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    sqlx::query(
+        "INSERT INTO product (id, sku, name, active, stock_count) VALUES (?, ?, ?, ?, ?)"
+    )
+    .bind(uuid::Uuid::new_v4().to_string())
+    .bind("INACT-1")
+    .bind("Inactive")
+    .bind(false)
+    .bind(0i16)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let active = queries::list_active_products(&pool, true).await.unwrap();
+    assert_eq!(active.len(), 1);
+    assert_eq!(active[0].name, "Active");
+
+    let inactive = queries::list_active_products(&pool, false).await.unwrap();
+    assert_eq!(inactive.len(), 1);
+    assert_eq!(inactive[0].name, "Inactive");
+
+    teardown(pool, &db).await;
+}
+
 // ─── :one tests ───────────────────────────────────────────────────────────────
 
 #[tokio::test]

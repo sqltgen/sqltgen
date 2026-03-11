@@ -569,6 +569,45 @@ class RuntimeTest {
         assertEquals((short) 10, result.stockCount());
     }
 
+    // ─── CreateCustomer / CreateSale tests ───────────────────────────────
+
+    @Test
+    void testCreateCustomer() throws SQLException {
+        var cust = Queries.createCustomer(conn, "Solo", "solo@example.com").orElseThrow();
+        assertEquals("Solo", cust.name());
+        assertTrue(cust.id() > 0);
+    }
+
+    @Test
+    void testCreateSale() throws SQLException {
+        var cust = Queries.createCustomer(conn, "Solo", "solo@example.com").orElseThrow();
+        var sale = Queries.createSale(conn, cust.id()).orElseThrow();
+        assertTrue(sale.id() > 0);
+    }
+
+    // ─── GetProduct / InsertProduct standalone tests ──────────────────────
+
+    @Test
+    void testGetProduct() throws SQLException {
+        var id = UUID.randomUUID();
+        Queries.insertProduct(conn, id, "SKU-GET", "GetWidget",
+            true, null, null, List.of(), null, null, (short) 3);
+        var row = Queries.getProduct(conn, id).orElseThrow();
+        assertEquals(id, row.id());
+        assertEquals("GetWidget", row.name());
+        assertEquals((short) 3, row.stockCount());
+    }
+
+    @Test
+    void testInsertProduct() throws SQLException {
+        var id = UUID.randomUUID();
+        var product = Queries.insertProduct(conn, id, "SKU-INS", "InsWidget",
+            true, 1.5f, 3.5, List.of("tag"), null, null, (short) 7).orElseThrow();
+        assertEquals(id, product.id());
+        assertEquals("InsWidget", product.name());
+        assertEquals((short) 7, product.stockCount());
+    }
+
     // ─── Existing untested query coverage ────────────────────────────────
 
     @Test
