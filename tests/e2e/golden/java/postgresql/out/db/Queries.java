@@ -505,7 +505,7 @@ public final class Queries {
     public record GetBookWithAuthorNameRow(
         long id,
         String title,
-        Object authorName
+        String authorName
     ) {}
 
     private static final String SQL_GET_BOOK_WITH_AUTHOR_NAME =
@@ -514,7 +514,7 @@ public final class Queries {
         try (PreparedStatement ps = conn.prepareStatement(SQL_GET_BOOK_WITH_AUTHOR_NAME)) {
             List<GetBookWithAuthorNameRow> rows = new ArrayList<>();
             try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) rows.add(new GetBookWithAuthorNameRow(rs.getLong(1), rs.getString(2), rs.getObject(3)));
+                while (rs.next()) rows.add(new GetBookWithAuthorNameRow(rs.getLong(1), rs.getString(2), rs.getString(3)));
             }
             return rows;
         }

@@ -180,7 +180,7 @@ fn build_select_body(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, select: &Se
         return unresolved_query(ann, sql);
     }
     let alias_map = build_alias_map(&all_tables);
-    let result_columns = resolve_projection(select, &alias_map, &all_tables, config);
+    let result_columns = resolve_projection(select, &alias_map, &all_tables, config, schema);
     let params = {
         let mut mapping = HashMap::new();
         collect_cte_params(q.with.as_ref(), schema, config, &mut mapping);
@@ -207,7 +207,7 @@ fn build_set_operation(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, body: &Se
                 return vec![];
             }
             let alias_map = build_alias_map(&all_tables);
-            resolve_projection(select, &alias_map, &all_tables, config)
+            resolve_projection(select, &alias_map, &all_tables, config, schema)
         })
         .unwrap_or_default();
 
@@ -508,7 +508,7 @@ fn collect_insert_value_params(ins: &Insert, schema: &Schema, mapping: &mut Hash
 
 // ─── Table collection ─────────────────────────────────────────────────────────
 
-fn collect_from_tables(select: &Select, schema: &Schema, ctes: &[Table], config: &ResolverConfig) -> Vec<(Table, Option<String>)> {
+pub(super) fn collect_from_tables(select: &Select, schema: &Schema, ctes: &[Table], config: &ResolverConfig) -> Vec<(Table, Option<String>)> {
     let mut tables = Vec::new();
     for twj in &select.from {
         let base_idx = tables.len();
@@ -577,7 +577,7 @@ fn collect_table_factor(factor: &TableFactor, schema: &Schema, ctes: &[Table], o
     }
 }
 
-fn build_alias_map(tables: &[(Table, Option<String>)]) -> HashMap<String, &Table> {
+pub(super) fn build_alias_map(tables: &[(Table, Option<String>)]) -> HashMap<String, &Table> {
     let mut map = HashMap::new();
     for (table, alias) in tables {
         map.insert(table.name.clone(), table);
@@ -643,7 +643,7 @@ fn derived_cols(subquery: &SqlQuery, schema: &Schema, ctes: &[Table], config: &R
     let alias_map = build_alias_map(&inner_tables);
 
     // Reuse resolve_projection and convert ResultColumn → Column (no PK flag for derived tables).
-    resolve_projection(select, &alias_map, &inner_tables, config)
+    resolve_projection(select, &alias_map, &inner_tables, config, schema)
         .into_iter()
         .map(|rc| Column { name: rc.name, sql_type: rc.sql_type, nullable: rc.nullable, is_primary_key: false })
         .collect()
@@ -902,6 +902,21 @@ mod tests {
         let names: Vec<_> = q.result_columns.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names, ["id", "name"]);
         assert_eq!(q.params.len(), 0);
+    }
+
+    #[test]
+    fn correlated_scalar_subquery_resolves_to_inner_column_type() {
+        // (SELECT p.title FROM posts p WHERE p.user_id = u.id) AS post_title
+        // The inner column `p.title` is TEXT; the result should be Option<Text>.
+        // Before the fix, the generator fell back to Custom("expr") → serde_json::Value.
+        let sql = "-- name: GetUserPost :one\n\
+            SELECT u.name, \
+                   (SELECT p.title FROM posts p WHERE p.user_id = u.id) AS post_title \
+            FROM users u WHERE u.id = $1;";
+        let q = &parse_queries(sql, &make_join_schema()).unwrap()[0];
+        let post_col = q.result_columns.iter().find(|c| c.name == "post_title").unwrap();
+        assert_eq!(post_col.sql_type, SqlType::Text, "scalar subquery should resolve to inner column type");
+        assert!(post_col.nullable, "scalar subquery is always nullable");
     }
 
     #[test]

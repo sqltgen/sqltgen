@@ -7,7 +7,6 @@ import psycopg
 import decimal
 import datetime
 import uuid
-from typing import Any
 
 from .author import Author
 from .book import Book
@@ -389,7 +388,7 @@ def get_books_with_recent_sales(conn: psycopg.Connection, ordered_at: datetime.d
 class GetBookWithAuthorNameRow:
     id: int
     title: str
-    author_name: Any | None
+    author_name: str | None
 
 
 def get_book_with_author_name(conn: psycopg.Connection) -> list[GetBookWithAuthorNameRow]:

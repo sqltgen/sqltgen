@@ -9,12 +9,12 @@
 use std::collections::HashMap;
 
 use sqlparser::ast::{
-    BinaryOperator, DataType, Expr, FunctionArg, FunctionArgExpr, FunctionArguments, ObjectNamePart, Select, SelectItem, SelectItemQualifiedWildcardKind,
-    UnaryOperator, Value, ValueWithSpan,
+    BinaryOperator, DataType, Expr, FunctionArg, FunctionArgExpr, FunctionArguments, ObjectNamePart, Query as SqlQuery, Select, SelectItem,
+    SelectItemQualifiedWildcardKind, SetExpr, UnaryOperator, Value, ValueWithSpan,
 };
 
 use crate::frontend::common::ident_to_str;
-use crate::ir::{Column, ResultColumn, SqlType, Table};
+use crate::ir::{Column, ResultColumn, Schema, SqlType, Table};
 
 use super::ResolverConfig;
 
@@ -29,6 +29,7 @@ pub(super) fn resolve_projection(
     alias_map: &HashMap<String, &Table>,
     all_tables: &[(Table, Option<String>)],
     config: &ResolverConfig,
+    schema: &Schema,
 ) -> Vec<ResultColumn> {
     let mut result = Vec::new();
     for item in &select.projection {
@@ -54,7 +55,8 @@ pub(super) fn resolve_projection(
             },
             SelectItem::ExprWithAlias { expr, alias } => {
                 let name = ident_to_str(alias);
-                match resolve_expr(expr, alias_map, all_tables, config) {
+                let resolved = resolve_expr(expr, alias_map, all_tables, config).or_else(|| resolve_scalar_subquery_expr(expr, all_tables, schema, config));
+                match resolved {
                     Some(rc) => result.push(ResultColumn { name, ..rc }),
                     None => result.push(ResultColumn { name, sql_type: SqlType::Custom("expr".into()), nullable: true }),
                 }
@@ -62,6 +64,31 @@ pub(super) fn resolve_projection(
         }
     }
     result
+}
+
+/// Resolve a scalar subquery expression (`(SELECT col FROM t WHERE …) AS alias`)
+/// to a typed [`ResultColumn`]. Returns `None` if the expression is not a
+/// subquery or the inner projection cannot be resolved.
+///
+/// Scalar subqueries are always nullable because they return `NULL` when the
+/// inner query produces no rows.
+fn resolve_scalar_subquery_expr(expr: &Expr, outer_tables: &[(Table, Option<String>)], schema: &Schema, config: &ResolverConfig) -> Option<ResultColumn> {
+    let Expr::Subquery(inner_query) = expr else { return None };
+    resolve_scalar_subquery(inner_query, outer_tables, schema, config)
+}
+
+/// Resolve the first result column of a scalar subquery against the combined
+/// inner and outer table scopes.
+fn resolve_scalar_subquery(inner_query: &SqlQuery, outer_tables: &[(Table, Option<String>)], schema: &Schema, config: &ResolverConfig) -> Option<ResultColumn> {
+    let SetExpr::Select(inner_select) = inner_query.body.as_ref() else { return None };
+    // Collect the subquery's own FROM tables and merge with outer scope so that
+    // correlated references (e.g. `b.author_id` from the outer query) resolve.
+    let mut combined = super::collect_from_tables(inner_select, schema, &[], config);
+    combined.extend(outer_tables.iter().cloned());
+    let alias_map = super::build_alias_map(&combined);
+    let cols = resolve_projection(inner_select, &alias_map, &combined, config, schema);
+    // Scalar subquery returns NULL when the inner query has no rows.
+    cols.into_iter().next().map(|rc| ResultColumn { nullable: true, ..rc })
 }
 
 /// Returns the wider of two numeric SQL types (for arithmetic result type promotion).

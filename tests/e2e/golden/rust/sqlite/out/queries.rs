@@ -116,7 +116,7 @@ pub struct GetBooksWithRecentSalesRow {
 pub struct GetBookWithAuthorNameRow {
     pub id: i32,
     pub title: String,
-    pub author_name: Option<serde_json::Value>,
+    pub author_name: Option<String>,
 }
 
 #[derive(Debug, sqlx::FromRow)]

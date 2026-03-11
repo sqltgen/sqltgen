@@ -112,7 +112,7 @@ fn emit_kotlin_scalar_query(src: &mut String, ctx: &QueryContext) -> anyhow::Res
     writeln!(src, "    private const val {sql_const} = \"{escaped};\"")?;
     writeln!(src, "    fun {}({}): {} {{", to_camel_case(&ctx.query.name), ctx.params_sig, ctx.return_type)?;
     writeln!(src, "        conn.prepareStatement({sql_const}).use {{ ps ->")?;
-    emit_jdbc_binds(src, ctx.query, "", SE)?;
+    emit_jdbc_binds(src, ctx.query, "", SE, "toTypedArray()")?;
     emit_kotlin_result_block(src, ctx.query, ctx.schema)?;
     writeln!(src, "        }}")?;
     writeln!(src, "    }}")?;
@@ -129,7 +129,7 @@ fn emit_kotlin_list_pg_native(src: &mut String, ctx: &QueryContext, lp: &Paramet
     let type_name = pg_array_type_name(&lp.sql_type);
     writeln!(src, "        val arr = conn.createArrayOf(\"{type_name}\", {lp_name}.toTypedArray())")?;
     writeln!(src, "        conn.prepareStatement({sql_const}).use {{ ps ->")?;
-    emit_jdbc_binds(src, ctx.query, "arr", SE)?;
+    emit_jdbc_binds(src, ctx.query, "arr", SE, "toTypedArray()")?;
     emit_kotlin_result_block(src, ctx.query, ctx.schema)?;
     writeln!(src, "        }}")?;
     writeln!(src, "    }}")?;
@@ -167,7 +167,7 @@ fn emit_kotlin_list_json_native(src: &mut String, ctx: &QueryContext, lp: &Param
     writeln!(src, "    fun {method_name}({}): {} {{", ctx.params_sig, ctx.return_type)?;
     emit_kotlin_json_builder(src, lp)?;
     writeln!(src, "        conn.prepareStatement({sql_const}).use {{ ps ->")?;
-    emit_jdbc_binds(src, ctx.query, "json", SE)?;
+    emit_jdbc_binds(src, ctx.query, "json", SE, "toTypedArray()")?;
     emit_kotlin_result_block(src, ctx.query, ctx.schema)?;
     writeln!(src, "        }}")?;
     writeln!(src, "    }}")?;
@@ -867,7 +867,7 @@ mod tests {
         };
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.kt");
-        assert!(src.contains("createArrayOf(\"text\", tags.toArray())"), "should create JDBC array: {src}");
+        assert!(src.contains("createArrayOf(\"text\", tags.toTypedArray())"), "should create JDBC array: {src}");
         assert!(src.contains("ps.setArray(1,"), "should bind array param via setArray: {src}");
     }
 
