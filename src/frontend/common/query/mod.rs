@@ -2049,6 +2049,24 @@ mod tests {
     }
 
     #[test]
+    fn test_param_type_inferred_from_bitwise_op() {
+        // id & $mask — $mask must be typed BigInt from the bitwise-and context.
+        let schema = make_schema();
+        let sql = "-- name: Mask :many\nSELECT id FROM users WHERE id & $1 > 0;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.params[0].sql_type, SqlType::BigInt, "$1 in bitwise op must be typed from column");
+    }
+
+    #[test]
+    fn test_param_type_inferred_from_string_concat() {
+        // name || $1 — $1 must be Text from the string-concat context.
+        let schema = make_schema();
+        let sql = "-- name: Search :many\nSELECT id FROM users WHERE name = name || $1;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.params[0].sql_type, SqlType::Text, "$1 in string concat must be Text");
+    }
+
+    #[test]
     fn test_param_type_inferred_from_on_conflict_set() {
         // $2 (increment) is only referenced in the ON CONFLICT SET clause, not in VALUES.
         // build_insert used to map params by col_names position, which would either
