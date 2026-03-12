@@ -235,10 +235,7 @@ fn select_wildcard_source(
             &all_tables[0].0
         },
         SelectItem::QualifiedWildcard(SelectItemQualifiedWildcardKind::ObjectName(name), _) => {
-            let qualifier = name
-                .0
-                .last()
-                .and_then(|p| if let ObjectNamePart::Identifier(i) = p { Some(ident_to_str(i)) } else { None })?;
+            let qualifier = name.0.last().and_then(|p| if let ObjectNamePart::Identifier(i) = p { Some(ident_to_str(i)) } else { None })?;
             alias_map.get(&qualifier).copied()?
         },
         _ => return None,
@@ -246,11 +243,7 @@ fn select_wildcard_source(
 
     // Direct schema table: present in schema and not made nullable by an outer join.
     if let Some(schema_table) = schema.tables.iter().find(|t| t.name == table_in_scope.name) {
-        let made_nullable = schema_table
-            .columns
-            .iter()
-            .zip(&table_in_scope.columns)
-            .any(|(sc, rc)| !sc.nullable && rc.nullable);
+        let made_nullable = schema_table.columns.iter().zip(&table_in_scope.columns).any(|(sc, rc)| !sc.nullable && rc.nullable);
         return if made_nullable { None } else { Some(schema_table.name.clone()) };
     }
 
@@ -266,13 +259,7 @@ fn select_wildcard_source(
 /// Resolves recursively, so `WITH b AS (SELECT * FROM a), a AS (SELECT * FROM t)`
 /// and `SELECT * FROM (SELECT * FROM (SELECT * FROM t) AS inner) AS outer` both
 /// trace back to `t` correctly.
-fn build_source_provenance(
-    with: Option<&With>,
-    from: &[TableWithJoins],
-    schema: &Schema,
-    ctes: &[Table],
-    config: &ResolverConfig,
-) -> HashMap<String, String> {
+fn build_source_provenance(with: Option<&With>, from: &[TableWithJoins], schema: &Schema, ctes: &[Table], config: &ResolverConfig) -> HashMap<String, String> {
     let mut provenance: HashMap<String, String> = HashMap::new();
 
     // CTE pass — process in declaration order so each CTE can see earlier ones.
@@ -282,8 +269,7 @@ fn build_source_provenance(
             let cte_name = ident_to_str(&cte.alias.name);
             if let SetExpr::Select(select) = cte.query.body.as_ref() {
                 // Recursively resolve provenance within this CTE's own body.
-                let inner_prov =
-                    build_source_provenance(cte.query.with.as_ref(), &select.from, schema, &cte_tables, config);
+                let inner_prov = build_source_provenance(cte.query.with.as_ref(), &select.from, schema, &cte_tables, config);
                 // Merge: outer provenance (earlier CTEs) + inner (this CTE's internals).
                 let mut merged = provenance.clone();
                 merged.extend(inner_prov);
@@ -308,8 +294,7 @@ fn build_source_provenance(
         if let TableFactor::Derived { subquery, alias: Some(a), .. } = &twj.relation {
             let alias_name = ident_to_str(&a.name);
             if let SetExpr::Select(select) = subquery.body.as_ref() {
-                let inner_prov =
-                    build_source_provenance(subquery.with.as_ref(), &select.from, schema, ctes, config);
+                let inner_prov = build_source_provenance(subquery.with.as_ref(), &select.from, schema, ctes, config);
                 let mut merged = provenance.clone();
                 merged.extend(inner_prov);
                 let all_tables = collect_from_tables(select, schema, ctes, config);
@@ -2496,6 +2481,51 @@ mod tests {
         let sql = "-- name: ListUsers :many\nSELECT u.* FROM users u INNER JOIN posts p ON u.id = p.user_id;";
         let q = &parse_queries(sql, &make_join_schema()).unwrap()[0];
         assert_eq!(q.source_table.as_deref(), Some("users"));
+    }
+
+    /// `SELECT * FROM (SELECT * FROM users) AS sub` — derived table wrapping a
+    /// wildcard select → source_table must resolve to "users".
+    #[test]
+    fn test_source_table_derived_table() {
+        let sql = "-- name: GetUser :one\nSELECT * FROM (SELECT * FROM users) AS sub;";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        assert_eq!(q.source_table, Some("users".into()));
+    }
+
+    /// `WITH tmp AS (SELECT * FROM users) SELECT * FROM tmp` — single CTE
+    /// whose body is a wildcard select → source_table must resolve to "users".
+    #[test]
+    fn test_source_table_cte() {
+        let sql = "-- name: GetUser :one\nWITH tmp AS (SELECT * FROM users) SELECT * FROM tmp;";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        assert_eq!(q.source_table, Some("users".into()));
+    }
+
+    /// `WITH a AS (SELECT * FROM users), b AS (SELECT * FROM a) SELECT * FROM b` —
+    /// chained CTEs where each wildcards the previous → source_table must resolve to "users".
+    #[test]
+    fn test_source_table_chained_ctes() {
+        let sql = "-- name: GetUser :one\nWITH a AS (SELECT * FROM users), b AS (SELECT * FROM a) SELECT * FROM b;";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        assert_eq!(q.source_table, Some("users".into()));
+    }
+
+    /// Three levels of nested derived tables all selecting `*` → source_table must
+    /// resolve to "users".
+    #[test]
+    fn test_source_table_triple_nested_derived() {
+        let sql = "-- name: GetUser :one\nSELECT * FROM (SELECT * FROM (SELECT * FROM (SELECT * FROM users) AS a) AS b) AS c;";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        assert_eq!(q.source_table, Some("users".into()));
+    }
+
+    /// CTE whose body selects explicit columns (not `*`) → the inner select has
+    /// no single source_table, so the outer wildcard cannot be resolved → None.
+    #[test]
+    fn test_source_table_cte_non_wildcard_inner() {
+        let sql = "-- name: GetUser :one\nWITH tmp AS (SELECT id, name FROM users) SELECT * FROM tmp;";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        assert_eq!(q.source_table, None);
     }
 
     /// `SELECT u.* FROM posts p LEFT JOIN users u ON u.id = p.user_id` —
