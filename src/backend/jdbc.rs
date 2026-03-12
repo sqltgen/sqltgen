@@ -1,9 +1,8 @@
 use std::fmt::Write;
 
-use crate::backend::common::{
-    infer_row_type_name, infer_table, jdbc_bind_sequence, jdbc_setter, mysql_json_table_col_type, pg_array_type_name, replace_list_in_clause,
-    rewrite_to_anon_params, split_at_in_clause, sql_const_name, to_camel_case, to_pascal_case,
-};
+use crate::backend::common::{infer_row_type_name, infer_table, jdbc_bind_sequence, jdbc_setter, mysql_json_table_col_type, pg_array_type_name, sql_const_name};
+use crate::backend::naming::{to_camel_case, to_pascal_case};
+use crate::backend::sql_rewrite::{replace_list_in_clause, rewrite_to_anon_params, split_at_in_clause};
 use crate::config::{Engine, ListParamStrategy};
 use crate::ir::{Parameter, Query, QueryCmd, Schema, SqlType};
 
