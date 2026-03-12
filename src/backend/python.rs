@@ -572,6 +572,7 @@ mod tests {
                 ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
                 ResultColumn { name: "bio".to_string(), sql_type: SqlType::Text, nullable: true },
             ],
+            source_table: None,
         };
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "__init__.py");
@@ -590,6 +591,7 @@ mod tests {
             sql: "DELETE FROM user WHERE id = $1".to_string(),
             params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
             result_columns: vec![],
+            source_table: None,
         };
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
@@ -606,6 +608,7 @@ mod tests {
             sql: "DELETE FROM user WHERE id = ?1".to_string(),
             params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
             result_columns: vec![],
+            source_table: None,
         };
         let files = sq().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
@@ -624,6 +627,7 @@ mod tests {
             sql: "DELETE FROM user WHERE id = $1".to_string(),
             params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
             result_columns: vec![],
+            source_table: None,
         };
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
@@ -641,6 +645,7 @@ mod tests {
             sql: "DELETE FROM user WHERE id = $1".to_string(),
             params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
             result_columns: vec![],
+            source_table: None,
         };
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
@@ -662,6 +667,7 @@ mod tests {
                 ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
                 ResultColumn { name: "bio".to_string(), sql_type: SqlType::Text, nullable: true },
             ],
+            source_table: None,
         };
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
@@ -683,6 +689,7 @@ mod tests {
                 ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
                 ResultColumn { name: "bio".to_string(), sql_type: SqlType::Text, nullable: true },
             ],
+            source_table: None,
         };
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
@@ -699,6 +706,7 @@ mod tests {
             sql: "DELETE FROM user WHERE active = $1".to_string(),
             params: vec![Parameter::scalar(1, "active", SqlType::Boolean, false)],
             result_columns: vec![],
+            source_table: None,
         };
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
@@ -717,6 +725,7 @@ mod tests {
             sql: "DELETE FROM user WHERE id = ?1".to_string(),
             params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
             result_columns: vec![],
+            source_table: None,
         };
         let files = sq().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
@@ -739,6 +748,7 @@ mod tests {
                 ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
                 ResultColumn { name: "bio".to_string(), sql_type: SqlType::Text, nullable: true },
             ],
+            source_table: None,
         };
         let files = sq().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
@@ -758,6 +768,7 @@ mod tests {
             sql: "SELECT name FROM user WHERE id = $1".to_string(),
             params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
             result_columns: vec![ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false }],
+            source_table: None,
         };
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
@@ -776,6 +787,7 @@ mod tests {
             sql: "DELETE FROM user WHERE id = $1".to_string(),
             params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
             result_columns: vec![],
+            source_table: None,
         };
         let files = my().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
@@ -792,6 +804,7 @@ mod tests {
             sql: "DELETE FROM user WHERE id = $1".to_string(),
             params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
             result_columns: vec![],
+            source_table: None,
         };
         let files = my().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
@@ -807,6 +820,7 @@ mod tests {
             sql: "DELETE FROM user WHERE id = $1".to_string(),
             params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
             result_columns: vec![],
+            source_table: None,
         };
         let files = my().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
@@ -822,6 +836,7 @@ mod tests {
             sql: "DELETE FROM user WHERE id = $1".to_string(),
             params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
             result_columns: vec![],
+            source_table: None,
         };
         let files = my().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
@@ -841,6 +856,7 @@ mod tests {
                 ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
                 ResultColumn { name: "bio".to_string(), sql_type: SqlType::Text, nullable: true },
             ],
+            source_table: None,
         };
         let files = my().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
@@ -910,6 +926,7 @@ mod tests {
             sql: "DELETE FROM t WHERE a = $1 OR $1 = -1 AND b = $1 OR $1 = 0 AND c = $2".to_string(),
             params: vec![Parameter::scalar(1, "accountId", SqlType::BigInt, false), Parameter::scalar(2, "inputData", SqlType::Text, false)],
             result_columns: vec![],
+            source_table: None,
         };
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
@@ -927,6 +944,7 @@ mod tests {
             sql: "DELETE FROM user WHERE id = $1".to_string(),
             params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
             result_columns: vec![],
+            source_table: None,
         };
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
@@ -942,6 +960,7 @@ mod tests {
             sql: "DELETE FROM user WHERE id = ?1".to_string(),
             params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
             result_columns: vec![],
+            source_table: None,
         };
         let files = sq().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
@@ -959,6 +978,7 @@ mod tests {
             sql: "SELECT id FROM t WHERE id IN ($1)".to_string(),
             params: vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
             result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            source_table: None,
         };
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
@@ -979,6 +999,7 @@ mod tests {
             sql: "SELECT id FROM t WHERE active = $1 AND id IN ($2)".to_string(),
             params: vec![Parameter::scalar(1, "active", SqlType::Boolean, false), Parameter::list(2, "ids", SqlType::BigInt, false)],
             result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            source_table: None,
         };
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
@@ -997,6 +1018,7 @@ mod tests {
             sql: "SELECT id FROM t WHERE id IN ($1)".to_string(),
             params: vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
             result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            source_table: None,
         };
         let files = sq().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
@@ -1018,6 +1040,7 @@ mod tests {
             sql: "SELECT id FROM t WHERE id IN ($1)".to_string(),
             params: vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
             result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            source_table: None,
         };
         let files = my().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
@@ -1039,6 +1062,7 @@ mod tests {
             sql: "SELECT id FROM t WHERE id IN ($1)".to_string(),
             params: vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
             result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            source_table: None,
         };
         let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic) };
         let files = pg().generate(&schema, &[query], &cfg).unwrap();
@@ -1061,6 +1085,7 @@ mod tests {
             sql: "SELECT id FROM t WHERE active = $1 AND id IN ($2)".to_string(),
             params: vec![Parameter::scalar(1, "active", SqlType::Boolean, false), Parameter::list(2, "ids", SqlType::BigInt, false)],
             result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            source_table: None,
         };
         let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic) };
         let files = pg().generate(&schema, &[query], &cfg).unwrap();
@@ -1078,6 +1103,7 @@ mod tests {
             sql: "SELECT id FROM t WHERE id IN ($1)".to_string(),
             params: vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
             result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            source_table: None,
         };
         let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic) };
         let files = sq().generate(&schema, &[query], &cfg).unwrap();
@@ -1101,6 +1127,7 @@ mod tests {
             sql: "SELECT id FROM t WHERE id IN ($1)".to_string(),
             params: vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
             result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            source_table: None,
         };
         let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic) };
         let files = my().generate(&schema, &[query], &cfg).unwrap();
@@ -1123,6 +1150,7 @@ mod tests {
             sql: "SELECT id FROM t WHERE tag IN ($1)".to_string(),
             params: vec![Parameter::list(1, "tags", SqlType::Text, false)],
             result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            source_table: None,
         };
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
@@ -1139,6 +1167,7 @@ mod tests {
             sql: "DELETE FROM t WHERE id IN ($1)".to_string(),
             params: vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
             result_columns: vec![],
+            source_table: None,
         };
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
@@ -1162,6 +1191,7 @@ mod tests {
             sql: "SELECT id FROM t WHERE id IN ($1) AND active = $2".to_string(),
             params: vec![Parameter::list(1, "ids", SqlType::BigInt, false), Parameter::scalar(2, "active", SqlType::Boolean, false)],
             result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            source_table: None,
         };
         let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic) };
         let files = pg().generate(&schema, &[query], &cfg).unwrap();
@@ -1183,6 +1213,7 @@ mod tests {
             sql: "SELECT id FROM t WHERE active = $1 AND id IN ($2)".to_string(),
             params: vec![Parameter::scalar(1, "active", SqlType::Boolean, false), Parameter::list(2, "ids", SqlType::BigInt, false)],
             result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            source_table: None,
         };
         let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic) };
         let files = pg().generate(&schema, &[query], &cfg).unwrap();
@@ -1203,6 +1234,7 @@ mod tests {
             sql: "UPDATE users SET bio = $1 WHERE id = $2".to_string(),
             params: vec![Parameter::scalar(1, "bio", SqlType::Text, true), Parameter::scalar(2, "id", SqlType::BigInt, false)],
             result_columns: vec![],
+            source_table: None,
         };
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
@@ -1220,6 +1252,7 @@ mod tests {
             sql: "UPDATE users SET bio = ?1 WHERE id = ?2".to_string(),
             params: vec![Parameter::scalar(1, "bio", SqlType::Text, true), Parameter::scalar(2, "id", SqlType::BigInt, false)],
             result_columns: vec![],
+            source_table: None,
         };
         let files = sq().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
@@ -1236,6 +1269,7 @@ mod tests {
             sql: "UPDATE users SET bio = $1 WHERE id = $2".to_string(),
             params: vec![Parameter::scalar(1, "bio", SqlType::Text, true), Parameter::scalar(2, "id", SqlType::BigInt, false)],
             result_columns: vec![],
+            source_table: None,
         };
         let files = my().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
@@ -1254,6 +1288,7 @@ mod tests {
             sql: "SELECT id FROM t WHERE id IN ($1) AND active = $2".to_string(),
             params: vec![Parameter::list(1, "ids", SqlType::BigInt, false), Parameter::scalar(2, "active", SqlType::Boolean, false)],
             result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            source_table: None,
         };
         let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic) };
         let files = sq().generate(&schema, &[query], &cfg).unwrap();

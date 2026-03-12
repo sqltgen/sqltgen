@@ -85,14 +85,43 @@ pub fn needs_null_safe_getter(sql_type: &SqlType) -> bool {
     matches!(sql_type, SqlType::Boolean | SqlType::SmallInt | SqlType::Integer | SqlType::BigInt | SqlType::Real | SqlType::Double)
 }
 
-/// Check if a query's result columns exactly match a table's columns by name and count.
+/// Return the schema table whose model can be reused for this query's result rows.
+///
+/// **Tier 1 — source identity:** when `query.source_table` is set, the frontend has
+/// established that all rows come from that exact table (`SELECT t.*`).  If the table
+/// exists in the schema and the result columns fully match (name, type, nullability,
+/// count), return it immediately.
+///
+/// **Tier 2 — structural fallback:** for test-constructed queries where `source_table`
+/// is `None`, search for a table whose columns match the result columns exactly on
+/// name, type, *and* nullability, and only if that match is unique (exactly one table
+/// matches).  This avoids false positives when two tables happen to share the same
+/// column structure.
 pub fn infer_table<'a>(query: &Query, schema: &'a Schema) -> Option<&'a str> {
+    let cols_match = |table: &crate::ir::Table| -> bool {
+        table.columns.len() == query.result_columns.len()
+            && table.columns.iter().zip(&query.result_columns).all(|(tc, rc)| tc.name == rc.name && tc.sql_type == rc.sql_type && tc.nullable == rc.nullable)
+    };
+
+    if let Some(name) = &query.source_table {
+        if let Some(table) = schema.tables.iter().find(|t| &t.name == name) {
+            if cols_match(table) {
+                return Some(&table.name);
+            }
+        }
+        return None;
+    }
+
+    let mut matched: Option<&str> = None;
     for table in &schema.tables {
-        if table.columns.len() == query.result_columns.len() && table.columns.iter().zip(&query.result_columns).all(|(a, b)| a.name == b.name) {
-            return Some(&table.name);
+        if cols_match(table) {
+            if matched.is_some() {
+                return None; // ambiguous
+            }
+            matched = Some(&table.name);
         }
     }
-    None
+    matched
 }
 
 /// Return the ordered list of parameter indices referenced by `$N`/`?N` placeholders.
@@ -342,7 +371,7 @@ mod tests {
     use crate::ir::{Column, Parameter, Query, QueryCmd, ResultColumn, Schema, SqlType, Table};
 
     fn make_query(sql: &str, params: Vec<Parameter>) -> Query {
-        Query { name: "Test".to_string(), cmd: QueryCmd::Exec, sql: sql.to_string(), params, result_columns: vec![] }
+        Query { name: "Test".to_string(), cmd: QueryCmd::Exec, sql: sql.to_string(), params, result_columns: vec![], source_table: None }
     }
 
     fn make_schema_with_table(table_name: &str, col_names: &[&str]) -> Schema {
@@ -356,6 +385,17 @@ mod tests {
 
     fn make_result_cols(names: &[&str]) -> Vec<ResultColumn> {
         names.iter().map(|n| ResultColumn { name: n.to_string(), sql_type: SqlType::Text, nullable: false }).collect()
+    }
+
+    fn make_typed_table(name: &str, cols: &[(&str, SqlType, bool)]) -> Table {
+        Table {
+            name: name.to_string(),
+            columns: cols.iter().map(|(n, t, null)| Column { name: n.to_string(), sql_type: t.clone(), nullable: *null, is_primary_key: false }).collect(),
+        }
+    }
+
+    fn rc(name: &str, sql_type: SqlType, nullable: bool) -> ResultColumn {
+        ResultColumn { name: name.to_string(), sql_type, nullable }
     }
 
     // ─── needs_null_safe_getter ───────────────────────────────────────────────
@@ -392,6 +432,7 @@ mod tests {
             sql: "SELECT id, name FROM user_account WHERE id = $1".to_string(),
             params: vec![],
             result_columns: make_result_cols(&["id", "name"]),
+            source_table: None,
         };
         assert_eq!(infer_row_type_name(&query, &schema), Some("UserAccount".to_string()));
     }
@@ -404,7 +445,8 @@ mod tests {
             cmd: QueryCmd::One,
             sql: "SELECT id, name FROM user_account WHERE id = $1".to_string(),
             params: vec![],
-            result_columns: make_result_cols(&["id", "name"]), // only 2 cols, table has 3
+            result_columns: make_result_cols(&["id", "name"]),
+            source_table: None,
         };
         assert_eq!(infer_row_type_name(&query, &schema), Some("GetUserSummaryRow".to_string()));
     }
@@ -418,8 +460,65 @@ mod tests {
             sql: "DELETE FROM users WHERE id = $1".to_string(),
             params: vec![],
             result_columns: vec![],
+            source_table: None,
         };
         assert!(infer_row_type_name(&query, &schema).is_none());
+    }
+
+    // ─── infer_table (bug 022) ────────────────────────────────────────────────
+
+    /// Structural match must reject when a result column's type differs from the table column.
+    ///
+    /// A CTE that exputes id as TEXT has the same column NAME as a table where id is BIGINT.
+    /// The old name+count check would silently return the table — wrong generated type.
+    #[test]
+    fn test_infer_table_rejects_type_mismatch() {
+        let schema = Schema { tables: vec![make_typed_table("users", &[("id", SqlType::BigInt, false), ("name", SqlType::Text, false)])] };
+        // Same column names but id is Text here (CTE-computed, or whatever) — type mismatch.
+        let query = Query::new("GetActiveUsers", QueryCmd::Many, "...", vec![], vec![rc("id", SqlType::Text, false), rc("name", SqlType::Text, false)]);
+        assert_eq!(infer_table(&query, &schema), None);
+    }
+
+    /// Structural match must reject when nullability differs from the table column.
+    ///
+    /// A JOIN query may produce a nullable id column even though the table's id is NOT NULL.
+    /// The old check would silently return the table.
+    #[test]
+    fn test_infer_table_rejects_nullability_mismatch() {
+        let schema = Schema { tables: vec![make_typed_table("users", &[("id", SqlType::BigInt, false), ("name", SqlType::Text, false)])] };
+        // Same column names and types but id is nullable — nullability mismatch.
+        let query = Query::new("ListUsers", QueryCmd::Many, "...", vec![], vec![rc("id", SqlType::BigInt, true), rc("name", SqlType::Text, false)]);
+        assert_eq!(infer_table(&query, &schema), None);
+    }
+
+    /// When two tables have the same column structure, structural matching is ambiguous.
+    ///
+    /// The old first-match-wins behaviour could return the wrong table depending on the
+    /// order tables appear in the schema. The fix requires a unique match.
+    #[test]
+    fn test_infer_table_rejects_ambiguous_structural_match() {
+        let users = make_typed_table("users", &[("id", SqlType::BigInt, false), ("name", SqlType::Text, false)]);
+        let admins = make_typed_table("admins", &[("id", SqlType::BigInt, false), ("name", SqlType::Text, false)]);
+        let schema = Schema { tables: vec![users, admins] };
+        let query = Query::new("ListAll", QueryCmd::Many, "...", vec![], vec![rc("id", SqlType::BigInt, false), rc("name", SqlType::Text, false)]);
+        // Both tables match structurally — result is ambiguous, must not return either.
+        assert_eq!(infer_table(&query, &schema), None);
+    }
+
+    /// source_table identity takes priority: when set, the named table is returned
+    /// without needing to be the unique structural match.
+    ///
+    /// This is the "two identical tables" case where structural match alone would be
+    /// ambiguous, but the frontend recorded which table the rows actually came from.
+    #[test]
+    fn test_infer_table_source_identity_resolves_ambiguity() {
+        let users = make_typed_table("users", &[("id", SqlType::BigInt, false), ("name", SqlType::Text, false)]);
+        let admins = make_typed_table("admins", &[("id", SqlType::BigInt, false), ("name", SqlType::Text, false)]);
+        let schema = Schema { tables: vec![users, admins] };
+        let query = Query::new("ListUsers", QueryCmd::Many, "...", vec![], vec![rc("id", SqlType::BigInt, false), rc("name", SqlType::Text, false)])
+            .with_source_table(Some("users".to_string()));
+        // Identity takes priority over ambiguous structural match.
+        assert_eq!(infer_table(&query, &schema), Some("users"));
     }
 
     // ─── jdbc_setter ─────────────────────────────────────────────────────────

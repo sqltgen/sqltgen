@@ -572,6 +572,7 @@ mod tests {
             sql: "DELETE FROM user WHERE id = $1".to_string(),
             params: vec![Parameter::scalar(1, "id".to_string(), SqlType::BigInt, false)],
             result_columns: vec![],
+            source_table: None,
         };
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.java");
@@ -588,6 +589,7 @@ mod tests {
             sql: "DELETE FROM user WHERE active = $1".to_string(),
             params: vec![Parameter::scalar(1, "active".to_string(), SqlType::Boolean, false)],
             result_columns: vec![],
+            source_table: None,
         };
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.java");
@@ -608,6 +610,7 @@ mod tests {
                 ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
                 ResultColumn { name: "bio".to_string(), sql_type: SqlType::Text, nullable: true },
             ],
+            source_table: None,
         };
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.java");
@@ -629,6 +632,7 @@ mod tests {
                 ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
                 ResultColumn { name: "bio".to_string(), sql_type: SqlType::Text, nullable: true },
             ],
+            source_table: None,
         };
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.java");
@@ -648,6 +652,7 @@ mod tests {
             sql: "DELETE FROM user WHERE id = $1".to_string(),
             params: vec![Parameter::scalar(1, "id".to_string(), SqlType::BigInt, false)],
             result_columns: vec![],
+            source_table: None,
         };
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.java");
@@ -665,6 +670,7 @@ mod tests {
             sql: "SELECT name FROM user WHERE id = $1".to_string(),
             params: vec![Parameter::scalar(1, "id".to_string(), SqlType::BigInt, false)],
             result_columns: vec![ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false }],
+            source_table: None,
         };
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.java");
@@ -685,6 +691,7 @@ mod tests {
             sql: "SELECT count FROM stats WHERE id = $1".to_string(),
             params: vec![Parameter::scalar(1, "id".to_string(), SqlType::BigInt, false)],
             result_columns: vec![ResultColumn { name: "count".to_string(), sql_type: SqlType::Integer, nullable: true }],
+            source_table: None,
         };
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.java");
@@ -701,6 +708,7 @@ mod tests {
             sql: "SELECT count FROM stats WHERE id = $1".to_string(),
             params: vec![Parameter::scalar(1, "id".to_string(), SqlType::BigInt, false)],
             result_columns: vec![ResultColumn { name: "count".to_string(), sql_type: SqlType::Integer, nullable: false }],
+            source_table: None,
         };
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.java");
@@ -718,6 +726,7 @@ mod tests {
             sql: "DELETE FROM user WHERE id = $1".to_string(),
             params: vec![Parameter::scalar(1, "id".to_string(), SqlType::BigInt, false)],
             result_columns: vec![],
+            source_table: None,
         };
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         assert!(files.iter().any(|f| f.path.file_name().is_some_and(|n| n == "QueriesDs.java")));
@@ -732,6 +741,7 @@ mod tests {
             sql: "DELETE FROM user WHERE id = $1".to_string(),
             params: vec![Parameter::scalar(1, "id".to_string(), SqlType::BigInt, false)],
             result_columns: vec![],
+            source_table: None,
         };
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "QueriesDs.java");
@@ -750,6 +760,7 @@ mod tests {
             sql: "DELETE FROM user WHERE id = $1".to_string(),
             params: vec![Parameter::scalar(1, "id".to_string(), SqlType::BigInt, false)],
             result_columns: vec![],
+            source_table: None,
         };
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "QueriesDs.java");
@@ -771,6 +782,7 @@ mod tests {
                 ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
                 ResultColumn { name: "bio".to_string(), sql_type: SqlType::Text, nullable: true },
             ],
+            source_table: None,
         };
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "QueriesDs.java");
@@ -792,6 +804,7 @@ mod tests {
                 ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
                 ResultColumn { name: "bio".to_string(), sql_type: SqlType::Text, nullable: true },
             ],
+            source_table: None,
         };
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "QueriesDs.java");
@@ -815,6 +828,7 @@ mod tests {
                 Parameter::scalar(2, "inputData".to_string(), SqlType::Text, false),
             ],
             result_columns: vec![],
+            source_table: None,
         };
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.java");
@@ -839,6 +853,7 @@ mod tests {
             sql: "UPDATE user SET bio = $1 WHERE id = $2".to_string(),
             params: vec![Parameter::scalar(1, "bio".to_string(), SqlType::Text, true), Parameter::scalar(2, "id".to_string(), SqlType::BigInt, false)],
             result_columns: vec![],
+            source_table: None,
         };
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.java");
@@ -857,6 +872,7 @@ mod tests {
             sql: "SELECT id FROM t WHERE id IN ($1)".to_string(),
             params: vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
             result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            source_table: None,
         };
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.java");
@@ -875,6 +891,7 @@ mod tests {
             sql: "SELECT id FROM t WHERE id IN ($1)".to_string(),
             params: vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
             result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            source_table: None,
         };
         let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic) };
         let files = pg().generate(&schema, &[query], &cfg).unwrap();
@@ -894,6 +911,7 @@ mod tests {
             sql: "SELECT id FROM t WHERE id IN ($1)".to_string(),
             params: vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
             result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            source_table: None,
         };
         let files = JavaCodegen { target: JdbcTarget::Sqlite }.generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.java");
@@ -916,6 +934,7 @@ mod tests {
             sql: "SELECT tags FROM t WHERE id = $1".to_string(),
             params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
             result_columns: vec![ResultColumn { name: "tags".to_string(), sql_type: SqlType::Array(Box::new(SqlType::Text)), nullable: false }],
+            source_table: None,
         };
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.java");
@@ -935,6 +954,7 @@ mod tests {
             sql: "UPDATE t SET tags = $1 WHERE id = $2".to_string(),
             params: vec![Parameter::scalar(1, "tags", SqlType::Array(Box::new(SqlType::Text)), false), Parameter::scalar(2, "id", SqlType::BigInt, false)],
             result_columns: vec![],
+            source_table: None,
         };
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.java");
@@ -953,6 +973,7 @@ mod tests {
             sql: "UPDATE t SET meta = $1 WHERE id = $2".to_string(),
             params: vec![Parameter::scalar(1, "metadata", SqlType::Jsonb, false), Parameter::scalar(2, "id", SqlType::BigInt, false)],
             result_columns: vec![],
+            source_table: None,
         };
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.java");
@@ -973,6 +994,7 @@ mod tests {
             sql: "SELECT id FROM t WHERE tag IN ($1)".to_string(),
             params: vec![Parameter::list(1, "tags", SqlType::Text, false)],
             result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            source_table: None,
         };
         let files = JavaCodegen { target: JdbcTarget::Sqlite }.generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.java");
@@ -995,6 +1017,7 @@ mod tests {
             sql: "SELECT id FROM t WHERE id IN ($1)".to_string(),
             params: vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
             result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            source_table: None,
         };
         let files = JavaCodegen { target: JdbcTarget::Sqlite }.generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.java");
@@ -1017,6 +1040,7 @@ mod tests {
             sql: "SELECT id FROM t WHERE id IN ($1) AND active = $2".to_string(),
             params: vec![Parameter::list(1, "ids", SqlType::BigInt, false), Parameter::scalar(2, "active", SqlType::Boolean, false)],
             result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            source_table: None,
         };
         let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic) };
         let files = JavaCodegen { target: JdbcTarget::Postgres }.generate(&schema, &[query], &cfg).unwrap();
@@ -1042,6 +1066,7 @@ mod tests {
             sql: "SELECT id FROM t WHERE active = $1 AND id IN ($2)".to_string(),
             params: vec![Parameter::scalar(1, "active", SqlType::Boolean, false), Parameter::list(2, "ids", SqlType::BigInt, false)],
             result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            source_table: None,
         };
         let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic) };
         let files = JavaCodegen { target: JdbcTarget::Postgres }.generate(&schema, &[query], &cfg).unwrap();
