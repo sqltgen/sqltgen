@@ -1,22 +1,21 @@
+mod dml;
 mod params;
 mod resolve;
+mod select;
 
 use std::collections::HashMap;
 
-use sqlparser::ast::{
-    Assignment, AssignmentTarget, Delete, Expr, FromTable, Insert, JoinOperator, ObjectNamePart, OnConflictAction, OnInsert, Query as SqlQuery, Select,
-    SelectItem, SelectItemQualifiedWildcardKind, SetExpr, Statement, TableFactor, TableObject, TableWithJoins, Value, ValueWithSpan, Values, With,
-};
+use sqlparser::ast::{Delete, Insert, JoinOperator, Query as SqlQuery, Select, SelectItem, SetExpr, Statement, TableFactor, TableObject, With};
 use sqlparser::dialect::Dialect;
 use sqlparser::parser::Parser;
 
 use crate::frontend::common::{ident_to_str, named_params, obj_name_to_str};
 use crate::ir::{Column, Parameter, Query, QueryCmd, ResultColumn, Schema, SqlType, Table};
 
-use params::{
-    collect_join_params, collect_limit_offset_params, collect_order_by_params, collect_params_from_expr, collect_select_params, collect_set_expr_params,
-};
+use dml::{build_delete, build_insert, build_update, collect_delete_where_params, collect_insert_value_params, collect_update_params};
+use params::{collect_join_params, collect_limit_offset_params, collect_params_from_expr};
 use resolve::{col_to_result, resolve_expr, resolve_projection};
+use select::build_select;
 
 /// Dialect-agnostic type inference configuration.
 pub(crate) struct ResolverConfig {
@@ -50,19 +49,29 @@ impl Default for ResolverConfig {
 /// Groups the read-only context and mutable parameter mapping that most
 /// parameter-collection functions need. Avoids threading five separate
 /// arguments through every call.
-struct ResolverContext<'a> {
-    alias_map: &'a HashMap<String, &'a Table>,
-    all_tables: &'a [(Table, Option<String>)],
-    schema: &'a Schema,
-    config: &'a ResolverConfig,
-    mapping: &'a mut HashMap<usize, (String, SqlType, bool)>,
+pub(super) struct ResolverContext<'a> {
+    pub alias_map: &'a HashMap<String, &'a Table>,
+    pub all_tables: &'a [(Table, Option<String>)],
+    pub schema: &'a Schema,
+    pub config: &'a ResolverConfig,
+    pub mapping: &'a mut HashMap<usize, (String, SqlType, bool)>,
 }
 
-fn insert_table_name(ins: &Insert) -> String {
+pub(super) fn insert_table_name(ins: &Insert) -> String {
     match &ins.table {
         TableObject::TableName(name) => obj_name_to_str(name),
         _ => String::new(),
     }
+}
+
+pub(super) fn delete_table_name(del: &Delete) -> Option<String> {
+    let tables = match &del.from {
+        sqlparser::ast::FromTable::WithFromKeyword(t) | sqlparser::ast::FromTable::WithoutKeyword(t) => t,
+    };
+    tables.first().and_then(|twj| match &twj.relation {
+        TableFactor::Table { name, .. } => Some(obj_name_to_str(name)),
+        _ => None,
+    })
 }
 
 pub(crate) fn parse_queries_with_config(dialect: &dyn Dialect, sql: &str, schema: &Schema, config: &ResolverConfig) -> anyhow::Result<Vec<Query>> {
@@ -85,9 +94,9 @@ pub(crate) fn parse_queries_with_config(dialect: &dyn Dialect, sql: &str, schema
 
 // ─── Block splitting ─────────────────────────────────────────────────────────
 
-struct QueryAnnotation {
-    name: String,
-    cmd: QueryCmd,
+pub(super) struct QueryAnnotation {
+    pub name: String,
+    pub cmd: QueryCmd,
 }
 
 fn split_into_blocks(sql: &str) -> Vec<(QueryAnnotation, String)> {
@@ -171,386 +180,7 @@ fn build_query_with_dialect(dialect: &dyn Dialect, ann: &QueryAnnotation, sql: &
     Ok(query)
 }
 
-// ─── SELECT ──────────────────────────────────────────────────────────────────
-
-fn build_select(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, schema: &Schema, config: &ResolverConfig) -> Query {
-    let ctes = build_cte_scope(q.with.as_ref(), schema, config);
-    match q.body.as_ref() {
-        SetExpr::Select(select) => build_select_body(ann, sql, q, select, schema, config, &ctes),
-        SetExpr::Insert(Statement::Insert(ins)) => build_query_from_insert(ann, sql, q, ins, schema, config),
-        SetExpr::Update(Statement::Update(u)) => build_query_from_update(ann, sql, q, u, schema, config),
-        SetExpr::SetOperation { .. } => build_set_operation(ann, sql, q, q.body.as_ref(), schema, config, &ctes),
-        _ => unresolved_query(ann, sql),
-    }
-}
-
-/// Handle `Statement::Query` where the body is a plain `SELECT` (with optional CTEs).
-fn build_select_body(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, select: &Select, schema: &Schema, config: &ResolverConfig, ctes: &[Table]) -> Query {
-    let all_tables = collect_from_tables(select, schema, ctes, config);
-    if all_tables.is_empty() {
-        return unresolved_query(ann, sql);
-    }
-    let alias_map = build_alias_map(&all_tables);
-    let result_columns = resolve_projection(select, &alias_map, &all_tables, config, schema);
-    let params = {
-        let mut mapping = HashMap::new();
-        collect_cte_params(q.with.as_ref(), schema, config, &mut mapping);
-        collect_select_params(select, schema, config, ctes, &mut mapping);
-        // LIMIT / OFFSET
-        collect_limit_offset_params(q, &mut mapping);
-        // ORDER BY expressions (CASE, function calls, etc. in ORDER BY)
-        collect_order_by_params(q, &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping: &mut mapping });
-        build_params(mapping, count_params(sql))
-    };
-    let provenance = build_source_provenance(q.with.as_ref(), &select.from, schema, ctes, config);
-    let source_table = select_wildcard_source(select, &alias_map, &all_tables, schema, &provenance);
-    Query::new(ann.name.clone(), ann.cmd.clone(), sql, params, result_columns).with_source_table(source_table)
-}
-
-/// Detect the source schema table when the SELECT projection is an unambiguous wildcard.
-///
-/// Returns `Some(table_name)` when:
-/// - The projection is a single `table.*` (qualified wildcard) or bare `*` (with one
-///   table in scope), AND
-/// - That table resolves to a schema table — either directly or via `provenance` (for
-///   CTEs and derived subqueries whose rows come from a single schema table), AND
-/// - The table was not made nullable by an outer join.
-///
-/// Returns `None` for all other projections (explicit column lists, set operations,
-/// multi-table wildcards, non-trivial CTEs, or nullable-side tables).
-fn select_wildcard_source(
-    select: &Select,
-    alias_map: &HashMap<String, &Table>,
-    all_tables: &[(Table, Option<String>)],
-    schema: &Schema,
-    provenance: &HashMap<String, String>,
-) -> Option<String> {
-    let [item] = select.projection.as_slice() else { return None };
-    let table_in_scope: &Table = match item {
-        SelectItem::Wildcard(_) => {
-            // Bare `*` — only valid when exactly one table is in scope.
-            if all_tables.len() != 1 {
-                return None;
-            }
-            &all_tables[0].0
-        },
-        SelectItem::QualifiedWildcard(SelectItemQualifiedWildcardKind::ObjectName(name), _) => {
-            let qualifier = name.0.last().and_then(|p| if let ObjectNamePart::Identifier(i) = p { Some(ident_to_str(i)) } else { None })?;
-            alias_map.get(&qualifier).copied()?
-        },
-        _ => return None,
-    };
-
-    // Direct schema table: present in schema and not made nullable by an outer join.
-    if let Some(schema_table) = schema.tables.iter().find(|t| t.name == table_in_scope.name) {
-        let made_nullable = schema_table.columns.iter().zip(&table_in_scope.columns).any(|(sc, rc)| !sc.nullable && rc.nullable);
-        return if made_nullable { None } else { Some(schema_table.name.clone()) };
-    }
-
-    // CTE or derived table: look up the provenance chain built by build_source_provenance.
-    // No nullable check here — the chain was already validated clean when the entry was created.
-    provenance.get(&table_in_scope.name).cloned()
-}
-
-/// Build a map of `virtual_table_name → schema_table_name` for all CTEs and derived
-/// tables in a query whose rows provably come from a single schema table through an
-/// unambiguous wildcard selection chain.
-///
-/// Resolves recursively, so `WITH b AS (SELECT * FROM a), a AS (SELECT * FROM t)`
-/// and `SELECT * FROM (SELECT * FROM (SELECT * FROM t) AS inner) AS outer` both
-/// trace back to `t` correctly.
-fn build_source_provenance(with: Option<&With>, from: &[TableWithJoins], schema: &Schema, ctes: &[Table], config: &ResolverConfig) -> HashMap<String, String> {
-    let mut provenance: HashMap<String, String> = HashMap::new();
-
-    // CTE pass — process in declaration order so each CTE can see earlier ones.
-    if let Some(with) = with {
-        let mut cte_tables: Vec<Table> = Vec::new();
-        for cte in &with.cte_tables {
-            let cte_name = ident_to_str(&cte.alias.name);
-            if let SetExpr::Select(select) = cte.query.body.as_ref() {
-                // Recursively resolve provenance within this CTE's own body.
-                let inner_prov = build_source_provenance(cte.query.with.as_ref(), &select.from, schema, &cte_tables, config);
-                // Merge: outer provenance (earlier CTEs) + inner (this CTE's internals).
-                let mut merged = provenance.clone();
-                merged.extend(inner_prov);
-                let all_tables = collect_from_tables(select, schema, &cte_tables, config);
-                if !all_tables.is_empty() {
-                    let alias_map = build_alias_map(&all_tables);
-                    if let Some(source) = select_wildcard_source(select, &alias_map, &all_tables, schema, &merged) {
-                        provenance.insert(cte_name.clone(), source);
-                    }
-                }
-            }
-            // Extend the local CTE list so subsequent CTEs can reference this one.
-            let cols = derived_cols(&cte.query, schema, &cte_tables, config);
-            if !cols.is_empty() {
-                cte_tables.push(Table { name: cte_name, columns: cols });
-            }
-        }
-    }
-
-    // Derived-table pass — recursively resolve each subquery before resolving the alias.
-    for twj in from {
-        if let TableFactor::Derived { subquery, alias: Some(a), .. } = &twj.relation {
-            let alias_name = ident_to_str(&a.name);
-            if let SetExpr::Select(select) = subquery.body.as_ref() {
-                let inner_prov = build_source_provenance(subquery.with.as_ref(), &select.from, schema, ctes, config);
-                let mut merged = provenance.clone();
-                merged.extend(inner_prov);
-                let all_tables = collect_from_tables(select, schema, ctes, config);
-                if !all_tables.is_empty() {
-                    let alias_map = build_alias_map(&all_tables);
-                    if let Some(source) = select_wildcard_source(select, &alias_map, &all_tables, schema, &merged) {
-                        provenance.insert(alias_name, source);
-                    }
-                }
-            }
-        }
-    }
-
-    provenance
-}
-
-/// Handle `Statement::Query` where the body is a set operation (UNION/INTERSECT/EXCEPT).
-///
-/// Result columns come from the leftmost SELECT branch (per SQL standard).
-/// Parameters are collected recursively from all branches.
-fn build_set_operation(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, body: &SetExpr, schema: &Schema, config: &ResolverConfig, ctes: &[Table]) -> Query {
-    // Resolve result columns from the leftmost SELECT branch.
-    let result_columns = leftmost_select(body)
-        .map(|select| {
-            let all_tables = collect_from_tables(select, schema, ctes, config);
-            if all_tables.is_empty() {
-                return vec![];
-            }
-            let alias_map = build_alias_map(&all_tables);
-            resolve_projection(select, &alias_map, &all_tables, config, schema)
-        })
-        .unwrap_or_default();
-
-    // Collect params from CTEs + all set-operation branches + LIMIT/OFFSET + ORDER BY.
-    let params = {
-        let mut mapping = HashMap::new();
-        collect_cte_params(q.with.as_ref(), schema, config, &mut mapping);
-        collect_set_expr_params(body, schema, config, ctes, &mut mapping);
-        collect_limit_offset_params(q, &mut mapping);
-        // ORDER BY needs the leftmost branch's table context for column type inference.
-        if let Some(select) = leftmost_select(body) {
-            let all_tables = collect_from_tables(select, schema, ctes, config);
-            if !all_tables.is_empty() {
-                let alias_map = build_alias_map(&all_tables);
-                collect_order_by_params(q, &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping: &mut mapping });
-            }
-        }
-        build_params(mapping, count_params(sql))
-    };
-
-    Query::new(ann.name.clone(), ann.cmd.clone(), sql, params, result_columns)
-}
-
-/// Recursively extract the leftmost `Select` from a `SetExpr` tree.
-///
-/// For `UNION`/`INTERSECT`/`EXCEPT`, the SQL standard defines result column
-/// names from the first (leftmost) branch. This walks left until it finds a
-/// plain `SELECT`.
-fn leftmost_select(expr: &SetExpr) -> Option<&Select> {
-    match expr {
-        SetExpr::Select(select) => Some(select),
-        SetExpr::SetOperation { left, .. } => leftmost_select(left),
-        _ => None,
-    }
-}
-
-/// Handle `Statement::Query` where the body is `INSERT … RETURNING` (data-modifying CTE pattern).
-fn build_query_from_insert(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, ins: &Insert, schema: &Schema, config: &ResolverConfig) -> Query {
-    let mut mapping = HashMap::new();
-    collect_cte_params(q.with.as_ref(), schema, config, &mut mapping);
-    collect_insert_value_params(ins, schema, &mut mapping);
-    let params = build_params(mapping, count_params(sql));
-    let result_columns = schema
-        .tables
-        .iter()
-        .find(|t| t.name == insert_table_name(ins))
-        .and_then(|t| ins.returning.as_deref().map(|items| resolve_returning(items, t, config)))
-        .unwrap_or_default();
-    Query::new(ann.name.clone(), ann.cmd.clone(), sql, params, result_columns)
-}
-
-/// Handle `Statement::Query` where the body is `UPDATE … RETURNING` (data-modifying CTE pattern).
-fn build_query_from_update(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, u: &sqlparser::ast::Update, schema: &Schema, config: &ResolverConfig) -> Query {
-    let mut mapping = HashMap::new();
-    collect_cte_params(q.with.as_ref(), schema, config, &mut mapping);
-    collect_update_params(&u.table, &u.assignments, u.selection.as_ref(), schema, config, &mut mapping);
-    let params = build_params(mapping, count_params(sql));
-    let table_name = match &u.table.relation {
-        TableFactor::Table { name, .. } => obj_name_to_str(name),
-        _ => return unresolved_query(ann, sql),
-    };
-    let result_columns = schema
-        .tables
-        .iter()
-        .find(|t| t.name == table_name)
-        .and_then(|t| u.returning.as_deref().map(|items| resolve_returning(items, t, config)))
-        .unwrap_or_default();
-    Query::new(ann.name.clone(), ann.cmd.clone(), sql, params, result_columns)
-}
-
-// ─── INSERT ──────────────────────────────────────────────────────────────────
-
-fn build_insert(ann: &QueryAnnotation, sql: &str, insert: &Insert, schema: &Schema, config: &ResolverConfig) -> Query {
-    let table_name = insert_table_name(insert);
-    let Some(table) = schema.tables.iter().find(|t| t.name == table_name) else {
-        return unresolved_query(ann, sql);
-    };
-
-    let mut mapping = HashMap::new();
-    collect_insert_value_params(insert, schema, &mut mapping);
-    collect_on_conflict_params(insert, table, config, &mut mapping);
-    let params = build_params(mapping, count_params(sql));
-    let result_columns = insert.returning.as_deref().map_or(vec![], |items| resolve_returning(items, table, config));
-
-    Query::new(ann.name.clone(), ann.cmd.clone(), sql, params, result_columns)
-}
-
-/// Collect typed parameter mappings from an `ON CONFLICT DO UPDATE` clause.
-///
-/// The `excluded` pseudo-table is treated as an alias for the target table,
-/// so `excluded.col + $N` correctly types `$N` from `col`'s schema type.
-fn collect_on_conflict_params(insert: &Insert, table: &Table, config: &ResolverConfig, mapping: &mut HashMap<usize, (String, SqlType, bool)>) {
-    let Some(OnInsert::OnConflict(on_conflict)) = &insert.on else { return };
-    let OnConflictAction::DoUpdate(do_update) = &on_conflict.action else { return };
-
-    // Expose the target table under the "excluded" pseudo-alias so that
-    // expressions like `excluded.col + $N` resolve correctly.
-    let excluded_table = (table.clone(), Some("excluded".to_string()));
-    let all_tables = [excluded_table];
-    let alias_map = build_alias_map(&all_tables);
-    let ctx = &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema: &Schema { tables: vec![table.clone()] }, config, mapping };
-
-    for assignment in &do_update.assignments {
-        collect_params_from_expr(&assignment.value, ctx);
-    }
-    if let Some(selection) = &do_update.selection {
-        collect_params_from_expr(selection, ctx);
-    }
-}
-
-// ─── UPDATE ──────────────────────────────────────────────────────────────────
-
-fn build_update(ann: &QueryAnnotation, sql: &str, u: &sqlparser::ast::Update, schema: &Schema, config: &ResolverConfig) -> Query {
-    let table_name = match &u.table.relation {
-        TableFactor::Table { name, .. } => obj_name_to_str(name),
-        _ => return unresolved_query(ann, sql),
-    };
-    let Some(table) = schema.tables.iter().find(|t| t.name == table_name) else {
-        return unresolved_query(ann, sql);
-    };
-
-    let mut mapping: HashMap<usize, (String, SqlType, bool)> = HashMap::new();
-    collect_update_params(&u.table, &u.assignments, u.selection.as_ref(), schema, config, &mut mapping);
-    let params = build_params(mapping, count_params(sql));
-    let result_columns = u.returning.as_deref().map_or(vec![], |items| resolve_returning(items, table, config));
-    Query::new(ann.name.clone(), ann.cmd.clone(), sql, params, result_columns)
-}
-
-/// Collect typed parameter mappings from an UPDATE statement's SET and WHERE clauses.
-///
-/// Shared by `build_update` (standalone UPDATE) and `build_query_from_update` (CTE-wrapped UPDATE).
-fn collect_update_params(
-    table_with_joins: &TableWithJoins,
-    assignments: &[Assignment],
-    selection: Option<&Expr>,
-    schema: &Schema,
-    config: &ResolverConfig,
-    mapping: &mut HashMap<usize, (String, SqlType, bool)>,
-) {
-    let table_name = match &table_with_joins.relation {
-        TableFactor::Table { name, .. } => obj_name_to_str(name),
-        _ => return,
-    };
-    let Some(table) = schema.tables.iter().find(|t| t.name == table_name) else {
-        return;
-    };
-    let all_tables = vec![(table.clone(), None)];
-    let alias_map = build_alias_map(&all_tables);
-
-    // Parameters from SET clause: col = $N
-    for assignment in assignments {
-        let col_name = match &assignment.target {
-            AssignmentTarget::ColumnName(name) => {
-                name.0.last().and_then(|p| if let ObjectNamePart::Identifier(i) = p { Some(ident_to_str(i)) } else { None }).unwrap_or_default()
-            },
-            _ => continue,
-        };
-        if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = &assignment.value {
-            if let Some(idx) = placeholder_idx(p) {
-                if let Some(col) = table.columns.iter().find(|c| c.name == col_name) {
-                    mapping.entry(idx).or_insert((col.name.clone(), col.sql_type.clone(), col.nullable));
-                }
-            }
-        }
-    }
-
-    // Parameters from WHERE
-    if let Some(expr) = selection {
-        collect_params_from_expr(expr, &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping });
-    }
-}
-
-// ─── DELETE ──────────────────────────────────────────────────────────────────
-
-fn build_delete(ann: &QueryAnnotation, sql: &str, delete: &Delete, schema: &Schema, config: &ResolverConfig) -> Query {
-    let tables = match &delete.from {
-        FromTable::WithFromKeyword(t) | FromTable::WithoutKeyword(t) => t,
-    };
-    let table_name = tables.first().and_then(|twj| match &twj.relation {
-        TableFactor::Table { name, .. } => Some(obj_name_to_str(name)),
-        _ => None,
-    });
-
-    let Some(table_name) = table_name else {
-        return unresolved_query(ann, sql);
-    };
-    let Some(table) = schema.tables.iter().find(|t| t.name == table_name) else {
-        return unresolved_query(ann, sql);
-    };
-
-    let all_tables = vec![(table.clone(), None)];
-    let alias_map = build_alias_map(&all_tables);
-    let mut mapping = HashMap::new();
-
-    if let Some(expr) = &delete.selection {
-        collect_params_from_expr(expr, &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping: &mut mapping });
-    }
-
-    let params = build_params(mapping, count_params(sql));
-    let result_columns = delete.returning.as_deref().map_or(vec![], |items| resolve_returning(items, table, config));
-
-    Query::new(ann.name.clone(), ann.cmd.clone(), sql, params, result_columns)
-}
-
 // ─── CTE parameter collection ────────────────────────────────────────────────
-
-/// Extract the table name from a DELETE statement's FROM clause.
-fn delete_table_name(del: &Delete) -> Option<String> {
-    let tables = match &del.from {
-        FromTable::WithFromKeyword(t) | FromTable::WithoutKeyword(t) => t,
-    };
-    tables.first().and_then(|twj| match &twj.relation {
-        TableFactor::Table { name, .. } => Some(obj_name_to_str(name)),
-        _ => None,
-    })
-}
-
-/// Collect parameter mappings from a DELETE statement's WHERE clause.
-fn collect_delete_where_params(del: &Delete, schema: &Schema, config: &ResolverConfig, mapping: &mut HashMap<usize, (String, SqlType, bool)>) {
-    let Some(table_name) = delete_table_name(del) else { return };
-    let Some(table) = schema.tables.iter().find(|t| t.name == table_name) else { return };
-    let Some(expr) = &del.selection else { return };
-    let all_tables = vec![(table.clone(), None)];
-    let alias_map = build_alias_map(&all_tables);
-    collect_params_from_expr(expr, &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping });
-}
 
 /// Collect typed parameter mappings from the bodies of all CTEs in `with`.
 ///
@@ -558,7 +188,7 @@ fn collect_delete_where_params(del: &Delete, schema: &Schema, config: &ResolverC
 /// inference. INSERT CTE bodies are handled via `collect_insert_value_params`.
 /// This ensures parameters defined inside data-modifying CTEs receive correct
 /// types even when the outer query body provides no column context.
-fn collect_cte_params(with: Option<&With>, schema: &Schema, config: &ResolverConfig, mapping: &mut HashMap<usize, (String, SqlType, bool)>) {
+pub(super) fn collect_cte_params(with: Option<&With>, schema: &Schema, config: &ResolverConfig, mapping: &mut HashMap<usize, (String, SqlType, bool)>) {
     let Some(with) = with else { return };
     let mut local_ctes: Vec<Table> = Vec::new();
     for cte in &with.cte_tables {
@@ -595,30 +225,6 @@ fn collect_cte_params(with: Option<&With>, schema: &Schema, config: &ResolverCon
         let cols = derived_cols(&cte.query, schema, &local_ctes, config);
         if !cols.is_empty() {
             local_ctes.push(Table { name: cte.alias.name.value.clone(), columns: cols });
-        }
-    }
-}
-
-/// Collect typed parameter mappings from an INSERT … VALUES statement.
-///
-/// Maps each positional `$N` placeholder in the VALUES rows to the column type
-/// it corresponds to, using the INSERT column list for position-to-column mapping.
-/// SELECT-source INSERTs are skipped since position semantics are ambiguous there.
-fn collect_insert_value_params(ins: &Insert, schema: &Schema, mapping: &mut HashMap<usize, (String, SqlType, bool)>) {
-    let table_name = insert_table_name(ins);
-    let Some(table) = schema.tables.iter().find(|t| t.name == table_name) else { return };
-    let col_names: Vec<String> = ins.columns.iter().map(ident_to_str).collect();
-    let Some(source) = &ins.source else { return };
-    let SetExpr::Values(Values { rows, .. }) = source.body.as_ref() else { return };
-    for row in rows {
-        for (pos, val_expr) in row.iter().enumerate() {
-            if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = val_expr {
-                if let Some(idx) = placeholder_idx(p) {
-                    if let Some(col) = col_names.get(pos).and_then(|n| table.columns.iter().find(|c| &c.name == n)) {
-                        mapping.entry(idx).or_insert((col.name.clone(), col.sql_type.clone(), col.nullable));
-                    }
-                }
-            }
         }
     }
 }
@@ -738,7 +344,7 @@ fn returning_cols_for_delete(del: &Delete, schema: &Schema, config: &ResolverCon
     returning_to_columns(returning, table, config)
 }
 
-fn derived_cols(subquery: &SqlQuery, schema: &Schema, ctes: &[Table], config: &ResolverConfig) -> Vec<Column> {
+pub(super) fn derived_cols(subquery: &SqlQuery, schema: &Schema, ctes: &[Table], config: &ResolverConfig) -> Vec<Column> {
     // A CTE body may be INSERT … RETURNING or UPDATE … RETURNING (data-modifying CTE).
     // In those cases the CTE output is the RETURNING clause, not a SELECT projection.
     match subquery.body.as_ref() {
@@ -766,7 +372,7 @@ fn derived_cols(subquery: &SqlQuery, schema: &Schema, ctes: &[Table], config: &R
         .collect()
 }
 
-fn build_cte_scope(with: Option<&With>, schema: &Schema, config: &ResolverConfig) -> Vec<Table> {
+pub(super) fn build_cte_scope(with: Option<&With>, schema: &Schema, config: &ResolverConfig) -> Vec<Table> {
     let Some(with) = with else { return vec![] };
     let mut ctes: Vec<Table> = Vec::new();
     for cte in &with.cte_tables {
@@ -778,7 +384,7 @@ fn build_cte_scope(with: Option<&With>, schema: &Schema, config: &ResolverConfig
     ctes
 }
 
-fn build_params(mapping: HashMap<usize, (String, SqlType, bool)>, count: usize) -> Vec<Parameter> {
+pub(super) fn build_params(mapping: HashMap<usize, (String, SqlType, bool)>, count: usize) -> Vec<Parameter> {
     // Track how many times each name has been used so we can deduplicate.
     // e.g. `price BETWEEN $1 AND $2` → both get name "price" from the column,
     // but we need "price" and "price_2" in the function signature.
@@ -798,7 +404,7 @@ fn build_params(mapping: HashMap<usize, (String, SqlType, bool)>, count: usize) 
 
 // ─── RETURNING ────────────────────────────────────────────────────────────────
 
-fn resolve_returning(items: &[SelectItem], table: &Table, config: &ResolverConfig) -> Vec<ResultColumn> {
+pub(super) fn resolve_returning(items: &[SelectItem], table: &Table, config: &ResolverConfig) -> Vec<ResultColumn> {
     let all_tables = [(table.clone(), None)];
     let alias_map = build_alias_map(&all_tables);
     let mut result = Vec::new();
@@ -830,11 +436,11 @@ fn resolve_returning(items: &[SelectItem], table: &Table, config: &ResolverConfi
 /// Used when a query cannot be fully resolved against the schema (e.g. unsupported
 /// syntax, unknown tables). The query still runs but parameter/result types default
 /// to `SqlType::Text`.
-fn unresolved_query(ann: &QueryAnnotation, sql: &str) -> Query {
+pub(super) fn unresolved_query(ann: &QueryAnnotation, sql: &str) -> Query {
     Query::new(ann.name.clone(), ann.cmd.clone(), sql, build_params(HashMap::new(), count_params(sql)), vec![])
 }
 
-fn count_params(sql: &str) -> usize {
+pub(super) fn count_params(sql: &str) -> usize {
     let mut max = 0usize;
     let mut chars = sql.chars().peekable();
     while let Some(c) = chars.next() {
@@ -848,7 +454,7 @@ fn count_params(sql: &str) -> usize {
     max
 }
 
-fn placeholder_idx(s: &str) -> Option<usize> {
+pub(super) fn placeholder_idx(s: &str) -> Option<usize> {
     // $N (PostgreSQL) or ?N (SQLite)
     let rest = s.strip_prefix('$').or_else(|| s.strip_prefix('?'))?;
     rest.parse().ok()
