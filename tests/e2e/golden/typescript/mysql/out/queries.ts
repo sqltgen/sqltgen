@@ -51,62 +51,62 @@ const SQL_GET_SALE_ITEM_QUANTITY_AGGREGATES = "SELECT MIN(quantity)  AS min_qty,
 const SQL_GET_BOOK_PRICE_AGGREGATES = "SELECT MIN(price)  AS min_price,        MAX(price)  AS max_price,        SUM(price)  AS sum_price,        AVG(price)  AS avg_price FROM book";
 
 export async function createAuthor(db: Connection, name: string, bio: string | null, birthYear: number | null): Promise<void> {
-  await db.execute(SQL_CREATE_AUTHOR, [name, bio, birthYear]);
+  await db.query(SQL_CREATE_AUTHOR, [name, bio, birthYear]);
 }
 
 export async function getAuthor(db: Connection, id: number): Promise<Author | null> {
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_GET_AUTHOR, [id]);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_AUTHOR, [id]);
   return (rows[0] as Author | undefined) ?? null;
 }
 
 export async function listAuthors(db: Connection): Promise<Author[]> {
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_LIST_AUTHORS, []);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_LIST_AUTHORS, []);
   return rows as Author[];
 }
 
 export async function updateAuthorBio(db: Connection, bio: string | null, id: number): Promise<void> {
-  await db.execute(SQL_UPDATE_AUTHOR_BIO, [bio, id]);
+  await db.query(SQL_UPDATE_AUTHOR_BIO, [bio, id]);
 }
 
 export async function deleteAuthor(db: Connection, id: number): Promise<void> {
-  await db.execute(SQL_DELETE_AUTHOR, [id]);
+  await db.query(SQL_DELETE_AUTHOR, [id]);
 }
 
-export async function createBook(db: Connection, authorId: number, title: string, genre: string, price: number, publishedAt: Date | null): Promise<void> {
-  await db.execute(SQL_CREATE_BOOK, [authorId, title, genre, price, publishedAt]);
+export async function createBook(db: Connection, authorId: number, title: string, genre: string, price: number, publishedAt: string | null): Promise<void> {
+  await db.query(SQL_CREATE_BOOK, [authorId, title, genre, price, publishedAt]);
 }
 
 export async function getBook(db: Connection, id: number): Promise<Book | null> {
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_GET_BOOK, [id]);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_BOOK, [id]);
   return (rows[0] as Book | undefined) ?? null;
 }
 
 export async function getBooksByIds(db: Connection, ids: number[]): Promise<Book[]> {
   const idsJson = JSON.stringify(ids);
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_GET_BOOKS_BY_IDS, [idsJson]);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_BOOKS_BY_IDS, [idsJson]);
   return rows as Book[];
 }
 
 export async function listBooksByGenre(db: Connection, genre: string): Promise<Book[]> {
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_LIST_BOOKS_BY_GENRE, [genre]);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_LIST_BOOKS_BY_GENRE, [genre]);
   return rows as Book[];
 }
 
 export async function listBooksByGenreOrAll(db: Connection, genre: string): Promise<Book[]> {
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_LIST_BOOKS_BY_GENRE_OR_ALL, [genre, genre]);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_LIST_BOOKS_BY_GENRE_OR_ALL, [genre, genre]);
   return rows as Book[];
 }
 
 export async function createCustomer(db: Connection, name: string, email: string): Promise<void> {
-  await db.execute(SQL_CREATE_CUSTOMER, [name, email]);
+  await db.query(SQL_CREATE_CUSTOMER, [name, email]);
 }
 
 export async function createSale(db: Connection, customerId: number): Promise<void> {
-  await db.execute(SQL_CREATE_SALE, [customerId]);
+  await db.query(SQL_CREATE_SALE, [customerId]);
 }
 
 export async function addSaleItem(db: Connection, saleId: number, bookId: number, quantity: number, unitPrice: number): Promise<void> {
-  await db.execute(SQL_ADD_SALE_ITEM, [saleId, bookId, quantity, unitPrice]);
+  await db.query(SQL_ADD_SALE_ITEM, [saleId, bookId, quantity, unitPrice]);
 }
 
 export interface ListBooksWithAuthorRow {
@@ -114,18 +114,18 @@ export interface ListBooksWithAuthorRow {
   title: string;
   genre: string;
   price: number;
-  published_at: Date | null;
+  published_at: string | null;
   author_name: string;
   author_bio: string | null;
 }
 
 export async function listBooksWithAuthor(db: Connection): Promise<ListBooksWithAuthorRow[]> {
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_LIST_BOOKS_WITH_AUTHOR, []);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_LIST_BOOKS_WITH_AUTHOR, []);
   return rows as ListBooksWithAuthorRow[];
 }
 
 export async function getBooksNeverOrdered(db: Connection): Promise<Book[]> {
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_GET_BOOKS_NEVER_ORDERED, []);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_BOOKS_NEVER_ORDERED, []);
   return rows as Book[];
 }
 
@@ -138,7 +138,7 @@ export interface GetTopSellingBooksRow {
 }
 
 export async function getTopSellingBooks(db: Connection): Promise<GetTopSellingBooksRow[]> {
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_GET_TOP_SELLING_BOOKS, []);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_TOP_SELLING_BOOKS, []);
   return rows as GetTopSellingBooksRow[];
 }
 
@@ -150,7 +150,7 @@ export interface GetBestCustomersRow {
 }
 
 export async function getBestCustomers(db: Connection): Promise<GetBestCustomersRow[]> {
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_GET_BEST_CUSTOMERS, []);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_BEST_CUSTOMERS, []);
   return rows as GetBestCustomersRow[];
 }
 
@@ -160,7 +160,7 @@ export interface CountBooksByGenreRow {
 }
 
 export async function countBooksByGenre(db: Connection): Promise<CountBooksByGenreRow[]> {
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_COUNT_BOOKS_BY_GENRE, []);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_COUNT_BOOKS_BY_GENRE, []);
   return rows as CountBooksByGenreRow[];
 }
 
@@ -172,7 +172,7 @@ export interface ListBooksWithLimitRow {
 }
 
 export async function listBooksWithLimit(db: Connection, limit: number, offset: number): Promise<ListBooksWithLimitRow[]> {
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_LIST_BOOKS_WITH_LIMIT, [limit, offset]);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_LIST_BOOKS_WITH_LIMIT, [limit, offset]);
   return rows as ListBooksWithLimitRow[];
 }
 
@@ -184,7 +184,7 @@ export interface SearchBooksByTitleRow {
 }
 
 export async function searchBooksByTitle(db: Connection, title: string): Promise<SearchBooksByTitleRow[]> {
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_SEARCH_BOOKS_BY_TITLE, [title]);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_SEARCH_BOOKS_BY_TITLE, [title]);
   return rows as SearchBooksByTitleRow[];
 }
 
@@ -196,7 +196,7 @@ export interface GetBooksByPriceRangeRow {
 }
 
 export async function getBooksByPriceRange(db: Connection, price: number, price2: number): Promise<GetBooksByPriceRangeRow[]> {
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_GET_BOOKS_BY_PRICE_RANGE, [price, price2]);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_BOOKS_BY_PRICE_RANGE, [price, price2]);
   return rows as GetBooksByPriceRangeRow[];
 }
 
@@ -208,7 +208,7 @@ export interface GetBooksInGenresRow {
 }
 
 export async function getBooksInGenres(db: Connection, genre: string, genre2: string, genre3: string): Promise<GetBooksInGenresRow[]> {
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_GET_BOOKS_IN_GENRES, [genre, genre2, genre3]);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_BOOKS_IN_GENRES, [genre, genre2, genre3]);
   return rows as GetBooksInGenresRow[];
 }
 
@@ -220,7 +220,7 @@ export interface GetBookPriceLabelRow {
 }
 
 export async function getBookPriceLabel(db: Connection, price: number): Promise<GetBookPriceLabelRow[]> {
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_GET_BOOK_PRICE_LABEL, [price]);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_BOOK_PRICE_LABEL, [price]);
   return rows as GetBookPriceLabelRow[];
 }
 
@@ -231,12 +231,12 @@ export interface GetBookPriceOrDefaultRow {
 }
 
 export async function getBookPriceOrDefault(db: Connection, price: number | null): Promise<GetBookPriceOrDefaultRow[]> {
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_GET_BOOK_PRICE_OR_DEFAULT, [price]);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_BOOK_PRICE_OR_DEFAULT, [price]);
   return rows as GetBookPriceOrDefaultRow[];
 }
 
 export async function deleteBookById(db: Connection, id: number): Promise<number> {
-  const [result] = await db.execute<ResultSetHeader>(SQL_DELETE_BOOK_BY_ID, [id]);
+  const [result] = await db.query<ResultSetHeader>(SQL_DELETE_BOOK_BY_ID, [id]);
   return result.affectedRows;
 }
 
@@ -246,7 +246,7 @@ export interface GetGenresWithManyBooksRow {
 }
 
 export async function getGenresWithManyBooks(db: Connection, count: number): Promise<GetGenresWithManyBooksRow[]> {
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_GET_GENRES_WITH_MANY_BOOKS, [count]);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_GENRES_WITH_MANY_BOOKS, [count]);
   return rows as GetGenresWithManyBooksRow[];
 }
 
@@ -257,12 +257,12 @@ export interface GetBooksByAuthorParamRow {
 }
 
 export async function getBooksByAuthorParam(db: Connection, birthYear: number | null): Promise<GetBooksByAuthorParamRow[]> {
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_GET_BOOKS_BY_AUTHOR_PARAM, [birthYear]);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_BOOKS_BY_AUTHOR_PARAM, [birthYear]);
   return rows as GetBooksByAuthorParamRow[];
 }
 
 export async function getAllBookFields(db: Connection): Promise<Book[]> {
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_GET_ALL_BOOK_FIELDS, []);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_ALL_BOOK_FIELDS, []);
   return rows as Book[];
 }
 
@@ -273,7 +273,7 @@ export interface GetBooksNotByAuthorRow {
 }
 
 export async function getBooksNotByAuthor(db: Connection, name: string): Promise<GetBooksNotByAuthorRow[]> {
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_GET_BOOKS_NOT_BY_AUTHOR, [name]);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_BOOKS_NOT_BY_AUTHOR, [name]);
   return rows as GetBooksNotByAuthorRow[];
 }
 
@@ -284,7 +284,7 @@ export interface GetBooksWithRecentSalesRow {
 }
 
 export async function getBooksWithRecentSales(db: Connection, orderedAt: Date): Promise<GetBooksWithRecentSalesRow[]> {
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_GET_BOOKS_WITH_RECENT_SALES, [orderedAt]);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_BOOKS_WITH_RECENT_SALES, [orderedAt]);
   return rows as GetBooksWithRecentSalesRow[];
 }
 
@@ -295,7 +295,7 @@ export interface GetBookWithAuthorNameRow {
 }
 
 export async function getBookWithAuthorName(db: Connection): Promise<GetBookWithAuthorNameRow[]> {
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_GET_BOOK_WITH_AUTHOR_NAME, []);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_BOOK_WITH_AUTHOR_NAME, []);
   return rows as GetBookWithAuthorNameRow[];
 }
 
@@ -307,12 +307,12 @@ export interface GetAuthorStatsRow {
 }
 
 export async function getAuthorStats(db: Connection): Promise<GetAuthorStatsRow[]> {
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_GET_AUTHOR_STATS, []);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_AUTHOR_STATS, []);
   return rows as GetAuthorStatsRow[];
 }
 
 export async function getProduct(db: Connection, id: string): Promise<Product | null> {
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_GET_PRODUCT, [id]);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_PRODUCT, [id]);
   return (rows[0] as Product | undefined) ?? null;
 }
 
@@ -329,7 +329,7 @@ export interface ListActiveProductsRow {
 }
 
 export async function listActiveProducts(db: Connection, active: boolean): Promise<ListActiveProductsRow[]> {
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_LIST_ACTIVE_PRODUCTS, [active]);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_LIST_ACTIVE_PRODUCTS, [active]);
   return rows as ListActiveProductsRow[];
 }
 
@@ -340,12 +340,12 @@ export interface GetAuthorsWithNullBioRow {
 }
 
 export async function getAuthorsWithNullBio(db: Connection): Promise<GetAuthorsWithNullBioRow[]> {
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_GET_AUTHORS_WITH_NULL_BIO, []);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_AUTHORS_WITH_NULL_BIO, []);
   return rows as GetAuthorsWithNullBioRow[];
 }
 
 export async function getAuthorsWithBio(db: Connection): Promise<Author[]> {
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_GET_AUTHORS_WITH_BIO, []);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_AUTHORS_WITH_BIO, []);
   return rows as Author[];
 }
 
@@ -354,11 +354,11 @@ export interface GetBooksPublishedBetweenRow {
   title: string;
   genre: string;
   price: number;
-  published_at: Date | null;
+  published_at: string | null;
 }
 
-export async function getBooksPublishedBetween(db: Connection, publishedAt: Date | null, publishedAt2: Date | null): Promise<GetBooksPublishedBetweenRow[]> {
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_GET_BOOKS_PUBLISHED_BETWEEN, [publishedAt, publishedAt2]);
+export async function getBooksPublishedBetween(db: Connection, publishedAt: string | null, publishedAt2: string | null): Promise<GetBooksPublishedBetweenRow[]> {
+  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_BOOKS_PUBLISHED_BETWEEN, [publishedAt, publishedAt2]);
   return rows as GetBooksPublishedBetweenRow[];
 }
 
@@ -367,7 +367,7 @@ export interface GetDistinctGenresRow {
 }
 
 export async function getDistinctGenres(db: Connection): Promise<GetDistinctGenresRow[]> {
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_GET_DISTINCT_GENRES, []);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_DISTINCT_GENRES, []);
   return rows as GetDistinctGenresRow[];
 }
 
@@ -379,7 +379,7 @@ export interface GetBooksWithSalesCountRow {
 }
 
 export async function getBooksWithSalesCount(db: Connection): Promise<GetBooksWithSalesCountRow[]> {
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_GET_BOOKS_WITH_SALES_COUNT, []);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_BOOKS_WITH_SALES_COUNT, []);
   return rows as GetBooksWithSalesCountRow[];
 }
 
@@ -388,7 +388,7 @@ export interface CountSaleItemsRow {
 }
 
 export async function countSaleItems(db: Connection, saleId: number): Promise<CountSaleItemsRow | null> {
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_COUNT_SALE_ITEMS, [saleId]);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_COUNT_SALE_ITEMS, [saleId]);
   return (rows[0] as CountSaleItemsRow | undefined) ?? null;
 }
 
@@ -400,7 +400,7 @@ export interface GetSaleItemQuantityAggregatesRow {
 }
 
 export async function getSaleItemQuantityAggregates(db: Connection): Promise<GetSaleItemQuantityAggregatesRow | null> {
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_GET_SALE_ITEM_QUANTITY_AGGREGATES, []);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_SALE_ITEM_QUANTITY_AGGREGATES, []);
   return (rows[0] as GetSaleItemQuantityAggregatesRow | undefined) ?? null;
 }
 
@@ -412,6 +412,6 @@ export interface GetBookPriceAggregatesRow {
 }
 
 export async function getBookPriceAggregates(db: Connection): Promise<GetBookPriceAggregatesRow | null> {
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_GET_BOOK_PRICE_AGGREGATES, []);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_BOOK_PRICE_AGGREGATES, []);
   return (rows[0] as GetBookPriceAggregatesRow | undefined) ?? null;
 }

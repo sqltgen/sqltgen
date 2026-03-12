@@ -20,7 +20,7 @@ public final class Queries {
             ps.setObject(3, birthYear);
             try (ResultSet rs = ps.executeQuery()) {
                 if (!rs.next()) return Optional.empty();
-                return Optional.of(new Author(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getObject(4, Integer.class)));
+                return Optional.of(new Author(rs.getLong(1), rs.getString(2), rs.getString(3), getNullableInt(rs, 4)));
             }
         }
     }
@@ -32,7 +32,7 @@ public final class Queries {
             ps.setLong(1, id);
             try (ResultSet rs = ps.executeQuery()) {
                 if (!rs.next()) return Optional.empty();
-                return Optional.of(new Author(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getObject(4, Integer.class)));
+                return Optional.of(new Author(rs.getLong(1), rs.getString(2), rs.getString(3), getNullableInt(rs, 4)));
             }
         }
     }
@@ -43,7 +43,7 @@ public final class Queries {
         try (PreparedStatement ps = conn.prepareStatement(SQL_LIST_AUTHORS)) {
             List<Author> rows = new ArrayList<>();
             try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) rows.add(new Author(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getObject(4, Integer.class)));
+                while (rs.next()) rows.add(new Author(rs.getLong(1), rs.getString(2), rs.getString(3), getNullableInt(rs, 4)));
             }
             return rows;
         }
@@ -57,7 +57,7 @@ public final class Queries {
             ps.setLong(2, id);
             try (ResultSet rs = ps.executeQuery()) {
                 if (!rs.next()) return Optional.empty();
-                return Optional.of(new Author(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getObject(4, Integer.class)));
+                return Optional.of(new Author(rs.getLong(1), rs.getString(2), rs.getString(3), getNullableInt(rs, 4)));
             }
         }
     }
@@ -241,7 +241,7 @@ public final class Queries {
         try (PreparedStatement ps = conn.prepareStatement(SQL_GET_TOP_SELLING_BOOKS)) {
             List<GetTopSellingBooksRow> rows = new ArrayList<>();
             try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) rows.add(new GetTopSellingBooksRow(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getBigDecimal(4), rs.getObject(5, Long.class)));
+                while (rs.next()) rows.add(new GetTopSellingBooksRow(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getBigDecimal(4), getNullableLong(rs, 5)));
             }
             return rows;
         }
@@ -566,7 +566,7 @@ public final class Queries {
             ps.setObject(1, id);
             try (ResultSet rs = ps.executeQuery()) {
                 if (!rs.next()) return Optional.empty();
-                return Optional.of(new Product(rs.getObject(1, java.util.UUID.class), rs.getString(2), rs.getString(3), rs.getBoolean(4), rs.getObject(5, Float.class), rs.getObject(6, Double.class), java.util.Arrays.asList((String[]) rs.getArray(7).getArray()), rs.getString(8), rs.getBytes(9), rs.getObject(10, java.time.LocalDateTime.class), rs.getShort(11)));
+                return Optional.of(new Product(rs.getObject(1, java.util.UUID.class), rs.getString(2), rs.getString(3), rs.getBoolean(4), getNullableFloat(rs, 5), getNullableDouble(rs, 6), java.util.Arrays.asList((String[]) rs.getArray(7).getArray()), rs.getString(8), rs.getBytes(9), rs.getObject(10, java.time.LocalDateTime.class), rs.getShort(11)));
             }
         }
     }
@@ -591,7 +591,7 @@ public final class Queries {
             ps.setBoolean(1, active);
             List<ListActiveProductsRow> rows = new ArrayList<>();
             try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) rows.add(new ListActiveProductsRow(rs.getObject(1, java.util.UUID.class), rs.getString(2), rs.getString(3), rs.getBoolean(4), rs.getObject(5, Float.class), rs.getObject(6, Double.class), java.util.Arrays.asList((String[]) rs.getArray(7).getArray()), rs.getString(8), rs.getObject(9, java.time.LocalDateTime.class), rs.getShort(10)));
+                while (rs.next()) rows.add(new ListActiveProductsRow(rs.getObject(1, java.util.UUID.class), rs.getString(2), rs.getString(3), rs.getBoolean(4), getNullableFloat(rs, 5), getNullableDouble(rs, 6), java.util.Arrays.asList((String[]) rs.getArray(7).getArray()), rs.getString(8), rs.getObject(9, java.time.LocalDateTime.class), rs.getShort(10)));
             }
             return rows;
         }
@@ -613,7 +613,7 @@ public final class Queries {
             ps.setShort(10, stockCount);
             try (ResultSet rs = ps.executeQuery()) {
                 if (!rs.next()) return Optional.empty();
-                return Optional.of(new Product(rs.getObject(1, java.util.UUID.class), rs.getString(2), rs.getString(3), rs.getBoolean(4), rs.getObject(5, Float.class), rs.getObject(6, Double.class), java.util.Arrays.asList((String[]) rs.getArray(7).getArray()), rs.getString(8), rs.getBytes(9), rs.getObject(10, java.time.LocalDateTime.class), rs.getShort(11)));
+                return Optional.of(new Product(rs.getObject(1, java.util.UUID.class), rs.getString(2), rs.getString(3), rs.getBoolean(4), getNullableFloat(rs, 5), getNullableDouble(rs, 6), java.util.Arrays.asList((String[]) rs.getArray(7).getArray()), rs.getString(8), rs.getBytes(9), rs.getObject(10, java.time.LocalDateTime.class), rs.getShort(11)));
             }
         }
     }
@@ -630,7 +630,7 @@ public final class Queries {
         try (PreparedStatement ps = conn.prepareStatement(SQL_GET_AUTHORS_WITH_NULL_BIO)) {
             List<GetAuthorsWithNullBioRow> rows = new ArrayList<>();
             try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) rows.add(new GetAuthorsWithNullBioRow(rs.getLong(1), rs.getString(2), rs.getObject(3, Integer.class)));
+                while (rs.next()) rows.add(new GetAuthorsWithNullBioRow(rs.getLong(1), rs.getString(2), getNullableInt(rs, 3)));
             }
             return rows;
         }
@@ -642,7 +642,7 @@ public final class Queries {
         try (PreparedStatement ps = conn.prepareStatement(SQL_GET_AUTHORS_WITH_BIO)) {
             List<Author> rows = new ArrayList<>();
             try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) rows.add(new Author(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getObject(4, Integer.class)));
+                while (rs.next()) rows.add(new Author(rs.getLong(1), rs.getString(2), rs.getString(3), getNullableInt(rs, 4)));
             }
             return rows;
         }
@@ -760,7 +760,7 @@ public final class Queries {
         try (PreparedStatement ps = conn.prepareStatement(SQL_GET_SALE_ITEM_QUANTITY_AGGREGATES)) {
             try (ResultSet rs = ps.executeQuery()) {
                 if (!rs.next()) return Optional.empty();
-                return Optional.of(new GetSaleItemQuantityAggregatesRow(rs.getObject(1, Integer.class), rs.getObject(2, Integer.class), rs.getObject(3, Long.class), rs.getBigDecimal(4)));
+                return Optional.of(new GetSaleItemQuantityAggregatesRow(getNullableInt(rs, 1), getNullableInt(rs, 2), getNullableLong(rs, 3), rs.getBigDecimal(4)));
             }
         }
     }
@@ -781,5 +781,30 @@ public final class Queries {
                 return Optional.of(new GetBookPriceAggregatesRow(rs.getBigDecimal(1), rs.getBigDecimal(2), rs.getBigDecimal(3), rs.getBigDecimal(4)));
             }
         }
+    }
+
+    private static Boolean getNullableBoolean(java.sql.ResultSet rs, int col) throws java.sql.SQLException {
+        boolean v = rs.getBoolean(col);
+        return rs.wasNull() ? null : v;
+    }
+    private static Short getNullableShort(java.sql.ResultSet rs, int col) throws java.sql.SQLException {
+        short v = rs.getShort(col);
+        return rs.wasNull() ? null : v;
+    }
+    private static Integer getNullableInt(java.sql.ResultSet rs, int col) throws java.sql.SQLException {
+        int v = rs.getInt(col);
+        return rs.wasNull() ? null : v;
+    }
+    private static Long getNullableLong(java.sql.ResultSet rs, int col) throws java.sql.SQLException {
+        long v = rs.getLong(col);
+        return rs.wasNull() ? null : v;
+    }
+    private static Float getNullableFloat(java.sql.ResultSet rs, int col) throws java.sql.SQLException {
+        float v = rs.getFloat(col);
+        return rs.wasNull() ? null : v;
+    }
+    private static Double getNullableDouble(java.sql.ResultSet rs, int col) throws java.sql.SQLException {
+        double v = rs.getDouble(col);
+        return rs.wasNull() ? null : v;
     }
 }

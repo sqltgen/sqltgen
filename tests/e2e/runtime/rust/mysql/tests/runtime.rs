@@ -755,7 +755,7 @@ async fn test_get_sale_item_quantity_aggregates() {
     assert_eq!(row.max_qty, Some(2));
     assert_eq!(row.sum_qty, Some(Decimal::from(3)));
     let avg = row.avg_qty.unwrap();
-    assert!((avg - 1.5_f64).abs() < 0.01);
+    assert!((avg - Decimal::from_str("1.5").unwrap()).abs() < Decimal::from_str("0.01").unwrap());
 
     teardown(pool, &db).await;
 }

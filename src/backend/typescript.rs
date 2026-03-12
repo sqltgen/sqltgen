@@ -41,14 +41,15 @@ struct QueryContext<'a> {
     query: &'a Query,
     schema: &'a Schema,
     output: &'a JsOutput,
+    target: &'a JsTarget,
     fn_name: String,
     ret: String,
     conn_type: &'static str,
 }
 
 impl<'a> QueryContext<'a> {
-    fn new(query: &'a Query, schema: &'a Schema, output: &'a JsOutput, conn_type: &'static str) -> Self {
-        Self { fn_name: to_camel_case(&query.name), ret: return_type(query, schema), query, schema, output, conn_type }
+    fn new(query: &'a Query, schema: &'a Schema, output: &'a JsOutput, target: &'a JsTarget, conn_type: &'static str) -> Self {
+        Self { fn_name: to_camel_case(&query.name), ret: return_type(query, schema), query, schema, output, target, conn_type }
     }
 
     fn params(&self) -> Vec<&'a Parameter> {
@@ -101,8 +102,8 @@ impl TypeScriptCodegen {
         let name = to_pascal_case(&table.name);
         let fields: Vec<(&str, &SqlType, bool)> = table.columns.iter().map(|c| (c.name.as_str(), &c.sql_type, c.nullable)).collect();
         match self.output {
-            JsOutput::TypeScript => emit_ts_interface(&mut src, &name, &fields)?,
-            JsOutput::JavaScript => emit_js_typedef(&mut src, &name, &fields)?,
+            JsOutput::TypeScript => emit_ts_interface(&mut src, &name, &fields, &self.target)?,
+            JsOutput::JavaScript => emit_js_typedef(&mut src, &name, &fields, &self.target)?,
         }
         Ok(src)
     }
@@ -129,21 +130,21 @@ impl TypeScriptCodegen {
 // ─── Type emission ────────────────────────────────────────────────────────────
 
 /// Emit a TypeScript `interface` block for the given fields.
-fn emit_ts_interface(src: &mut String, name: &str, fields: &[(&str, &SqlType, bool)]) -> anyhow::Result<()> {
+fn emit_ts_interface(src: &mut String, name: &str, fields: &[(&str, &SqlType, bool)], target: &JsTarget) -> anyhow::Result<()> {
     writeln!(src, "export interface {name} {{")?;
     for (fname, ftype, nullable) in fields {
-        writeln!(src, "  {fname}: {};", js_type(ftype, *nullable))?;
+        writeln!(src, "  {fname}: {};", js_type(ftype, *nullable, target))?;
     }
     writeln!(src, "}}")?;
     Ok(())
 }
 
 /// Emit a JSDoc `@typedef` block for the given fields.
-fn emit_js_typedef(src: &mut String, name: &str, fields: &[(&str, &SqlType, bool)]) -> anyhow::Result<()> {
+fn emit_js_typedef(src: &mut String, name: &str, fields: &[(&str, &SqlType, bool)], target: &JsTarget) -> anyhow::Result<()> {
     writeln!(src, "/**")?;
     writeln!(src, " * @typedef {{Object}} {name}")?;
     for (fname, ftype, nullable) in fields {
-        let ty = js_type(ftype, *nullable);
+        let ty = js_type(ftype, *nullable, target);
         writeln!(src, " * @property {{{ty}}} {fname}")?;
     }
     writeln!(src, " */")?;
@@ -151,18 +152,18 @@ fn emit_js_typedef(src: &mut String, name: &str, fields: &[(&str, &SqlType, bool
 }
 
 /// Emit the inline row type for a query whose result doesn't match any schema table.
-fn emit_inline_row_type(src: &mut String, query: &Query, output: &JsOutput) -> anyhow::Result<()> {
+fn emit_inline_row_type(src: &mut String, query: &Query, output: &JsOutput, target: &JsTarget) -> anyhow::Result<()> {
     let name = format!("{}Row", to_pascal_case(&query.name));
     let fields: Vec<(&str, &SqlType, bool)> = query.result_columns.iter().map(|c| (c.name.as_str(), &c.sql_type, c.nullable)).collect();
     match output {
-        JsOutput::TypeScript => emit_ts_interface(src, &name, &fields),
-        JsOutput::JavaScript => emit_js_typedef(src, &name, &fields),
+        JsOutput::TypeScript => emit_ts_interface(src, &name, &fields, target),
+        JsOutput::JavaScript => emit_js_typedef(src, &name, &fields, target),
     }
 }
 
 /// Map a SQL type to its JavaScript/TypeScript type string.
-fn js_type(sql_type: &SqlType, nullable: bool) -> String {
-    let base = js_base_type(sql_type);
+fn js_type(sql_type: &SqlType, nullable: bool, target: &JsTarget) -> String {
+    let base = js_base_type(sql_type, target);
     if nullable {
         format!("{base} | null")
     } else {
@@ -170,7 +171,7 @@ fn js_type(sql_type: &SqlType, nullable: bool) -> String {
     }
 }
 
-fn js_base_type(sql_type: &SqlType) -> String {
+fn js_base_type(sql_type: &SqlType, target: &JsTarget) -> String {
     match sql_type {
         SqlType::Boolean => "boolean".to_string(),
         SqlType::SmallInt | SqlType::Integer | SqlType::BigInt => "number".to_string(),
@@ -178,9 +179,18 @@ fn js_base_type(sql_type: &SqlType) -> String {
         SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_) => "string".to_string(),
         SqlType::Interval | SqlType::Uuid => "string".to_string(),
         SqlType::Bytes => "Buffer".to_string(),
-        SqlType::Date | SqlType::Time | SqlType::Timestamp | SqlType::TimestampTz => "Date".to_string(),
+        // mysql2 returns DATE columns as 'YYYY-MM-DD' strings (not Date objects) and
+        // sending a JS Date for a DATE param causes timezone-shift bugs. Use string.
+        SqlType::Date => {
+            if matches!(target, JsTarget::Mysql) {
+                "string".to_string()
+            } else {
+                "Date".to_string()
+            }
+        },
+        SqlType::Time | SqlType::Timestamp | SqlType::TimestampTz => "Date".to_string(),
         SqlType::Json | SqlType::Jsonb => "unknown".to_string(),
-        SqlType::Array(inner) => format!("{}[]", js_base_type(inner)),
+        SqlType::Array(inner) => format!("{}[]", js_base_type(inner, target)),
         SqlType::Custom(_) => "unknown".to_string(),
     }
 }
@@ -198,7 +208,7 @@ fn build_queries_file(queries: &[Query], schema: &Schema, target: &JsTarget, out
     for query in queries {
         writeln!(src)?;
         if has_inline_rows(query, schema) {
-            emit_inline_row_type(&mut src, query, output)?;
+            emit_inline_row_type(&mut src, query, output, target)?;
             writeln!(src)?;
         }
         emit_query(&mut src, query, schema, target, output, &strategy)?;
@@ -308,21 +318,21 @@ fn list_rewrite_target(lp: &Parameter, target: &JsTarget) -> ListRewriteTarget {
 
 fn emit_query(src: &mut String, query: &Query, schema: &Schema, target: &JsTarget, output: &JsOutput, strategy: &ListParamStrategy) -> anyhow::Result<()> {
     match target {
-        JsTarget::Postgres => emit_pg_query(src, query, schema, output, strategy),
-        JsTarget::Sqlite => emit_sqlite_query(src, query, schema, output, strategy),
-        JsTarget::Mysql => emit_mysql_query(src, query, schema, output, strategy),
+        JsTarget::Postgres => emit_pg_query(src, query, schema, target, output, strategy),
+        JsTarget::Sqlite => emit_sqlite_query(src, query, schema, target, output, strategy),
+        JsTarget::Mysql => emit_mysql_query(src, query, schema, target, output, strategy),
     }
 }
 
 /// Emit the JSDoc annotation block for a query function (JS output only).
-fn emit_jsdoc(src: &mut String, conn_type: &str, params: &[&Parameter], return_type: &str, output: &JsOutput) -> anyhow::Result<()> {
+fn emit_jsdoc(src: &mut String, conn_type: &str, params: &[&Parameter], return_type: &str, output: &JsOutput, target: &JsTarget) -> anyhow::Result<()> {
     if matches!(output, JsOutput::TypeScript) {
         return Ok(());
     }
     writeln!(src, "/**")?;
     writeln!(src, " * @param {{{conn_type}}} db")?;
     for p in params {
-        let ty = if p.is_list { format!("{}[]", js_type(&p.sql_type, false)) } else { js_type(&p.sql_type, p.nullable) };
+        let ty = if p.is_list { format!("{}[]", js_type(&p.sql_type, false, target)) } else { js_type(&p.sql_type, p.nullable, target) };
         writeln!(src, " * @param {{{ty}}} {}", to_camel_case(&p.name))?;
     }
     writeln!(src, " * @returns {{Promise<{return_type}>}}")?;
@@ -332,13 +342,21 @@ fn emit_jsdoc(src: &mut String, conn_type: &str, params: &[&Parameter], return_t
 
 /// Emit the `export async function` opening line.
 /// TypeScript includes type annotations; JavaScript uses plain parameter names.
-fn emit_fn_open(src: &mut String, fn_name: &str, conn_type: &str, params: &[&Parameter], return_type: &str, output: &JsOutput) -> anyhow::Result<()> {
+fn emit_fn_open(
+    src: &mut String,
+    fn_name: &str,
+    conn_type: &str,
+    params: &[&Parameter],
+    return_type: &str,
+    output: &JsOutput,
+    target: &JsTarget,
+) -> anyhow::Result<()> {
     match output {
         JsOutput::TypeScript => {
             let typed: Vec<String> = params
                 .iter()
                 .map(|p| {
-                    let ty = if p.is_list { format!("{}[]", js_type(&p.sql_type, false)) } else { js_type(&p.sql_type, p.nullable) };
+                    let ty = if p.is_list { format!("{}[]", js_type(&p.sql_type, false, target)) } else { js_type(&p.sql_type, p.nullable, target) };
                     format!("{}: {ty}", to_camel_case(&p.name))
                 })
                 .collect();
@@ -371,15 +389,15 @@ fn row_type_name(query: &Query, schema: &Schema) -> String {
 
 // ─── PostgreSQL (pg) ─────────────────────────────────────────────────────────
 
-fn emit_pg_query(src: &mut String, query: &Query, schema: &Schema, output: &JsOutput, strategy: &ListParamStrategy) -> anyhow::Result<()> {
-    let ctx = QueryContext::new(query, schema, output, "ClientBase");
+fn emit_pg_query(src: &mut String, query: &Query, schema: &Schema, target: &JsTarget, output: &JsOutput, strategy: &ListParamStrategy) -> anyhow::Result<()> {
+    let ctx = QueryContext::new(query, schema, output, target, "ClientBase");
     if let Some(lp) = query.params.iter().find(|p| p.is_list) {
         return emit_pg_list_query(src, &ctx, strategy, lp);
     }
     let const_name = sql_const_name(&query.name);
     let params = ctx.params();
-    emit_jsdoc(src, ctx.conn_type, &params, &ctx.ret, ctx.output)?;
-    emit_fn_open(src, &ctx.fn_name, ctx.conn_type, &params, &ctx.ret, ctx.output)?;
+    emit_jsdoc(src, ctx.conn_type, &params, &ctx.ret, ctx.output, ctx.target)?;
+    emit_fn_open(src, &ctx.fn_name, ctx.conn_type, &params, &ctx.ret, ctx.output, ctx.target)?;
     let args = pg_params_array(query);
     emit_pg_body(src, &ctx, &const_name, &args)?;
     writeln!(src, "}}")?;
@@ -438,8 +456,8 @@ fn emit_pg_list_query(src: &mut String, ctx: &QueryContext, strategy: &ListParam
     let const_name = sql_const_name(&ctx.query.name);
     let params = ctx.params();
     let lp_name = to_camel_case(&lp.name);
-    emit_jsdoc(src, ctx.conn_type, &params, &ctx.ret, ctx.output)?;
-    emit_fn_open(src, &ctx.fn_name, ctx.conn_type, &params, &ctx.ret, ctx.output)?;
+    emit_jsdoc(src, ctx.conn_type, &params, &ctx.ret, ctx.output, ctx.target)?;
+    emit_fn_open(src, &ctx.fn_name, ctx.conn_type, &params, &ctx.ret, ctx.output, ctx.target)?;
     match strategy {
         ListParamStrategy::Native => {
             let args = pg_params_array(ctx.query);
@@ -467,15 +485,22 @@ fn emit_pg_list_query(src: &mut String, ctx: &QueryContext, strategy: &ListParam
 
 // ─── SQLite (better-sqlite3) ─────────────────────────────────────────────────
 
-fn emit_sqlite_query(src: &mut String, query: &Query, schema: &Schema, output: &JsOutput, strategy: &ListParamStrategy) -> anyhow::Result<()> {
-    let ctx = QueryContext::new(query, schema, output, "Database");
+fn emit_sqlite_query(
+    src: &mut String,
+    query: &Query,
+    schema: &Schema,
+    target: &JsTarget,
+    output: &JsOutput,
+    strategy: &ListParamStrategy,
+) -> anyhow::Result<()> {
+    let ctx = QueryContext::new(query, schema, output, target, "Database");
     if let Some(lp) = query.params.iter().find(|p| p.is_list) {
         return emit_sqlite_list_query(src, &ctx, strategy, lp);
     }
     let const_name = sql_const_name(&query.name);
     let params = ctx.params();
-    emit_jsdoc(src, ctx.conn_type, &params, &ctx.ret, ctx.output)?;
-    emit_fn_open(src, &ctx.fn_name, ctx.conn_type, &params, &ctx.ret, ctx.output)?;
+    emit_jsdoc(src, ctx.conn_type, &params, &ctx.ret, ctx.output, ctx.target)?;
+    emit_fn_open(src, &ctx.fn_name, ctx.conn_type, &params, &ctx.ret, ctx.output, ctx.target)?;
     let args = sqlite_spread_args(query);
     emit_sqlite_body(src, &ctx, &const_name, &args)?;
     writeln!(src, "}}")?;
@@ -505,8 +530,8 @@ fn emit_sqlite_list_query(src: &mut String, ctx: &QueryContext, strategy: &ListP
     let const_name = sql_const_name(&ctx.query.name);
     let params = ctx.params();
     let lp_name = to_camel_case(&lp.name);
-    emit_jsdoc(src, ctx.conn_type, &params, &ctx.ret, ctx.output)?;
-    emit_fn_open(src, &ctx.fn_name, ctx.conn_type, &params, &ctx.ret, ctx.output)?;
+    emit_jsdoc(src, ctx.conn_type, &params, &ctx.ret, ctx.output, ctx.target)?;
+    emit_fn_open(src, &ctx.fn_name, ctx.conn_type, &params, &ctx.ret, ctx.output, ctx.target)?;
     match strategy {
         ListParamStrategy::Native => {
             writeln!(src, "  const {lp_name}Json = JSON.stringify({lp_name});")?;
@@ -576,15 +601,22 @@ fn emit_sqlite_body(src: &mut String, ctx: &QueryContext, sql_expr: &str, args: 
 
 // ─── MySQL (mysql2) ───────────────────────────────────────────────────────────
 
-fn emit_mysql_query(src: &mut String, query: &Query, schema: &Schema, output: &JsOutput, strategy: &ListParamStrategy) -> anyhow::Result<()> {
-    let ctx = QueryContext::new(query, schema, output, "Connection");
+fn emit_mysql_query(
+    src: &mut String,
+    query: &Query,
+    schema: &Schema,
+    target: &JsTarget,
+    output: &JsOutput,
+    strategy: &ListParamStrategy,
+) -> anyhow::Result<()> {
+    let ctx = QueryContext::new(query, schema, output, target, "Connection");
     if let Some(lp) = query.params.iter().find(|p| p.is_list) {
         return emit_mysql_list_query(src, &ctx, strategy, lp);
     }
     let const_name = sql_const_name(&query.name);
     let params = ctx.params();
-    emit_jsdoc(src, ctx.conn_type, &params, &ctx.ret, ctx.output)?;
-    emit_fn_open(src, &ctx.fn_name, ctx.conn_type, &params, &ctx.ret, ctx.output)?;
+    emit_jsdoc(src, ctx.conn_type, &params, &ctx.ret, ctx.output, ctx.target)?;
+    emit_fn_open(src, &ctx.fn_name, ctx.conn_type, &params, &ctx.ret, ctx.output, ctx.target)?;
     let args = mysql_params_array(query);
     emit_mysql_body(src, &ctx, &const_name, &args)?;
     writeln!(src, "}}")?;
@@ -598,25 +630,29 @@ fn mysql_params_array(query: &Query) -> String {
 }
 
 fn emit_mysql_body(src: &mut String, ctx: &QueryContext, sql_expr: &str, args: &str) -> anyhow::Result<()> {
+    // mysql2's execute() sends all JS `number` values as DOUBLE in the binary
+    // protocol. MySQL rejects DOUBLE for LIMIT/OFFSET and other integer contexts.
+    // Using query() sends parameters via the text protocol (client-side escaping),
+    // which avoids the type mismatch and works correctly for all param types.
     match ctx.query.cmd {
-        QueryCmd::Exec => writeln!(src, "  await db.execute({sql_expr}, {args});")?,
+        QueryCmd::Exec => writeln!(src, "  await db.query({sql_expr}, {args});")?,
         QueryCmd::ExecRows => {
             let rsh = mysql_type_param(ctx.output, "ResultSetHeader");
-            writeln!(src, "  const [result] = await db.execute{rsh}({sql_expr}, {args});")?;
+            writeln!(src, "  const [result] = await db.query{rsh}({sql_expr}, {args});")?;
             writeln!(src, "  return result.affectedRows;")?;
         },
         QueryCmd::One => {
             let row = row_type_name(ctx.query, ctx.schema);
             let rdp = mysql_type_param(ctx.output, "RowDataPacket[]");
             let cast = ts_cast(&format!("{row} | undefined"), ctx.output);
-            writeln!(src, "  const [rows] = await db.execute{rdp}({sql_expr}, {args});")?;
+            writeln!(src, "  const [rows] = await db.query{rdp}({sql_expr}, {args});")?;
             writeln!(src, "  return (rows[0]{cast}) ?? null;")?;
         },
         QueryCmd::Many => {
             let row = row_type_name(ctx.query, ctx.schema);
             let rdp = mysql_type_param(ctx.output, "RowDataPacket[]");
             let cast = ts_cast(&format!("{row}[]"), ctx.output);
-            writeln!(src, "  const [rows] = await db.execute{rdp}({sql_expr}, {args});")?;
+            writeln!(src, "  const [rows] = await db.query{rdp}({sql_expr}, {args});")?;
             writeln!(src, "  return rows{cast};")?;
         },
     }
@@ -638,8 +674,8 @@ fn emit_mysql_list_query(src: &mut String, ctx: &QueryContext, strategy: &ListPa
     let const_name = sql_const_name(&ctx.query.name);
     let params = ctx.params();
     let lp_name = to_camel_case(&lp.name);
-    emit_jsdoc(src, ctx.conn_type, &params, &ctx.ret, ctx.output)?;
-    emit_fn_open(src, &ctx.fn_name, ctx.conn_type, &params, &ctx.ret, ctx.output)?;
+    emit_jsdoc(src, ctx.conn_type, &params, &ctx.ret, ctx.output, ctx.target)?;
+    emit_fn_open(src, &ctx.fn_name, ctx.conn_type, &params, &ctx.ret, ctx.output, ctx.target)?;
     match strategy {
         ListParamStrategy::Native => {
             writeln!(src, "  const {lp_name}Json = JSON.stringify({lp_name});")?;
@@ -750,27 +786,33 @@ mod tests {
 
     #[test]
     fn test_js_type_primitives() {
-        assert_eq!(js_type(&SqlType::Boolean, false), "boolean");
-        assert_eq!(js_type(&SqlType::Integer, false), "number");
-        assert_eq!(js_type(&SqlType::BigInt, false), "number");
-        assert_eq!(js_type(&SqlType::Text, false), "string");
-        assert_eq!(js_type(&SqlType::Uuid, false), "string");
-        assert_eq!(js_type(&SqlType::Bytes, false), "Buffer");
-        assert_eq!(js_type(&SqlType::Date, false), "Date");
-        assert_eq!(js_type(&SqlType::Timestamp, false), "Date");
-        assert_eq!(js_type(&SqlType::Json, false), "unknown");
+        let pg = JsTarget::Postgres;
+        assert_eq!(js_type(&SqlType::Boolean, false, &pg), "boolean");
+        assert_eq!(js_type(&SqlType::Integer, false, &pg), "number");
+        assert_eq!(js_type(&SqlType::BigInt, false, &pg), "number");
+        assert_eq!(js_type(&SqlType::Text, false, &pg), "string");
+        assert_eq!(js_type(&SqlType::Uuid, false, &pg), "string");
+        assert_eq!(js_type(&SqlType::Bytes, false, &pg), "Buffer");
+        assert_eq!(js_type(&SqlType::Date, false, &pg), "Date");
+        assert_eq!(js_type(&SqlType::Timestamp, false, &pg), "Date");
+        assert_eq!(js_type(&SqlType::Json, false, &pg), "unknown");
+        // MySQL DATE maps to string (mysql2 returns/expects date strings to avoid timezone issues)
+        assert_eq!(js_type(&SqlType::Date, false, &JsTarget::Mysql), "string");
+        assert_eq!(js_type(&SqlType::Date, false, &JsTarget::Sqlite), "Date");
     }
 
     #[test]
     fn test_js_type_nullable() {
-        assert_eq!(js_type(&SqlType::Text, true), "string | null");
-        assert_eq!(js_type(&SqlType::BigInt, true), "number | null");
+        let pg = JsTarget::Postgres;
+        assert_eq!(js_type(&SqlType::Text, true, &pg), "string | null");
+        assert_eq!(js_type(&SqlType::BigInt, true, &pg), "number | null");
     }
 
     #[test]
     fn test_js_type_array() {
-        assert_eq!(js_type(&SqlType::Array(Box::new(SqlType::Integer)), false), "number[]");
-        assert_eq!(js_type(&SqlType::Array(Box::new(SqlType::Text)), true), "string[] | null");
+        let pg = JsTarget::Postgres;
+        assert_eq!(js_type(&SqlType::Array(Box::new(SqlType::Integer)), false, &pg), "number[]");
+        assert_eq!(js_type(&SqlType::Array(Box::new(SqlType::Text)), true, &pg), "string[] | null");
     }
 
     // ─── model file ──────────────────────────────────────────────────────────
@@ -913,7 +955,7 @@ mod tests {
         let content = build_queries_file(&queries, &schema, &gen.target, &gen.output, &config()).unwrap();
         assert!(content.contains("import type { Connection, ResultSetHeader, RowDataPacket } from 'mysql2/promise';"));
         assert!(content.contains("db: Connection"));
-        assert!(content.contains("execute<RowDataPacket[]>"));
+        assert!(content.contains("query<RowDataPacket[]>"));
         assert!(content.contains("as Users | undefined"));
         assert!(content.contains("?? null"));
     }
@@ -924,7 +966,7 @@ mod tests {
         let queries = vec![delete_users_query()];
         let gen = TypeScriptCodegen { target: JsTarget::Mysql, output: JsOutput::TypeScript };
         let content = build_queries_file(&queries, &schema, &gen.target, &gen.output, &config()).unwrap();
-        assert!(content.contains("execute<ResultSetHeader>"));
+        assert!(content.contains("query<ResultSetHeader>"));
         assert!(content.contains("result.affectedRows"));
     }
 
@@ -940,7 +982,7 @@ mod tests {
             result_columns: vec![ResultColumn { name: "total".to_string(), sql_type: SqlType::BigInt, nullable: true }],
         };
         let mut src = String::new();
-        emit_inline_row_type(&mut src, &query, &JsOutput::TypeScript).unwrap();
+        emit_inline_row_type(&mut src, &query, &JsOutput::TypeScript, &JsTarget::Postgres).unwrap();
         assert!(src.contains("export interface GetStatsRow {"));
         assert!(src.contains("total: number | null;"));
     }
@@ -955,7 +997,7 @@ mod tests {
             result_columns: vec![ResultColumn { name: "total".to_string(), sql_type: SqlType::BigInt, nullable: true }],
         };
         let mut src = String::new();
-        emit_inline_row_type(&mut src, &query, &JsOutput::JavaScript).unwrap();
+        emit_inline_row_type(&mut src, &query, &JsOutput::JavaScript, &JsTarget::Postgres).unwrap();
         assert!(src.contains("@typedef {Object} GetStatsRow"));
         assert!(src.contains("@property {number | null} total"));
     }

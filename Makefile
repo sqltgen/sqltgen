@@ -4,10 +4,10 @@ SQLTGEN := ./target/debug/sqltgen
        db-up db-down db-up-mysql db-down-mysql \
        e2e e2e-snapshot e2e-runtime e2e-check-suite \
        e2e-runtime-rust-sqlite e2e-runtime-rust-postgresql e2e-runtime-rust-mysql \
-       e2e-runtime-java-postgresql \
-       e2e-runtime-kotlin-postgresql \
-       e2e-runtime-python-sqlite e2e-runtime-python-postgresql \
-       e2e-runtime-typescript-sqlite e2e-runtime-typescript-postgresql \
+       e2e-runtime-java-postgresql e2e-runtime-java-sqlite e2e-runtime-java-mysql \
+       e2e-runtime-kotlin-postgresql e2e-runtime-kotlin-sqlite e2e-runtime-kotlin-mysql \
+       e2e-runtime-python-sqlite e2e-runtime-python-postgresql e2e-runtime-python-mysql \
+       e2e-runtime-typescript-sqlite e2e-runtime-typescript-postgresql e2e-runtime-typescript-mysql \
        e2e-db-up e2e-db-down
 
 all: build test
@@ -93,12 +93,18 @@ e2e-runtime: \
 	e2e-runtime-python-sqlite \
 	e2e-runtime-typescript-sqlite \
 	e2e-runtime-rust-sqlite \
+	e2e-runtime-java-sqlite \
+	e2e-runtime-kotlin-sqlite \
 	e2e-runtime-rust-postgresql \
 	e2e-runtime-rust-mysql \
 	e2e-runtime-java-postgresql \
+	e2e-runtime-java-mysql \
 	e2e-runtime-kotlin-postgresql \
+	e2e-runtime-kotlin-mysql \
 	e2e-runtime-python-postgresql \
-	e2e-runtime-typescript-postgresql
+	e2e-runtime-python-mysql \
+	e2e-runtime-typescript-postgresql \
+	e2e-runtime-typescript-mysql
 
 # ── No-Docker runtime tests (SQLite) ─────────────────────────────────────────
 
@@ -111,6 +117,12 @@ e2e-runtime-python-sqlite: $(SQLTGEN)
 
 e2e-runtime-typescript-sqlite: $(SQLTGEN)
 	$(MAKE) -C $(E2E_RUNTIME)/typescript/sqlite install test
+
+e2e-runtime-java-sqlite: $(SQLTGEN)
+	$(MAKE) -C $(E2E_RUNTIME)/java/sqlite test
+
+e2e-runtime-kotlin-sqlite: $(SQLTGEN)
+	$(MAKE) -C $(E2E_RUNTIME)/kotlin/sqlite test
 
 # ── Docker-based runtime tests (PostgreSQL + MySQL) ───────────────────────────
 
@@ -125,14 +137,26 @@ e2e-runtime-rust-mysql: $(SQLTGEN) e2e-db-up
 e2e-runtime-java-postgresql: $(SQLTGEN) e2e-db-up
 	$(MAKE) -C $(E2E_RUNTIME)/java/postgresql test
 
+e2e-runtime-java-mysql: $(SQLTGEN) e2e-db-up
+	$(MAKE) -C $(E2E_RUNTIME)/java/mysql test
+
 e2e-runtime-kotlin-postgresql: $(SQLTGEN) e2e-db-up
 	$(MAKE) -C $(E2E_RUNTIME)/kotlin/postgresql test
+
+e2e-runtime-kotlin-mysql: $(SQLTGEN) e2e-db-up
+	$(MAKE) -C $(E2E_RUNTIME)/kotlin/mysql test
 
 e2e-runtime-python-postgresql: $(SQLTGEN) e2e-db-up
 	$(MAKE) -C $(E2E_RUNTIME)/python/postgresql test
 
+e2e-runtime-python-mysql: $(SQLTGEN) e2e-db-up
+	$(MAKE) -C $(E2E_RUNTIME)/python/mysql test
+
 e2e-runtime-typescript-postgresql: $(SQLTGEN) e2e-db-up
 	$(MAKE) -C $(E2E_RUNTIME)/typescript/postgresql install test
+
+e2e-runtime-typescript-mysql: $(SQLTGEN) e2e-db-up
+	$(MAKE) -C $(E2E_RUNTIME)/typescript/mysql install test
 
 # ── E2E Docker lifecycle ────────────────────────────────────────────────────
 

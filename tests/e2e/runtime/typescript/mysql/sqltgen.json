@@ -1,0 +1,12 @@
+{
+    "version": "1",
+    "engine": "mysql",
+    "schema": "../../../fixtures/mysql/schema.sql",
+    "queries": "../../../fixtures/mysql/queries.sql",
+    "gen": {
+        "typescript": {
+            "out": "gen",
+            "package": "db"
+        }
+    }
+}

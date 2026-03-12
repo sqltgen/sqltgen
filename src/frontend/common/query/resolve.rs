@@ -292,8 +292,7 @@ fn resolve_function(
             };
             ResultColumn { sql_type: promoted, nullable: true, ..rc }
         }),
-        "MIN" | "MAX" => resolve_func_first_arg(func, alias_map, all_tables, config)
-            .map(|rc| ResultColumn { nullable: true, ..rc }),
+        "MIN" | "MAX" => resolve_func_first_arg(func, alias_map, all_tables, config).map(|rc| ResultColumn { nullable: true, ..rc }),
         "AVG" => resolve_func_first_arg(func, alias_map, all_tables, config).map(|rc| {
             // Averaging integers produces a fractional result; widen to the
             // dialect-specific fractional type (Decimal for PG, Double for MySQL/SQLite).

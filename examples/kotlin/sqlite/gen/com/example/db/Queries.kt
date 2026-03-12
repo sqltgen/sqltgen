@@ -20,7 +20,7 @@ object Queries {
             ps.setInt(1, id)
             ps.executeQuery().use { rs ->
                 if (!rs.next()) return null
-                return Author(rs.getInt(1), rs.getString(2), rs.getString(3), rs.getObject(4, java.lang.Integer::class.java)?.toInt())
+                return Author(rs.getInt(1), rs.getString(2), rs.getString(3), getNullableInt(rs, 4))
             }
         }
     }
@@ -30,7 +30,7 @@ object Queries {
         conn.prepareStatement(SQL_LIST_AUTHORS).use { ps ->
             val rows = mutableListOf<Author>()
             ps.executeQuery().use { rs ->
-                while (rs.next()) rows.add(Author(rs.getInt(1), rs.getString(2), rs.getString(3), rs.getObject(4, java.lang.Integer::class.java)?.toInt()))
+                while (rs.next()) rows.add(Author(rs.getInt(1), rs.getString(2), rs.getString(3), getNullableInt(rs, 4)))
             }
             return rows
         }
@@ -170,7 +170,7 @@ object Queries {
         conn.prepareStatement(SQL_GET_TOP_SELLING_BOOKS).use { ps ->
             val rows = mutableListOf<GetTopSellingBooksRow>()
             ps.executeQuery().use { rs ->
-                while (rs.next()) rows.add(GetTopSellingBooksRow(rs.getInt(1), rs.getString(2), rs.getString(3), rs.getBigDecimal(4), rs.getObject(5, java.lang.Long::class.java)?.toLong()))
+                while (rs.next()) rows.add(GetTopSellingBooksRow(rs.getInt(1), rs.getString(2), rs.getString(3), rs.getBigDecimal(4), getNullableLong(rs, 5)))
             }
             return rows
         }
@@ -192,5 +192,30 @@ object Queries {
             }
             return rows
         }
+    }
+
+    private fun getNullableBoolean(rs: java.sql.ResultSet, col: Int): Boolean? {
+        val v = rs.getBoolean(col)
+        return if (rs.wasNull()) null else v
+    }
+    private fun getNullableShort(rs: java.sql.ResultSet, col: Int): Short? {
+        val v = rs.getShort(col)
+        return if (rs.wasNull()) null else v
+    }
+    private fun getNullableInt(rs: java.sql.ResultSet, col: Int): Int? {
+        val v = rs.getInt(col)
+        return if (rs.wasNull()) null else v
+    }
+    private fun getNullableLong(rs: java.sql.ResultSet, col: Int): Long? {
+        val v = rs.getLong(col)
+        return if (rs.wasNull()) null else v
+    }
+    private fun getNullableFloat(rs: java.sql.ResultSet, col: Int): Float? {
+        val v = rs.getFloat(col)
+        return if (rs.wasNull()) null else v
+    }
+    private fun getNullableDouble(rs: java.sql.ResultSet, col: Int): Double? {
+        val v = rs.getDouble(col)
+        return if (rs.wasNull()) null else v
     }
 }

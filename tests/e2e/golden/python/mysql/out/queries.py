@@ -477,7 +477,7 @@ class GetSaleItemQuantityAggregatesRow:
     min_qty: int | None
     max_qty: int | None
     sum_qty: decimal.Decimal | None
-    avg_qty: float | None
+    avg_qty: decimal.Decimal | None
 
 
 def get_sale_item_quantity_aggregates(conn: mysql.connector.MySQLConnection) -> GetSaleItemQuantityAggregatesRow | None:

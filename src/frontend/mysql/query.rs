@@ -18,9 +18,9 @@ pub(crate) fn parse_queries(sql: &str, schema: &Schema) -> anyhow::Result<Vec<Qu
         schema,
         &ResolverConfig {
             sum_integer_type: SqlType::Decimal,
-            // MySQL: SUM(bigint) → decimal, AVG(integer/bigint) → double
+            // MySQL: SUM/AVG of integer columns → DECIMAL on the wire (not DOUBLE)
             sum_bigint_type: SqlType::Decimal,
-            avg_integer_type: SqlType::Double,
+            avg_integer_type: SqlType::Decimal,
             typemap: crate::frontend::mysql::typemap::map,
         },
     )

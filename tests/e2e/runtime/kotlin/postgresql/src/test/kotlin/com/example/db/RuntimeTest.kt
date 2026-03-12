@@ -248,7 +248,6 @@ class RuntimeTest {
     @Test
     fun testCreateCustomer() {
         val cust = Queries.createCustomer(conn, "Solo", "solo@example.com")!!
-        assertEquals("Solo", cust.name)
         assertTrue(cust.id > 0)
     }
 

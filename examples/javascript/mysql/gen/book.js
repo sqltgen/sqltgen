@@ -7,5 +7,5 @@
  * @property {string} title
  * @property {string} genre
  * @property {number} price
- * @property {Date | null} published_at
+ * @property {string | null} published_at
  */

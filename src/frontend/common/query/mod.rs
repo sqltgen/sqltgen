@@ -2219,7 +2219,7 @@ mod tests {
         ResolverConfig {
             sum_integer_type: SqlType::Decimal,
             sum_bigint_type: SqlType::Decimal,
-            avg_integer_type: SqlType::Double,
+            avg_integer_type: SqlType::Decimal,
             typemap: crate::frontend::mysql::typemap::map,
         }
     }
@@ -2235,7 +2235,11 @@ mod tests {
         let sql = format!("-- name: Q :one\nSELECT {expr} FROM metrics;");
         let qs = parse_queries_with_config(&PostgreSqlDialect {}, &sql, schema, config).unwrap();
         assert!(!qs.is_empty(), "query did not parse (check table/column names)");
-        let col = qs[0].result_columns.iter().find(|c| c.name == name).unwrap_or_else(|| panic!("column {name} not found in {:?}", qs[0].result_columns.iter().map(|c| &c.name).collect::<Vec<_>>()));
+        let col = qs[0]
+            .result_columns
+            .iter()
+            .find(|c| c.name == name)
+            .unwrap_or_else(|| panic!("column {name} not found in {:?}", qs[0].result_columns.iter().map(|c| &c.name).collect::<Vec<_>>()));
         (col.sql_type.clone(), col.nullable)
     }
 
@@ -2324,7 +2328,7 @@ mod tests {
     #[test]
     fn test_aggregate_avg_integer_widened_to_fractional_per_dialect() {
         // AVG of integers always produces a fractional result, so the integer
-        // type is widened. PG returns numeric; MySQL and SQLite return double.
+        // type is widened. PG and MySQL return DECIMAL on the wire; SQLite returns REAL.
         let schema = make_numeric_schema();
 
         for expr in ["AVG(int_val) AS a", "AVG(big_val) AS a", "AVG(small_val) AS a"] {
@@ -2333,7 +2337,7 @@ mod tests {
             assert!(n, "AVG is always nullable");
 
             let (t, _) = agg_col(expr, &schema, &mysql_config(), "a");
-            assert_eq!(t, SqlType::Double, "MySQL {expr} → double");
+            assert_eq!(t, SqlType::Decimal, "MySQL {expr} → decimal");
 
             let (t, _) = agg_col(expr, &schema, &sqlite_config(), "a");
             assert_eq!(t, SqlType::Double, "SQLite {expr} → real (Double)");
