@@ -37,9 +37,9 @@ FIXTURES = E2E / "fixtures"
 # ── Fixture files (dialect → path) ────────────────────────────────────────────
 
 FIXTURE_FILES: dict[str, Path] = {
-    "postgresql": FIXTURES / "postgresql" / "queries.sql",
-    "sqlite":     FIXTURES / "sqlite"     / "queries.sql",
-    "mysql":      FIXTURES / "mysql"      / "queries.sql",
+    "postgresql": FIXTURES / "bookstore" / "postgresql" / "queries.sql",
+    "sqlite":     FIXTURES / "bookstore" / "sqlite"     / "queries.sql",
+    "mysql":      FIXTURES / "bookstore" / "mysql"      / "queries.sql",
 }
 
 # ── Runtime test suites ────────────────────────────────────────────────────────

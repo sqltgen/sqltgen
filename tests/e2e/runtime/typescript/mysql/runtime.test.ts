@@ -13,7 +13,7 @@ import mysql from 'mysql2/promise';
 
 import * as queries from './gen/queries';
 
-const FIXTURES = join(__dirname, '../../../fixtures/mysql');
+const FIXTURES = join(__dirname, '../../../fixtures/bookstore/mysql');
 
 const MYSQL_HOST = process.env['MYSQL_HOST'] ?? '127.0.0.1';
 const MYSQL_PORT = parseInt(process.env['MYSQL_PORT'] ?? '13306', 10);

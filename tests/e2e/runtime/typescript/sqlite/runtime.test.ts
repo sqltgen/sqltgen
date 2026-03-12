@@ -11,7 +11,7 @@ import Database from 'better-sqlite3';
 
 import * as queries from './gen/queries';
 
-const FIXTURES = join(__dirname, '../../../fixtures/sqlite');
+const FIXTURES = join(__dirname, '../../../fixtures/bookstore/sqlite');
 
 // ─── Setup helpers ────────────────────────────────────────────────────────────
 

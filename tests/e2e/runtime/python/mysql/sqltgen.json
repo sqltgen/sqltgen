@@ -1,8 +1,8 @@
 {
     "version": "1",
     "engine": "mysql",
-    "schema": "../../../fixtures/mysql/schema.sql",
-    "queries": "../../../fixtures/mysql/queries.sql",
+    "schema": "../../../fixtures/bookstore/mysql/schema.sql",
+    "queries": "../../../fixtures/bookstore/mysql/queries.sql",
     "gen": {
         "python": {
             "out": "gen",

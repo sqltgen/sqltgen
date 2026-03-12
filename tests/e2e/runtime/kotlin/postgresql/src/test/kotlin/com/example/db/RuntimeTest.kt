@@ -33,7 +33,7 @@ class RuntimeTest {
         conn.autoCommit = true
 
         schema = "test_" + UUID.randomUUID().toString().replace("-", "")
-        val schemaSql = Files.readString(Path.of("../../../fixtures/postgresql/schema.sql"))
+        val schemaSql = Files.readString(Path.of("../../../fixtures/bookstore/postgresql/schema.sql"))
         conn.createStatement().use { s ->
             s.execute("""CREATE SCHEMA "$schema"""")
             s.execute("""SET search_path TO "$schema"""")

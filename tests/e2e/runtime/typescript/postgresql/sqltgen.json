@@ -1,8 +1,8 @@
 {
     "version": "1",
     "engine": "postgresql",
-    "schema": "../../../fixtures/postgresql/schema.sql",
-    "queries": "../../../fixtures/postgresql/queries.sql",
+    "schema": "../../../fixtures/bookstore/postgresql/schema.sql",
+    "queries": "../../../fixtures/bookstore/postgresql/queries.sql",
     "gen": {
         "typescript": {
             "out": "gen",

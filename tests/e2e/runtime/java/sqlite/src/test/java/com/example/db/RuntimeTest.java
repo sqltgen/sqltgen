@@ -33,7 +33,7 @@ class RuntimeTest {
         try (Statement s = conn.createStatement()) {
             s.execute("PRAGMA foreign_keys = ON");
         }
-        String schemaSql = Files.readString(Path.of("../../../fixtures/sqlite/schema.sql"));
+        String schemaSql = Files.readString(Path.of("../../../fixtures/bookstore/sqlite/schema.sql"));
         try (Statement s = conn.createStatement()) {
             for (String stmt : schemaSql.split(";")) {
                 String t = stmt.strip();
