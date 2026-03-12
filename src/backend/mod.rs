@@ -1,5 +1,7 @@
 pub mod common;
 pub mod go;
+pub mod naming;
+pub mod sql_rewrite;
 pub mod java;
 pub mod jdbc;
 pub mod kotlin;
