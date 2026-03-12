@@ -179,7 +179,7 @@ pub struct GetSaleItemQuantityAggregatesRow {
     pub min_qty: Option<i32>,
     pub max_qty: Option<i32>,
     pub sum_qty: Option<rust_decimal::Decimal>,
-    pub avg_qty: Option<f64>,
+    pub avg_qty: Option<rust_decimal::Decimal>,
 }
 
 #[derive(Debug, sqlx::FromRow)]

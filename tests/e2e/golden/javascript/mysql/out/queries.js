@@ -59,7 +59,7 @@ const SQL_GET_BOOK_PRICE_AGGREGATES = "SELECT MIN(price)  AS min_price,        M
  * @returns {Promise<void>}
  */
 export async function createAuthor(db, name, bio, birthYear) {
-  await db.execute(SQL_CREATE_AUTHOR, [name, bio, birthYear]);
+  await db.query(SQL_CREATE_AUTHOR, [name, bio, birthYear]);
 }
 
 /**
@@ -68,7 +68,7 @@ export async function createAuthor(db, name, bio, birthYear) {
  * @returns {Promise<Author | null>}
  */
 export async function getAuthor(db, id) {
-  const [rows] = await db.execute(SQL_GET_AUTHOR, [id]);
+  const [rows] = await db.query(SQL_GET_AUTHOR, [id]);
   return (rows[0]) ?? null;
 }
 
@@ -77,7 +77,7 @@ export async function getAuthor(db, id) {
  * @returns {Promise<Author[]>}
  */
 export async function listAuthors(db) {
-  const [rows] = await db.execute(SQL_LIST_AUTHORS, []);
+  const [rows] = await db.query(SQL_LIST_AUTHORS, []);
   return rows;
 }
 
@@ -88,7 +88,7 @@ export async function listAuthors(db) {
  * @returns {Promise<void>}
  */
 export async function updateAuthorBio(db, bio, id) {
-  await db.execute(SQL_UPDATE_AUTHOR_BIO, [bio, id]);
+  await db.query(SQL_UPDATE_AUTHOR_BIO, [bio, id]);
 }
 
 /**
@@ -97,7 +97,7 @@ export async function updateAuthorBio(db, bio, id) {
  * @returns {Promise<void>}
  */
 export async function deleteAuthor(db, id) {
-  await db.execute(SQL_DELETE_AUTHOR, [id]);
+  await db.query(SQL_DELETE_AUTHOR, [id]);
 }
 
 /**
@@ -106,11 +106,11 @@ export async function deleteAuthor(db, id) {
  * @param {string} title
  * @param {string} genre
  * @param {number} price
- * @param {Date | null} publishedAt
+ * @param {string | null} publishedAt
  * @returns {Promise<void>}
  */
 export async function createBook(db, authorId, title, genre, price, publishedAt) {
-  await db.execute(SQL_CREATE_BOOK, [authorId, title, genre, price, publishedAt]);
+  await db.query(SQL_CREATE_BOOK, [authorId, title, genre, price, publishedAt]);
 }
 
 /**
@@ -119,7 +119,7 @@ export async function createBook(db, authorId, title, genre, price, publishedAt)
  * @returns {Promise<Book | null>}
  */
 export async function getBook(db, id) {
-  const [rows] = await db.execute(SQL_GET_BOOK, [id]);
+  const [rows] = await db.query(SQL_GET_BOOK, [id]);
   return (rows[0]) ?? null;
 }
 
@@ -130,7 +130,7 @@ export async function getBook(db, id) {
  */
 export async function getBooksByIds(db, ids) {
   const idsJson = JSON.stringify(ids);
-  const [rows] = await db.execute(SQL_GET_BOOKS_BY_IDS, [idsJson]);
+  const [rows] = await db.query(SQL_GET_BOOKS_BY_IDS, [idsJson]);
   return rows;
 }
 
@@ -140,7 +140,7 @@ export async function getBooksByIds(db, ids) {
  * @returns {Promise<Book[]>}
  */
 export async function listBooksByGenre(db, genre) {
-  const [rows] = await db.execute(SQL_LIST_BOOKS_BY_GENRE, [genre]);
+  const [rows] = await db.query(SQL_LIST_BOOKS_BY_GENRE, [genre]);
   return rows;
 }
 
@@ -150,7 +150,7 @@ export async function listBooksByGenre(db, genre) {
  * @returns {Promise<Book[]>}
  */
 export async function listBooksByGenreOrAll(db, genre) {
-  const [rows] = await db.execute(SQL_LIST_BOOKS_BY_GENRE_OR_ALL, [genre, genre]);
+  const [rows] = await db.query(SQL_LIST_BOOKS_BY_GENRE_OR_ALL, [genre, genre]);
   return rows;
 }
 
@@ -161,7 +161,7 @@ export async function listBooksByGenreOrAll(db, genre) {
  * @returns {Promise<void>}
  */
 export async function createCustomer(db, name, email) {
-  await db.execute(SQL_CREATE_CUSTOMER, [name, email]);
+  await db.query(SQL_CREATE_CUSTOMER, [name, email]);
 }
 
 /**
@@ -170,7 +170,7 @@ export async function createCustomer(db, name, email) {
  * @returns {Promise<void>}
  */
 export async function createSale(db, customerId) {
-  await db.execute(SQL_CREATE_SALE, [customerId]);
+  await db.query(SQL_CREATE_SALE, [customerId]);
 }
 
 /**
@@ -182,7 +182,7 @@ export async function createSale(db, customerId) {
  * @returns {Promise<void>}
  */
 export async function addSaleItem(db, saleId, bookId, quantity, unitPrice) {
-  await db.execute(SQL_ADD_SALE_ITEM, [saleId, bookId, quantity, unitPrice]);
+  await db.query(SQL_ADD_SALE_ITEM, [saleId, bookId, quantity, unitPrice]);
 }
 
 /**
@@ -191,7 +191,7 @@ export async function addSaleItem(db, saleId, bookId, quantity, unitPrice) {
  * @property {string} title
  * @property {string} genre
  * @property {number} price
- * @property {Date | null} published_at
+ * @property {string | null} published_at
  * @property {string} author_name
  * @property {string | null} author_bio
  */
@@ -201,7 +201,7 @@ export async function addSaleItem(db, saleId, bookId, quantity, unitPrice) {
  * @returns {Promise<ListBooksWithAuthorRow[]>}
  */
 export async function listBooksWithAuthor(db) {
-  const [rows] = await db.execute(SQL_LIST_BOOKS_WITH_AUTHOR, []);
+  const [rows] = await db.query(SQL_LIST_BOOKS_WITH_AUTHOR, []);
   return rows;
 }
 
@@ -210,7 +210,7 @@ export async function listBooksWithAuthor(db) {
  * @returns {Promise<Book[]>}
  */
 export async function getBooksNeverOrdered(db) {
-  const [rows] = await db.execute(SQL_GET_BOOKS_NEVER_ORDERED, []);
+  const [rows] = await db.query(SQL_GET_BOOKS_NEVER_ORDERED, []);
   return rows;
 }
 
@@ -228,7 +228,7 @@ export async function getBooksNeverOrdered(db) {
  * @returns {Promise<GetTopSellingBooksRow[]>}
  */
 export async function getTopSellingBooks(db) {
-  const [rows] = await db.execute(SQL_GET_TOP_SELLING_BOOKS, []);
+  const [rows] = await db.query(SQL_GET_TOP_SELLING_BOOKS, []);
   return rows;
 }
 
@@ -245,7 +245,7 @@ export async function getTopSellingBooks(db) {
  * @returns {Promise<GetBestCustomersRow[]>}
  */
 export async function getBestCustomers(db) {
-  const [rows] = await db.execute(SQL_GET_BEST_CUSTOMERS, []);
+  const [rows] = await db.query(SQL_GET_BEST_CUSTOMERS, []);
   return rows;
 }
 
@@ -260,7 +260,7 @@ export async function getBestCustomers(db) {
  * @returns {Promise<CountBooksByGenreRow[]>}
  */
 export async function countBooksByGenre(db) {
-  const [rows] = await db.execute(SQL_COUNT_BOOKS_BY_GENRE, []);
+  const [rows] = await db.query(SQL_COUNT_BOOKS_BY_GENRE, []);
   return rows;
 }
 
@@ -279,7 +279,7 @@ export async function countBooksByGenre(db) {
  * @returns {Promise<ListBooksWithLimitRow[]>}
  */
 export async function listBooksWithLimit(db, limit, offset) {
-  const [rows] = await db.execute(SQL_LIST_BOOKS_WITH_LIMIT, [limit, offset]);
+  const [rows] = await db.query(SQL_LIST_BOOKS_WITH_LIMIT, [limit, offset]);
   return rows;
 }
 
@@ -297,7 +297,7 @@ export async function listBooksWithLimit(db, limit, offset) {
  * @returns {Promise<SearchBooksByTitleRow[]>}
  */
 export async function searchBooksByTitle(db, title) {
-  const [rows] = await db.execute(SQL_SEARCH_BOOKS_BY_TITLE, [title]);
+  const [rows] = await db.query(SQL_SEARCH_BOOKS_BY_TITLE, [title]);
   return rows;
 }
 
@@ -316,7 +316,7 @@ export async function searchBooksByTitle(db, title) {
  * @returns {Promise<GetBooksByPriceRangeRow[]>}
  */
 export async function getBooksByPriceRange(db, price, price2) {
-  const [rows] = await db.execute(SQL_GET_BOOKS_BY_PRICE_RANGE, [price, price2]);
+  const [rows] = await db.query(SQL_GET_BOOKS_BY_PRICE_RANGE, [price, price2]);
   return rows;
 }
 
@@ -336,7 +336,7 @@ export async function getBooksByPriceRange(db, price, price2) {
  * @returns {Promise<GetBooksInGenresRow[]>}
  */
 export async function getBooksInGenres(db, genre, genre2, genre3) {
-  const [rows] = await db.execute(SQL_GET_BOOKS_IN_GENRES, [genre, genre2, genre3]);
+  const [rows] = await db.query(SQL_GET_BOOKS_IN_GENRES, [genre, genre2, genre3]);
   return rows;
 }
 
@@ -354,7 +354,7 @@ export async function getBooksInGenres(db, genre, genre2, genre3) {
  * @returns {Promise<GetBookPriceLabelRow[]>}
  */
 export async function getBookPriceLabel(db, price) {
-  const [rows] = await db.execute(SQL_GET_BOOK_PRICE_LABEL, [price]);
+  const [rows] = await db.query(SQL_GET_BOOK_PRICE_LABEL, [price]);
   return rows;
 }
 
@@ -371,7 +371,7 @@ export async function getBookPriceLabel(db, price) {
  * @returns {Promise<GetBookPriceOrDefaultRow[]>}
  */
 export async function getBookPriceOrDefault(db, price) {
-  const [rows] = await db.execute(SQL_GET_BOOK_PRICE_OR_DEFAULT, [price]);
+  const [rows] = await db.query(SQL_GET_BOOK_PRICE_OR_DEFAULT, [price]);
   return rows;
 }
 
@@ -381,7 +381,7 @@ export async function getBookPriceOrDefault(db, price) {
  * @returns {Promise<number>}
  */
 export async function deleteBookById(db, id) {
-  const [result] = await db.execute(SQL_DELETE_BOOK_BY_ID, [id]);
+  const [result] = await db.query(SQL_DELETE_BOOK_BY_ID, [id]);
   return result.affectedRows;
 }
 
@@ -397,7 +397,7 @@ export async function deleteBookById(db, id) {
  * @returns {Promise<GetGenresWithManyBooksRow[]>}
  */
 export async function getGenresWithManyBooks(db, count) {
-  const [rows] = await db.execute(SQL_GET_GENRES_WITH_MANY_BOOKS, [count]);
+  const [rows] = await db.query(SQL_GET_GENRES_WITH_MANY_BOOKS, [count]);
   return rows;
 }
 
@@ -414,7 +414,7 @@ export async function getGenresWithManyBooks(db, count) {
  * @returns {Promise<GetBooksByAuthorParamRow[]>}
  */
 export async function getBooksByAuthorParam(db, birthYear) {
-  const [rows] = await db.execute(SQL_GET_BOOKS_BY_AUTHOR_PARAM, [birthYear]);
+  const [rows] = await db.query(SQL_GET_BOOKS_BY_AUTHOR_PARAM, [birthYear]);
   return rows;
 }
 
@@ -423,7 +423,7 @@ export async function getBooksByAuthorParam(db, birthYear) {
  * @returns {Promise<Book[]>}
  */
 export async function getAllBookFields(db) {
-  const [rows] = await db.execute(SQL_GET_ALL_BOOK_FIELDS, []);
+  const [rows] = await db.query(SQL_GET_ALL_BOOK_FIELDS, []);
   return rows;
 }
 
@@ -440,7 +440,7 @@ export async function getAllBookFields(db) {
  * @returns {Promise<GetBooksNotByAuthorRow[]>}
  */
 export async function getBooksNotByAuthor(db, name) {
-  const [rows] = await db.execute(SQL_GET_BOOKS_NOT_BY_AUTHOR, [name]);
+  const [rows] = await db.query(SQL_GET_BOOKS_NOT_BY_AUTHOR, [name]);
   return rows;
 }
 
@@ -457,7 +457,7 @@ export async function getBooksNotByAuthor(db, name) {
  * @returns {Promise<GetBooksWithRecentSalesRow[]>}
  */
 export async function getBooksWithRecentSales(db, orderedAt) {
-  const [rows] = await db.execute(SQL_GET_BOOKS_WITH_RECENT_SALES, [orderedAt]);
+  const [rows] = await db.query(SQL_GET_BOOKS_WITH_RECENT_SALES, [orderedAt]);
   return rows;
 }
 
@@ -473,7 +473,7 @@ export async function getBooksWithRecentSales(db, orderedAt) {
  * @returns {Promise<GetBookWithAuthorNameRow[]>}
  */
 export async function getBookWithAuthorName(db) {
-  const [rows] = await db.execute(SQL_GET_BOOK_WITH_AUTHOR_NAME, []);
+  const [rows] = await db.query(SQL_GET_BOOK_WITH_AUTHOR_NAME, []);
   return rows;
 }
 
@@ -490,7 +490,7 @@ export async function getBookWithAuthorName(db) {
  * @returns {Promise<GetAuthorStatsRow[]>}
  */
 export async function getAuthorStats(db) {
-  const [rows] = await db.execute(SQL_GET_AUTHOR_STATS, []);
+  const [rows] = await db.query(SQL_GET_AUTHOR_STATS, []);
   return rows;
 }
 
@@ -500,7 +500,7 @@ export async function getAuthorStats(db) {
  * @returns {Promise<Product | null>}
  */
 export async function getProduct(db, id) {
-  const [rows] = await db.execute(SQL_GET_PRODUCT, [id]);
+  const [rows] = await db.query(SQL_GET_PRODUCT, [id]);
   return (rows[0]) ?? null;
 }
 
@@ -523,7 +523,7 @@ export async function getProduct(db, id) {
  * @returns {Promise<ListActiveProductsRow[]>}
  */
 export async function listActiveProducts(db, active) {
-  const [rows] = await db.execute(SQL_LIST_ACTIVE_PRODUCTS, [active]);
+  const [rows] = await db.query(SQL_LIST_ACTIVE_PRODUCTS, [active]);
   return rows;
 }
 
@@ -539,7 +539,7 @@ export async function listActiveProducts(db, active) {
  * @returns {Promise<GetAuthorsWithNullBioRow[]>}
  */
 export async function getAuthorsWithNullBio(db) {
-  const [rows] = await db.execute(SQL_GET_AUTHORS_WITH_NULL_BIO, []);
+  const [rows] = await db.query(SQL_GET_AUTHORS_WITH_NULL_BIO, []);
   return rows;
 }
 
@@ -548,7 +548,7 @@ export async function getAuthorsWithNullBio(db) {
  * @returns {Promise<Author[]>}
  */
 export async function getAuthorsWithBio(db) {
-  const [rows] = await db.execute(SQL_GET_AUTHORS_WITH_BIO, []);
+  const [rows] = await db.query(SQL_GET_AUTHORS_WITH_BIO, []);
   return rows;
 }
 
@@ -558,17 +558,17 @@ export async function getAuthorsWithBio(db) {
  * @property {string} title
  * @property {string} genre
  * @property {number} price
- * @property {Date | null} published_at
+ * @property {string | null} published_at
  */
 
 /**
  * @param {Connection} db
- * @param {Date | null} publishedAt
- * @param {Date | null} publishedAt2
+ * @param {string | null} publishedAt
+ * @param {string | null} publishedAt2
  * @returns {Promise<GetBooksPublishedBetweenRow[]>}
  */
 export async function getBooksPublishedBetween(db, publishedAt, publishedAt2) {
-  const [rows] = await db.execute(SQL_GET_BOOKS_PUBLISHED_BETWEEN, [publishedAt, publishedAt2]);
+  const [rows] = await db.query(SQL_GET_BOOKS_PUBLISHED_BETWEEN, [publishedAt, publishedAt2]);
   return rows;
 }
 
@@ -582,7 +582,7 @@ export async function getBooksPublishedBetween(db, publishedAt, publishedAt2) {
  * @returns {Promise<GetDistinctGenresRow[]>}
  */
 export async function getDistinctGenres(db) {
-  const [rows] = await db.execute(SQL_GET_DISTINCT_GENRES, []);
+  const [rows] = await db.query(SQL_GET_DISTINCT_GENRES, []);
   return rows;
 }
 
@@ -599,7 +599,7 @@ export async function getDistinctGenres(db) {
  * @returns {Promise<GetBooksWithSalesCountRow[]>}
  */
 export async function getBooksWithSalesCount(db) {
-  const [rows] = await db.execute(SQL_GET_BOOKS_WITH_SALES_COUNT, []);
+  const [rows] = await db.query(SQL_GET_BOOKS_WITH_SALES_COUNT, []);
   return rows;
 }
 
@@ -614,7 +614,7 @@ export async function getBooksWithSalesCount(db) {
  * @returns {Promise<CountSaleItemsRow | null>}
  */
 export async function countSaleItems(db, saleId) {
-  const [rows] = await db.execute(SQL_COUNT_SALE_ITEMS, [saleId]);
+  const [rows] = await db.query(SQL_COUNT_SALE_ITEMS, [saleId]);
   return (rows[0]) ?? null;
 }
 
@@ -631,7 +631,7 @@ export async function countSaleItems(db, saleId) {
  * @returns {Promise<GetSaleItemQuantityAggregatesRow | null>}
  */
 export async function getSaleItemQuantityAggregates(db) {
-  const [rows] = await db.execute(SQL_GET_SALE_ITEM_QUANTITY_AGGREGATES, []);
+  const [rows] = await db.query(SQL_GET_SALE_ITEM_QUANTITY_AGGREGATES, []);
   return (rows[0]) ?? null;
 }
 
@@ -648,6 +648,6 @@ export async function getSaleItemQuantityAggregates(db) {
  * @returns {Promise<GetBookPriceAggregatesRow | null>}
  */
 export async function getBookPriceAggregates(db) {
-  const [rows] = await db.execute(SQL_GET_BOOK_PRICE_AGGREGATES, []);
+  const [rows] = await db.query(SQL_GET_BOOK_PRICE_AGGREGATES, []);
   return (rows[0]) ?? null;
 }

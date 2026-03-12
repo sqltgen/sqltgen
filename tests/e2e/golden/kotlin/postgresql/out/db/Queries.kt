@@ -12,7 +12,7 @@ object Queries {
             ps.setObject(3, birthYear)
             ps.executeQuery().use { rs ->
                 if (!rs.next()) return null
-                return Author(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getObject(4, java.lang.Integer::class.java)?.toInt())
+                return Author(rs.getLong(1), rs.getString(2), rs.getString(3), getNullableInt(rs, 4))
             }
         }
     }
@@ -23,7 +23,7 @@ object Queries {
             ps.setLong(1, id)
             ps.executeQuery().use { rs ->
                 if (!rs.next()) return null
-                return Author(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getObject(4, java.lang.Integer::class.java)?.toInt())
+                return Author(rs.getLong(1), rs.getString(2), rs.getString(3), getNullableInt(rs, 4))
             }
         }
     }
@@ -33,7 +33,7 @@ object Queries {
         conn.prepareStatement(SQL_LIST_AUTHORS).use { ps ->
             val rows = mutableListOf<Author>()
             ps.executeQuery().use { rs ->
-                while (rs.next()) rows.add(Author(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getObject(4, java.lang.Integer::class.java)?.toInt()))
+                while (rs.next()) rows.add(Author(rs.getLong(1), rs.getString(2), rs.getString(3), getNullableInt(rs, 4)))
             }
             return rows
         }
@@ -46,7 +46,7 @@ object Queries {
             ps.setLong(2, id)
             ps.executeQuery().use { rs ->
                 if (!rs.next()) return null
-                return Author(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getObject(4, java.lang.Integer::class.java)?.toInt())
+                return Author(rs.getLong(1), rs.getString(2), rs.getString(3), getNullableInt(rs, 4))
             }
         }
     }
@@ -218,7 +218,7 @@ object Queries {
         conn.prepareStatement(SQL_GET_TOP_SELLING_BOOKS).use { ps ->
             val rows = mutableListOf<GetTopSellingBooksRow>()
             ps.executeQuery().use { rs ->
-                while (rs.next()) rows.add(GetTopSellingBooksRow(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getBigDecimal(4), rs.getObject(5, java.lang.Long::class.java)?.toLong()))
+                while (rs.next()) rows.add(GetTopSellingBooksRow(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getBigDecimal(4), getNullableLong(rs, 5)))
             }
             return rows
         }
@@ -525,7 +525,7 @@ object Queries {
             ps.setObject(1, id)
             ps.executeQuery().use { rs ->
                 if (!rs.next()) return null
-                return Product(rs.getObject(1, java.util.UUID::class.java), rs.getString(2), rs.getString(3), rs.getBoolean(4), rs.getObject(5, java.lang.Float::class.java)?.toFloat(), rs.getObject(6, java.lang.Double::class.java)?.toDouble(), (rs.getArray(7).array as Array<String>).toList(), rs.getString(8), rs.getBytes(9), rs.getObject(10, java.time.LocalDateTime::class.java), rs.getShort(11))
+                return Product(rs.getObject(1, java.util.UUID::class.java), rs.getString(2), rs.getString(3), rs.getBoolean(4), getNullableFloat(rs, 5), getNullableDouble(rs, 6), (rs.getArray(7).array as Array<String>).toList(), rs.getString(8), rs.getBytes(9), rs.getObject(10, java.time.LocalDateTime::class.java), rs.getShort(11))
             }
         }
     }
@@ -549,7 +549,7 @@ object Queries {
             ps.setBoolean(1, active)
             val rows = mutableListOf<ListActiveProductsRow>()
             ps.executeQuery().use { rs ->
-                while (rs.next()) rows.add(ListActiveProductsRow(rs.getObject(1, java.util.UUID::class.java), rs.getString(2), rs.getString(3), rs.getBoolean(4), rs.getObject(5, java.lang.Float::class.java)?.toFloat(), rs.getObject(6, java.lang.Double::class.java)?.toDouble(), (rs.getArray(7).array as Array<String>).toList(), rs.getString(8), rs.getObject(9, java.time.LocalDateTime::class.java), rs.getShort(10)))
+                while (rs.next()) rows.add(ListActiveProductsRow(rs.getObject(1, java.util.UUID::class.java), rs.getString(2), rs.getString(3), rs.getBoolean(4), getNullableFloat(rs, 5), getNullableDouble(rs, 6), (rs.getArray(7).array as Array<String>).toList(), rs.getString(8), rs.getObject(9, java.time.LocalDateTime::class.java), rs.getShort(10)))
             }
             return rows
         }
@@ -570,7 +570,7 @@ object Queries {
             ps.setShort(10, stockCount)
             ps.executeQuery().use { rs ->
                 if (!rs.next()) return null
-                return Product(rs.getObject(1, java.util.UUID::class.java), rs.getString(2), rs.getString(3), rs.getBoolean(4), rs.getObject(5, java.lang.Float::class.java)?.toFloat(), rs.getObject(6, java.lang.Double::class.java)?.toDouble(), (rs.getArray(7).array as Array<String>).toList(), rs.getString(8), rs.getBytes(9), rs.getObject(10, java.time.LocalDateTime::class.java), rs.getShort(11))
+                return Product(rs.getObject(1, java.util.UUID::class.java), rs.getString(2), rs.getString(3), rs.getBoolean(4), getNullableFloat(rs, 5), getNullableDouble(rs, 6), (rs.getArray(7).array as Array<String>).toList(), rs.getString(8), rs.getBytes(9), rs.getObject(10, java.time.LocalDateTime::class.java), rs.getShort(11))
             }
         }
     }
@@ -586,7 +586,7 @@ object Queries {
         conn.prepareStatement(SQL_GET_AUTHORS_WITH_NULL_BIO).use { ps ->
             val rows = mutableListOf<GetAuthorsWithNullBioRow>()
             ps.executeQuery().use { rs ->
-                while (rs.next()) rows.add(GetAuthorsWithNullBioRow(rs.getLong(1), rs.getString(2), rs.getObject(3, java.lang.Integer::class.java)?.toInt()))
+                while (rs.next()) rows.add(GetAuthorsWithNullBioRow(rs.getLong(1), rs.getString(2), getNullableInt(rs, 3)))
             }
             return rows
         }
@@ -597,7 +597,7 @@ object Queries {
         conn.prepareStatement(SQL_GET_AUTHORS_WITH_BIO).use { ps ->
             val rows = mutableListOf<Author>()
             ps.executeQuery().use { rs ->
-                while (rs.next()) rows.add(Author(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getObject(4, java.lang.Integer::class.java)?.toInt()))
+                while (rs.next()) rows.add(Author(rs.getLong(1), rs.getString(2), rs.getString(3), getNullableInt(rs, 4)))
             }
             return rows
         }
@@ -709,7 +709,7 @@ object Queries {
         conn.prepareStatement(SQL_GET_SALE_ITEM_QUANTITY_AGGREGATES).use { ps ->
             ps.executeQuery().use { rs ->
                 if (!rs.next()) return null
-                return GetSaleItemQuantityAggregatesRow(rs.getObject(1, java.lang.Integer::class.java)?.toInt(), rs.getObject(2, java.lang.Integer::class.java)?.toInt(), rs.getObject(3, java.lang.Long::class.java)?.toLong(), rs.getBigDecimal(4))
+                return GetSaleItemQuantityAggregatesRow(getNullableInt(rs, 1), getNullableInt(rs, 2), getNullableLong(rs, 3), rs.getBigDecimal(4))
             }
         }
     }
@@ -729,5 +729,30 @@ object Queries {
                 return GetBookPriceAggregatesRow(rs.getBigDecimal(1), rs.getBigDecimal(2), rs.getBigDecimal(3), rs.getBigDecimal(4))
             }
         }
+    }
+
+    private fun getNullableBoolean(rs: java.sql.ResultSet, col: Int): Boolean? {
+        val v = rs.getBoolean(col)
+        return if (rs.wasNull()) null else v
+    }
+    private fun getNullableShort(rs: java.sql.ResultSet, col: Int): Short? {
+        val v = rs.getShort(col)
+        return if (rs.wasNull()) null else v
+    }
+    private fun getNullableInt(rs: java.sql.ResultSet, col: Int): Int? {
+        val v = rs.getInt(col)
+        return if (rs.wasNull()) null else v
+    }
+    private fun getNullableLong(rs: java.sql.ResultSet, col: Int): Long? {
+        val v = rs.getLong(col)
+        return if (rs.wasNull()) null else v
+    }
+    private fun getNullableFloat(rs: java.sql.ResultSet, col: Int): Float? {
+        val v = rs.getFloat(col)
+        return if (rs.wasNull()) null else v
+    }
+    private fun getNullableDouble(rs: java.sql.ResultSet, col: Int): Double? {
+        val v = rs.getDouble(col)
+        return if (rs.wasNull()) null else v
     }
 }

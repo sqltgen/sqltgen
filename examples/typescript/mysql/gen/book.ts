@@ -6,5 +6,5 @@ export interface Book {
   title: string;
   genre: string;
   price: number;
-  published_at: Date | null;
+  published_at: string | null;
 }

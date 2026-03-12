@@ -71,6 +71,8 @@ impl Codegen for JavaCodegen {
                 emit_java_query(&mut src, query, schema, self.target, &strategy)?;
             }
 
+            writeln!(src)?;
+            emit_nullable_primitive_helpers(&mut src)?;
             writeln!(src, "}}")?;
 
             let path = record_path(&config.out, &config.package, "Queries");
@@ -352,16 +354,17 @@ fn java_type_boxed(sql_type: &SqlType) -> String {
 
 fn resultset_read_expr(sql_type: &SqlType, nullable: bool, idx: usize) -> String {
     // Primitive getters (getInt, getBoolean, …) return 0/false for SQL NULL.
-    // For nullable primitive columns we must use getObject with the boxed type
-    // so that the result can be null, matching the @Nullable field declaration.
+    // For nullable primitive columns we call private getNullable* helpers that
+    // use wasNull() — this is compatible with all JDBC drivers including SQLite,
+    // which does not support getObject(col, Integer.class) for NULL values.
     if nullable && needs_null_safe_getter(sql_type) {
         return match sql_type {
-            SqlType::Boolean => format!("rs.getObject({idx}, Boolean.class)"),
-            SqlType::SmallInt => format!("rs.getObject({idx}, Short.class)"),
-            SqlType::Integer => format!("rs.getObject({idx}, Integer.class)"),
-            SqlType::BigInt => format!("rs.getObject({idx}, Long.class)"),
-            SqlType::Real => format!("rs.getObject({idx}, Float.class)"),
-            SqlType::Double => format!("rs.getObject({idx}, Double.class)"),
+            SqlType::Boolean => format!("getNullableBoolean(rs, {idx})"),
+            SqlType::SmallInt => format!("getNullableShort(rs, {idx})"),
+            SqlType::Integer => format!("getNullableInt(rs, {idx})"),
+            SqlType::BigInt => format!("getNullableLong(rs, {idx})"),
+            SqlType::Real => format!("getNullableFloat(rs, {idx})"),
+            SqlType::Double => format!("getNullableDouble(rs, {idx})"),
             _ => unreachable!("needs_null_safe_getter returned true for non-primitive"),
         };
     }
@@ -383,6 +386,29 @@ fn resultset_read_expr(sql_type: &SqlType, nullable: bool, idx: usize) -> String
         SqlType::Array(inner) => jdbc_array_read_expr(inner, nullable, idx),
         _ => format!("rs.getObject({idx})"),
     }
+}
+
+/// Emit private static helper methods for null-safe reads of primitive JDBC columns.
+///
+/// `rs.getObject(col, Integer.class)` and similar calls throw in SQLite JDBC when the
+/// column is NULL. These helpers use the `wasNull()` idiom which works across all drivers.
+fn emit_nullable_primitive_helpers(src: &mut String) -> anyhow::Result<()> {
+    // (method_suffix, boxed_return_type, primitive_type, getter)
+    let helpers = [
+        ("Boolean", "Boolean", "boolean", "getBoolean"),
+        ("Short", "Short", "short", "getShort"),
+        ("Int", "Integer", "int", "getInt"),
+        ("Long", "Long", "long", "getLong"),
+        ("Float", "Float", "float", "getFloat"),
+        ("Double", "Double", "double", "getDouble"),
+    ];
+    for (suffix, boxed, prim, getter) in helpers {
+        writeln!(src, "    private static {boxed} getNullable{suffix}(java.sql.ResultSet rs, int col) throws java.sql.SQLException {{")?;
+        writeln!(src, "        {prim} v = rs.{getter}(col);")?;
+        writeln!(src, "        return rs.wasNull() ? null : v;")?;
+        writeln!(src, "    }}")?;
+    }
+    Ok(())
 }
 
 /// Build a JDBC expression that reads a SQL ARRAY column and converts it to `java.util.List<T>`.
@@ -650,7 +676,8 @@ mod tests {
 
     #[test]
     fn test_generate_nullable_integer_result_uses_get_object() {
-        // rs.getInt returns 0 for NULL; nullable Integer columns must use getObject
+        // rs.getInt returns 0 for NULL; nullable Integer columns must use the
+        // getNullableInt helper (wasNull-based, compatible with all JDBC drivers)
         let schema = Schema { tables: vec![] };
         let query = Query {
             name: "GetCount".to_string(),
@@ -661,7 +688,7 @@ mod tests {
         };
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.java");
-        assert!(src.contains("rs.getObject(1, Integer.class)"));
+        assert!(src.contains("getNullableInt(rs, 1)"));
         assert!(!src.contains("rs.getInt(1)"));
     }
 

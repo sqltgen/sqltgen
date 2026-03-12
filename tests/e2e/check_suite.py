@@ -86,6 +86,30 @@ SUITES: list[tuple[str, str, Path, str]] = [
     ("sqlite", "typescript",
      RUNTIME / "typescript/sqlite/runtime.test.ts",
      r"it\(['\"]([^'\"]+)['\"]"),
+
+    ("mysql", "typescript",
+     RUNTIME / "typescript/mysql/runtime.test.ts",
+     r"it\(['\"]([^'\"]+)['\"]"),
+
+    ("sqlite", "java",
+     RUNTIME / "java/sqlite/src/test/java/com/example/db/RuntimeTest.java",
+     r"void (test\w+)"),
+
+    ("mysql", "java",
+     RUNTIME / "java/mysql/src/test/java/com/example/db/RuntimeTest.java",
+     r"void (test\w+)"),
+
+    ("sqlite", "kotlin",
+     RUNTIME / "kotlin/sqlite/src/test/kotlin/com/example/db/RuntimeTest.kt",
+     r"fun (test\w+)"),
+
+    ("mysql", "kotlin",
+     RUNTIME / "kotlin/mysql/src/test/kotlin/com/example/db/RuntimeTest.kt",
+     r"fun (test\w+)"),
+
+    ("mysql", "python",
+     RUNTIME / "python/mysql/test_runtime.py",
+     r"def (test_\w+)"),
 ]
 
 # ── Known dialect gaps ────────────────────────────────────────────────────────

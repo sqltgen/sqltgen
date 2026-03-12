@@ -25,62 +25,62 @@ const SQL_GET_TOP_SELLING_BOOKS = "WITH book_sales AS (     SELECT book_id,     
 const SQL_GET_BEST_CUSTOMERS = "WITH customer_spend AS (     SELECT s.customer_id,            SUM(si.quantity * si.unit_price) AS total_spent     FROM sale s     JOIN sale_item si ON si.sale_id = s.id     GROUP BY s.customer_id ) SELECT c.id, c.name, c.email,        cs.total_spent FROM customer c JOIN customer_spend cs ON cs.customer_id = c.id ORDER BY cs.total_spent DESC";
 
 export async function createAuthor(db: Connection, name: string, bio: string | null, birthYear: number | null): Promise<void> {
-  await db.execute(SQL_CREATE_AUTHOR, [name, bio, birthYear]);
+  await db.query(SQL_CREATE_AUTHOR, [name, bio, birthYear]);
 }
 
 export async function getAuthor(db: Connection, id: number): Promise<Author | null> {
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_GET_AUTHOR, [id]);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_AUTHOR, [id]);
   return (rows[0] as Author | undefined) ?? null;
 }
 
 export async function listAuthors(db: Connection): Promise<Author[]> {
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_LIST_AUTHORS, []);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_LIST_AUTHORS, []);
   return rows as Author[];
 }
 
 export async function updateAuthorBio(db: Connection, bio: string | null, id: number): Promise<void> {
-  await db.execute(SQL_UPDATE_AUTHOR_BIO, [bio, id]);
+  await db.query(SQL_UPDATE_AUTHOR_BIO, [bio, id]);
 }
 
 export async function deleteAuthor(db: Connection, id: number): Promise<void> {
-  await db.execute(SQL_DELETE_AUTHOR, [id]);
+  await db.query(SQL_DELETE_AUTHOR, [id]);
 }
 
-export async function createBook(db: Connection, authorId: number, title: string, genre: string, price: number, publishedAt: Date | null): Promise<void> {
-  await db.execute(SQL_CREATE_BOOK, [authorId, title, genre, price, publishedAt]);
+export async function createBook(db: Connection, authorId: number, title: string, genre: string, price: number, publishedAt: string | null): Promise<void> {
+  await db.query(SQL_CREATE_BOOK, [authorId, title, genre, price, publishedAt]);
 }
 
 export async function getBook(db: Connection, id: number): Promise<Book | null> {
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_GET_BOOK, [id]);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_BOOK, [id]);
   return (rows[0] as Book | undefined) ?? null;
 }
 
 export async function getBooksByIds(db: Connection, ids: number[]): Promise<Book[]> {
   const idsJson = JSON.stringify(ids);
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_GET_BOOKS_BY_IDS, [idsJson]);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_BOOKS_BY_IDS, [idsJson]);
   return rows as Book[];
 }
 
 export async function listBooksByGenre(db: Connection, genre: string): Promise<Book[]> {
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_LIST_BOOKS_BY_GENRE, [genre]);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_LIST_BOOKS_BY_GENRE, [genre]);
   return rows as Book[];
 }
 
 export async function listBooksByGenreOrAll(db: Connection, genre: string): Promise<Book[]> {
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_LIST_BOOKS_BY_GENRE_OR_ALL, [genre, genre]);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_LIST_BOOKS_BY_GENRE_OR_ALL, [genre, genre]);
   return rows as Book[];
 }
 
 export async function createCustomer(db: Connection, name: string, email: string): Promise<void> {
-  await db.execute(SQL_CREATE_CUSTOMER, [name, email]);
+  await db.query(SQL_CREATE_CUSTOMER, [name, email]);
 }
 
 export async function createSale(db: Connection, customerId: number): Promise<void> {
-  await db.execute(SQL_CREATE_SALE, [customerId]);
+  await db.query(SQL_CREATE_SALE, [customerId]);
 }
 
 export async function addSaleItem(db: Connection, saleId: number, bookId: number, quantity: number, unitPrice: number): Promise<void> {
-  await db.execute(SQL_ADD_SALE_ITEM, [saleId, bookId, quantity, unitPrice]);
+  await db.query(SQL_ADD_SALE_ITEM, [saleId, bookId, quantity, unitPrice]);
 }
 
 export interface ListBooksWithAuthorRow {
@@ -88,18 +88,18 @@ export interface ListBooksWithAuthorRow {
   title: string;
   genre: string;
   price: number;
-  published_at: Date | null;
+  published_at: string | null;
   author_name: string;
   author_bio: string | null;
 }
 
 export async function listBooksWithAuthor(db: Connection): Promise<ListBooksWithAuthorRow[]> {
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_LIST_BOOKS_WITH_AUTHOR, []);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_LIST_BOOKS_WITH_AUTHOR, []);
   return rows as ListBooksWithAuthorRow[];
 }
 
 export async function getBooksNeverOrdered(db: Connection): Promise<Book[]> {
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_GET_BOOKS_NEVER_ORDERED, []);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_BOOKS_NEVER_ORDERED, []);
   return rows as Book[];
 }
 
@@ -112,7 +112,7 @@ export interface GetTopSellingBooksRow {
 }
 
 export async function getTopSellingBooks(db: Connection): Promise<GetTopSellingBooksRow[]> {
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_GET_TOP_SELLING_BOOKS, []);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_TOP_SELLING_BOOKS, []);
   return rows as GetTopSellingBooksRow[];
 }
 
@@ -124,6 +124,6 @@ export interface GetBestCustomersRow {
 }
 
 export async function getBestCustomers(db: Connection): Promise<GetBestCustomersRow[]> {
-  const [rows] = await db.execute<RowDataPacket[]>(SQL_GET_BEST_CUSTOMERS, []);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_BEST_CUSTOMERS, []);
   return rows as GetBestCustomersRow[];
 }
