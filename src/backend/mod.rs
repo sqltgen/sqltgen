@@ -1,12 +1,12 @@
 pub mod common;
 pub mod go;
-pub mod naming;
-pub mod sql_rewrite;
 pub mod java;
 pub mod jdbc;
 pub mod kotlin;
+pub mod naming;
 pub mod python;
 pub mod rust;
+pub mod sql_rewrite;
 #[cfg(test)]
 pub mod test_helpers;
 pub mod typescript;
