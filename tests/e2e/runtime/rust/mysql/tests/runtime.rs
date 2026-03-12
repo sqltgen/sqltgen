@@ -38,7 +38,7 @@ async fn setup_db() -> (MySqlPool, String) {
         .unwrap();
 
     // Create tables from the fixture schema
-    let schema = include_str!("../../../../fixtures/mysql/schema.sql");
+    let schema = include_str!("../../../../fixtures/bookstore/mysql/schema.sql");
     for statement in schema.split(';').map(str::trim).filter(|s: &&str| !s.is_empty()) {
         sqlx::query(statement).execute(&pool).await.unwrap();
     }

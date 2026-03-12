@@ -13,7 +13,7 @@ import { randomBytes } from 'node:crypto';
 
 import * as queries from './gen/queries';
 
-const FIXTURES = join(__dirname, '../../../fixtures/postgresql');
+const FIXTURES = join(__dirname, '../../../fixtures/bookstore/postgresql');
 const DATABASE_URL = process.env['DATABASE_URL']
   ?? 'postgresql://sqltgen:sqltgen@localhost:15432/sqltgen_e2e';
 

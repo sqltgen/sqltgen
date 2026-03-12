@@ -41,7 +41,7 @@ class RuntimeTest {
         conn.setAutoCommit(true);
 
         schema = "test_" + UUID.randomUUID().toString().replace("-", "");
-        String schemaSql = Files.readString(Path.of("../../../fixtures/postgresql/schema.sql"));
+        String schemaSql = Files.readString(Path.of("../../../fixtures/bookstore/postgresql/schema.sql"));
         try (Statement s = conn.createStatement()) {
             s.execute("CREATE SCHEMA \"" + schema + "\"");
             s.execute("SET search_path TO \"" + schema + "\"");

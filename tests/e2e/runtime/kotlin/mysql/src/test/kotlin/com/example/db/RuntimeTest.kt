@@ -43,7 +43,7 @@ class RuntimeTest {
             "sqltgen", "sqltgen"
         )
         conn.autoCommit = true
-        val schemaSql = Files.readString(Path.of("../../../fixtures/mysql/schema.sql"))
+        val schemaSql = Files.readString(Path.of("../../../fixtures/bookstore/mysql/schema.sql"))
         conn.createStatement().use { s ->
             for (stmt in schemaSql.split(";")) {
                 val t = stmt.trim()

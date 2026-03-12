@@ -157,82 +157,82 @@ fn snapshot_test(dialect: &str, parser: &dyn DialectParser, backend_name: &str, 
 
 #[test]
 fn snapshot_rust_postgresql() {
-    snapshot_test("postgresql", &PostgresParser, "rust", &RustCodegen { target: RustTarget::Postgres });
+    snapshot_test("bookstore/postgresql", &PostgresParser, "rust", &RustCodegen { target: RustTarget::Postgres });
 }
 
 #[test]
 fn snapshot_rust_sqlite() {
-    snapshot_test("sqlite", &SqliteParser, "rust", &RustCodegen { target: RustTarget::Sqlite });
+    snapshot_test("bookstore/sqlite", &SqliteParser, "rust", &RustCodegen { target: RustTarget::Sqlite });
 }
 
 #[test]
 fn snapshot_rust_mysql() {
-    snapshot_test("mysql", &MysqlParser, "rust", &RustCodegen { target: RustTarget::Mysql });
+    snapshot_test("bookstore/mysql", &MysqlParser, "rust", &RustCodegen { target: RustTarget::Mysql });
 }
 
 // ─── Java backend ──────────────────────────────────────────────────────────
 
 #[test]
 fn snapshot_java_postgresql() {
-    snapshot_test("postgresql", &PostgresParser, "java", &JavaCodegen { target: JdbcTarget::Postgres });
+    snapshot_test("bookstore/postgresql", &PostgresParser, "java", &JavaCodegen { target: JdbcTarget::Postgres });
 }
 
 // ─── Kotlin backend ────────────────────────────────────────────────────────
 
 #[test]
 fn snapshot_kotlin_postgresql() {
-    snapshot_test("postgresql", &PostgresParser, "kotlin", &KotlinCodegen { target: JdbcTarget::Postgres });
+    snapshot_test("bookstore/postgresql", &PostgresParser, "kotlin", &KotlinCodegen { target: JdbcTarget::Postgres });
 }
 
 // ─── Python backend ────────────────────────────────────────────────────────
 
 #[test]
 fn snapshot_python_postgresql() {
-    snapshot_test("postgresql", &PostgresParser, "python", &PythonCodegen { target: PythonTarget::Postgres });
+    snapshot_test("bookstore/postgresql", &PostgresParser, "python", &PythonCodegen { target: PythonTarget::Postgres });
 }
 
 #[test]
 fn snapshot_python_sqlite() {
-    snapshot_test("sqlite", &SqliteParser, "python", &PythonCodegen { target: PythonTarget::Sqlite });
+    snapshot_test("bookstore/sqlite", &SqliteParser, "python", &PythonCodegen { target: PythonTarget::Sqlite });
 }
 
 #[test]
 fn snapshot_python_mysql() {
-    snapshot_test("mysql", &MysqlParser, "python", &PythonCodegen { target: PythonTarget::Mysql });
+    snapshot_test("bookstore/mysql", &MysqlParser, "python", &PythonCodegen { target: PythonTarget::Mysql });
 }
 
 // ─── TypeScript backend ────────────────────────────────────────────────────
 
 #[test]
 fn snapshot_typescript_postgresql() {
-    snapshot_test("postgresql", &PostgresParser, "typescript", &TypeScriptCodegen { target: JsTarget::Postgres, output: JsOutput::TypeScript });
+    snapshot_test("bookstore/postgresql", &PostgresParser, "typescript", &TypeScriptCodegen { target: JsTarget::Postgres, output: JsOutput::TypeScript });
 }
 
 #[test]
 fn snapshot_typescript_sqlite() {
-    snapshot_test("sqlite", &SqliteParser, "typescript", &TypeScriptCodegen { target: JsTarget::Sqlite, output: JsOutput::TypeScript });
+    snapshot_test("bookstore/sqlite", &SqliteParser, "typescript", &TypeScriptCodegen { target: JsTarget::Sqlite, output: JsOutput::TypeScript });
 }
 
 #[test]
 fn snapshot_typescript_mysql() {
-    snapshot_test("mysql", &MysqlParser, "typescript", &TypeScriptCodegen { target: JsTarget::Mysql, output: JsOutput::TypeScript });
+    snapshot_test("bookstore/mysql", &MysqlParser, "typescript", &TypeScriptCodegen { target: JsTarget::Mysql, output: JsOutput::TypeScript });
 }
 
 // ─── JavaScript backend ───────────────────────────────────────────────────
 
 #[test]
 fn snapshot_javascript_postgresql() {
-    snapshot_test("postgresql", &PostgresParser, "javascript", &TypeScriptCodegen { target: JsTarget::Postgres, output: JsOutput::JavaScript });
+    snapshot_test("bookstore/postgresql", &PostgresParser, "javascript", &TypeScriptCodegen { target: JsTarget::Postgres, output: JsOutput::JavaScript });
 }
 
 #[test]
 fn snapshot_javascript_sqlite() {
-    snapshot_test("sqlite", &SqliteParser, "javascript", &TypeScriptCodegen { target: JsTarget::Sqlite, output: JsOutput::JavaScript });
+    snapshot_test("bookstore/sqlite", &SqliteParser, "javascript", &TypeScriptCodegen { target: JsTarget::Sqlite, output: JsOutput::JavaScript });
 }
 
 #[test]
 fn snapshot_javascript_mysql() {
-    snapshot_test("mysql", &MysqlParser, "javascript", &TypeScriptCodegen { target: JsTarget::Mysql, output: JsOutput::JavaScript });
+    snapshot_test("bookstore/mysql", &MysqlParser, "javascript", &TypeScriptCodegen { target: JsTarget::Mysql, output: JsOutput::JavaScript });
 }
 
 // ─── Provenance snapshot tests ────────────────────────────────────────────

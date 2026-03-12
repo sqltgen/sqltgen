@@ -50,7 +50,7 @@ class RuntimeTest {
         conn = DriverManager.getConnection(
             TEST_BASE_URL + dbName + "?useSSL=false&allowPublicKeyRetrieval=true", USER, PASS);
         conn.setAutoCommit(true);
-        String schemaSql = Files.readString(Path.of("../../../fixtures/mysql/schema.sql"));
+        String schemaSql = Files.readString(Path.of("../../../fixtures/bookstore/mysql/schema.sql"));
         try (Statement s = conn.createStatement()) {
             for (String stmt : schemaSql.split(";")) {
                 String t = stmt.strip();

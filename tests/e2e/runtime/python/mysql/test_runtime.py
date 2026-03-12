@@ -14,7 +14,7 @@ import pytest
 
 from gen import queries
 
-_FIXTURES = pathlib.Path(__file__).parent / "../../../fixtures/mysql"
+_FIXTURES = pathlib.Path(__file__).parent / "../../../fixtures/bookstore/mysql"
 _MYSQL_HOST = os.environ.get("MYSQL_HOST", "127.0.0.1")
 _MYSQL_PORT = int(os.environ.get("MYSQL_PORT", "13306"))
 

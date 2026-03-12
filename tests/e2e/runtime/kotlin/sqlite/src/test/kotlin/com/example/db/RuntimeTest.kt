@@ -27,7 +27,7 @@ class RuntimeTest {
         conn.createStatement().use { s ->
             s.execute("PRAGMA foreign_keys = ON")
         }
-        val schemaSql = Files.readString(Path.of("../../../fixtures/sqlite/schema.sql"))
+        val schemaSql = Files.readString(Path.of("../../../fixtures/bookstore/sqlite/schema.sql"))
         conn.createStatement().use { s ->
             for (stmt in schemaSql.split(";")) {
                 val t = stmt.trim()
