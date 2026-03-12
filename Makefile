@@ -8,7 +8,8 @@ SQLTGEN := ./target/debug/sqltgen
        e2e-runtime-kotlin-postgresql e2e-runtime-kotlin-sqlite e2e-runtime-kotlin-mysql \
        e2e-runtime-python-sqlite e2e-runtime-python-postgresql e2e-runtime-python-mysql \
        e2e-runtime-typescript-sqlite e2e-runtime-typescript-postgresql e2e-runtime-typescript-mysql \
-       e2e-db-up e2e-db-down
+       e2e-db-up e2e-db-down \
+       ci-fmt ci-clippy ci-test ci-check-suite ci-examples-drift ci-runtime-sqlite ci-runtime-db
 
 all: build test
 
@@ -165,6 +166,45 @@ e2e-db-up:
 
 e2e-db-down:
 	docker compose -f $(E2E_RUNTIME)/docker-compose.yml down
+
+# ── CI targets ────────────────────────────────────────────────────────────────
+
+ci-fmt:
+	cargo fmt --check
+
+ci-clippy:
+	cargo clippy -- -D warnings
+
+ci-test:
+	cargo test
+
+ci-check-suite:
+	python tests/e2e/check_suite.py --ci
+
+ci-examples-drift: build
+	$(MAKE) generate
+	git diff --exit-code -- examples/
+
+ci-runtime-sqlite: build
+	pip install --quiet pytest
+	$(MAKE) e2e-runtime-rust-sqlite
+	$(MAKE) e2e-runtime-python-sqlite
+	$(MAKE) e2e-runtime-typescript-sqlite
+	$(MAKE) e2e-runtime-java-sqlite
+	$(MAKE) e2e-runtime-kotlin-sqlite
+
+ci-runtime-db: build
+	pip install --quiet pytest "psycopg[binary]" mysql-connector-python
+	$(MAKE) e2e-runtime-rust-postgresql
+	$(MAKE) e2e-runtime-rust-mysql
+	$(MAKE) e2e-runtime-java-postgresql
+	$(MAKE) e2e-runtime-java-mysql
+	$(MAKE) e2e-runtime-kotlin-postgresql
+	$(MAKE) e2e-runtime-kotlin-mysql
+	$(MAKE) e2e-runtime-python-postgresql
+	$(MAKE) e2e-runtime-python-mysql
+	$(MAKE) e2e-runtime-typescript-postgresql
+	$(MAKE) e2e-runtime-typescript-mysql
 
 # ── PostgreSQL database ───────────────────────────────────────────────────────
 
