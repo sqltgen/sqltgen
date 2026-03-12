@@ -207,6 +207,15 @@ See [`examples/README.md`](examples/README.md) for prerequisites.
 
 ---
 
+## Documentation
+
+- **[User guide](docs/user-guide.md)** — installation, configuration, query annotation
+  syntax, per-language wiring, type mapping reference, and more.
+- **[Developer guide](docs/developer-guide.md)** — architecture, IR data model, how to
+  add a new backend or dialect, testing, and code conventions.
+
+---
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
