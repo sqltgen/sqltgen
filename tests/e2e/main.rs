@@ -235,6 +235,18 @@ fn snapshot_javascript_mysql() {
     snapshot_test("mysql", &MysqlParser, "javascript", &TypeScriptCodegen { target: JsTarget::Mysql, output: JsOutput::JavaScript });
 }
 
+// ─── Provenance snapshot tests ────────────────────────────────────────────
+//
+// Verify that source_table is correctly resolved through CTEs and derived
+// tables, and that this flows through to the codegen output (the generated
+// functions should reuse the existing Users model type rather than emitting
+// an anonymous result struct).
+
+#[test]
+fn snapshot_rust_provenance() {
+    snapshot_test("provenance", &PostgresParser, "rust", &RustCodegen { target: RustTarget::Postgres });
+}
+
 // ─── Error resilience tests ───────────────────────────────────────────────
 //
 // These verify the pipeline handles bad/edge-case input gracefully without
