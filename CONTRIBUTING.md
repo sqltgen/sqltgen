@@ -3,6 +3,10 @@
 Thank you for your interest in contributing. This document covers how to build,
 test, and submit changes.
 
+For a detailed walkthrough of the architecture, IR data model, and step-by-step
+guides for adding new backends and dialects, see the
+[Developer Guide](docs/developer-guide.md).
+
 ---
 
 ## Prerequisites
