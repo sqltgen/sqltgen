@@ -4,7 +4,9 @@ use std::path::PathBuf;
 
 use crate::backend::common::{has_inline_rows, infer_row_type_name, infer_table, mysql_json_table_col_type, sql_const_name};
 use crate::backend::naming::{to_pascal_case, to_snake_case};
-use crate::backend::sql_rewrite::{positional_bind_names, rewrite_list_sql_native, rewrite_to_anon_params, rewrite_to_percent_s, split_at_in_clause, ListRewriteTarget};
+use crate::backend::sql_rewrite::{
+    positional_bind_names, rewrite_list_sql_native, rewrite_to_anon_params, rewrite_to_percent_s, split_at_in_clause, ListRewriteTarget,
+};
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::{Engine, ListParamStrategy, OutputConfig};
 use crate::ir::{Parameter, Query, QueryCmd, Schema, SqlType};

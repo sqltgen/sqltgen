@@ -2,10 +2,10 @@ use std::fmt::Write;
 use std::path::PathBuf;
 
 use crate::backend::common::{emit_package, has_inline_rows, needs_null_safe_getter, pg_array_type_name};
-use crate::backend::naming::{to_camel_case, to_pascal_case};
 use crate::backend::jdbc::{
     self, emit_dynamic_binds, emit_jdbc_binds, prepare_dynamic_sql_parts, prepare_sql_const, prepare_sql_const_from, JdbcTarget, ListAction,
 };
+use crate::backend::naming::{to_camel_case, to_pascal_case};
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::{ListParamStrategy, OutputConfig};
 use crate::ir::{Parameter, Query, QueryCmd, Schema, SqlType};
