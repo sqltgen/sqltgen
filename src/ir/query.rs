@@ -10,6 +10,35 @@ pub struct Query {
     pub params: Vec<Parameter>,
     /// Result columns — empty for :exec and :execrows.
     pub result_columns: Vec<ResultColumn>,
+    /// The schema table this query's rows come from, when the SELECT list is an
+    /// unambiguous `table.*` or bare `*` over a single non-nullable schema table.
+    ///
+    /// `None` for explicit column lists, mixed-source projections, CTEs as the
+    /// final source, or when the table is on the nullable side of an outer join.
+    ///
+    /// Backends use this for model reuse: when `Some`, they can return the
+    /// table's existing record type instead of emitting a per-query row struct.
+    /// Identity — not structural shape — is the criterion.
+    pub source_table: Option<String>,
+}
+
+impl Query {
+    /// Construct a query with no source-table identity.
+    ///
+    /// Use this for all non-trivial projections (explicit column lists, JOINs
+    /// as the final projection source, CTEs, set operations, DML). Set
+    /// `source_table` afterwards with [`Query::with_source_table`] when the
+    /// projection is an unambiguous `table.*` or bare `*` over a single
+    /// non-nullable schema table.
+    pub fn new(name: impl Into<String>, cmd: QueryCmd, sql: impl Into<String>, params: Vec<Parameter>, result_columns: Vec<ResultColumn>) -> Self {
+        Self { name: name.into(), cmd, sql: sql.into(), params, result_columns, source_table: None }
+    }
+
+    /// Set the source table, consuming `self` (builder-style).
+    pub fn with_source_table(mut self, table: Option<String>) -> Self {
+        self.source_table = table;
+        self
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

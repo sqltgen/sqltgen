@@ -252,7 +252,7 @@ mod tests {
     use crate::ir::{Parameter, Query, QueryCmd, ResultColumn, Schema, SqlType, Table};
 
     fn make_query(name: &str, sql: &str, params: Vec<Parameter>) -> Query {
-        Query { name: name.to_string(), cmd: QueryCmd::One, sql: sql.to_string(), params, result_columns: vec![] }
+        Query { name: name.to_string(), cmd: QueryCmd::One, sql: sql.to_string(), params, result_columns: vec![], source_table: None }
     }
 
     fn make_schema() -> Schema {
@@ -291,6 +291,7 @@ mod tests {
                 ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false },
                 ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
             ],
+            source_table: None,
         };
         assert_eq!(result_row_type(&q, &make_schema(), "Object[]"), "Users");
     }
@@ -303,6 +304,7 @@ mod tests {
             sql: "SELECT count(*) as cnt FROM users".to_string(),
             params: vec![],
             result_columns: vec![ResultColumn { name: "cnt".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            source_table: None,
         };
         let schema = Schema { tables: vec![] };
         assert_eq!(ds_result_row_type(&q, &schema, "Object[]"), "Queries.GetSummaryRow");

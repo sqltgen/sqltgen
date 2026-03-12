@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use sqlparser::ast::{
     Assignment, AssignmentTarget, Delete, Expr, FromTable, Insert, JoinOperator, ObjectNamePart, OnConflictAction, OnInsert, Query as SqlQuery, Select,
-    SelectItem, SetExpr, Statement, TableFactor, TableObject, TableWithJoins, Value, ValueWithSpan, Values, With,
+    SelectItem, SelectItemQualifiedWildcardKind, SetExpr, Statement, TableFactor, TableObject, TableWithJoins, Value, ValueWithSpan, Values, With,
 };
 use sqlparser::dialect::Dialect;
 use sqlparser::parser::Parser;
@@ -202,7 +202,48 @@ fn build_select_body(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, select: &Se
         collect_order_by_params(q, &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping: &mut mapping });
         build_params(mapping, count_params(sql))
     };
-    Query { name: ann.name.clone(), cmd: ann.cmd.clone(), sql: sql.to_string(), params, result_columns }
+    let source_table = select_wildcard_source(select, &alias_map, &all_tables, schema);
+    Query::new(ann.name.clone(), ann.cmd.clone(), sql, params, result_columns).with_source_table(source_table)
+}
+
+/// Detect the source schema table when the SELECT projection is an unambiguous wildcard.
+///
+/// Returns `Some(table_name)` when:
+/// - The projection is a single `table.*` (qualified wildcard) or bare `*` (with one
+///   table in scope), AND
+/// - That table is a base schema table (not a CTE or derived subquery), AND
+/// - The table was not made nullable by an outer join.
+///
+/// Returns `None` for all other projections (explicit column lists, set operations,
+/// multi-table wildcards, CTEs as the final source, or nullable-side tables).
+fn select_wildcard_source(select: &Select, alias_map: &HashMap<String, &Table>, all_tables: &[(Table, Option<String>)], schema: &Schema) -> Option<String> {
+    let [item] = select.projection.as_slice() else { return None };
+    let table_in_scope: &Table = match item {
+        SelectItem::Wildcard(_) => {
+            // Bare `*` — only valid when exactly one table is in scope.
+            if all_tables.len() != 1 {
+                return None;
+            }
+            &all_tables[0].0
+        },
+        SelectItem::QualifiedWildcard(SelectItemQualifiedWildcardKind::ObjectName(name), _) => {
+            let qualifier = name.0.last().and_then(|p| if let ObjectNamePart::Identifier(i) = p { Some(ident_to_str(i)) } else { None })?;
+            alias_map.get(&qualifier).copied()?
+        },
+        _ => return None,
+    };
+
+    // Must be a base schema table — not a CTE or derived subquery.
+    let schema_table = schema.tables.iter().find(|t| t.name == table_in_scope.name)?;
+
+    // Reject if the table was made nullable by an outer join: any schema column that
+    // was NOT NULL became nullable in the all_tables version.
+    let made_nullable = schema_table.columns.iter().zip(&table_in_scope.columns).any(|(schema_col, result_col)| !schema_col.nullable && result_col.nullable);
+    if made_nullable {
+        return None;
+    }
+
+    Some(schema_table.name.clone())
 }
 
 /// Handle `Statement::Query` where the body is a set operation (UNION/INTERSECT/EXCEPT).
@@ -239,7 +280,7 @@ fn build_set_operation(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, body: &Se
         build_params(mapping, count_params(sql))
     };
 
-    Query { name: ann.name.clone(), cmd: ann.cmd.clone(), sql: sql.to_string(), params, result_columns }
+    Query::new(ann.name.clone(), ann.cmd.clone(), sql, params, result_columns)
 }
 
 /// Recursively extract the leftmost `Select` from a `SetExpr` tree.
@@ -267,7 +308,7 @@ fn build_query_from_insert(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, ins: 
         .find(|t| t.name == insert_table_name(ins))
         .and_then(|t| ins.returning.as_deref().map(|items| resolve_returning(items, t, config)))
         .unwrap_or_default();
-    Query { name: ann.name.clone(), cmd: ann.cmd.clone(), sql: sql.to_string(), params, result_columns }
+    Query::new(ann.name.clone(), ann.cmd.clone(), sql, params, result_columns)
 }
 
 /// Handle `Statement::Query` where the body is `UPDATE … RETURNING` (data-modifying CTE pattern).
@@ -286,7 +327,7 @@ fn build_query_from_update(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, u: &s
         .find(|t| t.name == table_name)
         .and_then(|t| u.returning.as_deref().map(|items| resolve_returning(items, t, config)))
         .unwrap_or_default();
-    Query { name: ann.name.clone(), cmd: ann.cmd.clone(), sql: sql.to_string(), params, result_columns }
+    Query::new(ann.name.clone(), ann.cmd.clone(), sql, params, result_columns)
 }
 
 // ─── INSERT ──────────────────────────────────────────────────────────────────
@@ -303,7 +344,7 @@ fn build_insert(ann: &QueryAnnotation, sql: &str, insert: &Insert, schema: &Sche
     let params = build_params(mapping, count_params(sql));
     let result_columns = insert.returning.as_deref().map_or(vec![], |items| resolve_returning(items, table, config));
 
-    Query { name: ann.name.clone(), cmd: ann.cmd.clone(), sql: sql.to_string(), params, result_columns }
+    Query::new(ann.name.clone(), ann.cmd.clone(), sql, params, result_columns)
 }
 
 /// Collect typed parameter mappings from an `ON CONFLICT DO UPDATE` clause.
@@ -344,7 +385,7 @@ fn build_update(ann: &QueryAnnotation, sql: &str, u: &sqlparser::ast::Update, sc
     collect_update_params(&u.table, &u.assignments, u.selection.as_ref(), schema, config, &mut mapping);
     let params = build_params(mapping, count_params(sql));
     let result_columns = u.returning.as_deref().map_or(vec![], |items| resolve_returning(items, table, config));
-    Query { name: ann.name.clone(), cmd: ann.cmd.clone(), sql: sql.to_string(), params, result_columns }
+    Query::new(ann.name.clone(), ann.cmd.clone(), sql, params, result_columns)
 }
 
 /// Collect typed parameter mappings from an UPDATE statement's SET and WHERE clauses.
@@ -420,7 +461,7 @@ fn build_delete(ann: &QueryAnnotation, sql: &str, delete: &Delete, schema: &Sche
     let params = build_params(mapping, count_params(sql));
     let result_columns = delete.returning.as_deref().map_or(vec![], |items| resolve_returning(items, table, config));
 
-    Query { name: ann.name.clone(), cmd: ann.cmd.clone(), sql: sql.to_string(), params, result_columns }
+    Query::new(ann.name.clone(), ann.cmd.clone(), sql, params, result_columns)
 }
 
 // ─── CTE parameter collection ────────────────────────────────────────────────
@@ -725,13 +766,7 @@ fn resolve_returning(items: &[SelectItem], table: &Table, config: &ResolverConfi
 /// syntax, unknown tables). The query still runs but parameter/result types default
 /// to `SqlType::Text`.
 fn unresolved_query(ann: &QueryAnnotation, sql: &str) -> Query {
-    Query {
-        name: ann.name.clone(),
-        cmd: ann.cmd.clone(),
-        sql: sql.to_string(),
-        params: build_params(HashMap::new(), count_params(sql)),
-        result_columns: vec![],
-    }
+    Query::new(ann.name.clone(), ann.cmd.clone(), sql, build_params(HashMap::new(), count_params(sql)), vec![])
 }
 
 fn count_params(sql: &str) -> usize {
@@ -2354,5 +2389,66 @@ mod tests {
             let (t, _) = agg_col("AVG(dbl_val) AS a", &schema, &config, "a");
             assert_eq!(t, SqlType::Double, "AVG(double) must stay Double");
         }
+    }
+
+    // ─── source_table detection (bug 022) ─────────────────────────────────────
+
+    /// `SELECT * FROM users` — single table, bare wildcard → source_table = users.
+    #[test]
+    fn test_source_table_bare_star_single_table() {
+        let sql = "-- name: ListUsers :many\nSELECT * FROM users;";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        assert_eq!(q.source_table.as_deref(), Some("users"));
+    }
+
+    /// `SELECT u.* FROM users u` — qualified wildcard → source_table = users.
+    #[test]
+    fn test_source_table_qualified_star() {
+        let sql = "-- name: ListUsers :many\nSELECT u.* FROM users u;";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        assert_eq!(q.source_table.as_deref(), Some("users"));
+    }
+
+    /// `SELECT u.* FROM users u INNER JOIN posts p ON u.id = p.user_id` —
+    /// qualified wildcard over non-nullable side → source_table = users.
+    #[test]
+    fn test_source_table_qualified_star_with_join() {
+        let sql = "-- name: ListUsers :many\nSELECT u.* FROM users u INNER JOIN posts p ON u.id = p.user_id;";
+        let q = &parse_queries(sql, &make_join_schema()).unwrap()[0];
+        assert_eq!(q.source_table.as_deref(), Some("users"));
+    }
+
+    /// `SELECT u.* FROM posts p LEFT JOIN users u ON u.id = p.user_id` —
+    /// u is on the nullable side of the LEFT JOIN → source_table must be None.
+    #[test]
+    fn test_source_table_none_for_nullable_side_of_left_join() {
+        let sql = "-- name: GetUser :one\nSELECT u.* FROM posts p LEFT JOIN users u ON u.id = p.user_id;";
+        let q = &parse_queries(sql, &make_join_schema()).unwrap()[0];
+        assert_eq!(q.source_table, None);
+    }
+
+    /// `SELECT id, name FROM users` — explicit column list → source_table must be None.
+    #[test]
+    fn test_source_table_none_for_explicit_column_list() {
+        let sql = "-- name: GetUser :one\nSELECT id, name FROM users WHERE id = $1;";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        assert_eq!(q.source_table, None);
+    }
+
+    /// `SELECT * FROM users u INNER JOIN posts p ON …` — bare `*` with multiple
+    /// tables in scope → source_table must be None (ambiguous).
+    #[test]
+    fn test_source_table_none_for_bare_star_multiple_tables() {
+        let sql = "-- name: GetAll :many\nSELECT * FROM users u INNER JOIN posts p ON u.id = p.user_id;";
+        let q = &parse_queries(sql, &make_join_schema()).unwrap()[0];
+        assert_eq!(q.source_table, None);
+    }
+
+    /// CTE as the final source → source_table must be None (CTE is not a schema table).
+    #[test]
+    fn test_source_table_none_for_cte_source() {
+        let sql = "-- name: GetUser :one\nWITH cte AS (SELECT id, name FROM users WHERE id = $1)\nSELECT * FROM cte;";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        assert_eq!(q.source_table, None);
     }
 }

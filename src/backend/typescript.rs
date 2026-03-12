@@ -741,6 +741,7 @@ mod tests {
                 ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
                 ResultColumn { name: "email".to_string(), sql_type: SqlType::VarChar(Some(255)), nullable: true },
             ],
+            source_table: None,
         }
     }
 
@@ -755,6 +756,7 @@ mod tests {
                 ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
                 ResultColumn { name: "email".to_string(), sql_type: SqlType::VarChar(Some(255)), nullable: true },
             ],
+            source_table: None,
         }
     }
 
@@ -765,6 +767,7 @@ mod tests {
             sql: "DELETE FROM users WHERE id = $1".to_string(),
             params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
             result_columns: vec![],
+            source_table: None,
         }
     }
 
@@ -775,6 +778,7 @@ mod tests {
             sql: "DELETE FROM users WHERE id = $1".to_string(),
             params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
             result_columns: vec![],
+            source_table: None,
         }
     }
 
@@ -980,6 +984,7 @@ mod tests {
             sql: "SELECT count(*) AS total FROM users".to_string(),
             params: vec![],
             result_columns: vec![ResultColumn { name: "total".to_string(), sql_type: SqlType::BigInt, nullable: true }],
+            source_table: None,
         };
         let mut src = String::new();
         emit_inline_row_type(&mut src, &query, &JsOutput::TypeScript, &JsTarget::Postgres).unwrap();
@@ -995,6 +1000,7 @@ mod tests {
             sql: "SELECT count(*) AS total FROM users".to_string(),
             params: vec![],
             result_columns: vec![ResultColumn { name: "total".to_string(), sql_type: SqlType::BigInt, nullable: true }],
+            source_table: None,
         };
         let mut src = String::new();
         emit_inline_row_type(&mut src, &query, &JsOutput::JavaScript, &JsTarget::Postgres).unwrap();
@@ -1011,6 +1017,7 @@ mod tests {
             sql: "SELECT id FROM t WHERE id IN ($1)".to_string(),
             params: vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
             result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            source_table: None,
         }
     }
 
@@ -1062,6 +1069,7 @@ mod tests {
             sql: "SELECT id FROM t WHERE active = $1 AND id IN ($2)".to_string(),
             params: vec![Parameter::scalar(1, "active", SqlType::Boolean, false), Parameter::list(2, "ids", SqlType::BigInt, false)],
             result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            source_table: None,
         };
         let content = build_queries_file(&[query], &schema, &JsTarget::Postgres, &JsOutput::TypeScript, &dynamic_cfg()).unwrap();
         assert!(content.contains("active, ...ids"), "scalar before IN must come first in args");
@@ -1077,6 +1085,7 @@ mod tests {
             sql: "SELECT id FROM t WHERE id IN ($1) AND active = $2".to_string(),
             params: vec![Parameter::list(1, "ids", SqlType::BigInt, false), Parameter::scalar(2, "active", SqlType::Boolean, false)],
             result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            source_table: None,
         };
         let content = build_queries_file(&[query], &schema, &JsTarget::Postgres, &JsOutput::TypeScript, &dynamic_cfg()).unwrap();
         assert!(content.contains("...ids, active"), "scalar after IN must follow list in args");
@@ -1117,6 +1126,7 @@ mod tests {
             sql: "SELECT id FROM t WHERE id IN ($1) AND active = $2".to_string(),
             params: vec![Parameter::list(1, "ids", SqlType::BigInt, false), Parameter::scalar(2, "active", SqlType::Boolean, false)],
             result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            source_table: None,
         };
         let content = build_queries_file(&[query], &schema, &JsTarget::Sqlite, &JsOutput::TypeScript, &dynamic_cfg()).unwrap();
         assert!(content.contains("...ids, active"), "scalar after IN must follow list in args");
@@ -1154,6 +1164,7 @@ mod tests {
             sql: "SELECT id FROM t WHERE tag IN ($1)".to_string(),
             params: vec![Parameter::list(1, "tags", SqlType::Text, false)],
             result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+            source_table: None,
         };
         let content = build_queries_file(&[query], &schema, &JsTarget::Postgres, &JsOutput::TypeScript, &config()).unwrap();
         assert!(content.contains("tags: string[]"), "Text list param should use string[] type");
@@ -1168,6 +1179,7 @@ mod tests {
             sql: "DELETE FROM t WHERE id IN ($1)".to_string(),
             params: vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
             result_columns: vec![],
+            source_table: None,
         };
         let content = build_queries_file(&[query], &schema, &JsTarget::Postgres, &JsOutput::TypeScript, &config()).unwrap();
         assert!(content.contains("Promise<number>"), "execrows should return Promise<number>");
@@ -1186,6 +1198,7 @@ mod tests {
             sql: "UPDATE users SET bio = $1 WHERE id = $2".to_string(),
             params: vec![Parameter::scalar(1, "bio", SqlType::Text, true), Parameter::scalar(2, "id", SqlType::BigInt, false)],
             result_columns: vec![],
+            source_table: None,
         };
         let content = build_queries_file(&[query], &schema, &JsTarget::Postgres, &JsOutput::TypeScript, &config()).unwrap();
         assert!(content.contains("bio: string | null"), "nullable param should be string | null");
@@ -1202,6 +1215,7 @@ mod tests {
             sql: "UPDATE users SET bio = ?1 WHERE id = ?2".to_string(),
             params: vec![Parameter::scalar(1, "bio", SqlType::Text, true), Parameter::scalar(2, "id", SqlType::BigInt, false)],
             result_columns: vec![],
+            source_table: None,
         };
         let content = build_queries_file(&[query], &schema, &JsTarget::Sqlite, &JsOutput::TypeScript, &config()).unwrap();
         assert!(content.contains("bio: string | null"), "nullable param should be string | null");
@@ -1217,6 +1231,7 @@ mod tests {
             sql: "UPDATE users SET bio = $1 WHERE id = $2".to_string(),
             params: vec![Parameter::scalar(1, "bio", SqlType::Text, true), Parameter::scalar(2, "id", SqlType::BigInt, false)],
             result_columns: vec![],
+            source_table: None,
         };
         let content = build_queries_file(&[query], &schema, &JsTarget::Mysql, &JsOutput::TypeScript, &config()).unwrap();
         assert!(content.contains("bio: string | null"), "nullable param should be string | null");

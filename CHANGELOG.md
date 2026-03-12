@@ -52,6 +52,18 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
 - Duplicate parameter names in generated function signatures — `BETWEEN $1 AND $2`
   on the same column now produces `price, price_2` instead of `price, price`
 - Non-deterministic import ordering in Rust backend — `HashSet` replaced with sorted `Vec`
+- **False-positive table model inference** — backends could reuse a schema table's
+  model type for queries whose column names happened to match that table, even when
+  the rows came from a CTE, subquery, or a different table with the same column
+  structure. Fixes three classes of bugs: type mismatch (CTE with same column names
+  but different types), nullability mismatch (outer-join nullable columns), and
+  ambiguity (two tables with identical column structure).
+  - IR: added `Query.source_table: Option<String>` — set by the frontend when the
+    SELECT projection is an unambiguous `table.*` or bare `*` over a single
+    non-nullable schema table; `None` for all other projections.
+  - Backend: `infer_table` now uses source identity (Tier 1) when `source_table` is
+    set, and a stricter structural match requiring type + nullability equality and
+    uniqueness (Tier 2) as fallback for test-constructed queries.
 
 ## [0.0.20260310] — unreleased
 
