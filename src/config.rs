@@ -337,6 +337,35 @@ mod tests {
     }
 
     #[test]
+    fn expand_grouped_assigns_map_key_as_group() {
+        let root = std::env::temp_dir().join(format!(
+            "sqltgen_test_grouped_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("users.sql"), "-- name: A :one\nSELECT 1;").unwrap();
+        std::fs::write(root.join("posts.sql"), "-- name: B :one\nSELECT 2;").unwrap();
+
+        let mut map = HashMap::new();
+        map.insert("users".to_string(), GroupPaths::Single("users.sql".to_string()));
+        map.insert("posts".to_string(), GroupPaths::Single("posts.sql".to_string()));
+        let cfg = SqltgenConfig {
+            version: "1".to_string(),
+            engine: Engine::Postgresql,
+            schema: "schema.sql".to_string(),
+            queries: QueryPaths::Grouped(map),
+            gen: HashMap::new(),
+        };
+        let pairs = cfg.expand_queries(&root).unwrap();
+        assert_eq!(pairs.len(), 2);
+        let groups: Vec<&str> = pairs.iter().map(|(_, g)| g.as_str()).collect();
+        assert!(groups.contains(&"users"), "Grouped variant must assign map key as group");
+        assert!(groups.contains(&"posts"), "Grouped variant must assign map key as group");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn rejects_invalid_version() {
         let json = r#"{
             "version": "2",

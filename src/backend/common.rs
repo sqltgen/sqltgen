@@ -455,6 +455,12 @@ mod tests {
     }
 
     #[test]
+    fn test_group_queries_empty_slice() {
+        let groups = group_queries(&[]);
+        assert!(groups.is_empty());
+    }
+
+    #[test]
     fn test_group_queries_multiple_groups_preserves_order() {
         let mut q1 = Query::new("A", QueryCmd::Exec, "SELECT 1", vec![], vec![]);
         q1.group = "users".to_string();
