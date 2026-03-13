@@ -42,10 +42,10 @@ fn build_select_body(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, select: &Se
     let result_columns = resolve_projection(select, &alias_map, &all_tables, config, schema);
     let params = {
         let mut mapping = HashMap::new();
-        collect_cte_params(q.with.as_ref(), schema, config, &mut mapping);
-        collect_select_params(select, schema, config, ctes, &mut mapping);
+        collect_cte_params(q.with.as_ref(), schema, config, &mut mapping, &ann.name);
+        collect_select_params(select, schema, config, ctes, &mut mapping, &ann.name);
         collect_limit_offset_params(q, &mut mapping);
-        collect_order_by_params(q, &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping: &mut mapping });
+        collect_order_by_params(q, &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping: &mut mapping, query_name: &ann.name });
         build_params(mapping, count_params(sql))
     };
     let provenance = build_source_provenance(q.with.as_ref(), &select.from, schema, ctes, config);
@@ -182,15 +182,15 @@ fn build_set_operation(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, body: &Se
     // Collect params from CTEs + all set-operation branches + LIMIT/OFFSET + ORDER BY.
     let params = {
         let mut mapping = HashMap::new();
-        collect_cte_params(q.with.as_ref(), schema, config, &mut mapping);
-        collect_set_expr_params(body, schema, config, ctes, &mut mapping);
+        collect_cte_params(q.with.as_ref(), schema, config, &mut mapping, &ann.name);
+        collect_set_expr_params(body, schema, config, ctes, &mut mapping, &ann.name);
         collect_limit_offset_params(q, &mut mapping);
         // ORDER BY needs the leftmost branch's table context for column type inference.
         if let Some(select) = leftmost_select(body) {
             let all_tables = collect_from_tables(select, schema, ctes, config);
             if !all_tables.is_empty() {
                 let alias_map = build_alias_map(&all_tables);
-                collect_order_by_params(q, &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping: &mut mapping });
+                collect_order_by_params(q, &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping: &mut mapping, query_name: &ann.name });
             }
         }
         build_params(mapping, count_params(sql))

@@ -3,6 +3,7 @@
 //! Walks SQL expressions to find positional placeholders (`$N`, `?N`) and
 //! infer their types from surrounding column references and operators.
 
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 
 use sqlparser::ast::{
@@ -12,7 +13,7 @@ use sqlparser::ast::{
 
 use crate::ir::{Schema, SqlType, Table};
 
-use super::resolve::resolve_expr;
+use super::resolve::{cast_name, resolve_expr};
 use super::{build_alias_map, collect_cte_params, collect_from_tables, placeholder_idx, ResolverConfig, ResolverContext};
 
 /// Collect typed parameter mappings from a single `SELECT` clause.
@@ -25,13 +26,14 @@ pub(super) fn collect_select_params(
     config: &ResolverConfig,
     ctes: &[Table],
     mapping: &mut HashMap<usize, (String, SqlType, bool)>,
+    query_name: &str,
 ) {
     let all_tables = collect_from_tables(select, schema, ctes, config);
     if all_tables.is_empty() {
         return;
     }
     let alias_map = build_alias_map(&all_tables);
-    let ctx = &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping };
+    let ctx = &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping, query_name };
     if let Some(expr) = &select.selection {
         collect_params_from_expr(expr, ctx);
     }
@@ -52,14 +54,15 @@ pub(super) fn collect_set_expr_params(
     config: &ResolverConfig,
     ctes: &[Table],
     mapping: &mut HashMap<usize, (String, SqlType, bool)>,
+    query_name: &str,
 ) {
     match expr {
         SetExpr::Select(select) => {
-            collect_select_params(select, schema, config, ctes, mapping);
+            collect_select_params(select, schema, config, ctes, mapping, query_name);
         },
         SetExpr::SetOperation { left, right, .. } => {
-            collect_set_expr_params(left, schema, config, ctes, mapping);
-            collect_set_expr_params(right, schema, config, ctes, mapping);
+            collect_set_expr_params(left, schema, config, ctes, mapping, query_name);
+            collect_set_expr_params(right, schema, config, ctes, mapping, query_name);
         },
         _ => {},
     }
@@ -144,10 +147,10 @@ pub(super) fn collect_params_from_expr(expr: &Expr, ctx: &mut ResolverContext) {
         },
         Expr::InSubquery { expr, subquery, .. } => {
             collect_params_from_expr(expr, ctx);
-            collect_params_from_subquery(subquery, ctx.schema, ctx.config, ctx.mapping);
+            collect_params_from_subquery(subquery, ctx.schema, ctx.config, ctx.mapping, ctx.query_name);
         },
         Expr::Subquery(q) => {
-            collect_params_from_subquery(q, ctx.schema, ctx.config, ctx.mapping);
+            collect_params_from_subquery(q, ctx.schema, ctx.config, ctx.mapping, ctx.query_name);
         },
         Expr::Nested(inner) => {
             collect_params_from_expr(inner, ctx);
@@ -156,7 +159,7 @@ pub(super) fn collect_params_from_expr(expr: &Expr, ctx: &mut ResolverContext) {
             collect_params_from_expr(inner, ctx);
         },
         Expr::Exists { subquery, .. } => {
-            collect_params_from_subquery(subquery, ctx.schema, ctx.config, ctx.mapping);
+            collect_params_from_subquery(subquery, ctx.schema, ctx.config, ctx.mapping, ctx.query_name);
         },
         Expr::InList { expr, list, .. } => {
             // col IN ($1, $2, …) — infer param type from the expression being tested
@@ -200,7 +203,37 @@ pub(super) fn collect_params_from_expr(expr: &Expr, ctx: &mut ResolverContext) {
             collect_params_from_expr(expr, ctx);
             collect_params_from_expr(pattern, ctx);
         },
-        Expr::UnaryOp { expr, .. } | Expr::Cast { expr, .. } => {
+        Expr::UnaryOp { expr, .. } => {
+            collect_params_from_expr(expr, ctx);
+        },
+        Expr::Cast { expr, data_type, .. } => {
+            // If the cast is directly on a placeholder ($N::type), use the target
+            // type for parameter inference — this is the most explicit signal available.
+            if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = expr.as_ref() {
+                if let Some(idx) = placeholder_idx(p) {
+                    let inferred = (ctx.config.typemap)(data_type);
+                    let name = cast_name(data_type);
+                    match ctx.mapping.entry(idx) {
+                        Entry::Vacant(e) => {
+                            e.insert((name, inferred, false));
+                        },
+                        Entry::Occupied(mut e) => {
+                            let (existing_name, existing_type, _) = e.get().clone();
+                            // Conflict: same param cast to two different types. Warn and
+                            // fall back to Custom so the caller must use an annotation.
+                            if existing_type != inferred && !matches!(existing_type, SqlType::Custom(_)) {
+                                eprintln!(
+                                    "warning: query {:?}: parameter ${idx} cast to conflicting types \
+                                     ({existing_type:?} vs {inferred:?}); type unknown — use named \
+                                     parameters with a `-- @<name> <type>` annotation to resolve",
+                                    ctx.query_name
+                                );
+                                e.insert((existing_name, SqlType::Custom("unknown".into()), false));
+                            }
+                        },
+                    }
+                }
+            }
             collect_params_from_expr(expr, ctx);
         },
         Expr::Case { operand, conditions, else_result, .. } => {
@@ -269,15 +302,15 @@ fn is_literal_expr(expr: &Expr) -> bool {
 /// Builds the subquery's FROM scope, recurses into any nested WITH clauses,
 /// and collects parameters from the WHERE clause. Handles both scalar
 /// subqueries (`Expr::Subquery`) and IN-subquery expressions.
-fn collect_params_from_subquery(q: &SqlQuery, schema: &Schema, config: &ResolverConfig, mapping: &mut HashMap<usize, (String, SqlType, bool)>) {
-    collect_cte_params(q.with.as_ref(), schema, config, mapping);
+fn collect_params_from_subquery(q: &SqlQuery, schema: &Schema, config: &ResolverConfig, mapping: &mut HashMap<usize, (String, SqlType, bool)>, query_name: &str) {
+    collect_cte_params(q.with.as_ref(), schema, config, mapping, query_name);
     let SetExpr::Select(select) = q.body.as_ref() else { return };
     let all_tables = collect_from_tables(select, schema, &[], config);
     if all_tables.is_empty() {
         return;
     }
     let alias_map = build_alias_map(&all_tables);
-    let ctx = &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping };
+    let ctx = &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping, query_name };
     if let Some(expr) = &select.selection {
         collect_params_from_expr(expr, ctx);
     }

@@ -31,7 +31,7 @@ pub(super) fn build_insert(ann: &QueryAnnotation, sql: &str, insert: &Insert, sc
 
     let mut mapping = HashMap::new();
     collect_insert_value_params(insert, schema, &mut mapping);
-    collect_on_conflict_params(insert, table, config, &mut mapping);
+    collect_on_conflict_params(insert, table, config, &mut mapping, &ann.name);
     let params = build_params(mapping, count_params(sql));
     let result_columns = insert.returning.as_deref().map_or(vec![], |items| resolve_returning(items, table, config));
 
@@ -41,7 +41,7 @@ pub(super) fn build_insert(ann: &QueryAnnotation, sql: &str, insert: &Insert, sc
 /// Handle `Statement::Query` where the body is `INSERT … RETURNING` (data-modifying CTE pattern).
 pub(super) fn build_query_from_insert(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, ins: &Insert, schema: &Schema, config: &ResolverConfig) -> Query {
     let mut mapping = HashMap::new();
-    collect_cte_params(q.with.as_ref(), schema, config, &mut mapping);
+    collect_cte_params(q.with.as_ref(), schema, config, &mut mapping, &ann.name);
     collect_insert_value_params(ins, schema, &mut mapping);
     let params = build_params(mapping, count_params(sql));
     let result_columns = schema
@@ -57,7 +57,7 @@ pub(super) fn build_query_from_insert(ann: &QueryAnnotation, sql: &str, q: &SqlQ
 ///
 /// The `excluded` pseudo-table is treated as an alias for the target table,
 /// so `excluded.col + $N` correctly types `$N` from `col`'s schema type.
-fn collect_on_conflict_params(insert: &Insert, table: &Table, config: &ResolverConfig, mapping: &mut HashMap<usize, (String, SqlType, bool)>) {
+fn collect_on_conflict_params(insert: &Insert, table: &Table, config: &ResolverConfig, mapping: &mut HashMap<usize, (String, SqlType, bool)>, query_name: &str) {
     let Some(OnInsert::OnConflict(on_conflict)) = &insert.on else { return };
     let OnConflictAction::DoUpdate(do_update) = &on_conflict.action else { return };
 
@@ -66,7 +66,7 @@ fn collect_on_conflict_params(insert: &Insert, table: &Table, config: &ResolverC
     let excluded_table = (table.clone(), Some("excluded".to_string()));
     let all_tables = [excluded_table];
     let alias_map = build_alias_map(&all_tables);
-    let ctx = &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema: &Schema { tables: vec![table.clone()] }, config, mapping };
+    let ctx = &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema: &Schema { tables: vec![table.clone()] }, config, mapping, query_name };
 
     for assignment in &do_update.assignments {
         collect_params_from_expr(&assignment.value, ctx);
@@ -113,7 +113,7 @@ pub(super) fn build_update(ann: &QueryAnnotation, sql: &str, u: &sqlparser::ast:
     };
 
     let mut mapping: HashMap<usize, (String, SqlType, bool)> = HashMap::new();
-    collect_update_params(&u.table, &u.assignments, u.selection.as_ref(), schema, config, &mut mapping);
+    collect_update_params(&u.table, &u.assignments, u.selection.as_ref(), schema, config, &mut mapping, &ann.name);
     let params = build_params(mapping, count_params(sql));
     let result_columns = u.returning.as_deref().map_or(vec![], |items| resolve_returning(items, table, config));
     Query::new(ann.name.clone(), ann.cmd.clone(), sql, params, result_columns)
@@ -129,8 +129,8 @@ pub(super) fn build_query_from_update(
     config: &ResolverConfig,
 ) -> Query {
     let mut mapping = HashMap::new();
-    collect_cte_params(q.with.as_ref(), schema, config, &mut mapping);
-    collect_update_params(&u.table, &u.assignments, u.selection.as_ref(), schema, config, &mut mapping);
+    collect_cte_params(q.with.as_ref(), schema, config, &mut mapping, &ann.name);
+    collect_update_params(&u.table, &u.assignments, u.selection.as_ref(), schema, config, &mut mapping, &ann.name);
     let params = build_params(mapping, count_params(sql));
     let table_name = match &u.table.relation {
         TableFactor::Table { name, .. } => obj_name_to_str(name),
@@ -155,6 +155,7 @@ pub(super) fn collect_update_params(
     schema: &Schema,
     config: &ResolverConfig,
     mapping: &mut HashMap<usize, (String, SqlType, bool)>,
+    query_name: &str,
 ) {
     let table_name = match &table_with_joins.relation {
         TableFactor::Table { name, .. } => obj_name_to_str(name),
@@ -185,7 +186,7 @@ pub(super) fn collect_update_params(
 
     // Parameters from WHERE
     if let Some(expr) = selection {
-        collect_params_from_expr(expr, &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping });
+        collect_params_from_expr(expr, &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping, query_name });
     }
 }
 
@@ -213,7 +214,7 @@ pub(super) fn build_delete(ann: &QueryAnnotation, sql: &str, delete: &Delete, sc
     let mut mapping = HashMap::new();
 
     if let Some(expr) = &delete.selection {
-        collect_params_from_expr(expr, &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping: &mut mapping });
+        collect_params_from_expr(expr, &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping: &mut mapping, query_name: &ann.name });
     }
 
     let params = build_params(mapping, count_params(sql));
@@ -223,11 +224,11 @@ pub(super) fn build_delete(ann: &QueryAnnotation, sql: &str, delete: &Delete, sc
 }
 
 /// Collect parameter mappings from a DELETE statement's WHERE clause.
-pub(super) fn collect_delete_where_params(del: &Delete, schema: &Schema, config: &ResolverConfig, mapping: &mut HashMap<usize, (String, SqlType, bool)>) {
+pub(super) fn collect_delete_where_params(del: &Delete, schema: &Schema, config: &ResolverConfig, mapping: &mut HashMap<usize, (String, SqlType, bool)>, query_name: &str) {
     let Some(table_name) = delete_table_name(del) else { return };
     let Some(table) = schema.tables.iter().find(|t| t.name == table_name) else { return };
     let Some(expr) = &del.selection else { return };
     let all_tables = vec![(table.clone(), None)];
     let alias_map = build_alias_map(&all_tables);
-    collect_params_from_expr(expr, &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping });
+    collect_params_from_expr(expr, &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping, query_name });
 }

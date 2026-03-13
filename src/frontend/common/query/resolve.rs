@@ -266,7 +266,7 @@ fn resolve_case(
 }
 
 /// Generate a default column name from a CAST target type.
-fn cast_name(dt: &DataType) -> String {
+pub(super) fn cast_name(dt: &DataType) -> String {
     format!("{dt}").to_lowercase().replace(' ', "_")
 }
 
