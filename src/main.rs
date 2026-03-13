@@ -71,9 +71,12 @@ fn run_generate(config_path: &Path) -> anyhow::Result<()> {
     // Read and parse queries (supports multiple files / globs)
     let query_paths = cfg.expand_queries(base_dir)?;
     let mut queries = Vec::new();
-    for query_path in query_paths {
+    for (query_path, group) in query_paths {
         let queries_sql = std::fs::read_to_string(&query_path).with_context(|| format!("reading queries file: {}", query_path.display()))?;
         let mut parsed = parser.parse_queries(&queries_sql, &schema)?;
+        for q in &mut parsed {
+            q.group = group.clone();
+        }
         queries.append(&mut parsed);
     }
 

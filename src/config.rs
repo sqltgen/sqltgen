@@ -16,12 +16,32 @@ pub struct SqltgenConfig {
     pub gen: HashMap<Language, OutputConfig>,
 }
 
+/// One or more glob patterns for a single named query group.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(untagged)]
+pub enum GroupPaths {
+    /// A single glob pattern.
+    Single(String),
+    /// Multiple glob patterns merged into one group.
+    Many(Vec<String>),
+}
+
 /// Query file paths or glob patterns from config.
+///
+/// Three forms are supported:
+/// - **Single** — one file; all queries land in the default `"queries"` group.
+/// - **Many** — multiple files/globs; each resolved file's stem becomes its group name.
+///   Files with the same stem are merged into one output file.
+/// - **Grouped** — explicit map of group name → paths; collision-free.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(untagged)]
 pub enum QueryPaths {
+    /// A single file or glob pattern. All queries use the default group.
     Single(String),
+    /// Multiple files or glob patterns. Group is derived from each file's stem.
     Many(Vec<String>),
+    /// Explicit map of group name to one or more glob patterns.
+    Grouped(HashMap<String, GroupPaths>),
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq)]
@@ -91,37 +111,64 @@ impl SqltgenConfig {
     }
 
     /// Resolve query file globs relative to the config directory.
-    pub fn expand_queries(&self, base_dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
-        let mut out = Vec::new();
-        for entry in self.queries.iter() {
-            let pattern_path = base_dir.join(entry);
-            let pattern = pattern_path.to_string_lossy().to_string();
-            let mut matches = Vec::new();
-            for item in glob::glob(&pattern).with_context(|| format!("expanding glob pattern: {pattern}"))? {
-                matches.push(item.with_context(|| format!("reading glob entry: {pattern}"))?);
-            }
-            if matches.is_empty() {
-                bail!("queries pattern matched no files: {pattern}");
-            }
-            matches.sort();
-            for path in matches {
-                if path.is_dir() {
-                    bail!("queries path is a directory: {} (use a glob like **/*.sql)", path.display());
+    ///
+    /// Returns a list of `(path, group)` pairs. The group is:
+    /// - `""` (empty) for a `Single` config — backends treat this as the default group.
+    /// - The file stem for each resolved path in a `Many` config.
+    /// - The explicit map key for a `Grouped` config.
+    pub fn expand_queries(&self, base_dir: &Path) -> anyhow::Result<Vec<(PathBuf, String)>> {
+        match &self.queries {
+            QueryPaths::Single(pattern) => {
+                let files = expand_glob(base_dir, pattern)?;
+                Ok(files.into_iter().map(|p| (p, String::new())).collect())
+            },
+            QueryPaths::Many(patterns) => {
+                let mut out = Vec::new();
+                for pattern in patterns {
+                    for path in expand_glob(base_dir, pattern)? {
+                        let group = path.file_stem().and_then(|s| s.to_str()).unwrap_or("queries").to_string();
+                        out.push((path, group));
+                    }
                 }
-                out.push(path);
-            }
+                Ok(out)
+            },
+            QueryPaths::Grouped(map) => {
+                let mut out = Vec::new();
+                for (group, group_paths) in map {
+                    let patterns: Vec<&str> = match group_paths {
+                        GroupPaths::Single(p) => vec![p.as_str()],
+                        GroupPaths::Many(ps) => ps.iter().map(|p| p.as_str()).collect(),
+                    };
+                    for pattern in patterns {
+                        for path in expand_glob(base_dir, pattern)? {
+                            out.push((path, group.clone()));
+                        }
+                    }
+                }
+                Ok(out)
+            },
         }
-        Ok(out)
     }
 }
 
-impl QueryPaths {
-    fn iter(&self) -> Box<dyn Iterator<Item = &str> + '_> {
-        match self {
-            QueryPaths::Single(path) => Box::new(std::iter::once(path.as_str())),
-            QueryPaths::Many(paths) => Box::new(paths.iter().map(|p| p.as_str())),
+/// Expand a single glob pattern relative to `base_dir`, returning sorted file paths.
+fn expand_glob(base_dir: &Path, pattern: &str) -> anyhow::Result<Vec<PathBuf>> {
+    let pattern_path = base_dir.join(pattern);
+    let pattern_str = pattern_path.to_string_lossy().to_string();
+    let mut matches = Vec::new();
+    for item in glob::glob(&pattern_str).with_context(|| format!("expanding glob pattern: {pattern_str}"))? {
+        matches.push(item.with_context(|| format!("reading glob entry: {pattern_str}"))?);
+    }
+    if matches.is_empty() {
+        bail!("queries pattern matched no files: {pattern_str}");
+    }
+    matches.sort();
+    for path in &matches {
+        if path.is_dir() {
+            bail!("queries path is a directory: {} (use a glob like **/*.sql)", path.display());
         }
     }
+    Ok(matches)
 }
 
 #[cfg(test)]
@@ -157,7 +204,7 @@ mod tests {
         assert_eq!(cfg.schema, "schema.sql");
         match cfg.queries {
             QueryPaths::Single(ref path) => assert_eq!(path, "queries.sql"),
-            QueryPaths::Many(_) => panic!("expected single queries path"),
+            _ => panic!("expected single queries path"),
         }
         assert_eq!(cfg.gen.len(), 2);
 
@@ -174,7 +221,7 @@ mod tests {
     fn parses_multi_query_paths() {
         let cfg = SqltgenConfig::from_json(MULTI_QUERIES).unwrap();
         match cfg.queries {
-            QueryPaths::Single(_) => panic!("expected multiple queries paths"),
+            QueryPaths::Single(_) | QueryPaths::Grouped(_) => panic!("expected multiple queries paths"),
             QueryPaths::Many(paths) => {
                 assert_eq!(paths, vec!["queries/*.sql", "more.sql"]);
             },
@@ -201,9 +248,91 @@ mod tests {
             gen: HashMap::new(),
         };
 
-        let paths = cfg.expand_queries(&root).unwrap();
+        let paths: Vec<PathBuf> = cfg.expand_queries(&root).unwrap().into_iter().map(|(p, _)| p).collect();
         let expected = vec![root.join("queries/a.sql"), root.join("queries/b.sql"), root.join("more.sql")];
         assert_eq!(paths, expected);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    const GROUPED_QUERIES: &str = r#"{
+        "version": "1",
+        "engine": "postgresql",
+        "schema": "schema.sql",
+        "queries": {
+            "users": "queries/users.sql",
+            "posts": ["queries/posts.sql", "queries/extra.sql"]
+        },
+        "gen": {
+            "java": { "out": "src/main/java", "package": "com.example.db" }
+        }
+    }"#;
+
+    #[test]
+    fn parses_grouped_query_paths() {
+        let cfg = SqltgenConfig::from_json(GROUPED_QUERIES).unwrap();
+        match cfg.queries {
+            QueryPaths::Grouped(ref map) => {
+                assert_eq!(map.len(), 2);
+                assert!(map.contains_key("users"));
+                assert!(map.contains_key("posts"));
+                match map.get("users").unwrap() {
+                    GroupPaths::Single(p) => assert_eq!(p, "queries/users.sql"),
+                    GroupPaths::Many(_) => panic!("expected single path for users"),
+                }
+                match map.get("posts").unwrap() {
+                    GroupPaths::Single(_) => panic!("expected many paths for posts"),
+                    GroupPaths::Many(ps) => assert_eq!(ps.len(), 2),
+                }
+            },
+            _ => panic!("expected grouped queries"),
+        }
+    }
+
+    #[test]
+    fn expand_many_assigns_stem_as_group() {
+        let root = std::env::temp_dir().join(format!(
+            "sqltgen_test_stems_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("users.sql"), "-- name: A :one\nSELECT 1;").unwrap();
+        std::fs::write(root.join("posts.sql"), "-- name: B :one\nSELECT 2;").unwrap();
+
+        let cfg = SqltgenConfig {
+            version: "1".to_string(),
+            engine: Engine::Postgresql,
+            schema: "schema.sql".to_string(),
+            queries: QueryPaths::Many(vec!["users.sql".to_string(), "posts.sql".to_string()]),
+            gen: HashMap::new(),
+        };
+        let pairs = cfg.expand_queries(&root).unwrap();
+        let groups: Vec<&str> = pairs.iter().map(|(_, g)| g.as_str()).collect();
+        assert!(groups.contains(&"users"));
+        assert!(groups.contains(&"posts"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn expand_single_assigns_empty_group() {
+        let root = std::env::temp_dir().join(format!(
+            "sqltgen_test_single_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("queries.sql"), "-- name: A :one\nSELECT 1;").unwrap();
+
+        let cfg = SqltgenConfig {
+            version: "1".to_string(),
+            engine: Engine::Postgresql,
+            schema: "schema.sql".to_string(),
+            queries: QueryPaths::Single("queries.sql".to_string()),
+            gen: HashMap::new(),
+        };
+        let pairs = cfg.expand_queries(&root).unwrap();
+        assert_eq!(pairs.len(), 1);
+        assert_eq!(pairs[0].1, "");
         std::fs::remove_dir_all(root).unwrap();
     }
 

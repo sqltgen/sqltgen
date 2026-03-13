@@ -160,10 +160,10 @@ pub fn positional_bind_names<'a>(query: &'a Query) -> Vec<&'a str> {
 mod tests {
     use super::*;
 
-    use crate::ir::{Parameter, Query, QueryCmd, SqlType};
+    use crate::ir::{Parameter, Query, SqlType};
 
     fn make_query(sql: &str, params: Vec<Parameter>) -> Query {
-        Query { name: "Test".to_string(), cmd: QueryCmd::Exec, sql: sql.to_string(), params, result_columns: vec![], source_table: None }
+        Query::exec("Test", sql, params)
     }
 
     // ─── parse_placeholder_indices ──────────────────────────────────────────

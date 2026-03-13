@@ -5,6 +5,55 @@ use crate::backend::naming::{to_pascal_case, to_snake_case};
 use crate::backend::sql_rewrite::parse_placeholder_indices;
 use crate::ir::{Parameter, Query, Schema, SqlType};
 
+/// Group queries by their `group` field, preserving first-seen group order.
+///
+/// Returns `Vec<(group, queries)>` where `group` is the raw `query.group` value
+/// (empty string `""` means the default group). Backends pass `group` to
+/// [`queries_class_name`] or [`queries_file_stem`] to derive the output name.
+///
+/// Queries are cloned into their respective groups.
+pub fn group_queries(queries: &[Query]) -> Vec<(String, Vec<Query>)> {
+    let mut order: Vec<String> = Vec::new();
+    let mut map: HashMap<String, Vec<Query>> = HashMap::new();
+    for query in queries {
+        if !map.contains_key(&query.group) {
+            order.push(query.group.clone());
+        }
+        map.entry(query.group.clone()).or_default().push(query.clone());
+    }
+    order
+        .into_iter()
+        .map(|g| {
+            let qs = map.remove(&g).unwrap();
+            (g, qs)
+        })
+        .collect()
+}
+
+/// Return the Java/Kotlin class name for a query group.
+///
+/// - `""` or `"queries"` → `"Queries"` (default, no prefix)
+/// - Any other group → `"{PascalCase(group)}Queries"` (e.g. `"users"` → `"UsersQueries"`)
+pub fn queries_class_name(group: &str) -> String {
+    if group.is_empty() || group == "queries" {
+        "Queries".to_string()
+    } else {
+        format!("{}Queries", to_pascal_case(group))
+    }
+}
+
+/// Return the file stem for a query group in non-JDBC backends (Rust, Python, TS/JS, Go).
+///
+/// - `""` → `"queries"` (default)
+/// - Any other group → the group name as-is (already expected to be snake_case)
+pub fn queries_file_stem(group: &str) -> &str {
+    if group.is_empty() {
+        "queries"
+    } else {
+        group
+    }
+}
+
 /// Derive the row-type name for a query result, or `None` if the query has no
 /// result columns (e.g. `:exec` / `:execrows`).
 ///
@@ -180,7 +229,7 @@ mod tests {
     use crate::ir::{Column, Parameter, Query, QueryCmd, ResultColumn, Schema, SqlType, Table};
 
     fn make_query(sql: &str, params: Vec<Parameter>) -> Query {
-        Query { name: "Test".to_string(), cmd: QueryCmd::Exec, sql: sql.to_string(), params, result_columns: vec![], source_table: None }
+        Query::exec("Test", sql, params)
     }
 
     fn make_schema_with_table(table_name: &str, col_names: &[&str]) -> Schema {
@@ -235,42 +284,21 @@ mod tests {
     #[test]
     fn test_infer_row_type_name_matches_table() {
         let schema = make_schema_with_table("user_account", &["id", "name"]);
-        let query = Query {
-            name: "GetUser".to_string(),
-            cmd: QueryCmd::One,
-            sql: "SELECT id, name FROM user_account WHERE id = $1".to_string(),
-            params: vec![],
-            result_columns: make_result_cols(&["id", "name"]),
-            source_table: None,
-        };
+        let query = Query::one("GetUser", "SELECT id, name FROM user_account WHERE id = $1", vec![], make_result_cols(&["id", "name"]));
         assert_eq!(infer_row_type_name(&query, &schema), Some("UserAccount".to_string()));
     }
 
     #[test]
     fn test_infer_row_type_name_inline_row_when_no_table_match() {
         let schema = make_schema_with_table("user_account", &["id", "name", "email"]);
-        let query = Query {
-            name: "GetUserSummary".to_string(),
-            cmd: QueryCmd::One,
-            sql: "SELECT id, name FROM user_account WHERE id = $1".to_string(),
-            params: vec![],
-            result_columns: make_result_cols(&["id", "name"]),
-            source_table: None,
-        };
+        let query = Query::one("GetUserSummary", "SELECT id, name FROM user_account WHERE id = $1", vec![], make_result_cols(&["id", "name"]));
         assert_eq!(infer_row_type_name(&query, &schema), Some("GetUserSummaryRow".to_string()));
     }
 
     #[test]
     fn test_infer_row_type_name_returns_none_when_no_result_cols() {
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "DeleteUser".to_string(),
-            cmd: QueryCmd::Exec,
-            sql: "DELETE FROM users WHERE id = $1".to_string(),
-            params: vec![],
-            result_columns: vec![],
-            source_table: None,
-        };
+        let query = Query::exec("DeleteUser", "DELETE FROM users WHERE id = $1", vec![]);
         assert!(infer_row_type_name(&query, &schema).is_none());
     }
 
@@ -386,5 +414,60 @@ mod tests {
         assert_eq!(pg_array_type_name(&SqlType::Text), "text");
         assert_eq!(pg_array_type_name(&SqlType::Boolean), "boolean");
         assert_eq!(pg_array_type_name(&SqlType::Uuid), "uuid");
+    }
+
+    // ─── queries_class_name / queries_file_stem ───────────────────────────────
+
+    #[test]
+    fn test_queries_class_name_default_group() {
+        assert_eq!(queries_class_name(""), "Queries");
+        assert_eq!(queries_class_name("queries"), "Queries");
+    }
+
+    #[test]
+    fn test_queries_class_name_named_group() {
+        assert_eq!(queries_class_name("users"), "UsersQueries");
+        assert_eq!(queries_class_name("user_posts"), "UserPostsQueries");
+    }
+
+    #[test]
+    fn test_queries_file_stem_default_group() {
+        assert_eq!(queries_file_stem(""), "queries");
+    }
+
+    #[test]
+    fn test_queries_file_stem_named_group() {
+        assert_eq!(queries_file_stem("users"), "users");
+        assert_eq!(queries_file_stem("user_posts"), "user_posts");
+    }
+
+    // ─── group_queries ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_group_queries_single_group() {
+        let q1 = Query::new("A", QueryCmd::Exec, "SELECT 1", vec![], vec![]);
+        let q2 = Query::new("B", QueryCmd::Exec, "SELECT 2", vec![], vec![]);
+        let queries = [q1, q2];
+        let groups = group_queries(&queries);
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].0, "");
+        assert_eq!(groups[0].1.len(), 2);
+    }
+
+    #[test]
+    fn test_group_queries_multiple_groups_preserves_order() {
+        let mut q1 = Query::new("A", QueryCmd::Exec, "SELECT 1", vec![], vec![]);
+        q1.group = "users".to_string();
+        let mut q2 = Query::new("B", QueryCmd::Exec, "SELECT 2", vec![], vec![]);
+        q2.group = "posts".to_string();
+        let mut q3 = Query::new("C", QueryCmd::Exec, "SELECT 3", vec![], vec![]);
+        q3.group = "users".to_string();
+        let queries = [q1, q2, q3];
+        let groups = group_queries(&queries);
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].0, "users");
+        assert_eq!(groups[0].1.len(), 2);
+        assert_eq!(groups[1].0, "posts");
+        assert_eq!(groups[1].1.len(), 1);
     }
 }

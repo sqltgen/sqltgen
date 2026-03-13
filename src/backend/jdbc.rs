@@ -44,14 +44,16 @@ pub fn result_row_type(query: &Query, schema: &Schema, fallback: &str) -> String
     infer_row_type_name(query, schema).unwrap_or_else(|| fallback.to_string())
 }
 
-/// Like [`result_row_type`], but qualifies inline row types as `Queries.XxxRow`
-/// because they are inner types of the `Queries` class/object.
-pub fn ds_result_row_type(query: &Query, schema: &Schema, fallback: &str) -> String {
+/// Like [`result_row_type`], but qualifies inline row types as `{class_name}.XxxRow`
+/// because they are inner types of the static queries class/object.
+///
+/// `class_name` is the name of the enclosing class (e.g. `"Queries"`, `"UsersQueries"`).
+pub fn ds_result_row_type(query: &Query, schema: &Schema, fallback: &str, class_name: &str) -> String {
     if let Some(table_name) = infer_table(query, schema) {
         return to_pascal_case(table_name);
     }
     if !query.result_columns.is_empty() {
-        return format!("Queries.{}Row", to_pascal_case(&query.name));
+        return format!("{class_name}.{}Row", to_pascal_case(&query.name));
     }
     fallback.to_string()
 }
@@ -98,28 +100,6 @@ pub fn jdbc_return_type(
     exec_rows_type: &str,
 ) -> String {
     let row = result_row_type(query, schema, fallback);
-    match query.cmd {
-        QueryCmd::One => one_fmt(&row),
-        QueryCmd::Many => many_fmt(&row),
-        QueryCmd::Exec => exec_type.to_string(),
-        QueryCmd::ExecRows => exec_rows_type.to_string(),
-    }
-}
-
-/// Compute the return type string for a JDBC DataSource wrapper method.
-///
-/// Same as [`jdbc_return_type`] but uses [`ds_result_row_type`] which qualifies
-/// inline row types as `Queries.XxxRow`.
-pub fn jdbc_ds_return_type(
-    query: &Query,
-    schema: &Schema,
-    fallback: &str,
-    one_fmt: fn(&str) -> String,
-    many_fmt: fn(&str) -> String,
-    exec_type: &str,
-    exec_rows_type: &str,
-) -> String {
-    let row = ds_result_row_type(query, schema, fallback);
     match query.cmd {
         QueryCmd::One => one_fmt(&row),
         QueryCmd::Many => many_fmt(&row),
@@ -250,10 +230,10 @@ pub fn build_row_constructor(query: &Query, schema: &Schema, fallback: &str, pre
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ir::{Parameter, Query, QueryCmd, ResultColumn, Schema, SqlType, Table};
+    use crate::ir::{Parameter, Query, ResultColumn, Schema, SqlType, Table};
 
     fn make_query(name: &str, sql: &str, params: Vec<Parameter>) -> Query {
-        Query { name: name.to_string(), cmd: QueryCmd::One, sql: sql.to_string(), params, result_columns: vec![], source_table: None }
+        Query::one(name, sql, params, vec![])
     }
 
     fn make_schema() -> Schema {
@@ -283,32 +263,28 @@ mod tests {
 
     #[test]
     fn test_result_row_type_infers_table() {
-        let q = Query {
-            name: "GetUser".to_string(),
-            cmd: QueryCmd::One,
-            sql: "SELECT id, name FROM users WHERE id = $1".to_string(),
-            params: vec![],
-            result_columns: vec![
+        let q = Query::one(
+            "GetUser",
+            "SELECT id, name FROM users WHERE id = $1",
+            vec![],
+            vec![
                 ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false },
                 ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
             ],
-            source_table: None,
-        };
+        );
         assert_eq!(result_row_type(&q, &make_schema(), "Object[]"), "Users");
     }
 
     #[test]
     fn test_ds_result_row_type_qualifies_inline_rows() {
-        let q = Query {
-            name: "GetSummary".to_string(),
-            cmd: QueryCmd::One,
-            sql: "SELECT count(*) as cnt FROM users".to_string(),
-            params: vec![],
-            result_columns: vec![ResultColumn { name: "cnt".to_string(), sql_type: SqlType::BigInt, nullable: false }],
-            source_table: None,
-        };
+        let q = Query::one(
+            "GetSummary",
+            "SELECT count(*) as cnt FROM users",
+            vec![],
+            vec![ResultColumn { name: "cnt".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        );
         let schema = Schema { tables: vec![] };
-        assert_eq!(ds_result_row_type(&q, &schema, "Object[]"), "Queries.GetSummaryRow");
+        assert_eq!(ds_result_row_type(&q, &schema, "Object[]", "Queries"), "Queries.GetSummaryRow");
     }
 
     #[test]
