@@ -718,4 +718,3 @@ fn mysql_list_params_array(query: &Query, lp: &Parameter, lp_expr: &str) -> Stri
 
 #[cfg(test)]
 mod tests;
-

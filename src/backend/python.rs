@@ -535,4 +535,3 @@ fn result_row_type(query: &Query, schema: &Schema) -> String {
 
 #[cfg(test)]
 mod tests;
-

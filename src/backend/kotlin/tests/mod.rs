@@ -1,0 +1,18 @@
+use super::*;
+use crate::backend::test_helpers::{cfg, get_file, user_table};
+use crate::config::OutputConfig;
+use crate::ir::{Parameter, Query, ResultColumn, Schema, SqlType};
+
+pub fn cfg_pkg() -> OutputConfig {
+    OutputConfig { out: "out".to_string(), package: "com.example.db".to_string(), list_params: None }
+}
+
+pub fn pg() -> KotlinCodegen {
+    KotlinCodegen { target: JdbcTarget::Postgres }
+}
+
+mod generate;
+mod grouping;
+mod list_params;
+mod params;
+mod types;

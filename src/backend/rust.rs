@@ -401,4 +401,3 @@ fn rust_type(sql_type: &SqlType, nullable: bool, target: &RustTarget) -> String 
 
 #[cfg(test)]
 mod tests;
-
