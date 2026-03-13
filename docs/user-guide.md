@@ -12,6 +12,8 @@ reflection, no runtime query building — just your SQL compiled to code.
 1. [Installation](#installation)
 2. [How it works](#how-it-works)
 3. [Configuration](#configuration)
+   - [queries field](#queries-field)
+   - [Per-language output config](#per-language-output-config)
 4. [Writing your schema](#writing-your-schema)
 5. [Writing annotated queries](#writing-annotated-queries)
    - [Query commands](#query-commands)
@@ -114,23 +116,45 @@ The config file is JSON, named `sqltgen.json` by default.
 
 ### `queries` field
 
-Single file:
+The `queries` field accepts three forms.
+
+**Single file** — all queries land in one output file per language (`Queries.java`,
+`queries.ts`, etc.):
 ```json
 "queries": "queries.sql"
 ```
 
-Multiple files:
+**Array of paths/globs** — each file becomes its own group, named after the file
+stem. `users.sql` → group `users` → `UsersQueries.java` / `users.ts`.
+Files with the same stem are merged into one group:
 ```json
-"queries": ["queries/authors.sql", "queries/books.sql"]
+"queries": ["queries/users.sql", "queries/posts.sql"]
 ```
 
-Glob patterns:
+Glob patterns are supported in both forms and are sorted lexicographically.
+An error is raised if a pattern matches no files:
 ```json
 "queries": ["queries/**/*.sql"]
 ```
 
-Files matched by globs are sorted lexicographically. An error is raised if a
-pattern matches no files.
+**Grouped map** — explicit group names with full control over which files belong
+to each group. Values can be a single path/glob or an array:
+```json
+"queries": {
+  "users": "queries/users.sql",
+  "posts": ["queries/posts/**/*.sql", "queries/extra.sql"]
+}
+```
+
+Each named group produces its own output file:
+
+| Group name | Java / Kotlin | Rust / Python / TypeScript / JavaScript |
+|---|---|---|
+| `users` | `UsersQueries.java` / `.kt` | `users.rs` / `users.py` / `users.ts` / `users.js` |
+| `posts` | `PostsQueries.java` / `.kt` | `posts.rs` / `posts.py` / `posts.ts` / `posts.js` |
+
+The single-file form always produces the default name (`Queries.java`,
+`queries.ts`, etc.) regardless of the file name.
 
 ### Per-language output config
 
@@ -486,7 +510,7 @@ public record Author(
 ```
 
 One `Queries.java` with static methods + inline row records for non-table result
-types:
+types (or `UsersQueries.java` / `PostsQueries.java` when using [query grouping](#queries-field)):
 ```java
 package com.example.db;
 // ...
@@ -507,8 +531,8 @@ public final class Queries {
 }
 ```
 
-One `QueriesDs.java` — a DataSource-backed wrapper that opens and closes its own
-connection per call (convenience for simple use cases):
+One `QueriesDs.java` (or `UsersQueriesDs.java` etc.) — a DataSource-backed
+wrapper that opens and closes its own connection per call:
 ```java
 QueriesDs qds = new QueriesDs(dataSource);
 Optional<Author> a = qds.getAuthor(42L);
@@ -638,7 +662,7 @@ pub async fn delete_book_by_id(pool: &PgPool, p1: i64)
         -> Result<u64, sqlx::Error> { … }  // :execrows
 ```
 
-One `mod.rs` that re-exports all modules.
+One `mod.rs` that re-exports all modules (table modules + one module per query group).
 
 **Wiring up:**
 

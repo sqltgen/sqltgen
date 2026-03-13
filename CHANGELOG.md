@@ -11,6 +11,14 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
 ## [Unreleased]
 
 ### Added
+- **Query grouping** — the `queries` config field now accepts an object
+  (map form) in addition to a string or array. Each key becomes a named
+  group and each backend emits one output file per group. Java/Kotlin
+  produce `{Group}Queries.java` / `{Group}Queries.kt` + a matching `Ds`
+  class; Rust, Python, TypeScript, and JavaScript produce one file per
+  group named after the key (`users.rs`, `users.py`, `users.ts`, …).
+  Single-file configs and array configs are unchanged — the array form
+  auto-derives the group name from each file's stem.
 - **TypeScript backend** — generates typed interfaces + async query functions for
   pg (PostgreSQL), better-sqlite3 (SQLite), and mysql2 (MySQL) drivers
 - **JavaScript backend** — same codegen engine as TypeScript but emits JSDoc type

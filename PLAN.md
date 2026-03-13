@@ -56,6 +56,7 @@ SQL files
 | `Engine` enum | ✅ | `postgresql`, `sqlite`, `mysql` |
 | `OutputConfig` (`out`, `package`) | ✅ | Keyed by language name in `gen` map |
 | Multiple query files (list of paths / globs) | ✅ | List of files and glob patterns; schema still single file/dir |
+| Query grouping (map form) | ✅ | `"queries": { "group": "path.sql" }` — one output file per group |
 
 ## Frontend layer (`src/frontend/`)
 
@@ -126,7 +127,7 @@ sqltgen aims for excellent JSON support across all backends. Current state and g
 
 1. **`CAST(x AS type)` result type** — call `typemap::map()` on the cast's `DataType`
 2. **Literal expression resolution** — `resolve_expr` doesn't handle NULL/number/string/bool literals in projections (task 024)
-3. **Type overrides config** — map a DB type or `table.column` to a custom target-language type
+3. **Type overrides config** — per-language map of `SqlType` → custom host-language type with import management
 4. **Better error messages** — surface parse errors with line numbers
 5. **Glob patterns** for `schema` and `queries` config fields
 

@@ -181,6 +181,21 @@ cargo install sqltgen
 The `schema` field accepts a directory; files are loaded in lexicographic order
 (ideal for numbered migration files like `001_create_users.sql`).
 
+The `queries` field accepts a string (single file), an array of paths/globs, or
+a **grouped map** that names each group explicitly:
+
+```json
+"queries": {
+  "users": "queries/users.sql",
+  "posts": ["queries/posts/**/*.sql", "queries/extra.sql"]
+}
+```
+
+Each group produces its own output file. In Java/Kotlin the group name is
+PascalCased and suffixed with `Queries` (`UsersQueries.java`); in Rust, Python,
+TypeScript, and JavaScript the group name is used directly (`users.rs`, `users.ts`).
+A single-file config is unchanged — it always produces `Queries.java` / `queries.ts`.
+
 ---
 
 ## Examples

@@ -147,6 +147,7 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | `engine` / `schema` / `queries` / `gen` | ✅ | Core config |
 | Schema from directory of migration files | ✅ | Loaded in lex order |
 | Multiple query files (list of paths) | ✅ | Supports list of files and globs |
+| Query grouping (map form: group name → paths) | ✅ | Each group → one output file per language |
 | Glob patterns for `schema` / `queries` | ⚠️ | Queries only (schema still single file/dir) |
 | Type overrides (map DB type / column → custom type) | ❌ | Per-language override map in config |
 | Field / struct renaming | ❌ | `rename: { col: "FieldName" }` map in config |
@@ -190,20 +191,20 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 
 | Module | Tests |
 |---|---|
-| Config | 5 |
+| Config | 8 |
 | Frontend — PostgreSQL (typemap + schema + query) | 49 |
 | Frontend — SQLite (typemap + schema + query) | 39 |
 | Frontend — MySQL (typemap + schema + query) | 34 |
-| Frontend — common (query parser, CTEs, subqueries, named params, list params, source_table) | 179 |
+| Frontend — common (query parser, CTEs, subqueries, named params, list params, source_table) | 194 |
 | Backend — Java | 45 |
 | Backend — Kotlin | 46 |
 | Backend — Rust | 32 |
 | Backend — Python | 41 |
-| Backend — common | 35 |
+| Backend — common (common + sql_rewrite + naming) | 47 |
 | Backend — JDBC | 13 |
 | Backend — TypeScript / JavaScript | 33 |
-| Integration (snapshots + resilience) | 20 |
-| **Total** | **571** |
+| Integration (snapshots + resilience) | 21 |
+| **Total** | **602** |
 
 ---
 
