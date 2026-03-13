@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 use std::fmt::Write;
 use std::path::PathBuf;
 
-use crate::backend::common::{has_inline_rows, infer_row_type_name, infer_table, mysql_json_table_col_type, sql_const_name};
+use crate::backend::common::{group_queries, has_inline_rows, infer_row_type_name, infer_table, mysql_json_table_col_type, queries_file_stem, sql_const_name};
 use crate::backend::naming::{to_pascal_case, to_snake_case};
 use crate::backend::sql_rewrite::{
     positional_bind_names, rewrite_list_sql_native, rewrite_to_anon_params, rewrite_to_percent_s, split_at_in_clause, ListRewriteTarget,
@@ -63,10 +63,14 @@ impl Codegen for PythonCodegen {
             files.push(GeneratedFile { path, content: src });
         }
 
-        // queries.py
-        if !queries.is_empty() {
-            let src = build_queries_file(queries, schema, &self.target, config)?;
-            let path = PathBuf::from(&config.out).join("queries.py");
+        // One .py file per query group
+        let groups = group_queries(queries);
+        let mut group_stems: Vec<String> = Vec::new();
+        for (group, group_queries) in &groups {
+            let stem = queries_file_stem(group).to_string();
+            group_stems.push(stem.clone());
+            let src = build_queries_file(group_queries, schema, &self.target, config)?;
+            let path = PathBuf::from(&config.out).join(format!("{stem}.py"));
             files.push(GeneratedFile { path, content: src });
         }
 
@@ -78,8 +82,8 @@ impl Codegen for PythonCodegen {
                 let class_name = to_pascal_case(&table.name);
                 writeln!(src, "from .{} import {}", table.name, class_name)?;
             }
-            if !queries.is_empty() {
-                writeln!(src, "from . import queries")?;
+            for stem in &group_stems {
+                writeln!(src, "from . import {stem}")?;
             }
 
             let path = PathBuf::from(&config.out).join("__init__.py");
@@ -534,7 +538,7 @@ mod tests {
     use super::*;
     use crate::backend::test_helpers::{cfg, get_file, user_table};
     use crate::config::OutputConfig;
-    use crate::ir::{Column, Parameter, Query, QueryCmd, ResultColumn, Schema, SqlType, Table};
+    use crate::ir::{Column, Parameter, Query, ResultColumn, Schema, SqlType, Table};
 
     fn pg() -> PythonCodegen {
         PythonCodegen { target: PythonTarget::Postgres }
@@ -563,18 +567,16 @@ mod tests {
     #[test]
     fn test_generate_init_file_exports_tables_and_queries() {
         let schema = Schema { tables: vec![user_table()] };
-        let query = Query {
-            name: "GetUser".to_string(),
-            cmd: QueryCmd::One,
-            sql: "SELECT id, name, bio FROM user WHERE id = $1".to_string(),
-            params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
-            result_columns: vec![
+        let query = Query::one(
+            "GetUser",
+            "SELECT id, name, bio FROM user WHERE id = $1",
+            vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
+            vec![
                 ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false },
                 ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
                 ResultColumn { name: "bio".to_string(), sql_type: SqlType::Text, nullable: true },
             ],
-            source_table: None,
-        };
+        );
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "__init__.py");
         assert!(src.contains("from .user import User"));
@@ -586,14 +588,7 @@ mod tests {
     #[test]
     fn test_generate_postgres_imports_psycopg() {
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "DeleteUser".to_string(),
-            cmd: QueryCmd::Exec,
-            sql: "DELETE FROM user WHERE id = $1".to_string(),
-            params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
-            result_columns: vec![],
-            source_table: None,
-        };
+        let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
         assert!(src.contains("import psycopg"));
@@ -603,14 +598,7 @@ mod tests {
     #[test]
     fn test_generate_sqlite_imports_sqlite3() {
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "DeleteUser".to_string(),
-            cmd: QueryCmd::Exec,
-            sql: "DELETE FROM user WHERE id = ?1".to_string(),
-            params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
-            result_columns: vec![],
-            source_table: None,
-        };
+        let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = ?1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
         let files = sq().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
         assert!(src.contains("import sqlite3"));
@@ -622,14 +610,7 @@ mod tests {
     #[test]
     fn test_generate_sql_const_name_is_screaming_snake_case() {
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "GetUserById".to_string(),
-            cmd: QueryCmd::Exec,
-            sql: "DELETE FROM user WHERE id = $1".to_string(),
-            params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
-            result_columns: vec![],
-            source_table: None,
-        };
+        let query = Query::exec("GetUserById", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
         assert!(src.contains("SQL_GET_USER_BY_ID"));
@@ -640,14 +621,7 @@ mod tests {
     #[test]
     fn test_generate_psycopg_exec_query() {
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "DeleteUser".to_string(),
-            cmd: QueryCmd::Exec,
-            sql: "DELETE FROM user WHERE id = $1".to_string(),
-            params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
-            result_columns: vec![],
-            source_table: None,
-        };
+        let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
         assert!(src.contains("def delete_user(conn: psycopg.Connection, id: int) -> None:"));
@@ -658,18 +632,16 @@ mod tests {
     #[test]
     fn test_generate_psycopg_one_query_infers_table_return_type() {
         let schema = Schema { tables: vec![user_table()] };
-        let query = Query {
-            name: "GetUser".to_string(),
-            cmd: QueryCmd::One,
-            sql: "SELECT id, name, bio FROM user WHERE id = $1".to_string(),
-            params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
-            result_columns: vec![
+        let query = Query::one(
+            "GetUser",
+            "SELECT id, name, bio FROM user WHERE id = $1",
+            vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
+            vec![
                 ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false },
                 ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
                 ResultColumn { name: "bio".to_string(), sql_type: SqlType::Text, nullable: true },
             ],
-            source_table: None,
-        };
+        );
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
         assert!(src.contains("def get_user(conn: psycopg.Connection, id: int) -> User | None:"));
@@ -680,18 +652,16 @@ mod tests {
     #[test]
     fn test_generate_psycopg_many_query_infers_table_return_type() {
         let schema = Schema { tables: vec![user_table()] };
-        let query = Query {
-            name: "ListUsers".to_string(),
-            cmd: QueryCmd::Many,
-            sql: "SELECT id, name, bio FROM user".to_string(),
-            params: vec![],
-            result_columns: vec![
+        let query = Query::many(
+            "ListUsers",
+            "SELECT id, name, bio FROM user",
+            vec![],
+            vec![
                 ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false },
                 ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
                 ResultColumn { name: "bio".to_string(), sql_type: SqlType::Text, nullable: true },
             ],
-            source_table: None,
-        };
+        );
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
         assert!(src.contains("def list_users(conn: psycopg.Connection) -> list[User]:"));
@@ -701,14 +671,7 @@ mod tests {
     #[test]
     fn test_generate_psycopg_execrows_query() {
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "DeleteUsers".to_string(),
-            cmd: QueryCmd::ExecRows,
-            sql: "DELETE FROM user WHERE active = $1".to_string(),
-            params: vec![Parameter::scalar(1, "active", SqlType::Boolean, false)],
-            result_columns: vec![],
-            source_table: None,
-        };
+        let query = Query::exec_rows("DeleteUsers", "DELETE FROM user WHERE active = $1", vec![Parameter::scalar(1, "active", SqlType::Boolean, false)]);
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
         assert!(src.contains("def delete_users(conn: psycopg.Connection, active: bool) -> int:"));
@@ -720,14 +683,7 @@ mod tests {
     #[test]
     fn test_generate_sqlite_exec_query_uses_conn_execute() {
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "DeleteUser".to_string(),
-            cmd: QueryCmd::Exec,
-            sql: "DELETE FROM user WHERE id = ?1".to_string(),
-            params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
-            result_columns: vec![],
-            source_table: None,
-        };
+        let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = ?1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
         let files = sq().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
         assert!(src.contains("def delete_user(conn: sqlite3.Connection, id: int) -> None:"));
@@ -739,18 +695,16 @@ mod tests {
     #[test]
     fn test_generate_sqlite_one_query_infers_table_return_type() {
         let schema = Schema { tables: vec![user_table()] };
-        let query = Query {
-            name: "GetUser".to_string(),
-            cmd: QueryCmd::One,
-            sql: "SELECT id, name, bio FROM user WHERE id = ?1".to_string(),
-            params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
-            result_columns: vec![
+        let query = Query::one(
+            "GetUser",
+            "SELECT id, name, bio FROM user WHERE id = ?1",
+            vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
+            vec![
                 ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false },
                 ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
                 ResultColumn { name: "bio".to_string(), sql_type: SqlType::Text, nullable: true },
             ],
-            source_table: None,
-        };
+        );
         let files = sq().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
         assert!(src.contains("def get_user(conn: sqlite3.Connection, id: int) -> User | None:"));
@@ -763,14 +717,12 @@ mod tests {
     #[test]
     fn test_generate_inline_row_dataclass_for_partial_result() {
         let schema = Schema { tables: vec![user_table()] };
-        let query = Query {
-            name: "GetUserName".to_string(),
-            cmd: QueryCmd::One,
-            sql: "SELECT name FROM user WHERE id = $1".to_string(),
-            params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
-            result_columns: vec![ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false }],
-            source_table: None,
-        };
+        let query = Query::one(
+            "GetUserName",
+            "SELECT name FROM user WHERE id = $1",
+            vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
+            vec![ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false }],
+        );
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
         assert!(src.contains("class GetUserNameRow:"));
@@ -782,14 +734,7 @@ mod tests {
     #[test]
     fn test_generate_mysql_imports_connector() {
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "DeleteUser".to_string(),
-            cmd: QueryCmd::Exec,
-            sql: "DELETE FROM user WHERE id = $1".to_string(),
-            params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
-            result_columns: vec![],
-            source_table: None,
-        };
+        let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
         let files = my().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
         assert!(src.contains("import mysql.connector"));
@@ -799,14 +744,7 @@ mod tests {
     #[test]
     fn test_generate_mysql_uses_mysql_connection_type() {
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "DeleteUser".to_string(),
-            cmd: QueryCmd::Exec,
-            sql: "DELETE FROM user WHERE id = $1".to_string(),
-            params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
-            result_columns: vec![],
-            source_table: None,
-        };
+        let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
         let files = my().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
         assert!(src.contains("conn: mysql.connector.MySQLConnection"));
@@ -815,14 +753,7 @@ mod tests {
     #[test]
     fn test_generate_mysql_uses_cursor_context_manager() {
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "DeleteUser".to_string(),
-            cmd: QueryCmd::Exec,
-            sql: "DELETE FROM user WHERE id = $1".to_string(),
-            params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
-            result_columns: vec![],
-            source_table: None,
-        };
+        let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
         let files = my().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
         assert!(src.contains("with conn.cursor() as cur:"));
@@ -831,14 +762,7 @@ mod tests {
     #[test]
     fn test_generate_mysql_rewrites_placeholders_to_percent_s() {
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "GetUser".to_string(),
-            cmd: QueryCmd::Exec,
-            sql: "DELETE FROM user WHERE id = $1".to_string(),
-            params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
-            result_columns: vec![],
-            source_table: None,
-        };
+        let query = Query::exec("GetUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
         let files = my().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
         assert!(src.contains("\"DELETE FROM user WHERE id = %s\""));
@@ -847,18 +771,16 @@ mod tests {
     #[test]
     fn test_generate_mysql_one_query() {
         let schema = Schema { tables: vec![user_table()] };
-        let query = Query {
-            name: "GetUser".to_string(),
-            cmd: QueryCmd::One,
-            sql: "SELECT id, name, bio FROM user WHERE id = $1".to_string(),
-            params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
-            result_columns: vec![
+        let query = Query::one(
+            "GetUser",
+            "SELECT id, name, bio FROM user WHERE id = $1",
+            vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
+            vec![
                 ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false },
                 ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
                 ResultColumn { name: "bio".to_string(), sql_type: SqlType::Text, nullable: true },
             ],
-            source_table: None,
-        };
+        );
         let files = my().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
         assert!(src.contains("def get_user(conn: mysql.connector.MySQLConnection, id: int) -> User | None:"));
@@ -921,14 +843,11 @@ mod tests {
     fn test_generate_repeated_param_expands_tuple() {
         // $1 appears 4 times, $2 once — tuple must have 5 entries
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "FindItems".to_string(),
-            cmd: QueryCmd::Exec,
-            sql: "DELETE FROM t WHERE a = $1 OR $1 = -1 AND b = $1 OR $1 = 0 AND c = $2".to_string(),
-            params: vec![Parameter::scalar(1, "accountId", SqlType::BigInt, false), Parameter::scalar(2, "inputData", SqlType::Text, false)],
-            result_columns: vec![],
-            source_table: None,
-        };
+        let query = Query::exec(
+            "FindItems",
+            "DELETE FROM t WHERE a = $1 OR $1 = -1 AND b = $1 OR $1 = 0 AND c = $2",
+            vec![Parameter::scalar(1, "accountId", SqlType::BigInt, false), Parameter::scalar(2, "inputData", SqlType::Text, false)],
+        );
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
         assert!(src.contains("(account_id, account_id, account_id, account_id, input_data)"));
@@ -939,14 +858,7 @@ mod tests {
     #[test]
     fn test_generate_postgres_rewrites_placeholders_to_percent_s() {
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "GetUser".to_string(),
-            cmd: QueryCmd::Exec,
-            sql: "DELETE FROM user WHERE id = $1".to_string(),
-            params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
-            result_columns: vec![],
-            source_table: None,
-        };
+        let query = Query::exec("GetUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
         assert!(src.contains("\"DELETE FROM user WHERE id = %s\""));
@@ -955,14 +867,7 @@ mod tests {
     #[test]
     fn test_generate_sqlite_rewrites_placeholders_to_question_mark() {
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "GetUser".to_string(),
-            cmd: QueryCmd::Exec,
-            sql: "DELETE FROM user WHERE id = ?1".to_string(),
-            params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
-            result_columns: vec![],
-            source_table: None,
-        };
+        let query = Query::exec("GetUser", "DELETE FROM user WHERE id = ?1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
         let files = sq().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
         assert!(src.contains("\"DELETE FROM user WHERE id = ?\""));
@@ -973,14 +878,12 @@ mod tests {
     #[test]
     fn test_generate_pg_native_list_param() {
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "GetByIds".to_string(),
-            cmd: QueryCmd::Many,
-            sql: "SELECT id FROM t WHERE id IN ($1)".to_string(),
-            params: vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
-            result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
-            source_table: None,
-        };
+        let query = Query::many(
+            "GetByIds",
+            "SELECT id FROM t WHERE id IN ($1)",
+            vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
+            vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        );
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
         assert!(src.contains("ids: list[int]"), "list param should use list[int]");
@@ -994,14 +897,12 @@ mod tests {
     fn test_generate_pg_native_list_param_with_scalar() {
         // Scalar before list param: args tuple order must mirror SQL order.
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "GetByIds".to_string(),
-            cmd: QueryCmd::Many,
-            sql: "SELECT id FROM t WHERE active = $1 AND id IN ($2)".to_string(),
-            params: vec![Parameter::scalar(1, "active", SqlType::Boolean, false), Parameter::list(2, "ids", SqlType::BigInt, false)],
-            result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
-            source_table: None,
-        };
+        let query = Query::many(
+            "GetByIds",
+            "SELECT id FROM t WHERE active = $1 AND id IN ($2)",
+            vec![Parameter::scalar(1, "active", SqlType::Boolean, false), Parameter::list(2, "ids", SqlType::BigInt, false)],
+            vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        );
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
         assert!(src.contains("active: bool"), "scalar param before list");
@@ -1013,14 +914,12 @@ mod tests {
     #[test]
     fn test_generate_sqlite_native_list_param() {
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "GetByIds".to_string(),
-            cmd: QueryCmd::Many,
-            sql: "SELECT id FROM t WHERE id IN ($1)".to_string(),
-            params: vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
-            result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
-            source_table: None,
-        };
+        let query = Query::many(
+            "GetByIds",
+            "SELECT id FROM t WHERE id IN ($1)",
+            vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
+            vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        );
         let files = sq().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
         assert!(src.contains("ids: list[int]"), "list param should use list[int]");
@@ -1035,14 +934,12 @@ mod tests {
     #[test]
     fn test_generate_mysql_native_list_param() {
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "GetByIds".to_string(),
-            cmd: QueryCmd::Many,
-            sql: "SELECT id FROM t WHERE id IN ($1)".to_string(),
-            params: vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
-            result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
-            source_table: None,
-        };
+        let query = Query::many(
+            "GetByIds",
+            "SELECT id FROM t WHERE id IN ($1)",
+            vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
+            vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        );
         let files = my().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
         assert!(src.contains("ids: list[int]"), "list param should use list[int]");
@@ -1057,14 +954,12 @@ mod tests {
     #[test]
     fn test_generate_pg_dynamic_list_param() {
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "GetByIds".to_string(),
-            cmd: QueryCmd::Many,
-            sql: "SELECT id FROM t WHERE id IN ($1)".to_string(),
-            params: vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
-            result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
-            source_table: None,
-        };
+        let query = Query::many(
+            "GetByIds",
+            "SELECT id FROM t WHERE id IN ($1)",
+            vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
+            vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        );
         let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic) };
         let files = pg().generate(&schema, &[query], &cfg).unwrap();
         let src = get_file(&files, "queries.py");
@@ -1080,14 +975,12 @@ mod tests {
     #[test]
     fn test_generate_pg_dynamic_list_param_with_scalar() {
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "GetByIds".to_string(),
-            cmd: QueryCmd::Many,
-            sql: "SELECT id FROM t WHERE active = $1 AND id IN ($2)".to_string(),
-            params: vec![Parameter::scalar(1, "active", SqlType::Boolean, false), Parameter::list(2, "ids", SqlType::BigInt, false)],
-            result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
-            source_table: None,
-        };
+        let query = Query::many(
+            "GetByIds",
+            "SELECT id FROM t WHERE active = $1 AND id IN ($2)",
+            vec![Parameter::scalar(1, "active", SqlType::Boolean, false), Parameter::list(2, "ids", SqlType::BigInt, false)],
+            vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        );
         let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic) };
         let files = pg().generate(&schema, &[query], &cfg).unwrap();
         let src = get_file(&files, "queries.py");
@@ -1098,14 +991,12 @@ mod tests {
     #[test]
     fn test_generate_sqlite_dynamic_list_param() {
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "GetByIds".to_string(),
-            cmd: QueryCmd::Many,
-            sql: "SELECT id FROM t WHERE id IN ($1)".to_string(),
-            params: vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
-            result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
-            source_table: None,
-        };
+        let query = Query::many(
+            "GetByIds",
+            "SELECT id FROM t WHERE id IN ($1)",
+            vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
+            vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        );
         let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic) };
         let files = sq().generate(&schema, &[query], &cfg).unwrap();
         let src = get_file(&files, "queries.py");
@@ -1122,14 +1013,12 @@ mod tests {
     #[test]
     fn test_generate_mysql_dynamic_list_param() {
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "GetByIds".to_string(),
-            cmd: QueryCmd::Many,
-            sql: "SELECT id FROM t WHERE id IN ($1)".to_string(),
-            params: vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
-            result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
-            source_table: None,
-        };
+        let query = Query::many(
+            "GetByIds",
+            "SELECT id FROM t WHERE id IN ($1)",
+            vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
+            vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        );
         let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic) };
         let files = my().generate(&schema, &[query], &cfg).unwrap();
         let src = get_file(&files, "queries.py");
@@ -1145,14 +1034,12 @@ mod tests {
     fn test_generate_list_param_text_type() {
         // Text list params use list[str] — verify correct Python type annotation.
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "GetByTags".to_string(),
-            cmd: QueryCmd::Many,
-            sql: "SELECT id FROM t WHERE tag IN ($1)".to_string(),
-            params: vec![Parameter::list(1, "tags", SqlType::Text, false)],
-            result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
-            source_table: None,
-        };
+        let query = Query::many(
+            "GetByTags",
+            "SELECT id FROM t WHERE tag IN ($1)",
+            vec![Parameter::list(1, "tags", SqlType::Text, false)],
+            vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        );
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
         assert!(src.contains("tags: list[str]"), "Text list param should use list[str]");
@@ -1162,14 +1049,7 @@ mod tests {
     fn test_generate_list_param_execrows_cmd() {
         // List params work with :execrows — DELETE / UPDATE with IN clause.
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "DeleteByIds".to_string(),
-            cmd: QueryCmd::ExecRows,
-            sql: "DELETE FROM t WHERE id IN ($1)".to_string(),
-            params: vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
-            result_columns: vec![],
-            source_table: None,
-        };
+        let query = Query::exec_rows("DeleteByIds", "DELETE FROM t WHERE id IN ($1)", vec![Parameter::list(1, "ids", SqlType::BigInt, false)]);
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
         assert!(src.contains("ids: list[int]"), "list param should use list[int]");
@@ -1186,14 +1066,12 @@ mod tests {
         // execute args. Correct order: tuple(list) + (scalar,).
         // This test fails until the root cause is fixed.
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "GetActiveByIds".to_string(),
-            cmd: QueryCmd::Many,
-            sql: "SELECT id FROM t WHERE id IN ($1) AND active = $2".to_string(),
-            params: vec![Parameter::list(1, "ids", SqlType::BigInt, false), Parameter::scalar(2, "active", SqlType::Boolean, false)],
-            result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
-            source_table: None,
-        };
+        let query = Query::many(
+            "GetActiveByIds",
+            "SELECT id FROM t WHERE id IN ($1) AND active = $2",
+            vec![Parameter::list(1, "ids", SqlType::BigInt, false), Parameter::scalar(2, "active", SqlType::Boolean, false)],
+            vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        );
         let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic) };
         let files = pg().generate(&schema, &[query], &cfg).unwrap();
         let src = get_file(&files, "queries.py");
@@ -1208,14 +1086,12 @@ mod tests {
         // When the scalar param appears *before* the IN clause, the current order
         // is correct. Confirm the fix preserves this common pattern.
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "GetActiveByIds".to_string(),
-            cmd: QueryCmd::Many,
-            sql: "SELECT id FROM t WHERE active = $1 AND id IN ($2)".to_string(),
-            params: vec![Parameter::scalar(1, "active", SqlType::Boolean, false), Parameter::list(2, "ids", SqlType::BigInt, false)],
-            result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
-            source_table: None,
-        };
+        let query = Query::many(
+            "GetActiveByIds",
+            "SELECT id FROM t WHERE active = $1 AND id IN ($2)",
+            vec![Parameter::scalar(1, "active", SqlType::Boolean, false), Parameter::list(2, "ids", SqlType::BigInt, false)],
+            vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        );
         let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic) };
         let files = pg().generate(&schema, &[query], &cfg).unwrap();
         let src = get_file(&files, "queries.py");
@@ -1229,14 +1105,11 @@ mod tests {
     fn test_generate_nullable_param_pg() {
         // Nullable param → `T | None` in function signature; Python passes None directly.
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "UpdateBio".to_string(),
-            cmd: QueryCmd::Exec,
-            sql: "UPDATE users SET bio = $1 WHERE id = $2".to_string(),
-            params: vec![Parameter::scalar(1, "bio", SqlType::Text, true), Parameter::scalar(2, "id", SqlType::BigInt, false)],
-            result_columns: vec![],
-            source_table: None,
-        };
+        let query = Query::exec(
+            "UpdateBio",
+            "UPDATE users SET bio = $1 WHERE id = $2",
+            vec![Parameter::scalar(1, "bio", SqlType::Text, true), Parameter::scalar(2, "id", SqlType::BigInt, false)],
+        );
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
         assert!(src.contains("bio: str | None"), "nullable param should be str | None");
@@ -1247,14 +1120,11 @@ mod tests {
     #[test]
     fn test_generate_nullable_param_sqlite() {
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "UpdateBio".to_string(),
-            cmd: QueryCmd::Exec,
-            sql: "UPDATE users SET bio = ?1 WHERE id = ?2".to_string(),
-            params: vec![Parameter::scalar(1, "bio", SqlType::Text, true), Parameter::scalar(2, "id", SqlType::BigInt, false)],
-            result_columns: vec![],
-            source_table: None,
-        };
+        let query = Query::exec(
+            "UpdateBio",
+            "UPDATE users SET bio = ?1 WHERE id = ?2",
+            vec![Parameter::scalar(1, "bio", SqlType::Text, true), Parameter::scalar(2, "id", SqlType::BigInt, false)],
+        );
         let files = sq().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
         assert!(src.contains("bio: str | None"), "nullable param should be str | None");
@@ -1264,14 +1134,11 @@ mod tests {
     #[test]
     fn test_generate_nullable_param_mysql() {
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "UpdateBio".to_string(),
-            cmd: QueryCmd::Exec,
-            sql: "UPDATE users SET bio = $1 WHERE id = $2".to_string(),
-            params: vec![Parameter::scalar(1, "bio", SqlType::Text, true), Parameter::scalar(2, "id", SqlType::BigInt, false)],
-            result_columns: vec![],
-            source_table: None,
-        };
+        let query = Query::exec(
+            "UpdateBio",
+            "UPDATE users SET bio = $1 WHERE id = $2",
+            vec![Parameter::scalar(1, "bio", SqlType::Text, true), Parameter::scalar(2, "id", SqlType::BigInt, false)],
+        );
         let files = my().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "queries.py");
         assert!(src.contains("bio: str | None"), "nullable param should be str | None");
@@ -1283,14 +1150,12 @@ mod tests {
         // Bug B also affects the SQLite Dynamic branch which uses conn.execute.
         // This test fails until the root cause is fixed.
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "GetActiveByIds".to_string(),
-            cmd: QueryCmd::Many,
-            sql: "SELECT id FROM t WHERE id IN ($1) AND active = $2".to_string(),
-            params: vec![Parameter::list(1, "ids", SqlType::BigInt, false), Parameter::scalar(2, "active", SqlType::Boolean, false)],
-            result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
-            source_table: None,
-        };
+        let query = Query::many(
+            "GetActiveByIds",
+            "SELECT id FROM t WHERE id IN ($1) AND active = $2",
+            vec![Parameter::list(1, "ids", SqlType::BigInt, false), Parameter::scalar(2, "active", SqlType::Boolean, false)],
+            vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        );
         let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic) };
         let files = sq().generate(&schema, &[query], &cfg).unwrap();
         let src = get_file(&files, "queries.py");

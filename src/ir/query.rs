@@ -4,6 +4,13 @@ use super::types::SqlType;
 pub struct Query {
     /// Camel-case name from the `-- name: Foo :cmd` annotation.
     pub name: String,
+    /// Logical group this query belongs to.
+    ///
+    /// Set by `main.rs` after parsing each file. An empty string means the
+    /// default group; backends render it as `"queries"` (e.g. `Queries.java`,
+    /// `queries.ts`). Non-empty values produce per-group output files
+    /// (e.g. group `"users"` → `UsersQueries.java`, `users.ts`).
+    pub group: String,
     pub cmd: QueryCmd,
     /// Original SQL text (with $1/$2 placeholders intact).
     pub sql: String,
@@ -31,7 +38,27 @@ impl Query {
     /// projection is an unambiguous `table.*` or bare `*` over a single
     /// non-nullable schema table.
     pub fn new(name: impl Into<String>, cmd: QueryCmd, sql: impl Into<String>, params: Vec<Parameter>, result_columns: Vec<ResultColumn>) -> Self {
-        Self { name: name.into(), cmd, sql: sql.into(), params, result_columns, source_table: None }
+        Self { name: name.into(), group: String::new(), cmd, sql: sql.into(), params, result_columns, source_table: None }
+    }
+
+    /// Construct an `:exec` query (no result columns).
+    pub fn exec(name: impl Into<String>, sql: impl Into<String>, params: Vec<Parameter>) -> Self {
+        Self::new(name, QueryCmd::Exec, sql, params, vec![])
+    }
+
+    /// Construct an `:execrows` query (no result columns).
+    pub fn exec_rows(name: impl Into<String>, sql: impl Into<String>, params: Vec<Parameter>) -> Self {
+        Self::new(name, QueryCmd::ExecRows, sql, params, vec![])
+    }
+
+    /// Construct a `:one` query (returns a single optional row).
+    pub fn one(name: impl Into<String>, sql: impl Into<String>, params: Vec<Parameter>, result_columns: Vec<ResultColumn>) -> Self {
+        Self::new(name, QueryCmd::One, sql, params, result_columns)
+    }
+
+    /// Construct a `:many` query (returns all rows).
+    pub fn many(name: impl Into<String>, sql: impl Into<String>, params: Vec<Parameter>, result_columns: Vec<ResultColumn>) -> Self {
+        Self::new(name, QueryCmd::Many, sql, params, result_columns)
     }
 
     /// Set the source table, consuming `self` (builder-style).

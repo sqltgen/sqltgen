@@ -57,7 +57,13 @@ pub(super) fn build_query_from_insert(ann: &QueryAnnotation, sql: &str, q: &SqlQ
 ///
 /// The `excluded` pseudo-table is treated as an alias for the target table,
 /// so `excluded.col + $N` correctly types `$N` from `col`'s schema type.
-fn collect_on_conflict_params(insert: &Insert, table: &Table, config: &ResolverConfig, mapping: &mut HashMap<usize, (String, SqlType, bool)>, query_name: &str) {
+fn collect_on_conflict_params(
+    insert: &Insert,
+    table: &Table,
+    config: &ResolverConfig,
+    mapping: &mut HashMap<usize, (String, SqlType, bool)>,
+    query_name: &str,
+) {
     let Some(OnInsert::OnConflict(on_conflict)) = &insert.on else { return };
     let OnConflictAction::DoUpdate(do_update) = &on_conflict.action else { return };
 
@@ -66,7 +72,8 @@ fn collect_on_conflict_params(insert: &Insert, table: &Table, config: &ResolverC
     let excluded_table = (table.clone(), Some("excluded".to_string()));
     let all_tables = [excluded_table];
     let alias_map = build_alias_map(&all_tables);
-    let ctx = &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema: &Schema { tables: vec![table.clone()] }, config, mapping, query_name };
+    let ctx =
+        &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema: &Schema { tables: vec![table.clone()] }, config, mapping, query_name };
 
     for assignment in &do_update.assignments {
         collect_params_from_expr(&assignment.value, ctx);
@@ -214,7 +221,10 @@ pub(super) fn build_delete(ann: &QueryAnnotation, sql: &str, delete: &Delete, sc
     let mut mapping = HashMap::new();
 
     if let Some(expr) = &delete.selection {
-        collect_params_from_expr(expr, &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping: &mut mapping, query_name: &ann.name });
+        collect_params_from_expr(
+            expr,
+            &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping: &mut mapping, query_name: &ann.name },
+        );
     }
 
     let params = build_params(mapping, count_params(sql));
@@ -224,7 +234,13 @@ pub(super) fn build_delete(ann: &QueryAnnotation, sql: &str, delete: &Delete, sc
 }
 
 /// Collect parameter mappings from a DELETE statement's WHERE clause.
-pub(super) fn collect_delete_where_params(del: &Delete, schema: &Schema, config: &ResolverConfig, mapping: &mut HashMap<usize, (String, SqlType, bool)>, query_name: &str) {
+pub(super) fn collect_delete_where_params(
+    del: &Delete,
+    schema: &Schema,
+    config: &ResolverConfig,
+    mapping: &mut HashMap<usize, (String, SqlType, bool)>,
+    query_name: &str,
+) {
     let Some(table_name) = delete_table_name(del) else { return };
     let Some(table) = schema.tables.iter().find(|t| t.name == table_name) else { return };
     let Some(expr) = &del.selection else { return };

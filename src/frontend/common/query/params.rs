@@ -302,7 +302,13 @@ fn is_literal_expr(expr: &Expr) -> bool {
 /// Builds the subquery's FROM scope, recurses into any nested WITH clauses,
 /// and collects parameters from the WHERE clause. Handles both scalar
 /// subqueries (`Expr::Subquery`) and IN-subquery expressions.
-fn collect_params_from_subquery(q: &SqlQuery, schema: &Schema, config: &ResolverConfig, mapping: &mut HashMap<usize, (String, SqlType, bool)>, query_name: &str) {
+fn collect_params_from_subquery(
+    q: &SqlQuery,
+    schema: &Schema,
+    config: &ResolverConfig,
+    mapping: &mut HashMap<usize, (String, SqlType, bool)>,
+    query_name: &str,
+) {
     collect_cte_params(q.with.as_ref(), schema, config, mapping, query_name);
     let SetExpr::Select(select) = q.body.as_ref() else { return };
     let all_tables = collect_from_tables(select, schema, &[], config);

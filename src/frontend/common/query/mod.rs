@@ -189,7 +189,13 @@ fn build_query_with_dialect(dialect: &dyn Dialect, ann: &QueryAnnotation, sql: &
 /// inference. INSERT CTE bodies are handled via `collect_insert_value_params`.
 /// This ensures parameters defined inside data-modifying CTEs receive correct
 /// types even when the outer query body provides no column context.
-pub(super) fn collect_cte_params(with: Option<&With>, schema: &Schema, config: &ResolverConfig, mapping: &mut HashMap<usize, (String, SqlType, bool)>, query_name: &str) {
+pub(super) fn collect_cte_params(
+    with: Option<&With>,
+    schema: &Schema,
+    config: &ResolverConfig,
+    mapping: &mut HashMap<usize, (String, SqlType, bool)>,
+    query_name: &str,
+) {
     let Some(with) = with else { return };
     let mut local_ctes: Vec<Table> = Vec::new();
     for cte in &with.cte_tables {

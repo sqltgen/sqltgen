@@ -1,7 +1,7 @@
 use std::fmt::Write;
 use std::path::PathBuf;
 
-use crate::backend::common::{emit_package, has_inline_rows, needs_null_safe_getter, pg_array_type_name};
+use crate::backend::common::{emit_package, group_queries, has_inline_rows, needs_null_safe_getter, pg_array_type_name, queries_class_name};
 use crate::backend::jdbc::{
     self, emit_dynamic_binds, emit_jdbc_binds, prepare_dynamic_sql_parts, prepare_sql_const, prepare_sql_const_from, JdbcTarget, ListAction,
 };
@@ -52,16 +52,19 @@ impl Codegen for KotlinCodegen {
             files.push(GeneratedFile { path, content: src });
         }
 
-        // One Queries object (static-style) + one QueriesDs class backed by DataSource
-        if !queries.is_empty() {
+        // One object per query group + one DataSource-backed wrapper class per group
+        let strategy = config.list_params.clone().unwrap_or_default();
+        for (group, group_queries) in group_queries(queries) {
+            let class_name = queries_class_name(&group);
+            let ds_class_name = format!("{class_name}Ds");
+
             let mut src = String::new();
             emit_package(&mut src, &config.package, "");
             writeln!(src, "import java.sql.Connection")?;
             writeln!(src)?;
-            writeln!(src, "object Queries {{")?;
+            writeln!(src, "object {class_name} {{")?;
 
-            let strategy = config.list_params.clone().unwrap_or_default();
-            for query in queries {
+            for query in &group_queries {
                 writeln!(src)?;
                 if has_inline_rows(query, schema) {
                     emit_row_class(&mut src, query)?;
@@ -74,13 +77,13 @@ impl Codegen for KotlinCodegen {
             emit_nullable_primitive_helpers(&mut src)?;
             writeln!(src, "}}")?;
 
-            let path = source_path(&config.out, &config.package, "Queries", "kt");
+            let path = source_path(&config.out, &config.package, &class_name, "kt");
             files.push(GeneratedFile { path, content: src });
 
             let mut src = String::new();
             emit_package(&mut src, &config.package, "");
-            emit_kotlin_queries_ds(&mut src, queries, schema)?;
-            let path = source_path(&config.out, &config.package, "QueriesDs", "kt");
+            emit_kotlin_queries_ds(&mut src, &group_queries, schema, &class_name)?;
+            let path = source_path(&config.out, &config.package, &ds_class_name, "kt");
             files.push(GeneratedFile { path, content: src });
         }
 
@@ -226,25 +229,32 @@ fn kotlin_param_type(p: &Parameter) -> String {
     }
 }
 
-/// Emits `QueriesDs.kt` — a DataSource-backed class that acquires a connection
-/// per call via `dataSource.connection.use { }` and delegates to `Queries`.
-fn emit_kotlin_queries_ds(src: &mut String, queries: &[Query], schema: &Schema) -> anyhow::Result<()> {
+/// Emits a `{class_name}Ds.kt` DataSource-backed class that acquires a connection
+/// per call via `dataSource.connection.use { }` and delegates to `{class_name}`.
+fn emit_kotlin_queries_ds(src: &mut String, queries: &[Query], schema: &Schema, class_name: &str) -> anyhow::Result<()> {
+    let ds_class_name = format!("{class_name}Ds");
     writeln!(src, "import javax.sql.DataSource")?;
     writeln!(src)?;
-    writeln!(src, "class QueriesDs(private val dataSource: DataSource) {{")?;
+    writeln!(src, "class {ds_class_name}(private val dataSource: DataSource) {{")?;
 
     for query in queries {
         writeln!(src)?;
-        emit_kotlin_ds_method(src, query, schema)?;
+        emit_kotlin_ds_method(src, query, schema, class_name)?;
     }
 
     writeln!(src, "}}")?;
     Ok(())
 }
 
-/// Emits one method on `QueriesDs` that wraps the corresponding `Queries` method.
-fn emit_kotlin_ds_method(src: &mut String, query: &Query, schema: &Schema) -> anyhow::Result<()> {
-    let return_type = jdbc::jdbc_ds_return_type(query, schema, FALLBACK_TYPE, |r| format!("{r}?"), |r| format!("List<{r}>"), "Unit", "Long");
+/// Emits one method on the Ds class that wraps the corresponding method in `{class_name}`.
+fn emit_kotlin_ds_method(src: &mut String, query: &Query, schema: &Schema, class_name: &str) -> anyhow::Result<()> {
+    let row = jdbc::ds_result_row_type(query, schema, FALLBACK_TYPE, class_name);
+    let return_type = match query.cmd {
+        QueryCmd::One => format!("{row}?"),
+        QueryCmd::Many => format!("List<{row}>"),
+        QueryCmd::Exec => "Unit".to_string(),
+        QueryCmd::ExecRows => "Long".to_string(),
+    };
 
     let params_sig: String = query.params.iter().map(|p| format!("{}: {}", to_camel_case(&p.name), kotlin_param_type(p))).collect::<Vec<_>>().join(", ");
 
@@ -253,7 +263,7 @@ fn emit_kotlin_ds_method(src: &mut String, query: &Query, schema: &Schema) -> an
     let call_args = if args.is_empty() { "conn".to_string() } else { format!("conn, {args}") };
 
     writeln!(src, "    fun {method_name}({params_sig}): {return_type} =")?;
-    writeln!(src, "        dataSource.connection.use {{ conn -> Queries.{method_name}({call_args}) }}")?;
+    writeln!(src, "        dataSource.connection.use {{ conn -> {class_name}.{method_name}({call_args}) }}")?;
     Ok(())
 }
 
@@ -532,14 +542,7 @@ mod tests {
     #[test]
     fn test_generate_exec_query() {
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "DeleteUser".to_string(),
-            cmd: QueryCmd::Exec,
-            sql: "DELETE FROM user WHERE id = $1".to_string(),
-            params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
-            result_columns: vec![],
-            source_table: None,
-        };
+        let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.kt");
         assert!(src.contains("fun deleteUser(conn: Connection, id: Long): Unit"));
@@ -549,14 +552,7 @@ mod tests {
     #[test]
     fn test_generate_execrows_query() {
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "DeleteUsers".to_string(),
-            cmd: QueryCmd::ExecRows,
-            sql: "DELETE FROM user WHERE active = $1".to_string(),
-            params: vec![Parameter::scalar(1, "active", SqlType::Boolean, false)],
-            result_columns: vec![],
-            source_table: None,
-        };
+        let query = Query::exec_rows("DeleteUsers", "DELETE FROM user WHERE active = $1", vec![Parameter::scalar(1, "active", SqlType::Boolean, false)]);
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.kt");
         assert!(src.contains("fun deleteUsers(conn: Connection, active: Boolean): Long"));
@@ -566,18 +562,16 @@ mod tests {
     #[test]
     fn test_generate_one_query_infers_table_return_type() {
         let schema = Schema { tables: vec![user_table()] };
-        let query = Query {
-            name: "GetUser".to_string(),
-            cmd: QueryCmd::One,
-            sql: "SELECT id, name, bio FROM user WHERE id = $1".to_string(),
-            params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
-            result_columns: vec![
+        let query = Query::one(
+            "GetUser",
+            "SELECT id, name, bio FROM user WHERE id = $1",
+            vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
+            vec![
                 ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false },
                 ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
                 ResultColumn { name: "bio".to_string(), sql_type: SqlType::Text, nullable: true },
             ],
-            source_table: None,
-        };
+        );
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.kt");
         // Kotlin :one return type is nullable (T?) not Optional<T>
@@ -589,18 +583,16 @@ mod tests {
     #[test]
     fn test_generate_many_query_infers_table_return_type() {
         let schema = Schema { tables: vec![user_table()] };
-        let query = Query {
-            name: "ListUsers".to_string(),
-            cmd: QueryCmd::Many,
-            sql: "SELECT id, name, bio FROM user".to_string(),
-            params: vec![],
-            result_columns: vec![
+        let query = Query::many(
+            "ListUsers",
+            "SELECT id, name, bio FROM user",
+            vec![],
+            vec![
                 ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false },
                 ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
                 ResultColumn { name: "bio".to_string(), sql_type: SqlType::Text, nullable: true },
             ],
-            source_table: None,
-        };
+        );
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.kt");
         assert!(src.contains("fun listUsers(conn: Connection): List<User>"));
@@ -613,14 +605,7 @@ mod tests {
     #[test]
     fn test_generate_sql_const_name_is_screaming_snake_case() {
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "GetUserById".to_string(),
-            cmd: QueryCmd::Exec,
-            sql: "DELETE FROM user WHERE id = $1".to_string(),
-            params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
-            result_columns: vec![],
-            source_table: None,
-        };
+        let query = Query::exec("GetUserById", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.kt");
         assert!(src.contains("SQL_GET_USER_BY_ID"));
@@ -631,14 +616,12 @@ mod tests {
     #[test]
     fn test_generate_inline_row_class_for_partial_result() {
         let schema = Schema { tables: vec![user_table()] };
-        let query = Query {
-            name: "GetUserName".to_string(),
-            cmd: QueryCmd::One,
-            sql: "SELECT name FROM user WHERE id = $1".to_string(),
-            params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
-            result_columns: vec![ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false }],
-            source_table: None,
-        };
+        let query = Query::one(
+            "GetUserName",
+            "SELECT name FROM user WHERE id = $1",
+            vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
+            vec![ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false }],
+        );
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.kt");
         assert!(src.contains("data class GetUserNameRow("));
@@ -652,14 +635,12 @@ mod tests {
         // rs.getLong returns 0L for NULL; nullable Long? columns must use the
         // getNullableLong helper (wasNull-based, compatible with all JDBC drivers)
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "GetCount".to_string(),
-            cmd: QueryCmd::One,
-            sql: "SELECT count FROM stats WHERE id = $1".to_string(),
-            params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
-            result_columns: vec![ResultColumn { name: "count".to_string(), sql_type: SqlType::BigInt, nullable: true }],
-            source_table: None,
-        };
+        let query = Query::one(
+            "GetCount",
+            "SELECT count FROM stats WHERE id = $1",
+            vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
+            vec![ResultColumn { name: "count".to_string(), sql_type: SqlType::BigInt, nullable: true }],
+        );
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.kt");
         assert!(src.contains("getNullableLong(rs, 1)"));
@@ -669,14 +650,12 @@ mod tests {
     #[test]
     fn test_generate_non_nullable_long_result_uses_get_long() {
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "GetCount".to_string(),
-            cmd: QueryCmd::One,
-            sql: "SELECT count FROM stats WHERE id = $1".to_string(),
-            params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
-            result_columns: vec![ResultColumn { name: "count".to_string(), sql_type: SqlType::BigInt, nullable: false }],
-            source_table: None,
-        };
+        let query = Query::one(
+            "GetCount",
+            "SELECT count FROM stats WHERE id = $1",
+            vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
+            vec![ResultColumn { name: "count".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        );
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.kt");
         assert!(src.contains("rs.getLong(1)"));
@@ -687,14 +666,7 @@ mod tests {
     #[test]
     fn test_generate_queries_ds_file_is_emitted() {
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "DeleteUser".to_string(),
-            cmd: QueryCmd::Exec,
-            sql: "DELETE FROM user WHERE id = $1".to_string(),
-            params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
-            result_columns: vec![],
-            source_table: None,
-        };
+        let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         assert!(files.iter().any(|f| f.path.file_name().is_some_and(|n| n == "QueriesDs.kt")));
     }
@@ -702,14 +674,7 @@ mod tests {
     #[test]
     fn test_generate_queries_ds_class_and_datasource_import() {
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "DeleteUser".to_string(),
-            cmd: QueryCmd::Exec,
-            sql: "DELETE FROM user WHERE id = $1".to_string(),
-            params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
-            result_columns: vec![],
-            source_table: None,
-        };
+        let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "QueriesDs.kt");
         assert!(src.contains("import javax.sql.DataSource"));
@@ -719,14 +684,7 @@ mod tests {
     #[test]
     fn test_generate_queries_ds_exec_method_delegates_via_use() {
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "DeleteUser".to_string(),
-            cmd: QueryCmd::Exec,
-            sql: "DELETE FROM user WHERE id = $1".to_string(),
-            params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
-            result_columns: vec![],
-            source_table: None,
-        };
+        let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "QueriesDs.kt");
         assert!(src.contains("fun deleteUser(id: Long): Unit ="));
@@ -736,18 +694,16 @@ mod tests {
     #[test]
     fn test_generate_queries_ds_one_method_returns_nullable() {
         let schema = Schema { tables: vec![user_table()] };
-        let query = Query {
-            name: "GetUser".to_string(),
-            cmd: QueryCmd::One,
-            sql: "SELECT id, name, bio FROM user WHERE id = $1".to_string(),
-            params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
-            result_columns: vec![
+        let query = Query::one(
+            "GetUser",
+            "SELECT id, name, bio FROM user WHERE id = $1",
+            vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
+            vec![
                 ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false },
                 ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
                 ResultColumn { name: "bio".to_string(), sql_type: SqlType::Text, nullable: true },
             ],
-            source_table: None,
-        };
+        );
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "QueriesDs.kt");
         assert!(src.contains("fun getUser(id: Long): User? ="));
@@ -757,18 +713,16 @@ mod tests {
     #[test]
     fn test_generate_queries_ds_many_method_returns_list() {
         let schema = Schema { tables: vec![user_table()] };
-        let query = Query {
-            name: "ListUsers".to_string(),
-            cmd: QueryCmd::Many,
-            sql: "SELECT id, name, bio FROM user".to_string(),
-            params: vec![],
-            result_columns: vec![
+        let query = Query::many(
+            "ListUsers",
+            "SELECT id, name, bio FROM user",
+            vec![],
+            vec![
                 ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false },
                 ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
                 ResultColumn { name: "bio".to_string(), sql_type: SqlType::Text, nullable: true },
             ],
-            source_table: None,
-        };
+        );
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "QueriesDs.kt");
         assert!(src.contains("fun listUsers(): List<User> ="));
@@ -781,14 +735,12 @@ mod tests {
     fn test_generate_repeated_param_emits_bind_per_occurrence() {
         // $1 appears 4 times, $2 once — must emit 5 bind calls in SQL order
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "FindItems".to_string(),
-            cmd: QueryCmd::Many,
-            sql: "SELECT * FROM t WHERE a = $1 OR $1 = -1 AND b = $1 OR $1 = 0 AND c = $2".to_string(),
-            params: vec![Parameter::scalar(1, "accountId", SqlType::BigInt, false), Parameter::scalar(2, "inputData", SqlType::Text, false)],
-            result_columns: vec![],
-            source_table: None,
-        };
+        let query = Query::many(
+            "FindItems",
+            "SELECT * FROM t WHERE a = $1 OR $1 = -1 AND b = $1 OR $1 = 0 AND c = $2",
+            vec![Parameter::scalar(1, "accountId", SqlType::BigInt, false), Parameter::scalar(2, "inputData", SqlType::Text, false)],
+            vec![],
+        );
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.kt");
         assert!(src.contains("ps.setLong(1, accountId)"));
@@ -803,14 +755,11 @@ mod tests {
     #[test]
     fn test_generate_nullable_param_uses_set_object() {
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "UpdateBio".to_string(),
-            cmd: QueryCmd::Exec,
-            sql: "UPDATE user SET bio = $1 WHERE id = $2".to_string(),
-            params: vec![Parameter::scalar(1, "bio", SqlType::Text, true), Parameter::scalar(2, "id", SqlType::BigInt, false)],
-            result_columns: vec![],
-            source_table: None,
-        };
+        let query = Query::exec(
+            "UpdateBio",
+            "UPDATE user SET bio = $1 WHERE id = $2",
+            vec![Parameter::scalar(1, "bio", SqlType::Text, true), Parameter::scalar(2, "id", SqlType::BigInt, false)],
+        );
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.kt");
         assert!(src.contains("ps.setObject(1, bio)")); // nullable → setObject
@@ -822,14 +771,12 @@ mod tests {
     #[test]
     fn test_generate_pg_native_list_param() {
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "GetByIds".to_string(),
-            cmd: QueryCmd::Many,
-            sql: "SELECT id FROM t WHERE id IN ($1)".to_string(),
-            params: vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
-            result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
-            source_table: None,
-        };
+        let query = Query::many(
+            "GetByIds",
+            "SELECT id FROM t WHERE id IN ($1)",
+            vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
+            vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        );
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.kt");
         assert!(src.contains("ids: List<Long>"), "should use List<Long> for list param");
@@ -841,14 +788,12 @@ mod tests {
     #[test]
     fn test_generate_pg_dynamic_list_param() {
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "GetByIds".to_string(),
-            cmd: QueryCmd::Many,
-            sql: "SELECT id FROM t WHERE id IN ($1)".to_string(),
-            params: vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
-            result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
-            source_table: None,
-        };
+        let query = Query::many(
+            "GetByIds",
+            "SELECT id FROM t WHERE id IN ($1)",
+            vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
+            vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        );
         let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic) };
         let files = pg().generate(&schema, &[query], &cfg).unwrap();
         let src = get_file(&files, "Queries.kt");
@@ -860,14 +805,12 @@ mod tests {
     #[test]
     fn test_generate_sqlite_native_list_param() {
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "GetByIds".to_string(),
-            cmd: QueryCmd::Many,
-            sql: "SELECT id FROM t WHERE id IN ($1)".to_string(),
-            params: vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
-            result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
-            source_table: None,
-        };
+        let query = Query::many(
+            "GetByIds",
+            "SELECT id FROM t WHERE id IN ($1)",
+            vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
+            vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        );
         let files = KotlinCodegen { target: JdbcTarget::Sqlite }.generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.kt");
         assert!(src.contains("json_each(?)"), "SQLite native should use json_each");
@@ -883,14 +826,12 @@ mod tests {
         // Bug: Array columns previously fell through to rs.getObject(idx),
         // which returns a raw JDBC Array object instead of a typed List.
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "GetTags".to_string(),
-            cmd: QueryCmd::One,
-            sql: "SELECT tags FROM t WHERE id = $1".to_string(),
-            params: vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
-            result_columns: vec![ResultColumn { name: "tags".to_string(), sql_type: SqlType::Array(Box::new(SqlType::Text)), nullable: false }],
-            source_table: None,
-        };
+        let query = Query::one(
+            "GetTags",
+            "SELECT tags FROM t WHERE id = $1",
+            vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
+            vec![ResultColumn { name: "tags".to_string(), sql_type: SqlType::Array(Box::new(SqlType::Text)), nullable: false }],
+        );
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.kt");
         assert!(src.contains("rs.getArray(1)"), "should read array column via getArray: {src}");
@@ -903,14 +844,11 @@ mod tests {
         // Bug: Array params previously used ps.setObject(idx, val),
         // which doesn't work with PostgreSQL JDBC for array types.
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "UpdateTags".to_string(),
-            cmd: QueryCmd::Exec,
-            sql: "UPDATE t SET tags = $1 WHERE id = $2".to_string(),
-            params: vec![Parameter::scalar(1, "tags", SqlType::Array(Box::new(SqlType::Text)), false), Parameter::scalar(2, "id", SqlType::BigInt, false)],
-            result_columns: vec![],
-            source_table: None,
-        };
+        let query = Query::exec(
+            "UpdateTags",
+            "UPDATE t SET tags = $1 WHERE id = $2",
+            vec![Parameter::scalar(1, "tags", SqlType::Array(Box::new(SqlType::Text)), false), Parameter::scalar(2, "id", SqlType::BigInt, false)],
+        );
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.kt");
         assert!(src.contains("createArrayOf(\"text\", tags.toTypedArray())"), "should create JDBC array: {src}");
@@ -922,14 +860,11 @@ mod tests {
         // Bug: JSONB params previously used ps.setObject(idx, val) without
         // the Types.OTHER hint, which PostgreSQL JDBC rejects.
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "UpdateMeta".to_string(),
-            cmd: QueryCmd::Exec,
-            sql: "UPDATE t SET meta = $1 WHERE id = $2".to_string(),
-            params: vec![Parameter::scalar(1, "metadata", SqlType::Jsonb, false), Parameter::scalar(2, "id", SqlType::BigInt, false)],
-            result_columns: vec![],
-            source_table: None,
-        };
+        let query = Query::exec(
+            "UpdateMeta",
+            "UPDATE t SET meta = $1 WHERE id = $2",
+            vec![Parameter::scalar(1, "metadata", SqlType::Jsonb, false), Parameter::scalar(2, "id", SqlType::BigInt, false)],
+        );
         let files = pg().generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.kt");
         assert!(src.contains("ps.setObject(1, metadata, java.sql.Types.OTHER)"), "JSONB must use Types.OTHER: {src}");
@@ -943,14 +878,12 @@ mod tests {
         // transform for all element types. For Text params this produces bare
         // unquoted strings — invalid JSON. This test fails until fixed.
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "GetByTags".to_string(),
-            cmd: QueryCmd::Many,
-            sql: "SELECT id FROM t WHERE tag IN ($1)".to_string(),
-            params: vec![Parameter::list(1, "tags", SqlType::Text, false)],
-            result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
-            source_table: None,
-        };
+        let query = Query::many(
+            "GetByTags",
+            "SELECT id FROM t WHERE tag IN ($1)",
+            vec![Parameter::list(1, "tags", SqlType::Text, false)],
+            vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        );
         let files = KotlinCodegen { target: JdbcTarget::Sqlite }.generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.kt");
         // Bare joinToString(",") produces unquoted strings — invalid JSON for Text.
@@ -966,14 +899,12 @@ mod tests {
         // Numeric types produce valid JSON via toString() — no per-element quoting
         // is needed. Confirm the fix does not add a quoting lambda for numeric types.
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "GetByIds".to_string(),
-            cmd: QueryCmd::Many,
-            sql: "SELECT id FROM t WHERE id IN ($1)".to_string(),
-            params: vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
-            result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
-            source_table: None,
-        };
+        let query = Query::many(
+            "GetByIds",
+            "SELECT id FROM t WHERE id IN ($1)",
+            vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
+            vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        );
         let files = KotlinCodegen { target: JdbcTarget::Sqlite }.generate(&schema, &[query], &cfg()).unwrap();
         let src = get_file(&files, "Queries.kt");
         assert!(src.contains("json_each(?)"), "SQLite native should use json_each");
@@ -989,14 +920,12 @@ mod tests {
         // Correct order: [list elements] + [scalar-after].
         // This test fails until the root cause is fixed.
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "GetActiveByIds".to_string(),
-            cmd: QueryCmd::Many,
-            sql: "SELECT id FROM t WHERE id IN ($1) AND active = $2".to_string(),
-            params: vec![Parameter::list(1, "ids", SqlType::BigInt, false), Parameter::scalar(2, "active", SqlType::Boolean, false)],
-            result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
-            source_table: None,
-        };
+        let query = Query::many(
+            "GetActiveByIds",
+            "SELECT id FROM t WHERE id IN ($1) AND active = $2",
+            vec![Parameter::list(1, "ids", SqlType::BigInt, false), Parameter::scalar(2, "active", SqlType::Boolean, false)],
+            vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        );
         let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic) };
         let files = KotlinCodegen { target: JdbcTarget::Postgres }.generate(&schema, &[query], &cfg).unwrap();
         let src = get_file(&files, "Queries.kt");
@@ -1015,14 +944,12 @@ mod tests {
         // When the scalar param appears *before* the IN clause, the current binding
         // order is correct. Confirm the fix preserves this common pattern.
         let schema = Schema { tables: vec![] };
-        let query = Query {
-            name: "GetActiveByIds".to_string(),
-            cmd: QueryCmd::Many,
-            sql: "SELECT id FROM t WHERE active = $1 AND id IN ($2)".to_string(),
-            params: vec![Parameter::scalar(1, "active", SqlType::Boolean, false), Parameter::list(2, "ids", SqlType::BigInt, false)],
-            result_columns: vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
-            source_table: None,
-        };
+        let query = Query::many(
+            "GetActiveByIds",
+            "SELECT id FROM t WHERE active = $1 AND id IN ($2)",
+            vec![Parameter::scalar(1, "active", SqlType::Boolean, false), Parameter::list(2, "ids", SqlType::BigInt, false)],
+            vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        );
         let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic) };
         let files = KotlinCodegen { target: JdbcTarget::Postgres }.generate(&schema, &[query], &cfg).unwrap();
         let src = get_file(&files, "Queries.kt");
