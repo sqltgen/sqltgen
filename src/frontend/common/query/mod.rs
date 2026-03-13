@@ -55,6 +55,7 @@ pub(super) struct ResolverContext<'a> {
     pub schema: &'a Schema,
     pub config: &'a ResolverConfig,
     pub mapping: &'a mut HashMap<usize, (String, SqlType, bool)>,
+    pub query_name: &'a str,
 }
 
 pub(super) fn insert_table_name(ins: &Insert) -> String {
@@ -188,18 +189,18 @@ fn build_query_with_dialect(dialect: &dyn Dialect, ann: &QueryAnnotation, sql: &
 /// inference. INSERT CTE bodies are handled via `collect_insert_value_params`.
 /// This ensures parameters defined inside data-modifying CTEs receive correct
 /// types even when the outer query body provides no column context.
-pub(super) fn collect_cte_params(with: Option<&With>, schema: &Schema, config: &ResolverConfig, mapping: &mut HashMap<usize, (String, SqlType, bool)>) {
+pub(super) fn collect_cte_params(with: Option<&With>, schema: &Schema, config: &ResolverConfig, mapping: &mut HashMap<usize, (String, SqlType, bool)>, query_name: &str) {
     let Some(with) = with else { return };
     let mut local_ctes: Vec<Table> = Vec::new();
     for cte in &with.cte_tables {
         // Recurse into nested WITH clauses before processing this CTE's body.
-        collect_cte_params(cte.query.with.as_ref(), schema, config, mapping);
+        collect_cte_params(cte.query.with.as_ref(), schema, config, mapping, query_name);
         match cte.query.body.as_ref() {
             SetExpr::Update(Statement::Update(u)) => {
-                collect_update_params(&u.table, &u.assignments, u.selection.as_ref(), schema, config, mapping);
+                collect_update_params(&u.table, &u.assignments, u.selection.as_ref(), schema, config, mapping, query_name);
             },
             SetExpr::Delete(Statement::Delete(del)) => {
-                collect_delete_where_params(del, schema, config, mapping);
+                collect_delete_where_params(del, schema, config, mapping, query_name);
             },
             SetExpr::Insert(Statement::Insert(ins)) => {
                 collect_insert_value_params(ins, schema, mapping);
@@ -208,7 +209,7 @@ pub(super) fn collect_cte_params(with: Option<&With>, schema: &Schema, config: &
                 let all_tables = collect_from_tables(select, schema, &local_ctes, config);
                 if !all_tables.is_empty() {
                     let alias_map = build_alias_map(&all_tables);
-                    let ctx = &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping };
+                    let ctx = &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping, query_name };
                     if let Some(expr) = &select.selection {
                         collect_params_from_expr(expr, ctx);
                     }
@@ -1623,6 +1624,102 @@ mod tests {
         let sql = "-- name: Num :one\nSELECT CAST(name AS INTEGER) AS n FROM users;";
         let q = &parse_queries(sql, &schema).unwrap()[0];
         assert_eq!(q.result_columns[0].sql_type, SqlType::Integer);
+    }
+
+    #[test]
+    fn param_cast_infers_type() {
+        let schema = make_schema();
+        // $1::bigint in the WHERE clause — no column context, cast is the only signal.
+        let sql = "-- name: Q :exec\nSELECT id FROM users WHERE $1::bigint > 0;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.params[0].sql_type, SqlType::BigInt);
+    }
+
+    #[test]
+    fn param_cast_same_type_idempotent() {
+        let schema = make_schema();
+        // $1::text appears twice — should still produce a single Text param without conflict.
+        let sql = "-- name: Q :exec\nSELECT id FROM users WHERE $1::text IS NOT NULL AND $1::text != '';";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.params.len(), 1);
+        assert_eq!(q.params[0].sql_type, SqlType::Text);
+    }
+
+    #[test]
+    fn param_cast_conflicting_types_falls_back_to_custom() {
+        let schema = make_schema();
+        // $1 cast to both text and bigint — conflict → Custom("unknown").
+        let sql = "-- name: ConflictQ :exec\nSELECT id FROM users WHERE $1::text IS NOT NULL AND $1::bigint > 0;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.params[0].sql_type, SqlType::Custom("unknown".into()));
+    }
+
+    #[test]
+    fn param_cast_annotation_resolves_conflict() {
+        let schema = make_schema();
+        // @id is cast to both text and bigint, but the annotation declares it as bigint.
+        let sql = "-- name: AnnotatedQ :exec\n-- @id bigint\nSELECT id FROM users WHERE @id::text IS NOT NULL AND @id::bigint > 0;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.params[0].sql_type, SqlType::BigInt);
+    }
+
+    // ── cast vs. column-comparison interactions ───────────────────────────────
+
+    #[test]
+    fn param_cast_overrides_column_comparison_type() {
+        let schema = make_schema();
+        // id is BigInt, but the developer explicitly casts $1 to Text.
+        // The cast is the authoritative signal — Text wins.
+        let sql = "-- name: Q :exec\nSELECT id FROM users WHERE id = $1::text;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.params[0].sql_type, SqlType::Text);
+    }
+
+    #[test]
+    fn cast_on_column_side_infers_param_type() {
+        let schema = make_schema();
+        // CAST(id AS TEXT) = $1 — the column cast resolves to Text, so $1 gets Text.
+        let sql = "-- name: Q :exec\nSELECT id FROM users WHERE CAST(id AS TEXT) = $1;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.params[0].sql_type, SqlType::Text);
+    }
+
+    #[test]
+    fn pg_cast_on_column_side_infers_param_type() {
+        let schema = make_schema();
+        // id::text = $1 — Postgres cast on the column side resolves to Text.
+        let sql = "-- name: Q :exec\nSELECT id FROM users WHERE id::text = $1;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.params[0].sql_type, SqlType::Text);
+    }
+
+    #[test]
+    fn param_column_comparison_then_conflicting_cast_warns_and_falls_back() {
+        let schema = make_schema();
+        // id = $1 gives BigInt; $1::text adds a conflicting Text cast → Custom("unknown").
+        let sql = "-- name: Q :exec\nSELECT id FROM users WHERE id = $1 AND $1::text IS NOT NULL;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.params[0].sql_type, SqlType::Custom("unknown".into()));
+    }
+
+    #[test]
+    fn param_field_comparison_no_cast_infers_type() {
+        let schema = make_schema();
+        // Plain comparison — no cast anywhere. Type comes entirely from the column.
+        let sql = "-- name: Q :one\nSELECT id FROM users WHERE name = $1;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.params[0].name, "name");
+        assert_eq!(q.params[0].sql_type, SqlType::Text);
+    }
+
+    #[test]
+    fn param_field_comparison_two_columns_same_type() {
+        let schema = make_schema();
+        // $1 compared to two Text columns — both agree, so Text (first-wins, no conflict).
+        let sql = "-- name: Q :exec\nSELECT id FROM users WHERE name = $1 OR email = $1;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.params.len(), 1);
+        assert_eq!(q.params[0].sql_type, SqlType::Text);
     }
 
     #[test]
