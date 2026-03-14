@@ -33,6 +33,14 @@ pub(crate) struct ResolverConfig {
     /// Used by `resolve_expr` for CAST expressions. Each dialect supplies its own
     /// mapping function (e.g. `postgres::typemap::map`).
     pub typemap: fn(&sqlparser::ast::DataType) -> SqlType,
+    /// Compute the native list-param SQL for a given list parameter.
+    ///
+    /// Takes the list parameter (with its final `sql_type` and `index`) and
+    /// the current query SQL (with `$N` placeholders). Returns the rewritten
+    /// SQL with the dialect-specific list expansion substituted for `IN ($N)`,
+    /// using `$N` placeholders throughout so backends can apply their standard
+    /// rewriting. Returns `None` when native expansion is unavailable.
+    pub native_list_sql: Option<fn(&Parameter, &str) -> Option<String>>,
 }
 
 impl Default for ResolverConfig {
@@ -42,6 +50,7 @@ impl Default for ResolverConfig {
             sum_bigint_type: SqlType::BigInt,
             avg_integer_type: SqlType::Double,
             typemap: crate::frontend::common::typemap::map_common_or_custom,
+            native_list_sql: None,
         }
     }
 }
@@ -178,7 +187,22 @@ fn build_query_with_dialect(dialect: &dyn Dialect, ann: &QueryAnnotation, sql: &
     };
 
     named_params::apply_named_param_overrides(&mut query.params, &np);
+    apply_native_list_sql(&mut query, config);
     Ok(query)
+}
+
+/// Populate `Parameter::native_list_sql` for each list parameter using the
+/// dialect-provided rewrite function from `config`.
+///
+/// Called after parameter types and names are fully resolved. Only executes
+/// when `config.native_list_sql` is `Some`.
+fn apply_native_list_sql(query: &mut Query, config: &ResolverConfig) {
+    let Some(rewrite) = config.native_list_sql else { return };
+    for p in &mut query.params {
+        if p.is_list {
+            p.native_list_sql = rewrite(p, &query.sql);
+        }
+    }
 }
 
 // ─── CTE parameter collection ────────────────────────────────────────────────

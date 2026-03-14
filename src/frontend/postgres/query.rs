@@ -1,7 +1,8 @@
 use sqlparser::dialect::PostgreSqlDialect;
 
+use crate::backend::sql_rewrite::replace_list_in_clause;
 use crate::frontend::common::query::{parse_queries_with_config, ResolverConfig};
-use crate::ir::{Query, Schema, SqlType};
+use crate::ir::{Parameter, Query, Schema, SqlType};
 
 pub(crate) fn parse_queries(sql: &str, schema: &Schema) -> anyhow::Result<Vec<Query>> {
     parse_queries_with_config(
@@ -13,9 +14,18 @@ pub(crate) fn parse_queries(sql: &str, schema: &Schema) -> anyhow::Result<Vec<Qu
             // PG: SUM(bigint) → numeric, AVG(integer/bigint) → numeric
             sum_bigint_type: SqlType::Decimal,
             avg_integer_type: SqlType::Decimal,
+            native_list_sql: Some(pg_native_list_sql),
             ..ResolverConfig::default()
         },
     )
+}
+
+/// Compute the PostgreSQL native list SQL: replace `IN ($N)` with `= ANY($N)`.
+///
+/// Returns the full rewritten query SQL, or `None` if the IN clause is not
+/// found (the backend will fall back to dynamic expansion).
+fn pg_native_list_sql(p: &Parameter, sql: &str) -> Option<String> {
+    replace_list_in_clause(sql, p.index, &format!("= ANY(${})", p.index))
 }
 
 #[cfg(test)]

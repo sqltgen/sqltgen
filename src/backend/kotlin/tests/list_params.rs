@@ -8,7 +8,7 @@ fn test_generate_pg_native_list_param() {
     let query = Query::many(
         "GetByIds",
         "SELECT id FROM t WHERE id IN ($1)",
-        vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
+        vec![Parameter::list(1, "ids", SqlType::BigInt, false).with_native_list_sql("SELECT id FROM t WHERE id = ANY($1)")],
         vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
@@ -43,7 +43,7 @@ fn test_generate_sqlite_native_list_param() {
     let query = Query::many(
         "GetByIds",
         "SELECT id FROM t WHERE id IN ($1)",
-        vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
+        vec![Parameter::list(1, "ids", SqlType::BigInt, false).with_native_list_sql("SELECT id FROM t WHERE id IN (SELECT value FROM json_each($1))")],
         vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
     );
     let files = KotlinCodegen { target: JdbcTarget::Sqlite }.generate(&schema, &[query], &cfg()).unwrap();
@@ -116,7 +116,7 @@ fn test_bug_a_sqlite_native_text_list_json_escaping() {
     let query = Query::many(
         "GetByTags",
         "SELECT id FROM t WHERE tag IN ($1)",
-        vec![Parameter::list(1, "tags", SqlType::Text, false)],
+        vec![Parameter::list(1, "tags", SqlType::Text, false).with_native_list_sql("SELECT id FROM t WHERE tag IN (SELECT value FROM json_each($1))")],
         vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
     );
     let files = KotlinCodegen { target: JdbcTarget::Sqlite }.generate(&schema, &[query], &cfg()).unwrap();
@@ -137,7 +137,7 @@ fn test_bug_a_numeric_list_no_quoting_needed() {
     let query = Query::many(
         "GetByIds",
         "SELECT id FROM t WHERE id IN ($1)",
-        vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
+        vec![Parameter::list(1, "ids", SqlType::BigInt, false).with_native_list_sql("SELECT id FROM t WHERE id IN (SELECT value FROM json_each($1))")],
         vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
     );
     let files = KotlinCodegen { target: JdbcTarget::Sqlite }.generate(&schema, &[query], &cfg()).unwrap();
@@ -204,17 +204,14 @@ fn test_bug_b_dynamic_scalar_before_in_no_regression() {
 fn test_bug_c_any_syntax_pg_native_should_rewrite_to_any_placeholder() {
     // Bug C: when the user writes `= ANY(@ids::bigint[])`, the named-param
     // preprocessor rewrites @ids → $1 but leaves ::bigint[] in the SQL, producing
-    // `= ANY($1::bigint[])`.  The PgNative backend then calls replace_list_in_clause
-    // which looks for `IN ($1)` — not found — and silently falls back to the original
-    // SQL.  The generated const therefore contains `= ANY(?::bigint[])` instead of
-    // the clean `= ANY(?)`.
-    //
-    // The fix must detect the `= ANY($N...)` pattern and canonicalise it to `= ANY(?)`.
+    // `= ANY($1::bigint[])`. The frontend's replace_list_in_clause handles the
+    // `= ANY($N...)` pattern (stripping the cast suffix) and stores the clean SQL
+    // in native_list_sql.
     let schema = Schema { tables: vec![] };
     let query = Query::many(
         "GetByIds",
         "SELECT id FROM t WHERE id = ANY($1::bigint[])",
-        vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
+        vec![Parameter::list(1, "ids", SqlType::BigInt, false).with_native_list_sql("SELECT id FROM t WHERE id = ANY($1)")],
         vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
@@ -236,7 +233,7 @@ fn test_bug_c_in_clause_annotation_works_correctly() {
     let query = Query::many(
         "GetByIds",
         "SELECT id FROM t WHERE id IN ($1)",
-        vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
+        vec![Parameter::list(1, "ids", SqlType::BigInt, false).with_native_list_sql("SELECT id FROM t WHERE id = ANY($1)")],
         vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();

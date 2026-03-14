@@ -2,9 +2,9 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 use std::path::PathBuf;
 
-use crate::backend::common::{group_queries, has_inline_rows, infer_row_type_name, infer_table, mysql_json_table_col_type, queries_file_stem};
+use crate::backend::common::{group_queries, has_inline_rows, infer_row_type_name, infer_table, queries_file_stem};
 use crate::backend::naming::{to_pascal_case, to_snake_case};
-use crate::backend::sql_rewrite::{positional_bind_names, replace_list_in_clause, rewrite_to_anon_params, split_at_in_clause};
+use crate::backend::sql_rewrite::{positional_bind_names, rewrite_to_anon_params, split_at_in_clause};
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::{resolve_type_ref, Engine, ListParamStrategy, OutputConfig, ResolvedType, TypeVariant};
 use crate::ir::{Parameter, Query, QueryCmd, Schema, SqlType};
@@ -46,19 +46,19 @@ fn get_type_override_rust(sql_type: &SqlType, variant: TypeVariant, config: &Out
 }
 
 /// Return the Rust type for a SQL type, applying any configured type override first.
-fn rust_field_type(sql_type: &SqlType, nullable: bool, target: &RustTarget, config: &OutputConfig) -> String {
+fn rust_field_type(sql_type: &SqlType, nullable: bool, config: &OutputConfig) -> String {
     if let Some(resolved) = get_type_override_rust(sql_type, TypeVariant::Field, config) {
         return if nullable { format!("Option<{}>", resolved.name) } else { resolved.name };
     }
-    rust_type(sql_type, nullable, target)
+    rust_type(sql_type, nullable)
 }
 
 /// Return the Rust parameter type, applying any configured param type override first.
-fn rust_param_type_resolved(sql_type: &SqlType, nullable: bool, target: &RustTarget, config: &OutputConfig) -> String {
+fn rust_param_type_resolved(sql_type: &SqlType, nullable: bool, config: &OutputConfig) -> String {
     if let Some(resolved) = get_type_override_rust(sql_type, TypeVariant::Param, config) {
         return if nullable { format!("Option<{}>", resolved.name) } else { resolved.name };
     }
-    rust_type(sql_type, nullable, target)
+    rust_type(sql_type, nullable)
 }
 
 pub struct RustCodegen {
@@ -76,7 +76,7 @@ impl Codegen for RustCodegen {
             writeln!(src, "#[derive(Debug, sqlx::FromRow)]")?;
             writeln!(src, "pub struct {struct_name} {{")?;
             for col in &table.columns {
-                writeln!(src, "    pub {}: {},", col.name, rust_field_type(&col.sql_type, col.nullable, &self.target, config))?;
+                writeln!(src, "    pub {}: {},", col.name, rust_field_type(&col.sql_type, col.nullable, config))?;
             }
             writeln!(src, "}}")?;
 
@@ -115,7 +115,7 @@ impl Codegen for RustCodegen {
             // Custom row structs for queries that don't return a whole table
             for query in group_queries {
                 if has_inline_rows(query, schema) {
-                    emit_row_struct(&mut src, query, &self.target, config)?;
+                    emit_row_struct(&mut src, query, config)?;
                     writeln!(src)?;
                 }
             }
@@ -151,12 +151,12 @@ impl Codegen for RustCodegen {
     }
 }
 
-fn emit_row_struct(src: &mut String, query: &Query, target: &RustTarget, config: &OutputConfig) -> anyhow::Result<()> {
+fn emit_row_struct(src: &mut String, query: &Query, config: &OutputConfig) -> anyhow::Result<()> {
     let name = row_struct_name(&query.name);
     writeln!(src, "#[derive(Debug, sqlx::FromRow)]")?;
     writeln!(src, "pub struct {name} {{")?;
     for col in &query.result_columns {
-        writeln!(src, "    pub {}: {},", col.name, rust_field_type(&col.sql_type, col.nullable, target, config))?;
+        writeln!(src, "    pub {}: {},", col.name, rust_field_type(&col.sql_type, col.nullable, config))?;
     }
     writeln!(src, "}}")?;
     Ok(())
@@ -182,7 +182,7 @@ fn emit_rust_query(
     };
 
     let params_sig: String =
-        std::iter::once(format!("pool: &{pool_type}")).chain(query.params.iter().map(|p| rust_param_sig(p, target, config))).collect::<Vec<_>>().join(", ");
+        std::iter::once(format!("pool: &{pool_type}")).chain(query.params.iter().map(|p| rust_param_sig(p, config))).collect::<Vec<_>>().join(", ");
 
     writeln!(src, "pub async fn {fn_name}({params_sig}) -> {return_type} {{")?;
 
@@ -218,46 +218,57 @@ fn emit_rust_list_query(
     strategy: &ListParamStrategy,
     list_param: &Parameter,
 ) -> anyhow::Result<()> {
-    match (target, strategy) {
-        (RustTarget::Postgres, ListParamStrategy::Native) => {
-            let repl = format!("= ANY(${})", list_param.index);
-            let rewritten = replace_list_in_clause(&query.sql, list_param.index, &repl).unwrap_or_else(|| {
-                eprintln!("warning: list param {} not found in IN clause, treating as scalar", list_param.name);
-                query.sql.clone()
-            });
-            let sql = rewritten.replace('"', "\\\"").replace('\n', " ");
-            let bind_names: Vec<&str> = query.params.iter().map(|p| p.name.as_str()).collect();
-            emit_rust_sqlx_call(src, query, &sql, &bind_names, &row_type)
-        },
-        (RustTarget::Postgres, ListParamStrategy::Dynamic) => {
-            let lp_name = to_snake_case(&list_param.name);
+    // Use the pre-computed native SQL from the IR when available and strategy is Native.
+    // The native SQL was produced by the frontend and uses $N placeholders; each backend
+    // applies its own standard placeholder rewriting (a general rule, not dialect logic).
+    if *strategy == ListParamStrategy::Native {
+        if let Some(native_sql) = &list_param.native_list_sql {
+            return emit_rust_native_list_query(src, query, &row_type, list_param, native_sql, target);
+        }
+    }
+    // Dynamic expansion: language-specific, not dialect-specific.
+    let lp_name = to_snake_case(&list_param.name);
+    match target {
+        RustTarget::Postgres => {
             let base = list_param.index;
             writeln!(src, "    let placeholders: String = ({lp_name}).iter().enumerate()")?;
             writeln!(src, "        .map(|(i, _)| format!(\"${{}}\", {base} + i))")?;
             writeln!(src, "        .collect::<Vec<_>>().join(\", \");")?;
-            emit_rust_dynamic_query(src, query, &row_type, list_param, target)
         },
-        (RustTarget::Sqlite, ListParamStrategy::Native) => {
-            let repl = "IN (SELECT value FROM json_each(?))";
-            let rewritten = replace_list_in_clause(&query.sql, list_param.index, repl).unwrap_or_else(|| {
-                eprintln!("warning: list param {} not found in IN clause, treating as scalar", list_param.name);
-                query.sql.clone()
-            });
-            emit_rust_json_native(src, query, &row_type, list_param, &rewritten, target)
-        },
-        (RustTarget::Sqlite, ListParamStrategy::Dynamic) | (RustTarget::Mysql, ListParamStrategy::Dynamic) => {
-            let lp_name = to_snake_case(&list_param.name);
+        RustTarget::Sqlite | RustTarget::Mysql => {
             writeln!(src, "    let placeholders = ({lp_name}).iter().map(|_| \"?\").collect::<Vec<_>>().join(\", \");")?;
-            emit_rust_dynamic_query(src, query, &row_type, list_param, target)
         },
-        (RustTarget::Mysql, ListParamStrategy::Native) => {
-            let col_type = mysql_json_table_col_type(&list_param.sql_type);
-            let repl = format!("IN (SELECT value FROM JSON_TABLE(?,'$[*]' COLUMNS(value {col_type} PATH '$')) t)");
-            let rewritten = replace_list_in_clause(&query.sql, list_param.index, &repl).unwrap_or_else(|| {
-                eprintln!("warning: list param {} not found in IN clause, treating as scalar", list_param.name);
-                query.sql.clone()
-            });
-            emit_rust_json_native(src, query, &row_type, list_param, &rewritten, target)
+    }
+    emit_rust_dynamic_query(src, query, &row_type, list_param, target)
+}
+
+/// Emit a native list query using the pre-computed `native_sql` from the IR.
+///
+/// The `native_sql` already contains the dialect-specific SQL (e.g. `json_each`,
+/// `= ANY`, `JSON_TABLE`) with `$N` placeholders. This function applies the
+/// backend's standard placeholder rewriting and emits the appropriate bind call.
+fn emit_rust_native_list_query(
+    src: &mut String,
+    query: &Query,
+    row_type: &str,
+    list_param: &Parameter,
+    native_sql: &str,
+    target: &RustTarget,
+) -> anyhow::Result<()> {
+    let sql = normalize_sql_for_sqlx(native_sql, target).replace('"', "\\\"").replace('\n', " ");
+    let lp_name = to_snake_case(&list_param.name);
+    match target {
+        RustTarget::Postgres => {
+            // sqlx-postgres: bind the list directly (sqlx handles Vec<T> → ANY($1))
+            let bind_names: Vec<&str> = query.params.iter().map(|p| p.name.as_str()).collect();
+            emit_rust_sqlx_call(src, query, &sql, &bind_names, row_type)
+        },
+        RustTarget::Sqlite | RustTarget::Mysql => {
+            // SQLite/MySQL: list param is bound as a JSON array string
+            writeln!(src, "    let {lp_name}_json = {};", json_list_expr(&lp_name, &list_param.sql_type))?;
+            let bind_names: Vec<String> = query.params.iter().map(|p| if p.is_list { format!("{lp_name}_json") } else { to_snake_case(&p.name) }).collect();
+            let bind_refs: Vec<&str> = bind_names.iter().map(|s| s.as_str()).collect();
+            emit_rust_sqlx_call(src, query, &sql, &bind_refs, row_type)
         },
     }
 }
@@ -279,23 +290,6 @@ fn emit_rust_dynamic_query(src: &mut String, query: &Query, row_type: &str, list
     writeln!(src, "    }}")?;
     writeln!(src, "    q.{}.await", fetch_method(query))?;
     Ok(())
-}
-
-/// Emit a SQLite or MySQL native list query that binds a JSON array string.
-fn emit_rust_json_native(
-    src: &mut String,
-    query: &Query,
-    row_type: &str,
-    list_param: &Parameter,
-    rewritten_sql: &str,
-    target: &RustTarget,
-) -> anyhow::Result<()> {
-    let sql = normalize_sql_for_sqlx(rewritten_sql, target).replace('"', "\\\"").replace('\n', " ");
-    let lp_name = to_snake_case(&list_param.name);
-    writeln!(src, "    let {lp_name}_json = {};", json_list_expr(&lp_name, &list_param.sql_type))?;
-    let bind_names: Vec<String> = query.params.iter().map(|p| if p.is_list { format!("{lp_name}_json") } else { to_snake_case(&p.name) }).collect();
-    let bind_refs: Vec<&str> = bind_names.iter().map(|s| s.as_str()).collect();
-    emit_rust_sqlx_call(src, query, &sql, &bind_refs, row_type)
 }
 
 /// Generate inline Rust code that builds a JSON array string from a list parameter.
@@ -321,13 +315,13 @@ fn fetch_method(query: &Query) -> &'static str {
 }
 
 /// Build the `name: type` signature fragment for a single parameter.
-fn rust_param_sig(p: &Parameter, target: &RustTarget, config: &OutputConfig) -> String {
+fn rust_param_sig(p: &Parameter, config: &OutputConfig) -> String {
     let name = to_snake_case(&p.name);
     if p.is_list {
-        let elem_ty = rust_param_type_resolved(&p.sql_type, false, target, config);
+        let elem_ty = rust_param_type_resolved(&p.sql_type, false, config);
         format!("{name}: &[{elem_ty}]")
     } else {
-        format!("{name}: {}", rust_param_type_resolved(&p.sql_type, p.nullable, target, config))
+        format!("{name}: {}", rust_param_type_resolved(&p.sql_type, p.nullable, config))
     }
 }
 
@@ -407,7 +401,7 @@ fn normalize_sql_for_sqlx(sql: &str, target: &RustTarget) -> String {
 
 // ─── Type mapping ─────────────────────────────────────────────────────────────
 
-fn rust_type(sql_type: &SqlType, nullable: bool, target: &RustTarget) -> String {
+fn rust_type(sql_type: &SqlType, nullable: bool) -> String {
     let base = match sql_type {
         SqlType::Boolean => "bool".to_string(),
         SqlType::SmallInt => "i16".to_string(),
@@ -415,11 +409,7 @@ fn rust_type(sql_type: &SqlType, nullable: bool, target: &RustTarget) -> String 
         SqlType::BigInt => "i64".to_string(),
         SqlType::Real => "f32".to_string(),
         SqlType::Double => "f64".to_string(),
-        // SQLite stores DECIMAL as REAL (f64); PostgreSQL and MySQL DECIMAL needs exact decimal.
-        SqlType::Decimal => match target {
-            RustTarget::Sqlite => "f64".to_string(),
-            _ => "rust_decimal::Decimal".to_string(),
-        },
+        SqlType::Decimal => "rust_decimal::Decimal".to_string(),
         SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_) => "String".to_string(),
         SqlType::Bytes => "Vec<u8>".to_string(),
         SqlType::Date => "time::Date".to_string(),
@@ -430,7 +420,7 @@ fn rust_type(sql_type: &SqlType, nullable: bool, target: &RustTarget) -> String 
         SqlType::Uuid => "uuid::Uuid".to_string(),
         SqlType::Json | SqlType::Jsonb => "serde_json::Value".to_string(),
         SqlType::Array(inner) => {
-            let inner_ty = rust_type(inner, false, target);
+            let inner_ty = rust_type(inner, false);
             let vec_ty = format!("Vec<{inner_ty}>");
             return if nullable { format!("Option<{vec_ty}>") } else { vec_ty };
         },

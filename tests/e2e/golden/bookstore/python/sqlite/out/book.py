@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import dataclasses
-import decimal
 
 
 @dataclasses.dataclass
@@ -11,5 +10,5 @@ class Book:
     author_id: int
     title: str
     genre: str
-    price: decimal.Decimal
+    price: float
     published_at: str | None

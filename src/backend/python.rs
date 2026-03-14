@@ -2,11 +2,9 @@ use std::collections::BTreeSet;
 use std::fmt::Write;
 use std::path::PathBuf;
 
-use crate::backend::common::{group_queries, has_inline_rows, infer_row_type_name, infer_table, mysql_json_table_col_type, queries_file_stem, sql_const_name};
+use crate::backend::common::{group_queries, has_inline_rows, infer_row_type_name, infer_table, queries_file_stem, sql_const_name};
 use crate::backend::naming::{to_pascal_case, to_snake_case};
-use crate::backend::sql_rewrite::{
-    positional_bind_names, rewrite_list_sql_native, rewrite_to_anon_params, rewrite_to_percent_s, split_at_in_clause, ListRewriteTarget,
-};
+use crate::backend::sql_rewrite::{positional_bind_names, rewrite_to_anon_params, rewrite_to_percent_s, split_at_in_clause};
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::{resolve_type_ref, Engine, ListParamStrategy, OutputConfig, ResolvedType, TypeVariant};
 use crate::ir::{Parameter, Query, QueryCmd, Schema, SqlType};
@@ -177,7 +175,7 @@ fn build_queries_file(queries: &[Query], schema: &Schema, target: &PythonTarget,
         }
         let const_name = sql_const_name(&query.name);
         let base_sql = if let Some(lp) = query.params.iter().find(|p| p.is_list) {
-            rewrite_list_sql_native(&query.sql, lp, list_rewrite_target(lp, target))
+            lp.native_list_sql.clone().unwrap_or_else(|| query.sql.clone())
         } else {
             query.sql.clone()
         };
@@ -447,15 +445,6 @@ fn build_dynamic_args(scalar_params: &[&Parameter], lp: &Parameter) -> String {
         (false, true) => format!("{before_tuple} + tuple({lp_name})"),
         (true, false) => format!("tuple({lp_name}) + {after_tuple}"),
         (false, false) => format!("{before_tuple} + tuple({lp_name}) + {after_tuple}"),
-    }
-}
-
-/// Build the [`ListRewriteTarget`] for the current Python database target.
-fn list_rewrite_target(lp: &Parameter, target: &PythonTarget) -> ListRewriteTarget {
-    match target {
-        PythonTarget::Postgres => ListRewriteTarget::PgArray,
-        PythonTarget::Sqlite => ListRewriteTarget::JsonEach("?".to_string()),
-        PythonTarget::Mysql => ListRewriteTarget::JsonTable { placeholder: "%s".to_string(), col_type: mysql_json_table_col_type(&lp.sql_type).to_string() },
     }
 }
 

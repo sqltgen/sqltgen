@@ -1,10 +1,24 @@
 use sqlparser::dialect::SQLiteDialect;
 
+use crate::backend::sql_rewrite::replace_list_in_clause;
 use crate::frontend::common::query::{parse_queries_with_config, ResolverConfig};
-use crate::ir::{Query, Schema};
+use crate::ir::{Parameter, Query, Schema};
 
 pub(crate) fn parse_queries(sql: &str, schema: &Schema) -> anyhow::Result<Vec<Query>> {
-    parse_queries_with_config(&SQLiteDialect {}, sql, schema, &ResolverConfig { typemap: crate::frontend::sqlite::typemap::map, ..ResolverConfig::default() })
+    parse_queries_with_config(
+        &SQLiteDialect {},
+        sql,
+        schema,
+        &ResolverConfig { typemap: crate::frontend::sqlite::typemap::map, native_list_sql: Some(sqlite_native_list_sql), ..ResolverConfig::default() },
+    )
+}
+
+/// Compute the SQLite native list SQL: replace `IN ($N)` with `IN (SELECT value FROM json_each($N))`.
+///
+/// Returns the full rewritten query SQL, or `None` if the IN clause is not
+/// found (the backend will fall back to dynamic expansion).
+fn sqlite_native_list_sql(p: &Parameter, sql: &str) -> Option<String> {
+    replace_list_in_clause(sql, p.index, &format!("IN (SELECT value FROM json_each(${}))", p.index))
 }
 
 #[cfg(test)]

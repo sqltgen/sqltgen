@@ -20,6 +20,11 @@ pub(crate) fn map(dt: &DataType) -> SqlType {
 
         DataType::Timestamp(_, _) => SqlType::Timestamp,
 
+        // SQLite stores NUMERIC/DECIMAL as REAL (floating-point affinity).
+        // Mapping to Double avoids exposing `rust_decimal::Decimal` in Rust backends
+        // where SQLite cannot actually provide decimal precision.
+        DataType::Numeric(_) | DataType::Decimal(_) => SqlType::Double,
+
         DataType::Custom(name, _) => map_custom(name),
 
         // Fall through to common mappings, then dialect fallback
@@ -44,7 +49,7 @@ fn map_custom(name: &ObjectName) -> SqlType {
         "BIGINT" => SqlType::BigInt,
         "REAL" | "FLOAT" => SqlType::Real,
         "DOUBLE" => SqlType::Double,
-        "NUMBER" => SqlType::Decimal,
+        "NUMBER" | "DECIMAL" | "NUMERIC" => SqlType::Double,
         "TEXT" | "CLOB" | "VARCHAR" | "NVARCHAR" | "NCHAR" | "VARYING CHARACTER" => SqlType::Text,
         "BLOB" | "NONE" => SqlType::Bytes,
         "DATETIME" => SqlType::Timestamp,
@@ -88,8 +93,9 @@ mod tests {
 
     #[test]
     fn test_map_numeric() {
-        assert_eq!(map(&DataType::Numeric(sqlparser::ast::ExactNumberInfo::None)), SqlType::Decimal);
-        assert_eq!(map(&DataType::Decimal(sqlparser::ast::ExactNumberInfo::PrecisionAndScale(10, 2))), SqlType::Decimal);
+        // SQLite has no fixed-point type; NUMERIC/DECIMAL map to Double (REAL affinity).
+        assert_eq!(map(&DataType::Numeric(sqlparser::ast::ExactNumberInfo::None)), SqlType::Double);
+        assert_eq!(map(&DataType::Decimal(sqlparser::ast::ExactNumberInfo::PrecisionAndScale(10, 2))), SqlType::Double);
     }
 
     #[test]
@@ -184,9 +190,10 @@ mod tests {
 
     #[test]
     fn test_map_custom_numeric() {
-        assert_eq!(map_custom_str("NUMERIC"), SqlType::Decimal);
-        assert_eq!(map_custom_str("DECIMAL"), SqlType::Decimal);
-        assert_eq!(map_custom_str("NUMBER"), SqlType::Decimal);
+        // SQLite has no fixed-point type; NUMERIC/DECIMAL/NUMBER map to Double.
+        assert_eq!(map_custom_str("NUMERIC"), SqlType::Double);
+        assert_eq!(map_custom_str("DECIMAL"), SqlType::Double);
+        assert_eq!(map_custom_str("NUMBER"), SqlType::Double);
     }
 
     #[test]

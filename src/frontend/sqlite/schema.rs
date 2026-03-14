@@ -215,6 +215,7 @@ mod tests {
         assert_eq!(col("t").sql_type, SqlType::Text);
         assert_eq!(col("r").sql_type, SqlType::Real);
         assert_eq!(col("b").sql_type, SqlType::Bytes);
-        assert_eq!(col("n").sql_type, SqlType::Decimal);
+        // SQLite has no fixed-point type; NUMERIC maps to Double (REAL affinity).
+        assert_eq!(col("n").sql_type, SqlType::Double);
     }
 }

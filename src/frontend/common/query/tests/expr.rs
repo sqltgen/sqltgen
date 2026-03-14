@@ -246,6 +246,59 @@ fn expr_literal_does_not_override_param_type_from_column() {
     assert_eq!(q.params[0].sql_type, SqlType::BigInt, "param type must come from column, not literal");
 }
 
+// ─── JSON expression type inference ────────────────────────────────────────
+
+#[test]
+fn expr_jsonb_agg_resolves_to_json() {
+    let schema = make_schema();
+    let sql = "-- name: Q :one\nSELECT jsonb_agg(name) AS result FROM users;";
+    let q = &parse_queries(sql, &schema).unwrap()[0];
+    assert_eq!(q.result_columns[0].sql_type, SqlType::Json);
+    assert!(q.result_columns[0].nullable);
+}
+
+#[test]
+fn expr_json_agg_resolves_to_json() {
+    let schema = make_schema();
+    let sql = "-- name: Q :one\nSELECT json_agg(name) AS result FROM users;";
+    let q = &parse_queries(sql, &schema).unwrap()[0];
+    assert_eq!(q.result_columns[0].sql_type, SqlType::Json);
+}
+
+#[test]
+fn expr_jsonb_build_object_resolves_to_json() {
+    let schema = make_schema();
+    let sql = "-- name: Q :one\nSELECT jsonb_build_object('id', id, 'name', name) AS obj FROM users;";
+    let q = &parse_queries(sql, &schema).unwrap()[0];
+    assert_eq!(q.result_columns[0].sql_type, SqlType::Json);
+}
+
+#[test]
+fn expr_jsonb_build_array_resolves_to_json() {
+    let schema = make_schema();
+    let sql = "-- name: Q :one\nSELECT jsonb_build_array(1, 2, 3) AS arr FROM users;";
+    let q = &parse_queries(sql, &schema).unwrap()[0];
+    assert_eq!(q.result_columns[0].sql_type, SqlType::Json);
+}
+
+#[test]
+fn expr_nested_jsonb_agg_build_object_resolves_to_json() {
+    // jsonb_agg(jsonb_build_object(...)) — nested JSON functions.
+    let schema = make_schema();
+    let sql = "-- name: Q :one\nSELECT jsonb_agg(jsonb_build_object('id', id, 'name', name)) AS result FROM users;";
+    let q = &parse_queries(sql, &schema).unwrap()[0];
+    assert_eq!(q.result_columns[0].sql_type, SqlType::Json);
+}
+
+#[test]
+fn expr_coalesce_jsonb_agg_build_array_resolves_to_json() {
+    // coalesce(jsonb_agg(...), jsonb_build_array()) — type from first arg, nullable based on args.
+    let schema = make_schema();
+    let sql = "-- name: Q :one\nSELECT coalesce(jsonb_agg(name), jsonb_build_array()) AS result FROM users;";
+    let q = &parse_queries(sql, &schema).unwrap()[0];
+    assert_eq!(q.result_columns[0].sql_type, SqlType::Json);
+}
+
 // ─── Param cast type inference ─────────────────────────────────────────────
 
 #[test]

@@ -1,7 +1,9 @@
 use sqlparser::dialect::GenericDialect;
 
+use crate::backend::common::mysql_json_table_col_type;
+use crate::backend::sql_rewrite::replace_list_in_clause;
 use crate::frontend::common::query::{parse_queries_with_config, ResolverConfig};
-use crate::ir::{Query, Schema, SqlType};
+use crate::ir::{Parameter, Query, Schema, SqlType};
 
 /// Parses an annotated MySQL query file into a list of [Query] models.
 ///
@@ -22,8 +24,19 @@ pub(crate) fn parse_queries(sql: &str, schema: &Schema) -> anyhow::Result<Vec<Qu
             sum_bigint_type: SqlType::Decimal,
             avg_integer_type: SqlType::Decimal,
             typemap: crate::frontend::mysql::typemap::map,
+            native_list_sql: Some(mysql_native_list_sql),
         },
     )
+}
+
+/// Compute the MySQL native list SQL: replace `IN ($N)` with `IN (SELECT value FROM JSON_TABLE($N,...))`.
+///
+/// Returns the full rewritten query SQL, or `None` if the IN clause is not
+/// found (the backend will fall back to dynamic expansion).
+fn mysql_native_list_sql(p: &Parameter, sql: &str) -> Option<String> {
+    let col_type = mysql_json_table_col_type(&p.sql_type);
+    let replacement = format!("IN (SELECT value FROM JSON_TABLE(${},'$[*]' COLUMNS(value {col_type} PATH '$')) t)", p.index);
+    replace_list_in_clause(sql, p.index, &replacement)
 }
 
 #[cfg(test)]

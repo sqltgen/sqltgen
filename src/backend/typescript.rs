@@ -2,9 +2,9 @@ use std::collections::BTreeSet;
 use std::fmt::Write;
 use std::path::PathBuf;
 
-use crate::backend::common::{group_queries, has_inline_rows, infer_row_type_name, infer_table, mysql_json_table_col_type, queries_file_stem, sql_const_name};
+use crate::backend::common::{group_queries, has_inline_rows, infer_row_type_name, infer_table, queries_file_stem, sql_const_name};
 use crate::backend::naming::{to_camel_case, to_pascal_case};
-use crate::backend::sql_rewrite::{positional_bind_names, rewrite_list_sql_native, rewrite_to_anon_params, split_at_in_clause, ListRewriteTarget};
+use crate::backend::sql_rewrite::{positional_bind_names, rewrite_to_anon_params, split_at_in_clause};
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::{resolve_type_ref, Engine, ListParamStrategy, OutputConfig, ResolvedType, TypeVariant};
 use crate::ir::{Parameter, Query, QueryCmd, Schema, SqlType, Table};
@@ -375,7 +375,7 @@ fn emit_sql_constants(src: &mut String, queries: &[Query], target: &JsTarget, st
         let const_name = sql_const_name(&query.name);
         // NOTE: only one list parameter per query is currently supported.
         let base_sql = match query.params.iter().find(|p| p.is_list) {
-            Some(lp) => rewrite_list_sql_native(&query.sql, lp, list_rewrite_target(lp, target)),
+            Some(lp) => lp.native_list_sql.clone().unwrap_or_else(|| query.sql.clone()),
             None => query.sql.clone(),
         };
         let sql = normalize_sql(&base_sql, target).replace('"', "\\\"").replace('\n', " ");
@@ -395,15 +395,6 @@ fn normalize_sql(sql: &str, target: &JsTarget) -> String {
     match target {
         JsTarget::Postgres => sql.to_string(),
         JsTarget::Sqlite | JsTarget::Mysql => rewrite_to_anon_params(sql),
-    }
-}
-
-/// Build the [`ListRewriteTarget`] for the current JS/TS database target.
-fn list_rewrite_target(lp: &Parameter, target: &JsTarget) -> ListRewriteTarget {
-    match target {
-        JsTarget::Postgres => ListRewriteTarget::PgArray,
-        JsTarget::Sqlite => ListRewriteTarget::JsonEach(format!("?{}", lp.index)),
-        JsTarget::Mysql => ListRewriteTarget::JsonTable { placeholder: "?".to_string(), col_type: mysql_json_table_col_type(&lp.sql_type).to_string() },
     }
 }
 

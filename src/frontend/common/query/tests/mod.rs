@@ -98,6 +98,7 @@ pub fn mysql_config() -> ResolverConfig {
         sum_bigint_type: SqlType::Decimal,
         avg_integer_type: SqlType::Decimal,
         typemap: crate::frontend::mysql::typemap::map,
+        ..ResolverConfig::default()
     }
 }
 

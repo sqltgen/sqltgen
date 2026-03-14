@@ -91,17 +91,32 @@ pub struct Parameter {
     /// annotated with `-- @name type[] [not null]`.  The generated function
     /// accepts a collection type; the SQL is rewritten per the configured strategy.
     pub is_list: bool,
+    /// Pre-computed SQL with the dialect-specific native list expansion applied.
+    ///
+    /// Set by each dialect frontend for every list parameter. Uses `$N`
+    /// placeholder style so backends apply their standard rewriting (e.g.
+    /// `$N → ?` for JDBC/SQLite/MySQL). `None` for non-list parameters and
+    /// for dialects that do not support native list expansion.
+    pub native_list_sql: Option<String>,
 }
 
 impl Parameter {
     /// Construct a scalar (non-list) parameter.
     pub fn scalar(index: usize, name: impl Into<String>, sql_type: SqlType, nullable: bool) -> Self {
-        Self { index, name: name.into(), sql_type, nullable, is_list: false }
+        Self { index, name: name.into(), sql_type, nullable, is_list: false, native_list_sql: None }
     }
 
     /// Construct a list parameter (`-- @name type[] not null`).
     pub fn list(index: usize, name: impl Into<String>, sql_type: SqlType, nullable: bool) -> Self {
-        Self { index, name: name.into(), sql_type, nullable, is_list: true }
+        Self { index, name: name.into(), sql_type, nullable, is_list: true, native_list_sql: None }
+    }
+
+    /// Set `native_list_sql`, consuming `self` (builder-style).
+    ///
+    /// Used in tests to simulate what dialect frontends compute.
+    pub fn with_native_list_sql(mut self, sql: impl Into<String>) -> Self {
+        self.native_list_sql = Some(sql.into());
+        self
     }
 }
 

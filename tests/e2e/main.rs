@@ -314,7 +314,13 @@ fn snapshot_type_overrides_rust() {
 
 #[test]
 fn snapshot_type_overrides_typescript() {
-    snapshot_test_with_config("type_overrides", &PostgresParser, "typescript", &TypeScriptCodegen { target: JsTarget::Postgres, output: JsOutput::TypeScript }, config_object());
+    snapshot_test_with_config(
+        "type_overrides",
+        &PostgresParser,
+        "typescript",
+        &TypeScriptCodegen { target: JsTarget::Postgres, output: JsOutput::TypeScript },
+        config_object(),
+    );
 }
 
 // ─── Error resilience tests ───────────────────────────────────────────────

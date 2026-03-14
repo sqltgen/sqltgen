@@ -9,6 +9,34 @@ fn list_by_ids_query() -> Query {
     )
 }
 
+fn pg_list_by_ids_query() -> Query {
+    Query::many(
+        "GetByIds",
+        "SELECT id FROM t WHERE id IN ($1)",
+        vec![Parameter::list(1, "ids", SqlType::BigInt, false).with_native_list_sql("SELECT id FROM t WHERE id = ANY($1)")],
+        vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+    )
+}
+
+fn sqlite_list_by_ids_query() -> Query {
+    Query::many(
+        "GetByIds",
+        "SELECT id FROM t WHERE id IN ($1)",
+        vec![Parameter::list(1, "ids", SqlType::BigInt, false).with_native_list_sql("SELECT id FROM t WHERE id IN (SELECT value FROM json_each($1))")],
+        vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+    )
+}
+
+fn mysql_list_by_ids_query() -> Query {
+    Query::many(
+        "GetByIds",
+        "SELECT id FROM t WHERE id IN ($1)",
+        vec![Parameter::list(1, "ids", SqlType::BigInt, false)
+            .with_native_list_sql("SELECT id FROM t WHERE id IN (SELECT value FROM JSON_TABLE($1,'$[*]' COLUMNS(value BIGINT PATH '$')) t)")],
+        vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+    )
+}
+
 fn dynamic_cfg() -> OutputConfig {
     OutputConfig { out: "src".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic), ..Default::default() }
 }
@@ -24,7 +52,7 @@ fn src_has_sql_constant(content: &str, needle: &str) -> bool {
 #[test]
 fn test_pg_native_list_param_ts() {
     let schema = Schema { tables: vec![] };
-    let content = build_queries_file(&[list_by_ids_query()], &schema, &JsTarget::Postgres, &JsOutput::TypeScript, &config()).unwrap();
+    let content = build_queries_file(&[pg_list_by_ids_query()], &schema, &JsTarget::Postgres, &JsOutput::TypeScript, &config()).unwrap();
     // SQL constant rewrites IN ($1) → = ANY($1); pg accepts a JS array directly.
     assert!(src_has_sql_constant(&content, "= ANY($1)"), "PG native should rewrite to = ANY");
     assert!(content.contains("ids: number[]"), "list param must use number[] type");
@@ -36,7 +64,7 @@ fn test_pg_native_list_param_ts() {
 #[test]
 fn test_pg_native_list_param_js() {
     let schema = Schema { tables: vec![] };
-    let content = build_queries_file(&[list_by_ids_query()], &schema, &JsTarget::Postgres, &JsOutput::JavaScript, &config()).unwrap();
+    let content = build_queries_file(&[pg_list_by_ids_query()], &schema, &JsTarget::Postgres, &JsOutput::JavaScript, &config()).unwrap();
     assert!(src_has_sql_constant(&content, "= ANY($1)"), "PG native should rewrite to = ANY");
     // JS output uses JSDoc comments, not inline TypeScript type annotations.
     assert!(!content.contains("ids: number[]"), "JS output must not use inline TS type annotations");
@@ -86,7 +114,7 @@ fn test_pg_dynamic_list_param_with_scalar_after() {
 #[test]
 fn test_sqlite_native_list_param_ts() {
     let schema = Schema { tables: vec![] };
-    let content = build_queries_file(&[list_by_ids_query()], &schema, &JsTarget::Sqlite, &JsOutput::TypeScript, &config()).unwrap();
+    let content = build_queries_file(&[sqlite_list_by_ids_query()], &schema, &JsTarget::Sqlite, &JsOutput::TypeScript, &config()).unwrap();
     // SQL constant uses json_each for SQLite.
     assert!(src_has_sql_constant(&content, "json_each"), "SQLite native should use json_each");
     assert!(content.contains("ids: number[]"), "list param must use number[] type");
@@ -125,7 +153,7 @@ fn test_sqlite_dynamic_list_param_with_scalar_after() {
 #[test]
 fn test_mysql_native_list_param_ts() {
     let schema = Schema { tables: vec![] };
-    let content = build_queries_file(&[list_by_ids_query()], &schema, &JsTarget::Mysql, &JsOutput::TypeScript, &config()).unwrap();
+    let content = build_queries_file(&[mysql_list_by_ids_query()], &schema, &JsTarget::Mysql, &JsOutput::TypeScript, &config()).unwrap();
     // SQL constant uses JSON_TABLE for MySQL.
     assert!(src_has_sql_constant(&content, "JSON_TABLE"), "MySQL native should use JSON_TABLE");
     assert!(content.contains("ids: number[]"), "list param must use number[] type");
