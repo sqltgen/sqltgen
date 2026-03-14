@@ -1,4 +1,5 @@
 use super::*;
+use crate::backend::test_helpers::cfg;
 
 // ─── model file ──────────────────────────────────────────────────────────
 
@@ -6,7 +7,7 @@ use super::*;
 fn test_ts_model_file_interface() {
     let schema = schema_with_users();
     let gen = TypeScriptCodegen { target: JsTarget::Postgres, output: JsOutput::TypeScript };
-    let content = gen.emit_model_file(&schema.tables[0]).unwrap();
+    let content = gen.emit_model_file(&schema.tables[0], &cfg()).unwrap();
     assert!(content.contains("export interface Users {"));
     assert!(content.contains("id: number;"));
     assert!(content.contains("name: string;"));
@@ -17,7 +18,7 @@ fn test_ts_model_file_interface() {
 fn test_js_model_file_typedef() {
     let schema = schema_with_users();
     let gen = TypeScriptCodegen { target: JsTarget::Postgres, output: JsOutput::JavaScript };
-    let content = gen.emit_model_file(&schema.tables[0]).unwrap();
+    let content = gen.emit_model_file(&schema.tables[0], &cfg()).unwrap();
     assert!(content.contains("@typedef {Object} Users"));
     assert!(content.contains("@property {number} id"));
     assert!(content.contains("@property {string} name"));
@@ -166,7 +167,7 @@ fn test_inline_row_type_ts() {
         vec![ResultColumn { name: "total".to_string(), sql_type: SqlType::BigInt, nullable: true }],
     );
     let mut src = String::new();
-    emit_inline_row_type(&mut src, &query, &JsOutput::TypeScript, &JsTarget::Postgres).unwrap();
+    emit_inline_row_type(&mut src, &query, &JsOutput::TypeScript, &JsTarget::Postgres, &cfg()).unwrap();
     assert!(src.contains("export interface GetStatsRow {"));
     assert!(src.contains("total: number | null;"));
 }
@@ -180,7 +181,7 @@ fn test_inline_row_type_js() {
         vec![ResultColumn { name: "total".to_string(), sql_type: SqlType::BigInt, nullable: true }],
     );
     let mut src = String::new();
-    emit_inline_row_type(&mut src, &query, &JsOutput::JavaScript, &JsTarget::Postgres).unwrap();
+    emit_inline_row_type(&mut src, &query, &JsOutput::JavaScript, &JsTarget::Postgres, &cfg()).unwrap();
     assert!(src.contains("@typedef {Object} GetStatsRow"));
     assert!(src.contains("@property {number | null} total"));
 }

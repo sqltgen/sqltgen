@@ -8,7 +8,7 @@ use crate::ir::{Column, SqlType, Table};
 
 /// Default output config: `out = "out"`, no package, no list param strategy.
 pub fn cfg() -> OutputConfig {
-    OutputConfig { out: "out".to_string(), package: String::new(), list_params: None }
+    OutputConfig { out: "out".to_string(), package: String::new(), list_params: None, ..Default::default() }
 }
 
 /// Find a generated file by filename and return its content.

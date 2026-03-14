@@ -4,7 +4,7 @@ use crate::config::OutputConfig;
 use crate::ir::{Parameter, Query, ResultColumn, Schema, SqlType};
 
 pub fn cfg_pkg() -> OutputConfig {
-    OutputConfig { out: "out".to_string(), package: "com.example.db".to_string(), list_params: None }
+    OutputConfig { out: "out".to_string(), package: "com.example.db".to_string(), list_params: None, ..Default::default() }
 }
 
 pub fn pg() -> JavaCodegen {
@@ -15,4 +15,5 @@ mod generate;
 mod grouping;
 mod list_params;
 mod params;
+mod type_overrides;
 mod types;

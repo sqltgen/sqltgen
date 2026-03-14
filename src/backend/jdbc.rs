@@ -220,8 +220,13 @@ pub fn prepare_dynamic_sql_parts(query: &Query, lp: &Parameter) -> (String, Stri
 
 /// Build a row constructor expression: `ClassName(arg1, arg2, …)`.
 ///
-/// `prefix` is `"new "` for Java, `""` for Kotlin.
-pub fn build_row_constructor(query: &Query, schema: &Schema, fallback: &str, prefix: &str, read_expr: fn(&SqlType, bool, usize) -> String) -> String {
+/// `prefix` is `"new "` for Java, `""` for Kotlin. `read_expr` is a closure that
+/// maps `(sql_type, nullable, column_index)` to a driver read expression string,
+/// allowing callers to inject type-override logic via a captured config reference.
+pub fn build_row_constructor<F>(query: &Query, schema: &Schema, fallback: &str, prefix: &str, read_expr: F) -> String
+where
+    F: Fn(&SqlType, bool, usize) -> String,
+{
     let class = result_row_type(query, schema, fallback);
     let args: Vec<String> = query.result_columns.iter().enumerate().map(|(i, col)| read_expr(&col.sql_type, col.nullable, i + 1)).collect();
     format!("{prefix}{class}({})", args.join(", "))

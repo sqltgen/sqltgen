@@ -51,7 +51,7 @@ pub fn delete_users_query() -> Query {
 }
 
 pub fn config() -> OutputConfig {
-    OutputConfig { out: "src".to_string(), package: String::new(), list_params: None }
+    OutputConfig { out: "src".to_string(), package: String::new(), list_params: None, ..Default::default() }
 }
 
 mod generate;

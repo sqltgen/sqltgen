@@ -93,7 +93,7 @@ fn test_bug_b_sqlite_dynamic_scalar_after_in_binding_order() {
         vec![Parameter::list(1, "ids", SqlType::BigInt, false), Parameter::scalar(2, "active", SqlType::Boolean, false)],
         vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
     );
-    let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic) };
+    let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic), ..Default::default() };
     let files = sq().generate(&schema, &[query], &cfg).unwrap();
     let src = get_file(&files, "queries.py");
     // Bug: active precedes list elements in the execute args.

@@ -10,7 +10,7 @@ fn list_by_ids_query() -> Query {
 }
 
 fn dynamic_cfg() -> OutputConfig {
-    OutputConfig { out: "src".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic) }
+    OutputConfig { out: "src".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic), ..Default::default() }
 }
 
 fn src_has_sql_constant(content: &str, needle: &str) -> bool {

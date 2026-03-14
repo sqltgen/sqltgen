@@ -87,7 +87,7 @@ fn test_generate_pg_dynamic_list_param() {
         vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
         vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
     );
-    let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic) };
+    let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic), ..Default::default() };
     let files = pg().generate(&schema, &[query], &cfg).unwrap();
     let src = get_file(&files, "queries.py");
     assert!(src.contains("ids: list[int]"), "list param should use list[int]");
@@ -108,7 +108,7 @@ fn test_generate_pg_dynamic_list_param_with_scalar() {
         vec![Parameter::scalar(1, "active", SqlType::Boolean, false), Parameter::list(2, "ids", SqlType::BigInt, false)],
         vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
     );
-    let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic) };
+    let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic), ..Default::default() };
     let files = pg().generate(&schema, &[query], &cfg).unwrap();
     let src = get_file(&files, "queries.py");
     // active is before IN — must come first in args: (active,) + tuple(ids).
@@ -124,7 +124,7 @@ fn test_generate_sqlite_dynamic_list_param() {
         vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
         vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
     );
-    let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic) };
+    let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic), ..Default::default() };
     let files = sq().generate(&schema, &[query], &cfg).unwrap();
     let src = get_file(&files, "queries.py");
     assert!(src.contains("ids: list[int]"), "list param should use list[int]");
@@ -146,7 +146,7 @@ fn test_generate_mysql_dynamic_list_param() {
         vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
         vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
     );
-    let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic) };
+    let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic), ..Default::default() };
     let files = my().generate(&schema, &[query], &cfg).unwrap();
     let src = get_file(&files, "queries.py");
     assert!(src.contains("ids: list[int]"), "list param should use list[int]");
@@ -199,7 +199,7 @@ fn test_bug_b_postgres_dynamic_scalar_after_in_binding_order() {
         vec![Parameter::list(1, "ids", SqlType::BigInt, false), Parameter::scalar(2, "active", SqlType::Boolean, false)],
         vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
     );
-    let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic) };
+    let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic), ..Default::default() };
     let files = pg().generate(&schema, &[query], &cfg).unwrap();
     let src = get_file(&files, "queries.py");
     // Bug: active precedes list elements in the execute args tuple.
@@ -219,7 +219,7 @@ fn test_bug_b_postgres_dynamic_scalar_before_in_no_regression() {
         vec![Parameter::scalar(1, "active", SqlType::Boolean, false), Parameter::list(2, "ids", SqlType::BigInt, false)],
         vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
     );
-    let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic) };
+    let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic), ..Default::default() };
     let files = pg().generate(&schema, &[query], &cfg).unwrap();
     let src = get_file(&files, "queries.py");
     // active is before IN in the SQL — must come first in the args tuple.

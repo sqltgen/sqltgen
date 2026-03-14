@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::fmt::Write;
 use std::path::PathBuf;
 
@@ -7,13 +8,116 @@ use crate::backend::jdbc::{
 };
 use crate::backend::naming::{to_camel_case, to_pascal_case};
 use crate::backend::{Codegen, GeneratedFile};
-use crate::config::{ListParamStrategy, OutputConfig};
+use crate::config::{resolve_type_ref, ExtraField, ListParamStrategy, OutputConfig, ResolvedType, TypeVariant};
 use crate::ir::{Parameter, Query, QueryCmd, Schema, SqlType};
 
 /// Statement-end terminator for Kotlin.
 const SE: &str = "";
 /// Fallback row type when no table match is found.
 const FALLBACK_TYPE: &str = "Any";
+
+/// Resolve a known Kotlin/Java preset name to a [`ResolvedType`].
+fn try_preset_kotlin(name: &str) -> Option<ResolvedType> {
+    match name {
+        "jackson" => Some(ResolvedType {
+            name: "JsonNode".to_string(),
+            import: Some("com.fasterxml.jackson.databind.JsonNode".to_string()),
+            read_expr: Some("objectMapper.readValue({raw}, JsonNode::class.java)".to_string()),
+            write_expr: Some("objectMapper.writeValueAsString({value})".to_string()),
+            extra_fields: vec![
+                ExtraField {
+                    declaration: "private val objectMapper = ObjectMapper()".to_string(),
+                    import: Some("com.fasterxml.jackson.databind.ObjectMapper".to_string()),
+                },
+            ],
+        }),
+        "gson" => Some(ResolvedType {
+            name: "JsonElement".to_string(),
+            import: Some("com.google.gson.JsonElement".to_string()),
+            read_expr: Some("gson.fromJson({raw}, JsonElement::class.java)".to_string()),
+            write_expr: Some("gson.toJson({value})".to_string()),
+            extra_fields: vec![
+                ExtraField {
+                    declaration: "private val gson = Gson()".to_string(),
+                    import: Some("com.google.gson.Gson".to_string()),
+                },
+            ],
+        }),
+        _ => None,
+    }
+}
+
+fn get_type_override_kotlin(sql_type: &SqlType, variant: TypeVariant, config: &OutputConfig) -> Option<ResolvedType> {
+    let type_ref = config.get_type_ref(sql_type, variant)?;
+    if let crate::config::TypeRef::String(s) = type_ref {
+        if let Some(r) = try_preset_kotlin(s) {
+            return Some(r);
+        }
+    }
+    resolve_type_ref(type_ref)
+}
+
+fn kotlin_field_type(sql_type: &SqlType, nullable: bool, config: &OutputConfig) -> String {
+    if let Some(resolved) = get_type_override_kotlin(sql_type, TypeVariant::Field, config) {
+        return if nullable { format!("{}?", resolved.name) } else { resolved.name };
+    }
+    kotlin_type(sql_type, nullable)
+}
+
+fn kotlin_param_type_resolved(p: &Parameter, config: &OutputConfig) -> String {
+    if p.is_list {
+        let elem = if let Some(resolved) = get_type_override_kotlin(&p.sql_type, TypeVariant::Param, config) {
+            resolved.name
+        } else {
+            kotlin_type(&p.sql_type, false)
+        };
+        return format!("List<{elem}>");
+    }
+    if let Some(resolved) = get_type_override_kotlin(&p.sql_type, TypeVariant::Param, config) {
+        return if p.nullable { format!("{}?", resolved.name) } else { resolved.name };
+    }
+    kotlin_param_type(p)
+}
+
+fn resolve_kotlin_read_expr(sql_type: &SqlType, nullable: bool, idx: usize, config: &OutputConfig) -> String {
+    if let Some(resolved) = get_type_override_kotlin(sql_type, TypeVariant::Field, config) {
+        if let Some(expr) = &resolved.read_expr {
+            let raw = resultset_read_expr(sql_type, nullable, idx);
+            return expr.replace("{raw}", &raw);
+        }
+    }
+    resultset_read_expr(sql_type, nullable, idx)
+}
+
+fn collect_kotlin_override_metadata(queries: &[Query], config: &OutputConfig) -> (BTreeSet<String>, Vec<ExtraField>) {
+    let mut imports: BTreeSet<String> = BTreeSet::new();
+    let mut extra_fields: Vec<ExtraField> = Vec::new();
+    for query in queries {
+        for col in &query.result_columns {
+            if let Some(resolved) = get_type_override_kotlin(&col.sql_type, TypeVariant::Field, config) {
+                if let Some(imp) = resolved.import {
+                    imports.insert(imp);
+                }
+                for ef in resolved.extra_fields {
+                    if let Some(imp) = &ef.import {
+                        imports.insert(imp.clone());
+                    }
+                    if !extra_fields.iter().any(|e| e.declaration == ef.declaration) {
+                        extra_fields.push(ef);
+                    }
+                }
+            }
+        }
+        for p in &query.params {
+            if let Some(resolved) = get_type_override_kotlin(&p.sql_type, TypeVariant::Param, config) {
+                if let Some(imp) = resolved.import {
+                    imports.insert(imp);
+                }
+            }
+        }
+    }
+    (imports, extra_fields)
+}
 
 pub struct KotlinCodegen {
     pub target: JdbcTarget,
@@ -41,7 +145,7 @@ impl Codegen for KotlinCodegen {
                 .columns
                 .iter()
                 .map(|col| {
-                    let ty = kotlin_type(&col.sql_type, col.nullable);
+                    let ty = kotlin_field_type(&col.sql_type, col.nullable, config);
                     format!("    val {}: {}", to_camel_case(&col.name), ty)
                 })
                 .collect();
@@ -58,19 +162,28 @@ impl Codegen for KotlinCodegen {
             let class_name = queries_class_name(&group);
             let ds_class_name = format!("{class_name}Ds");
 
+            let (override_imports, extra_fields) = collect_kotlin_override_metadata(&group_queries, config);
+
             let mut src = String::new();
             emit_package(&mut src, &config.package, "");
+            // Emit override-specific imports (standard import is just Connection)
             writeln!(src, "import java.sql.Connection")?;
+            for imp in &override_imports {
+                writeln!(src, "import {imp}")?;
+            }
             writeln!(src)?;
             writeln!(src, "object {class_name} {{")?;
+            for ef in &extra_fields {
+                writeln!(src, "    {}", ef.declaration)?;
+            }
 
             for query in &group_queries {
                 writeln!(src)?;
                 if has_inline_rows(query, schema) {
-                    emit_row_class(&mut src, query)?;
+                    emit_row_class(&mut src, query, config)?;
                     writeln!(src)?;
                 }
-                emit_kotlin_query(&mut src, query, schema, self.target, &strategy)?;
+                emit_kotlin_query(&mut src, query, schema, self.target, &strategy, config)?;
             }
 
             writeln!(src)?;
@@ -91,42 +204,42 @@ impl Codegen for KotlinCodegen {
     }
 }
 
-fn emit_kotlin_query(src: &mut String, query: &Query, schema: &Schema, target: JdbcTarget, strategy: &ListParamStrategy) -> anyhow::Result<()> {
+fn emit_kotlin_query(src: &mut String, query: &Query, schema: &Schema, target: JdbcTarget, strategy: &ListParamStrategy, config: &OutputConfig) -> anyhow::Result<()> {
     let ctx = QueryContext {
         query,
         schema,
         return_type: jdbc::jdbc_return_type(query, schema, FALLBACK_TYPE, |r| format!("{r}?"), |r| format!("List<{r}>"), "Unit", "Long"),
         params_sig: std::iter::once("conn: Connection".to_string())
-            .chain(query.params.iter().map(|p| format!("{}: {}", to_camel_case(&p.name), kotlin_param_type(p))))
+            .chain(query.params.iter().map(|p| format!("{}: {}", to_camel_case(&p.name), kotlin_param_type_resolved(p, config))))
             .collect::<Vec<_>>()
             .join(", "),
     };
 
     if let Some(lp) = query.params.iter().find(|p| p.is_list) {
         match jdbc::resolve_list_strategy(target, strategy, query, lp) {
-            ListAction::PgNative(sql) => emit_kotlin_list_pg_native(src, &ctx, lp, &sql),
-            ListAction::Dynamic => emit_kotlin_list_dynamic(src, &ctx, lp),
-            ListAction::JsonNative(sql) => emit_kotlin_list_json_native(src, &ctx, lp, &sql),
+            ListAction::PgNative(sql) => emit_kotlin_list_pg_native(src, &ctx, lp, &sql, config),
+            ListAction::Dynamic => emit_kotlin_list_dynamic(src, &ctx, lp, config),
+            ListAction::JsonNative(sql) => emit_kotlin_list_json_native(src, &ctx, lp, &sql, config),
         }
     } else {
-        emit_kotlin_scalar_query(src, &ctx)
+        emit_kotlin_scalar_query(src, &ctx, config)
     }
 }
 
-fn emit_kotlin_scalar_query(src: &mut String, ctx: &QueryContext) -> anyhow::Result<()> {
+fn emit_kotlin_scalar_query(src: &mut String, ctx: &QueryContext, config: &OutputConfig) -> anyhow::Result<()> {
     let (sql_const, escaped) = prepare_sql_const(ctx.query);
     writeln!(src, "    private const val {sql_const} = \"{escaped};\"")?;
     writeln!(src, "    fun {}({}): {} {{", to_camel_case(&ctx.query.name), ctx.params_sig, ctx.return_type)?;
     writeln!(src, "        conn.prepareStatement({sql_const}).use {{ ps ->")?;
     emit_jdbc_binds(src, ctx.query, "", SE, "toTypedArray()")?;
-    emit_kotlin_result_block(src, ctx.query, ctx.schema)?;
+    emit_kotlin_result_block(src, ctx.query, ctx.schema, config)?;
     writeln!(src, "        }}")?;
     writeln!(src, "    }}")?;
     Ok(())
 }
 
 /// Emit a PostgreSQL native list query using `= ANY(?)` with a JDBC array.
-fn emit_kotlin_list_pg_native(src: &mut String, ctx: &QueryContext, lp: &Parameter, rewritten_sql: &str) -> anyhow::Result<()> {
+fn emit_kotlin_list_pg_native(src: &mut String, ctx: &QueryContext, lp: &Parameter, rewritten_sql: &str, config: &OutputConfig) -> anyhow::Result<()> {
     let lp_name = to_camel_case(&lp.name);
     let method_name = to_camel_case(&ctx.query.name);
     let (sql_const, escaped) = prepare_sql_const_from(ctx.query, rewritten_sql);
@@ -136,14 +249,14 @@ fn emit_kotlin_list_pg_native(src: &mut String, ctx: &QueryContext, lp: &Paramet
     writeln!(src, "        val arr = conn.createArrayOf(\"{type_name}\", {lp_name}.toTypedArray())")?;
     writeln!(src, "        conn.prepareStatement({sql_const}).use {{ ps ->")?;
     emit_jdbc_binds(src, ctx.query, "arr", SE, "toTypedArray()")?;
-    emit_kotlin_result_block(src, ctx.query, ctx.schema)?;
+    emit_kotlin_result_block(src, ctx.query, ctx.schema, config)?;
     writeln!(src, "        }}")?;
     writeln!(src, "    }}")?;
     Ok(())
 }
 
 /// Emit a dynamic list query that builds `IN (?,?,…,?)` at runtime.
-fn emit_kotlin_list_dynamic(src: &mut String, ctx: &QueryContext, lp: &Parameter) -> anyhow::Result<()> {
+fn emit_kotlin_list_dynamic(src: &mut String, ctx: &QueryContext, lp: &Parameter, config: &OutputConfig) -> anyhow::Result<()> {
     let lp_name = to_camel_case(&lp.name);
     let method_name = to_camel_case(&ctx.query.name);
     let (before_esc, after_esc) = prepare_dynamic_sql_parts(ctx.query, lp);
@@ -155,7 +268,7 @@ fn emit_kotlin_list_dynamic(src: &mut String, ctx: &QueryContext, lp: &Parameter
         writeln!(src, "            {lp_name}.forEachIndexed {{ i, v -> ps.{setter}({base} + i + 1, v) }}")?;
         Ok(())
     })?;
-    emit_kotlin_result_block(src, ctx.query, ctx.schema)?;
+    emit_kotlin_result_block(src, ctx.query, ctx.schema, config)?;
     writeln!(src, "        }}")?;
     writeln!(src, "    }}")?;
     Ok(())
@@ -166,7 +279,7 @@ fn emit_kotlin_list_dynamic(src: &mut String, ctx: &QueryContext, lp: &Parameter
 /// Both engines use the same structure: build a JSON string from the list,
 /// then bind it as a regular string parameter. The caller provides the
 /// already-rewritten SQL (with `json_each` or `JSON_TABLE`).
-fn emit_kotlin_list_json_native(src: &mut String, ctx: &QueryContext, lp: &Parameter, rewritten_sql: &str) -> anyhow::Result<()> {
+fn emit_kotlin_list_json_native(src: &mut String, ctx: &QueryContext, lp: &Parameter, rewritten_sql: &str, config: &OutputConfig) -> anyhow::Result<()> {
     let method_name = to_camel_case(&ctx.query.name);
     let (sql_const, escaped) = prepare_sql_const_from(ctx.query, rewritten_sql);
     writeln!(src, "    private const val {sql_const} = \"{escaped};\"")?;
@@ -174,7 +287,7 @@ fn emit_kotlin_list_json_native(src: &mut String, ctx: &QueryContext, lp: &Param
     emit_kotlin_json_builder(src, lp)?;
     writeln!(src, "        conn.prepareStatement({sql_const}).use {{ ps ->")?;
     emit_jdbc_binds(src, ctx.query, "json", SE, "toTypedArray()")?;
-    emit_kotlin_result_block(src, ctx.query, ctx.schema)?;
+    emit_kotlin_result_block(src, ctx.query, ctx.schema, config)?;
     writeln!(src, "        }}")?;
     writeln!(src, "    }}")?;
     Ok(())
@@ -198,21 +311,21 @@ fn emit_kotlin_json_builder(src: &mut String, lp: &Parameter) -> anyhow::Result<
 }
 
 /// Emit the result block inside `ps.use { ps -> ... }`.
-fn emit_kotlin_result_block(src: &mut String, query: &Query, schema: &Schema) -> anyhow::Result<()> {
+fn emit_kotlin_result_block(src: &mut String, query: &Query, schema: &Schema, config: &OutputConfig) -> anyhow::Result<()> {
     match query.cmd {
         QueryCmd::Exec => writeln!(src, "            ps.executeUpdate()")?,
         QueryCmd::ExecRows => writeln!(src, "            return ps.executeUpdate().toLong()")?,
         QueryCmd::One => {
             writeln!(src, "            ps.executeQuery().use {{ rs ->")?;
             writeln!(src, "                if (!rs.next()) return null")?;
-            writeln!(src, "                return {}", emit_row_constructor(query, schema))?;
+            writeln!(src, "                return {}", emit_row_constructor(query, schema, config))?;
             writeln!(src, "            }}")?;
         },
         QueryCmd::Many => {
             let row_type = result_row_type(query, schema);
             writeln!(src, "            val rows = mutableListOf<{row_type}>()")?;
             writeln!(src, "            ps.executeQuery().use {{ rs ->")?;
-            writeln!(src, "                while (rs.next()) rows.add({})", emit_row_constructor(query, schema))?;
+            writeln!(src, "                while (rs.next()) rows.add({})", emit_row_constructor(query, schema, config))?;
             writeln!(src, "            }}")?;
             writeln!(src, "            return rows")?;
         },
@@ -275,18 +388,20 @@ fn row_class_name(query_name: &str) -> String {
     format!("{}Row", to_pascal_case(query_name))
 }
 
-fn emit_row_class(src: &mut String, query: &Query) -> anyhow::Result<()> {
+fn emit_row_class(src: &mut String, query: &Query, config: &OutputConfig) -> anyhow::Result<()> {
     let name = row_class_name(&query.name);
     writeln!(src, "    data class {name}(")?;
     let fields: Vec<String> =
-        query.result_columns.iter().map(|col| format!("        val {}: {}", to_camel_case(&col.name), kotlin_type(&col.sql_type, col.nullable))).collect();
+        query.result_columns.iter().map(|col| format!("        val {}: {}", to_camel_case(&col.name), kotlin_field_type(&col.sql_type, col.nullable, config))).collect();
     writeln!(src, "{}", fields.join(",\n"))?;
     writeln!(src, "    )")?;
     Ok(())
 }
 
-fn emit_row_constructor(query: &Query, schema: &Schema) -> String {
-    jdbc::build_row_constructor(query, schema, FALLBACK_TYPE, "", resultset_read_expr)
+fn emit_row_constructor(query: &Query, schema: &Schema, config: &OutputConfig) -> String {
+    jdbc::build_row_constructor(query, schema, FALLBACK_TYPE, "", |sql_type, nullable, idx| {
+        resolve_kotlin_read_expr(sql_type, nullable, idx, config)
+    })
 }
 
 // ─── Type helpers ─────────────────────────────────────────────────────────────

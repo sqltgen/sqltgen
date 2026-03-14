@@ -5,7 +5,7 @@ fn pg_ts() -> TypeScriptCodegen {
 }
 
 fn ts_cfg() -> crate::config::OutputConfig {
-    crate::config::OutputConfig { out: "out".to_string(), package: String::new(), list_params: None }
+    crate::config::OutputConfig { out: "out".to_string(), package: String::new(), list_params: None, ..Default::default() }
 }
 
 // ─── generate: query grouping ────────────────────────────────────────────

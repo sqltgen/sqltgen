@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
 
+use crate::ir::SqlType;
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct SqltgenConfig {
     pub version: String,
@@ -42,6 +44,137 @@ pub enum QueryPaths {
     Many(Vec<String>),
     /// Explicit map of group name to one or more glob patterns.
     Grouped(HashMap<String, GroupPaths>),
+}
+
+/// How a single SQL type maps to a host-language type, supporting split field/param forms.
+///
+/// Use `Same` when the same type is appropriate for both result columns and query parameters.
+/// Use `Split` when the field type (used in generated structs) differs from the param type
+/// (used in query function signatures).
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum TypeOverride {
+    /// Use the same TypeRef for both result columns (field) and query parameters (param).
+    Same(TypeRef),
+    /// Use different TypeRefs for result columns (field) and query parameters (param).
+    Split {
+        field: TypeRef,
+        #[serde(default)]
+        param: Option<TypeRef>,
+    },
+}
+
+/// A reference to a target-language type — a preset name, FQN, plain name, or full explicit
+/// specification with optional import and read/write conversion expressions.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum TypeRef {
+    /// A string: preset name (e.g. `"jackson"`), FQN (contains `.`), or plain type name.
+    String(String),
+    /// Full explicit specification.
+    Explicit {
+        #[serde(rename = "type")]
+        name: String,
+        import: Option<String>,
+        /// Wraps the raw driver read expression. `{raw}` is replaced with the driver
+        /// read call (e.g. `rs.getString(1)`). Only applied by backends that emit
+        /// per-column read code (Java, Kotlin).
+        read_expr: Option<String>,
+        /// Wraps the application value before param binding. `{value}` is replaced
+        /// with the parameter name. Only applied by backends that emit explicit binds.
+        write_expr: Option<String>,
+    },
+}
+
+/// Which side of a field/param split to resolve.
+#[derive(Debug, Clone, Copy)]
+pub enum TypeVariant {
+    /// Resolve for a result column (struct field or record component).
+    Field,
+    /// Resolve for a query parameter (function argument).
+    Param,
+}
+
+/// A fully resolved type reference, ready to emit into generated code.
+#[derive(Debug, Clone)]
+pub struct ResolvedType {
+    /// The type name to emit (e.g. `"JsonNode"`, `"LocalDate"`, `"serde_json::Value"`).
+    pub name: String,
+    /// Import path to add (language-specific, without the `import`/`use` keyword).
+    pub import: Option<String>,
+    /// Wraps the raw driver read expression; `{raw}` placeholder is substituted at use.
+    pub read_expr: Option<String>,
+    /// Wraps the application value for param binding; `{value}` placeholder is substituted.
+    pub write_expr: Option<String>,
+    /// Additional static fields to emit in the generated query class (Java/Kotlin only).
+    pub extra_fields: Vec<ExtraField>,
+}
+
+/// A static field declaration to emit in the generated query class (e.g. an `ObjectMapper`
+/// for Jackson). Used to avoid re-creating expensive objects per call.
+#[derive(Debug, Clone)]
+pub struct ExtraField {
+    /// The full field declaration line.
+    pub declaration: String,
+    /// Import needed for this field (if any).
+    pub import: Option<String>,
+}
+
+/// Maps a [`SqlType`] variant to its lowercase string key used in `type_overrides` config.
+pub fn sql_type_key(sql_type: &SqlType) -> &'static str {
+    match sql_type {
+        SqlType::Boolean => "boolean",
+        SqlType::SmallInt => "smallint",
+        SqlType::Integer => "integer",
+        SqlType::BigInt => "bigint",
+        SqlType::Real => "real",
+        SqlType::Double => "double",
+        SqlType::Decimal => "decimal",
+        SqlType::Text => "text",
+        SqlType::Char(_) => "char",
+        SqlType::VarChar(_) => "varchar",
+        SqlType::Bytes => "bytes",
+        SqlType::Date => "date",
+        SqlType::Time => "time",
+        SqlType::Timestamp => "timestamp",
+        SqlType::TimestampTz => "timestamptz",
+        SqlType::Interval => "interval",
+        SqlType::Uuid => "uuid",
+        SqlType::Json => "json",
+        SqlType::Jsonb => "jsonb",
+        SqlType::Array(_) => "array",
+        SqlType::Custom(_) => "custom",
+    }
+}
+
+/// Resolve a [`TypeRef`] to a [`ResolvedType`].
+///
+/// Returns `None` for known preset names (e.g. `"jackson"`, `"serde_json"`) that must be
+/// handled by the backend's own `try_preset` function. For FQNs (containing `.`), the last
+/// segment becomes the type name and the full string the import. For plain names (no `.`),
+/// the name is used as-is with no import.
+pub fn resolve_type_ref(type_ref: &TypeRef) -> Option<ResolvedType> {
+    const KNOWN_PRESETS: &[&str] = &["jackson", "gson", "serde_json", "object"];
+    match type_ref {
+        TypeRef::Explicit { name, import, read_expr, write_expr } => Some(ResolvedType {
+            name: name.clone(),
+            import: import.clone(),
+            read_expr: read_expr.clone(),
+            write_expr: write_expr.clone(),
+            extra_fields: vec![],
+        }),
+        TypeRef::String(s) => {
+            if KNOWN_PRESETS.contains(&s.as_str()) {
+                return None;
+            }
+            if s.contains('.') {
+                let name = s.split('.').next_back().unwrap_or(s.as_str()).to_string();
+                Some(ResolvedType { name, import: Some(s.clone()), read_expr: None, write_expr: None, extra_fields: vec![] })
+            } else {
+                Some(ResolvedType { name: s.clone(), import: None, read_expr: None, write_expr: None, extra_fields: vec![] })
+            }
+        },
+    }
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq)]
@@ -84,7 +217,7 @@ pub enum ListParamStrategy {
     Dynamic,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct OutputConfig {
     /// Output root directory, e.g. "src/main/java".
     pub out: String,
@@ -94,6 +227,29 @@ pub struct OutputConfig {
     /// Defaults to `native` when omitted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub list_params: Option<ListParamStrategy>,
+    /// Per-type overrides mapping SQL type keys (e.g. `"json"`, `"uuid"`) to target-language
+    /// type specifications. When present, overrides the backend's default type mapping.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub type_overrides: HashMap<String, TypeOverride>,
+}
+
+impl OutputConfig {
+    /// Returns the configured [`TypeRef`] for the given SQL type and use-site variant,
+    /// or `None` if no override is configured.
+    ///
+    /// Does not resolve preset names — call [`resolve_type_ref`] and your backend's own
+    /// `try_preset` on the returned ref to get a [`ResolvedType`].
+    pub fn get_type_ref(&self, sql_type: &SqlType, variant: TypeVariant) -> Option<&TypeRef> {
+        let key = sql_type_key(sql_type);
+        let override_ = self.type_overrides.get(key)?;
+        match override_ {
+            TypeOverride::Same(type_ref) => Some(type_ref),
+            TypeOverride::Split { field, param } => match variant {
+                TypeVariant::Field => Some(field),
+                TypeVariant::Param => Some(param.as_ref().unwrap_or(field)),
+            },
+        }
+    }
 }
 
 impl SqltgenConfig {
@@ -248,6 +404,7 @@ mod tests {
             gen: HashMap::new(),
         };
 
+
         let paths: Vec<PathBuf> = cfg.expand_queries(&root).unwrap().into_iter().map(|(p, _)| p).collect();
         let expected = vec![root.join("queries/a.sql"), root.join("queries/b.sql"), root.join("more.sql")];
         assert_eq!(paths, expected);
@@ -390,5 +547,166 @@ mod tests {
             }
         }"#;
         assert!(SqltgenConfig::from_json(json).is_err());
+    }
+
+    // ─── TypeRef / TypeOverride deserialization ──────────────────────────────
+
+    #[test]
+    fn test_type_ref_string_deserializes() {
+        let v: TypeRef = serde_json::from_str(r#""jackson""#).unwrap();
+        assert!(matches!(v, TypeRef::String(s) if s == "jackson"));
+    }
+
+    #[test]
+    fn test_type_ref_fqn_deserializes() {
+        let v: TypeRef = serde_json::from_str(r#""java.time.LocalDate""#).unwrap();
+        assert!(matches!(v, TypeRef::String(s) if s == "java.time.LocalDate"));
+    }
+
+    #[test]
+    fn test_type_ref_explicit_deserializes() {
+        let v: TypeRef = serde_json::from_str(r#"{"type":"JsonNode","import":"com.fasterxml.jackson.databind.JsonNode","read_expr":"objectMapper.readValue({raw}, JsonNode.class)","write_expr":"objectMapper.writeValueAsString({value})"}"#).unwrap();
+        match v {
+            TypeRef::Explicit { name, import, read_expr, write_expr } => {
+                assert_eq!(name, "JsonNode");
+                assert_eq!(import.unwrap(), "com.fasterxml.jackson.databind.JsonNode");
+                assert!(read_expr.unwrap().contains("{raw}"));
+                assert!(write_expr.unwrap().contains("{value}"));
+            },
+            _ => panic!("expected Explicit"),
+        }
+    }
+
+    #[test]
+    fn test_type_override_same_deserializes() {
+        let v: TypeOverride = serde_json::from_str(r#""jackson""#).unwrap();
+        assert!(matches!(v, TypeOverride::Same(TypeRef::String(s)) if s == "jackson"));
+    }
+
+    #[test]
+    fn test_type_override_split_deserializes() {
+        let v: TypeOverride = serde_json::from_str(r#"{"field":"java.time.LocalDate","param":"String"}"#).unwrap();
+        match v {
+            TypeOverride::Split { field: TypeRef::String(f), param: Some(TypeRef::String(p)) } => {
+                assert_eq!(f, "java.time.LocalDate");
+                assert_eq!(p, "String");
+            },
+            _ => panic!("expected Split"),
+        }
+    }
+
+    #[test]
+    fn test_type_override_split_no_param_deserializes() {
+        let v: TypeOverride = serde_json::from_str(r#"{"field":"LocalDate"}"#).unwrap();
+        assert!(matches!(v, TypeOverride::Split { field: TypeRef::String(_), param: None }));
+    }
+
+    // ─── resolve_type_ref ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_resolve_type_ref_fqn_splits_on_dot() {
+        let tr = TypeRef::String("java.time.LocalDate".to_string());
+        let r = resolve_type_ref(&tr).unwrap();
+        assert_eq!(r.name, "LocalDate");
+        assert_eq!(r.import.unwrap(), "java.time.LocalDate");
+    }
+
+    #[test]
+    fn test_resolve_type_ref_plain_no_import() {
+        let tr = TypeRef::String("String".to_string());
+        let r = resolve_type_ref(&tr).unwrap();
+        assert_eq!(r.name, "String");
+        assert!(r.import.is_none());
+    }
+
+    #[test]
+    fn test_resolve_type_ref_preset_returns_none() {
+        for preset in &["jackson", "gson", "serde_json", "object"] {
+            let tr = TypeRef::String(preset.to_string());
+            assert!(resolve_type_ref(&tr).is_none(), "preset {preset} should return None");
+        }
+    }
+
+    #[test]
+    fn test_resolve_type_ref_explicit() {
+        let tr = TypeRef::Explicit {
+            name: "MyType".to_string(),
+            import: Some("com.example.MyType".to_string()),
+            read_expr: Some("parse({raw})".to_string()),
+            write_expr: Some("serialize({value})".to_string()),
+        };
+        let r = resolve_type_ref(&tr).unwrap();
+        assert_eq!(r.name, "MyType");
+        assert_eq!(r.import.unwrap(), "com.example.MyType");
+        assert_eq!(r.read_expr.unwrap(), "parse({raw})");
+        assert_eq!(r.write_expr.unwrap(), "serialize({value})");
+    }
+
+    // ─── get_type_ref ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_get_type_ref_same_returns_same_for_both_variants() {
+        let mut cfg = OutputConfig::default();
+        cfg.type_overrides.insert("json".to_string(), TypeOverride::Same(TypeRef::String("jackson".to_string())));
+        let field_ref = cfg.get_type_ref(&SqlType::Json, TypeVariant::Field).unwrap();
+        let param_ref = cfg.get_type_ref(&SqlType::Json, TypeVariant::Param).unwrap();
+        assert!(matches!(field_ref, TypeRef::String(s) if s == "jackson"));
+        assert!(matches!(param_ref, TypeRef::String(s) if s == "jackson"));
+    }
+
+    #[test]
+    fn test_get_type_ref_split_returns_correct_side() {
+        let mut cfg = OutputConfig::default();
+        cfg.type_overrides.insert(
+            "date".to_string(),
+            TypeOverride::Split {
+                field: TypeRef::String("java.time.LocalDate".to_string()),
+                param: Some(TypeRef::String("String".to_string())),
+            },
+        );
+        let field_ref = cfg.get_type_ref(&SqlType::Date, TypeVariant::Field).unwrap();
+        let param_ref = cfg.get_type_ref(&SqlType::Date, TypeVariant::Param).unwrap();
+        assert!(matches!(field_ref, TypeRef::String(s) if s == "java.time.LocalDate"));
+        assert!(matches!(param_ref, TypeRef::String(s) if s == "String"));
+    }
+
+    #[test]
+    fn test_get_type_ref_split_no_param_falls_back_to_field() {
+        let mut cfg = OutputConfig::default();
+        cfg.type_overrides.insert(
+            "uuid".to_string(),
+            TypeOverride::Split { field: TypeRef::String("java.util.UUID".to_string()), param: None },
+        );
+        let field_ref = cfg.get_type_ref(&SqlType::Uuid, TypeVariant::Field).unwrap();
+        let param_ref = cfg.get_type_ref(&SqlType::Uuid, TypeVariant::Param).unwrap();
+        assert!(matches!(field_ref, TypeRef::String(s) if s == "java.util.UUID"));
+        assert!(matches!(param_ref, TypeRef::String(s) if s == "java.util.UUID"));
+    }
+
+    #[test]
+    fn test_get_type_ref_absent_returns_none() {
+        let cfg = OutputConfig::default();
+        assert!(cfg.get_type_ref(&SqlType::Json, TypeVariant::Field).is_none());
+    }
+
+    #[test]
+    fn test_output_config_type_overrides_deserializes_from_json() {
+        let json = r#"{
+            "version": "1",
+            "engine": "postgresql",
+            "schema": "schema.sql",
+            "queries": "queries.sql",
+            "gen": {
+                "java": {
+                    "out": "src/main/java",
+                    "package": "com.example.db",
+                    "type_overrides": { "json": "jackson", "date": { "field": "java.time.LocalDate" } }
+                }
+            }
+        }"#;
+        let cfg = SqltgenConfig::from_json(json).unwrap();
+        let java = cfg.gen.get(&Language::Java).unwrap();
+        assert!(java.type_overrides.contains_key("json"));
+        assert!(java.type_overrides.contains_key("date"));
     }
 }

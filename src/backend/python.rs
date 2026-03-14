@@ -8,8 +8,32 @@ use crate::backend::sql_rewrite::{
     positional_bind_names, rewrite_list_sql_native, rewrite_to_anon_params, rewrite_to_percent_s, split_at_in_clause, ListRewriteTarget,
 };
 use crate::backend::{Codegen, GeneratedFile};
-use crate::config::{Engine, ListParamStrategy, OutputConfig};
+use crate::config::{resolve_type_ref, Engine, ListParamStrategy, OutputConfig, ResolvedType, TypeVariant};
 use crate::ir::{Parameter, Query, QueryCmd, Schema, SqlType};
+
+/// Resolve any configured type override for the given SQL type and variant.
+///
+/// Python has no preset names in the first pass — only explicit and FQN string forms.
+fn get_type_override_python(sql_type: &SqlType, variant: TypeVariant, config: &OutputConfig) -> Option<ResolvedType> {
+    let type_ref = config.get_type_ref(sql_type, variant)?;
+    resolve_type_ref(type_ref)
+}
+
+/// Map a SQL column type to its Python type string, applying any configured field override.
+fn python_field_type(sql_type: &SqlType, nullable: bool, target: &PythonTarget, config: &OutputConfig) -> String {
+    if let Some(resolved) = get_type_override_python(sql_type, TypeVariant::Field, config) {
+        return if nullable { format!("{} | None", resolved.name) } else { resolved.name };
+    }
+    python_type(sql_type, nullable, target)
+}
+
+/// Map a SQL parameter type to its Python type string, applying any configured param override.
+fn python_param_type_resolved(sql_type: &SqlType, nullable: bool, target: &PythonTarget, config: &OutputConfig) -> String {
+    if let Some(resolved) = get_type_override_python(sql_type, TypeVariant::Param, config) {
+        return if nullable { format!("{} | None", resolved.name) } else { resolved.name };
+    }
+    python_type(sql_type, nullable, target)
+}
 
 pub enum PythonTarget {
     Postgres,
@@ -46,7 +70,7 @@ impl Codegen for PythonCodegen {
 
             let mut imports = TypeImports::default();
             for col in &table.columns {
-                imports.scan(&col.sql_type);
+                imports.scan_field(&col.sql_type, config);
             }
             imports.write(&mut src)?;
 
@@ -55,7 +79,7 @@ impl Codegen for PythonCodegen {
             writeln!(src, "@dataclasses.dataclass")?;
             writeln!(src, "class {class_name}:")?;
             for col in &table.columns {
-                let ty = python_type(&col.sql_type, col.nullable, &self.target);
+                let ty = python_field_type(&col.sql_type, col.nullable, &self.target, config);
                 writeln!(src, "    {}: {}", col.name, ty)?;
             }
 
@@ -104,10 +128,10 @@ fn build_queries_file(queries: &[Query], schema: &Schema, target: &PythonTarget,
     let mut imports = TypeImports::default();
     for query in queries {
         for p in &query.params {
-            imports.scan(&p.sql_type);
+            imports.scan_param(&p.sql_type, config);
         }
         for col in &query.result_columns {
-            imports.scan(&col.sql_type);
+            imports.scan_field(&col.sql_type, config);
         }
     }
 
@@ -167,48 +191,48 @@ fn build_queries_file(queries: &[Query], schema: &Schema, target: &PythonTarget,
         writeln!(src)?;
         writeln!(src)?;
         if has_inline_rows(query, schema) {
-            emit_row_dataclass(&mut src, query, target)?;
+            emit_row_dataclass(&mut src, query, target, config)?;
             writeln!(src)?;
             writeln!(src)?;
         }
-        emit_python_query(&mut src, query, schema, target, &strategy)?;
+        emit_python_query(&mut src, query, schema, target, config, &strategy)?;
     }
 
     Ok(src)
 }
 
-fn emit_row_dataclass(src: &mut String, query: &Query, target: &PythonTarget) -> anyhow::Result<()> {
+fn emit_row_dataclass(src: &mut String, query: &Query, target: &PythonTarget, config: &OutputConfig) -> anyhow::Result<()> {
     let name = format!("{}Row", to_pascal_case(&query.name));
     writeln!(src, "@dataclasses.dataclass")?;
     writeln!(src, "class {name}:")?;
     for col in &query.result_columns {
-        let ty = python_type(&col.sql_type, col.nullable, target);
+        let ty = python_field_type(&col.sql_type, col.nullable, target, config);
         writeln!(src, "    {}: {}", col.name, ty)?;
     }
     Ok(())
 }
 
-fn emit_python_query(src: &mut String, query: &Query, schema: &Schema, target: &PythonTarget, strategy: &ListParamStrategy) -> anyhow::Result<()> {
+fn emit_python_query(src: &mut String, query: &Query, schema: &Schema, target: &PythonTarget, config: &OutputConfig, strategy: &ListParamStrategy) -> anyhow::Result<()> {
     if let Some(lp) = query.params.iter().find(|p| p.is_list) {
-        return emit_python_list_query(src, query, schema, target, strategy, lp);
+        return emit_python_list_query(src, query, schema, target, config, strategy, lp);
     }
     match target {
-        PythonTarget::Postgres => emit_cursor_query(src, query, schema, "psycopg.Connection", target),
-        PythonTarget::Mysql => emit_cursor_query(src, query, schema, "mysql.connector.MySQLConnection", target),
-        PythonTarget::Sqlite => emit_sqlite_query(src, query, schema, target),
+        PythonTarget::Postgres => emit_cursor_query(src, query, schema, "psycopg.Connection", target, config),
+        PythonTarget::Mysql => emit_cursor_query(src, query, schema, "mysql.connector.MySQLConnection", target, config),
+        PythonTarget::Sqlite => emit_sqlite_query(src, query, schema, target, config),
     }
 }
 
 /// Emits a query function using a cursor context manager (`with conn.cursor() as cur:`).
 /// Used by both the psycopg (Postgres) and mysql-connector-python (MySQL) targets,
 /// which share the same cursor API and `%s` placeholder style.
-fn emit_cursor_query(src: &mut String, query: &Query, schema: &Schema, conn_type: &str, target: &PythonTarget) -> anyhow::Result<()> {
+fn emit_cursor_query(src: &mut String, query: &Query, schema: &Schema, conn_type: &str, target: &PythonTarget, config: &OutputConfig) -> anyhow::Result<()> {
     let fn_name = to_snake_case(&query.name);
     let const_name = sql_const_name(&query.name);
     let return_type = cursor_return_type(query, schema);
 
     let params_sig: String = std::iter::once(format!("conn: {conn_type}"))
-        .chain(query.params.iter().map(|p| format!("{}: {}", to_snake_case(&p.name), python_type(&p.sql_type, p.nullable, target))))
+        .chain(query.params.iter().map(|p| format!("{}: {}", to_snake_case(&p.name), python_param_type_resolved(&p.sql_type, p.nullable, target, config))))
         .collect::<Vec<_>>()
         .join(", ");
 
@@ -239,13 +263,13 @@ fn emit_cursor_query(src: &mut String, query: &Query, schema: &Schema, conn_type
     Ok(())
 }
 
-fn emit_sqlite_query(src: &mut String, query: &Query, schema: &Schema, target: &PythonTarget) -> anyhow::Result<()> {
+fn emit_sqlite_query(src: &mut String, query: &Query, schema: &Schema, target: &PythonTarget, config: &OutputConfig) -> anyhow::Result<()> {
     let fn_name = to_snake_case(&query.name);
     let const_name = sql_const_name(&query.name);
     let return_type = cursor_return_type(query, schema);
 
     let params_sig: String = std::iter::once("conn: sqlite3.Connection".to_string())
-        .chain(query.params.iter().map(|p| format!("{}: {}", to_snake_case(&p.name), python_type(&p.sql_type, p.nullable, target))))
+        .chain(query.params.iter().map(|p| format!("{}: {}", to_snake_case(&p.name), python_param_type_resolved(&p.sql_type, p.nullable, target, config))))
         .collect::<Vec<_>>()
         .join(", ");
 
@@ -282,6 +306,7 @@ fn emit_python_list_query(
     query: &Query,
     schema: &Schema,
     target: &PythonTarget,
+    config: &OutputConfig,
     strategy: &ListParamStrategy,
     lp: &Parameter,
 ) -> anyhow::Result<()> {
@@ -298,7 +323,11 @@ fn emit_python_list_query(
 
     let params_sig: String = std::iter::once(format!("conn: {conn_type}"))
         .chain(query.params.iter().map(|p| {
-            let ty = if p.is_list { format!("list[{}]", python_type(&p.sql_type, false, target)) } else { python_type(&p.sql_type, p.nullable, target) };
+            let ty = if p.is_list {
+                format!("list[{}]", python_param_type_resolved(&p.sql_type, false, target, config))
+            } else {
+                python_param_type_resolved(&p.sql_type, p.nullable, target, config)
+            };
             format!("{}: {ty}", to_snake_case(&p.name))
         }))
         .collect::<Vec<_>>()
@@ -484,6 +513,8 @@ struct TypeImports {
     datetime: bool,
     uuid: bool,
     any_type: bool,
+    /// Override imports written verbatim (e.g. `"from arrow import Arrow"`).
+    extra: BTreeSet<String>,
 }
 
 impl TypeImports {
@@ -500,6 +531,28 @@ impl TypeImports {
         }
     }
 
+    /// Scan a result-column type, using the field override when configured.
+    fn scan_field(&mut self, sql_type: &SqlType, config: &OutputConfig) {
+        if let Some(resolved) = get_type_override_python(sql_type, TypeVariant::Field, config) {
+            if let Some(import) = resolved.import {
+                self.extra.insert(import);
+            }
+        } else {
+            self.scan(sql_type);
+        }
+    }
+
+    /// Scan a parameter type, using the param override when configured.
+    fn scan_param(&mut self, sql_type: &SqlType, config: &OutputConfig) {
+        if let Some(resolved) = get_type_override_python(sql_type, TypeVariant::Param, config) {
+            if let Some(import) = resolved.import {
+                self.extra.insert(import);
+            }
+        } else {
+            self.scan(sql_type);
+        }
+    }
+
     fn write(&self, src: &mut String) -> anyhow::Result<()> {
         if self.decimal {
             writeln!(src, "import decimal")?;
@@ -512,6 +565,9 @@ impl TypeImports {
         }
         if self.any_type {
             writeln!(src, "from typing import Any")?;
+        }
+        for import in &self.extra {
+            writeln!(src, "{import}")?;
         }
         Ok(())
     }

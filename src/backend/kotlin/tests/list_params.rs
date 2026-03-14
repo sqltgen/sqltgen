@@ -28,7 +28,7 @@ fn test_generate_pg_dynamic_list_param() {
         vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
         vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
     );
-    let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic) };
+    let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic), ..Default::default() };
     let files = pg().generate(&schema, &[query], &cfg).unwrap();
     let src = get_file(&files, "Queries.kt");
     assert!(src.contains("ids: List<Long>"), "should use List<Long> for list param");
@@ -160,7 +160,7 @@ fn test_bug_b_dynamic_scalar_after_in_binding_order() {
         vec![Parameter::list(1, "ids", SqlType::BigInt, false), Parameter::scalar(2, "active", SqlType::Boolean, false)],
         vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
     );
-    let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic) };
+    let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic), ..Default::default() };
     let files = KotlinCodegen { target: JdbcTarget::Postgres }.generate(&schema, &[query], &cfg).unwrap();
     let src = get_file(&files, "Queries.kt");
     // Bug: active is incorrectly bound at slot 1 before the list elements.
@@ -184,7 +184,7 @@ fn test_bug_b_dynamic_scalar_before_in_no_regression() {
         vec![Parameter::scalar(1, "active", SqlType::Boolean, false), Parameter::list(2, "ids", SqlType::BigInt, false)],
         vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
     );
-    let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic) };
+    let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic), ..Default::default() };
     let files = KotlinCodegen { target: JdbcTarget::Postgres }.generate(&schema, &[query], &cfg).unwrap();
     let src = get_file(&files, "Queries.kt");
     // active is before IN in the SQL — must still bind at slot 1.

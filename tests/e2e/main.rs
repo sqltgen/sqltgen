@@ -52,7 +52,7 @@ fn load_fixtures(dialect: &str, parser: &dyn DialectParser) -> (Schema, Vec<Quer
 
 /// Default output config for snapshot tests.
 fn output_config() -> OutputConfig {
-    OutputConfig { out: "out".to_string(), package: "db".to_string(), list_params: None }
+    OutputConfig { out: "out".to_string(), package: "db".to_string(), list_params: None, ..Default::default() }
 }
 
 /// Run a codegen backend and return the generated files sorted by path.
