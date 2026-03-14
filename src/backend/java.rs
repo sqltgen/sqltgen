@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use crate::backend::common::{emit_package, group_queries, has_inline_rows, needs_null_safe_getter, pg_array_type_name, queries_class_name};
 use crate::backend::jdbc::{
-    self, emit_dynamic_binds, emit_jdbc_binds, prepare_dynamic_sql_parts, prepare_sql_const, prepare_sql_const_from, JdbcTarget, ListAction,
+    self, emit_dynamic_binds, emit_jdbc_binds, prepare_dynamic_sql_parts, prepare_sql_const, prepare_sql_const_from, uses_get_object, JdbcTarget, ListAction,
 };
 use crate::backend::naming::{to_camel_case, to_pascal_case};
 use crate::backend::{Codegen, GeneratedFile};
@@ -85,18 +85,53 @@ fn apply_nullable_java(name: &str, nullable: bool, is_array: bool) -> String {
     }
 }
 
+/// Return the JDBC bind value expression for a parameter, applying any configured write_expr.
+///
+/// Normally this is just the camel-case param name. When a write_expr is configured,
+/// it wraps the param name (e.g. `objectMapper.writeValueAsString(payload)`).
+fn java_write_expr(p: &Parameter, config: &OutputConfig) -> String {
+    let name = to_camel_case(&p.name);
+    if let Some(resolved) = get_type_override_java(&p.sql_type, TypeVariant::Param, config) {
+        if let Some(expr) = &resolved.write_expr {
+            return expr.replace("{value}", &name);
+        }
+    }
+    name
+}
+
 /// Resolve a ResultSet read expression, applying any configured read_expr override.
+///
+/// - Override with `read_expr`: substitute `{raw}` with `rs.getString(idx)` — safe for
+///   any JDBC driver regardless of whether it knows the override type.
+/// - Override without `read_expr` on a `getObject` type: emit `rs.getObject(idx, T.class)`
+///   using the override class name instead of the hardcoded default.
+/// - No override: existing hardcoded expression.
 fn resolve_java_read_expr(sql_type: &SqlType, nullable: bool, idx: usize, config: &OutputConfig) -> String {
     if let Some(resolved) = get_type_override_java(sql_type, TypeVariant::Field, config) {
         if let Some(expr) = &resolved.read_expr {
-            let raw = resultset_read_expr(sql_type, nullable, idx);
-            return expr.replace("{raw}", &raw);
+            return expr.replace("{raw}", &format!("rs.getString({idx})"));
+        }
+        if uses_get_object(sql_type) {
+            return format!("rs.getObject({idx}, {}.class)", resolved.name);
         }
     }
     resultset_read_expr(sql_type, nullable, idx)
 }
 
 /// Collect override-specific imports and extra_fields across all queries in a group.
+/// Collect override imports needed by a table's columns for its record file.
+fn collect_table_java_imports(table: &crate::ir::Table, config: &OutputConfig) -> BTreeSet<String> {
+    let mut imports: BTreeSet<String> = BTreeSet::new();
+    for col in &table.columns {
+        if let Some(resolved) = get_type_override_java(&col.sql_type, TypeVariant::Field, config) {
+            if let Some(imp) = resolved.import {
+                imports.insert(imp);
+            }
+        }
+    }
+    imports
+}
+
 fn collect_java_override_metadata(queries: &[Query], config: &OutputConfig) -> (BTreeSet<String>, Vec<ExtraField>) {
     let mut imports: BTreeSet<String> = BTreeSet::new();
     let mut extra_fields: Vec<ExtraField> = Vec::new();
@@ -148,6 +183,13 @@ impl Codegen for JavaCodegen {
             let class_name = to_pascal_case(&table.name);
             let mut src = String::new();
             emit_package(&mut src, &config.package, ";");
+            let table_imports = collect_table_java_imports(table, config);
+            for imp in &table_imports {
+                writeln!(src, "import {imp};")?;
+            }
+            if !table_imports.is_empty() {
+                writeln!(src)?;
+            }
             writeln!(src, "public record {class_name}(")?;
             let params: Vec<String> = table
                 .columns
@@ -260,7 +302,7 @@ fn emit_java_scalar_query(src: &mut String, ctx: &QueryContext, config: &OutputC
     writeln!(src, "        \"{escaped};\";",)?;
     writeln!(src, "    public static {} {}({}) throws SQLException {{", ctx.return_type, to_camel_case(&ctx.query.name), ctx.params_sig)?;
     writeln!(src, "        try (PreparedStatement ps = conn.prepareStatement({sql_const})) {{")?;
-    emit_jdbc_binds(src, ctx.query, "", SE, "toArray()")?;
+    emit_jdbc_binds(src, ctx.query, "", SE, "toArray()", |p| java_write_expr(p, config))?;
     emit_java_result_block(src, ctx.query, ctx.schema, config)?;
     writeln!(src, "        }}")?;
     writeln!(src, "    }}")?;
@@ -278,7 +320,7 @@ fn emit_java_list_pg_native(src: &mut String, ctx: &QueryContext, lp: &Parameter
     let type_name = pg_array_type_name(&lp.sql_type);
     writeln!(src, "        java.sql.Array arr = conn.createArrayOf(\"{type_name}\", {lp_name}.toArray());")?;
     writeln!(src, "        try (PreparedStatement ps = conn.prepareStatement({sql_const})) {{")?;
-    emit_jdbc_binds(src, ctx.query, "arr", SE, "toArray()")?;
+    emit_jdbc_binds(src, ctx.query, "arr", SE, "toArray()", |p| java_write_expr(p, config))?;
     emit_java_result_block(src, ctx.query, ctx.schema, config)?;
     writeln!(src, "        }}")?;
     writeln!(src, "    }}")?;
@@ -319,7 +361,7 @@ fn emit_java_list_json_native(src: &mut String, ctx: &QueryContext, lp: &Paramet
     writeln!(src, "    public static {} {method_name}({}) throws SQLException {{", ctx.return_type, ctx.params_sig)?;
     emit_java_json_builder(src, lp)?;
     writeln!(src, "        try (PreparedStatement ps = conn.prepareStatement({sql_const})) {{")?;
-    emit_jdbc_binds(src, ctx.query, "json", SE, "toArray()")?;
+    emit_jdbc_binds(src, ctx.query, "json", SE, "toArray()", |p| java_write_expr(p, config))?;
     emit_java_result_block(src, ctx.query, ctx.schema, config)?;
     writeln!(src, "        }}")?;
     writeln!(src, "    }}")?;

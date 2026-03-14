@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use crate::backend::common::{emit_package, group_queries, has_inline_rows, needs_null_safe_getter, pg_array_type_name, queries_class_name};
 use crate::backend::jdbc::{
-    self, emit_dynamic_binds, emit_jdbc_binds, prepare_dynamic_sql_parts, prepare_sql_const, prepare_sql_const_from, JdbcTarget, ListAction,
+    self, emit_dynamic_binds, emit_jdbc_binds, prepare_dynamic_sql_parts, prepare_sql_const, prepare_sql_const_from, uses_get_object, JdbcTarget, ListAction,
 };
 use crate::backend::naming::{to_camel_case, to_pascal_case};
 use crate::backend::{Codegen, GeneratedFile};
@@ -72,14 +72,50 @@ fn kotlin_param_type_resolved(p: &Parameter, config: &OutputConfig) -> String {
     kotlin_param_type(p)
 }
 
+/// Resolve a ResultSet read expression, applying any configured read_expr override.
+///
+/// - Override with `read_expr`: substitute `{raw}` with `rs.getString(idx)` — safe for
+///   any JDBC driver regardless of whether it knows the override type.
+/// - Override without `read_expr` on a `getObject` type: emit `rs.getObject(idx, T::class.java)`
+///   using the override class name instead of the hardcoded default.
+/// - No override: existing hardcoded expression.
 fn resolve_kotlin_read_expr(sql_type: &SqlType, nullable: bool, idx: usize, config: &OutputConfig) -> String {
     if let Some(resolved) = get_type_override_kotlin(sql_type, TypeVariant::Field, config) {
         if let Some(expr) = &resolved.read_expr {
-            let raw = resultset_read_expr(sql_type, nullable, idx);
-            return expr.replace("{raw}", &raw);
+            return expr.replace("{raw}", &format!("rs.getString({idx})"));
+        }
+        if uses_get_object(sql_type) {
+            return format!("rs.getObject({idx}, {}::class.java)", resolved.name);
         }
     }
     resultset_read_expr(sql_type, nullable, idx)
+}
+
+/// Return the JDBC bind value expression for a parameter, applying any configured write_expr.
+///
+/// Normally this is just the camel-case param name. When a write_expr is configured,
+/// it wraps the param name (e.g. `objectMapper.writeValueAsString(payload)`).
+fn kotlin_write_expr(p: &Parameter, config: &OutputConfig) -> String {
+    let name = to_camel_case(&p.name);
+    if let Some(resolved) = get_type_override_kotlin(&p.sql_type, TypeVariant::Param, config) {
+        if let Some(expr) = &resolved.write_expr {
+            return expr.replace("{value}", &name);
+        }
+    }
+    name
+}
+
+/// Collect override imports needed by a table's columns for its data class file.
+fn collect_table_kotlin_imports(table: &crate::ir::Table, config: &OutputConfig) -> BTreeSet<String> {
+    let mut imports: BTreeSet<String> = BTreeSet::new();
+    for col in &table.columns {
+        if let Some(resolved) = get_type_override_kotlin(&col.sql_type, TypeVariant::Field, config) {
+            if let Some(imp) = resolved.import {
+                imports.insert(imp);
+            }
+        }
+    }
+    imports
 }
 
 fn collect_kotlin_override_metadata(queries: &[Query], config: &OutputConfig) -> (BTreeSet<String>, Vec<ExtraField>) {
@@ -133,6 +169,13 @@ impl Codegen for KotlinCodegen {
             let class_name = to_pascal_case(&table.name);
             let mut src = String::new();
             emit_package(&mut src, &config.package, "");
+            let table_imports = collect_table_kotlin_imports(table, config);
+            for imp in &table_imports {
+                writeln!(src, "import {imp}")?;
+            }
+            if !table_imports.is_empty() {
+                writeln!(src)?;
+            }
             writeln!(src, "data class {class_name}(")?;
             let params: Vec<String> = table
                 .columns
@@ -231,7 +274,7 @@ fn emit_kotlin_scalar_query(src: &mut String, ctx: &QueryContext, config: &Outpu
     writeln!(src, "    private const val {sql_const} = \"{escaped};\"")?;
     writeln!(src, "    fun {}({}): {} {{", to_camel_case(&ctx.query.name), ctx.params_sig, ctx.return_type)?;
     writeln!(src, "        conn.prepareStatement({sql_const}).use {{ ps ->")?;
-    emit_jdbc_binds(src, ctx.query, "", SE, "toTypedArray()")?;
+    emit_jdbc_binds(src, ctx.query, "", SE, "toTypedArray()", |p| kotlin_write_expr(p, config))?;
     emit_kotlin_result_block(src, ctx.query, ctx.schema, config)?;
     writeln!(src, "        }}")?;
     writeln!(src, "    }}")?;
@@ -248,7 +291,7 @@ fn emit_kotlin_list_pg_native(src: &mut String, ctx: &QueryContext, lp: &Paramet
     let type_name = pg_array_type_name(&lp.sql_type);
     writeln!(src, "        val arr = conn.createArrayOf(\"{type_name}\", {lp_name}.toTypedArray())")?;
     writeln!(src, "        conn.prepareStatement({sql_const}).use {{ ps ->")?;
-    emit_jdbc_binds(src, ctx.query, "arr", SE, "toTypedArray()")?;
+    emit_jdbc_binds(src, ctx.query, "arr", SE, "toTypedArray()", |p| kotlin_write_expr(p, config))?;
     emit_kotlin_result_block(src, ctx.query, ctx.schema, config)?;
     writeln!(src, "        }}")?;
     writeln!(src, "    }}")?;
@@ -286,7 +329,7 @@ fn emit_kotlin_list_json_native(src: &mut String, ctx: &QueryContext, lp: &Param
     writeln!(src, "    fun {method_name}({}): {} {{", ctx.params_sig, ctx.return_type)?;
     emit_kotlin_json_builder(src, lp)?;
     writeln!(src, "        conn.prepareStatement({sql_const}).use {{ ps ->")?;
-    emit_jdbc_binds(src, ctx.query, "json", SE, "toTypedArray()")?;
+    emit_jdbc_binds(src, ctx.query, "json", SE, "toTypedArray()", |p| kotlin_write_expr(p, config))?;
     emit_kotlin_result_block(src, ctx.query, ctx.schema, config)?;
     writeln!(src, "        }}")?;
     writeln!(src, "    }}")?;

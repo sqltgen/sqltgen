@@ -65,7 +65,15 @@ pub fn ds_result_row_type(query: &Query, schema: &Schema, fallback: &str, class_
 /// string: `";"` for Java, `""` for Kotlin. `to_array_call` is the method to
 /// convert a `List` to a plain array for `createArrayOf`: `"toArray()"` for Java,
 /// `"toTypedArray()"` for Kotlin.
-pub fn emit_jdbc_binds(src: &mut String, query: &Query, list_bind_expr: &str, se: &str, to_array_call: &str) -> anyhow::Result<()> {
+/// Emit `ps.setXxx(...)` calls for all query parameters.
+///
+/// `scalar_value_expr` is called for every non-list, non-array parameter and returns
+/// the expression to bind — normally just the camel-case param name, but backends can
+/// substitute a `write_expr` here (e.g. `objectMapper.writeValueAsString(payload)`).
+pub fn emit_jdbc_binds<F>(src: &mut String, query: &Query, list_bind_expr: &str, se: &str, to_array_call: &str, scalar_value_expr: F) -> anyhow::Result<()>
+where
+    F: Fn(&Parameter) -> String,
+{
     let list_setter = if list_bind_expr == "arr" { "setArray" } else { "setString" };
     for (jdbc_idx, p) in jdbc_bind_sequence(query) {
         if p.is_list {
@@ -75,11 +83,11 @@ pub fn emit_jdbc_binds(src: &mut String, query: &Query, list_bind_expr: &str, se
             let type_name = pg_array_type_name(inner);
             writeln!(src, "            ps.setArray({jdbc_idx}, conn.createArrayOf(\"{type_name}\", {name}.{to_array_call})){se}")?;
         } else if matches!(p.sql_type, SqlType::Json | SqlType::Jsonb) {
-            writeln!(src, "            ps.setObject({jdbc_idx}, {}, java.sql.Types.OTHER){se}", to_camel_case(&p.name))?;
+            writeln!(src, "            ps.setObject({jdbc_idx}, {}, java.sql.Types.OTHER){se}", scalar_value_expr(p))?;
         } else if p.nullable {
-            writeln!(src, "            ps.setObject({jdbc_idx}, {}){se}", to_camel_case(&p.name))?;
+            writeln!(src, "            ps.setObject({jdbc_idx}, {}){se}", scalar_value_expr(p))?;
         } else {
-            writeln!(src, "            ps.{}({jdbc_idx}, {}){se}", jdbc_setter(&p.sql_type), to_camel_case(&p.name))?;
+            writeln!(src, "            ps.{}({jdbc_idx}, {}){se}", jdbc_setter(&p.sql_type), scalar_value_expr(p))?;
         }
     }
     Ok(())
@@ -223,6 +231,14 @@ pub fn prepare_dynamic_sql_parts(query: &Query, lp: &Parameter) -> (String, Stri
 /// `prefix` is `"new "` for Java, `""` for Kotlin. `read_expr` is a closure that
 /// maps `(sql_type, nullable, column_index)` to a driver read expression string,
 /// allowing callers to inject type-override logic via a captured config reference.
+/// Returns true for SQL types whose default JDBC read is `rs.getObject(idx, T.class)`.
+///
+/// When overriding one of these types, the generated `getObject` call must use the
+/// override class name rather than the hardcoded default.
+pub fn uses_get_object(sql_type: &SqlType) -> bool {
+    matches!(sql_type, SqlType::Date | SqlType::Time | SqlType::Timestamp | SqlType::TimestampTz | SqlType::Uuid)
+}
+
 pub fn build_row_constructor<F>(query: &Query, schema: &Schema, fallback: &str, prefix: &str, read_expr: F) -> String
 where
     F: Fn(&SqlType, bool, usize) -> String,
@@ -299,12 +315,12 @@ mod tests {
         let q = make_query("Test", "WHERE id = $1 AND name = $2", vec![p1, p2]);
 
         let mut src = String::new();
-        emit_jdbc_binds(&mut src, &q, "", ";", "toArray()").unwrap();
+        emit_jdbc_binds(&mut src, &q, "", ";", "toArray()", |p| to_camel_case(&p.name)).unwrap();
         assert!(src.contains("ps.setLong(1, userId);"));
         assert!(src.contains("ps.setObject(2, name);"));
 
         let mut src = String::new();
-        emit_jdbc_binds(&mut src, &q, "", "", "toTypedArray()").unwrap();
+        emit_jdbc_binds(&mut src, &q, "", "", "toTypedArray()", |p| to_camel_case(&p.name)).unwrap();
         assert!(src.contains("ps.setLong(1, userId)"));
         assert!(!src.contains("ps.setLong(1, userId);"));
     }
@@ -315,7 +331,7 @@ mod tests {
         let q = make_query("UpdateTags", "UPDATE t SET tags = $1", vec![p]);
 
         let mut src = String::new();
-        emit_jdbc_binds(&mut src, &q, "", ";", "toArray()").unwrap();
+        emit_jdbc_binds(&mut src, &q, "", ";", "toArray()", |p| to_camel_case(&p.name)).unwrap();
         assert!(src.contains("createArrayOf(\"text\", tags.toArray())"), "Java should use toArray(): {src}");
         assert!(src.contains("ps.setArray(1,"), "should use setArray, not setObject: {src}");
     }
@@ -328,7 +344,7 @@ mod tests {
         let q = make_query("UpdateTags", "UPDATE t SET tags = $1", vec![p]);
 
         let mut src = String::new();
-        emit_jdbc_binds(&mut src, &q, "", "", "toTypedArray()").unwrap();
+        emit_jdbc_binds(&mut src, &q, "", "", "toTypedArray()", |p| to_camel_case(&p.name)).unwrap();
         assert!(src.contains("createArrayOf(\"text\", tags.toTypedArray())"), "Kotlin should use toTypedArray(): {src}");
         assert!(!src.contains(".toArray()"), "Kotlin must not emit Java toArray(): {src}");
     }
@@ -339,7 +355,7 @@ mod tests {
         let q = make_query("UpdateMeta", "UPDATE t SET meta = $1", vec![p]);
 
         let mut src = String::new();
-        emit_jdbc_binds(&mut src, &q, "", ";", "toArray()").unwrap();
+        emit_jdbc_binds(&mut src, &q, "", ";", "toArray()", |p| to_camel_case(&p.name)).unwrap();
         assert!(src.contains("java.sql.Types.OTHER"), "JSONB should use Types.OTHER: {src}");
         assert!(src.contains("ps.setObject(1, metadata, java.sql.Types.OTHER)"), "full setObject call: {src}");
     }
@@ -350,7 +366,7 @@ mod tests {
         let q = make_query("SetData", "UPDATE t SET data = $1", vec![p]);
 
         let mut src = String::new();
-        emit_jdbc_binds(&mut src, &q, "", ";", "toArray()").unwrap();
+        emit_jdbc_binds(&mut src, &q, "", ";", "toArray()", |p| to_camel_case(&p.name)).unwrap();
         assert!(src.contains("java.sql.Types.OTHER"), "JSON should use Types.OTHER: {src}");
     }
 
