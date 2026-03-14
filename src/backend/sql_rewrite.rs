@@ -108,21 +108,42 @@ pub fn rewrite_list_sql_native(sql: &str, lp: &Parameter, target_kind: ListRewri
     })
 }
 
-/// Find `IN ($N)` or `IN (?N)` for a list param and replace it with `replacement`.
+/// Find `IN ($N)` / `IN (?N)` or `= ANY($N…)` / `= ANY(?N…)` for a list param and replace
+/// it with `replacement`.
+///
+/// The second pattern handles queries written as `= ANY(@ids::bigint[])`: after named-param
+/// preprocessing the SQL contains `= ANY($1::bigint[])`.  The cast suffix (if any) is
+/// consumed so the generated SQL is the clean `= ANY(?)` form rather than `= ANY(?::bigint[])`.
 ///
 /// Returns the rewritten SQL, or `None` if no matching pattern is found (the caller
 /// should then emit a warning and treat the parameter as scalar).
 pub fn replace_list_in_clause(sql: &str, param_index: usize, replacement: &str) -> Option<String> {
-    for pattern in &[format!("IN (${param_index})"), format!("IN (?{param_index})")] {
-        let lower_sql = sql.to_ascii_lowercase();
-        let lower_pat = pattern.to_ascii_lowercase();
-        if let Some(pos) = lower_sql.find(&lower_pat) {
+    let lower_sql = sql.to_ascii_lowercase();
+
+    // --- IN ($N) / IN (?N) ---
+    for pattern in &[format!("in (${param_index})"), format!("in (?{param_index})")] {
+        if let Some(pos) = lower_sql.find(pattern.as_str()) {
             let mut result = sql[..pos].to_string();
             result.push_str(replacement);
             result.push_str(&sql[pos + pattern.len()..]);
             return Some(result);
         }
     }
+
+    // --- = ANY($N…) / = ANY(?N…) with optional cast suffix ---
+    for prefix in &[format!("= any(${param_index}"), format!("= any(?{param_index}")] {
+        if let Some(pos) = lower_sql.find(prefix.as_str()) {
+            let after_prefix = pos + prefix.len();
+            if let Some(close_offset) = lower_sql[after_prefix..].find(')') {
+                let end = after_prefix + close_offset + 1; // include the closing ')'
+                let mut result = sql[..pos].to_string();
+                result.push_str(replacement);
+                result.push_str(&sql[end..]);
+                return Some(result);
+            }
+        }
+    }
+
     None
 }
 

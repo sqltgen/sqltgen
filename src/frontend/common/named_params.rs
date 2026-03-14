@@ -32,6 +32,13 @@ pub(crate) struct NamedParam {
 /// Annotation lines (`-- @name [type] [not null]`) are stripped from the returned
 /// SQL and used to populate [`NamedParam`] overrides. An annotation whose name does
 /// not appear in the SQL body emits a warning and is ignored.
+///
+/// Two additional forms of automatic list-param detection are supported without
+/// requiring an explicit annotation:
+/// - `@name::type[]` — the PostgreSQL inline cast signals both the type and list flag.
+/// - `IN (@name)` — a single named param inside an `IN (…)` clause marks it as a list.
+///
+/// Explicit `-- @name type[]` annotations always take precedence over both.
 pub(crate) fn preprocess_named_params(sql: &str) -> Option<(String, Vec<NamedParam>)> {
     let overrides = parse_param_annotations(sql);
     let stripped = strip_sql_comment_lines(sql);
@@ -50,17 +57,25 @@ pub(crate) fn preprocess_named_params(sql: &str) -> Option<(String, Vec<NamedPar
         }
     }
 
+    let inline_casts = detect_inline_type_casts(&stripped, &param_names);
     let name_to_index: HashMap<String, usize> = param_names.iter().enumerate().map(|(i, n)| (n.clone(), i + 1)).collect();
-
     let rewritten = rewrite_named_params_in_sql(&stripped, &name_to_index);
 
-    let ordered_params = param_names
+    let ordered_params: Vec<NamedParam> = param_names
         .into_iter()
         .map(|name| {
-            let (sql_type, nullable, is_list) = overrides.get(&name).cloned().unwrap_or((None, None, false));
+            let (sql_type, nullable, is_list) = overrides.get(&name).cloned().unwrap_or_else(|| {
+                if let Some((t, il)) = inline_casts.get(&name) {
+                    (t.clone(), None, *il)
+                } else {
+                    (None, None, false)
+                }
+            });
             NamedParam { name, sql_type, nullable, is_list }
         })
         .collect();
+
+    let ordered_params = mark_in_clause_list_params(ordered_params, &rewritten);
 
     Some((rewritten, ordered_params))
 }
@@ -85,6 +100,48 @@ pub(crate) fn apply_named_param_overrides(params: &mut [Parameter], named_params
             }
         }
     }
+}
+
+// ─── Inline cast and IN-clause auto-detection ─────────────────────────────────
+
+/// Scan the SQL body for `@name::type[]` patterns and return inferred `(SqlType, is_list)`.
+///
+/// This lets users write `= ANY(@ids::bigint[])` without a separate `-- @ids bigint[]`
+/// annotation line. Explicit annotations always take priority (applied later by
+/// [`preprocess_named_params`]).  Only names that appear in `param_names` are examined.
+fn detect_inline_type_casts(sql: &str, param_names: &[String]) -> HashMap<String, (Option<SqlType>, bool)> {
+    let mut map = HashMap::new();
+    let lower = sql.to_ascii_lowercase();
+    for name in param_names {
+        let pattern = format!("@{}::", name.to_ascii_lowercase());
+        if let Some(pos) = lower.find(&pattern) {
+            let type_start = pos + pattern.len();
+            let type_str: String = sql[type_start..].chars().take_while(|ch| !ch.is_whitespace() && *ch != ',' && *ch != ')' && *ch != ';').collect();
+            let (sql_type, _, is_list) = parse_type_and_nullability(type_str.trim());
+            if is_list || sql_type.is_some() {
+                map.insert(name.clone(), (sql_type, is_list));
+            }
+        }
+    }
+    map
+}
+
+/// For any param that appears alone in an `IN ($N)` clause and is not already
+/// flagged as a list, set `is_list = true`.
+///
+/// This handles `IN (@ids)` without a `-- @ids bigint[]` annotation: after
+/// `@ids` is rewritten to `$1` the rewritten SQL contains `IN ($1)`.
+fn mark_in_clause_list_params(mut params: Vec<NamedParam>, rewritten_sql: &str) -> Vec<NamedParam> {
+    let lower_sql = rewritten_sql.to_ascii_lowercase();
+    for (i, np) in params.iter_mut().enumerate() {
+        if !np.is_list {
+            let idx = i + 1;
+            if lower_sql.contains(&format!("in (${idx})")) || lower_sql.contains(&format!("in (?{idx})")) {
+                np.is_list = true;
+            }
+        }
+    }
+    params
 }
 
 // ─── Annotation parsing ───────────────────────────────────────────────────────

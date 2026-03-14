@@ -194,3 +194,50 @@ fn test_bug_b_dynamic_scalar_before_in_no_regression() {
     let loop_pos = src.find("forEachIndexed").expect("list binding loop not found");
     assert!(active_pos < loop_pos, "before-scalar binding must precede the list binding loop");
 }
+
+// ─── Bug C: = ANY(@ids::bigint[]) pattern falls back to unclean SQL ──────────
+
+#[test]
+fn test_bug_c_any_syntax_pg_native_should_rewrite_to_any_placeholder() {
+    // Bug C: when the user writes `= ANY(@ids::bigint[])`, the named-param
+    // preprocessor rewrites @ids → $1 but leaves ::bigint[] in the SQL, producing
+    // `= ANY($1::bigint[])`.  The PgNative backend then calls replace_list_in_clause
+    // which looks for `IN ($1)` — not found — and silently falls back to the original
+    // SQL.  The generated const therefore contains `= ANY(?::bigint[])` instead of
+    // the clean `= ANY(?)`.
+    //
+    // The fix must detect the `= ANY($N...)` pattern and canonicalise it to `= ANY(?)`.
+    let schema = Schema { tables: vec![] };
+    let query = Query::many(
+        "GetByIds",
+        "SELECT id FROM t WHERE id = ANY($1::bigint[])",
+        vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
+        vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+    );
+    let files = pg().generate(&schema, &[query], &cfg()).unwrap();
+    let src = get_file(&files, "Queries.kt");
+    // Must generate the clean `= ANY(?)` form, not leave the ::bigint[] cast in place.
+    assert!(src.contains("= ANY(?)"), "PgNative must produce = ANY(?), got: {src}");
+    assert!(!src.contains("::bigint[]"), "redundant cast must not appear in generated SQL: {src}");
+    // List-param boilerplate must still be emitted.
+    assert!(src.contains("createArrayOf"), "must create a JDBC array: {src}");
+    assert!(src.contains("setArray"), "must bind via setArray: {src}");
+}
+
+#[test]
+fn test_bug_c_in_clause_annotation_works_correctly() {
+    // Counterpart to test_bug_c_*: confirms that the standard `IN ($1)` pattern
+    // with a list annotation already generates the correct `= ANY(?)` form.
+    // This test must keep passing after the fix.
+    let schema = Schema { tables: vec![] };
+    let query = Query::many(
+        "GetByIds",
+        "SELECT id FROM t WHERE id IN ($1)",
+        vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
+        vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+    );
+    let files = pg().generate(&schema, &[query], &cfg()).unwrap();
+    let src = get_file(&files, "Queries.kt");
+    assert!(src.contains("= ANY(?)"), "IN clause pattern must generate = ANY(?): {src}");
+    assert!(!src.contains("IN ($1)"), "original IN ($1) must be replaced: {src}");
+}
