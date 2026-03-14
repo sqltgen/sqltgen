@@ -29,17 +29,16 @@ pub(super) fn collect_select_params(
     query_name: &str,
 ) {
     let all_tables = collect_from_tables(select, schema, ctes, config);
-    if all_tables.is_empty() {
-        return;
-    }
     let alias_map = build_alias_map(&all_tables);
     let ctx = &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping, query_name };
-    if let Some(expr) = &select.selection {
-        collect_params_from_expr(expr, ctx);
-    }
-    collect_join_params(select, ctx);
-    if let Some(expr) = &select.having {
-        collect_params_from_expr(expr, ctx);
+    if !all_tables.is_empty() {
+        if let Some(expr) = &select.selection {
+            collect_params_from_expr(expr, ctx);
+        }
+        collect_join_params(select, ctx);
+        if let Some(expr) = &select.having {
+            collect_params_from_expr(expr, ctx);
+        }
     }
     collect_projection_params(select, ctx);
 }

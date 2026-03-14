@@ -35,11 +35,11 @@ pub(super) fn build_select(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, schem
 /// Handle `Statement::Query` where the body is a plain `SELECT` (with optional CTEs).
 fn build_select_body(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, select: &Select, schema: &Schema, config: &ResolverConfig, ctes: &[Table]) -> Query {
     let all_tables = collect_from_tables(select, schema, ctes, config);
-    if all_tables.is_empty() {
-        return unresolved_query(ann, sql);
-    }
     let alias_map = build_alias_map(&all_tables);
     let result_columns = resolve_projection(select, &alias_map, &all_tables, config, schema);
+    if all_tables.is_empty() && result_columns.is_empty() {
+        return unresolved_query(ann, sql);
+    }
     let params = {
         let mut mapping = HashMap::new();
         collect_cte_params(q.with.as_ref(), schema, config, &mut mapping, &ann.name);

@@ -1,5 +1,22 @@
 use super::*;
 
+#[test]
+fn test_named_param_cast_infers_type_no_from() {
+    // SELECT @account_id::bigint AS account_id — no FROM clause, named param
+    // with a PG-style cast. The param must be BigInt and the result column
+    // must also be BigInt (not Text / Custom).
+    let sql = r#"
+    -- name: ReproParamFromCast :one
+    SELECT @account_id::bigint AS account_id;"#;
+    let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+    assert_eq!(q.params.len(), 1);
+    assert_eq!(q.params[0].name, "account_id");
+    assert_eq!(q.params[0].sql_type, SqlType::BigInt, "param must be typed from cast");
+    assert_eq!(q.result_columns.len(), 1);
+    assert_eq!(q.result_columns[0].name, "account_id");
+    assert_eq!(q.result_columns[0].sql_type, SqlType::BigInt, "result column must be typed from cast");
+}
+
 fn make_json_schema() -> Schema {
     Schema {
         tables: vec![Table {
