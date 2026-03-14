@@ -28,7 +28,8 @@ fn test_generate_pg_dynamic_list_param() {
         vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
         vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
     );
-    let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic), ..Default::default() };
+    let cfg =
+        OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic), ..Default::default() };
     let files = pg().generate(&schema, &[query], &cfg).unwrap();
     let src = get_file(&files, "queries.rs");
     assert!(src.contains("ids: &[i64]"), "signature should use &[i64]");

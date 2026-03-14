@@ -30,13 +30,7 @@ fn try_preset_rust(name: &str) -> Option<ResolvedType> {
     match name {
         // sqlx implements Decode/Encode for serde_json::Value natively —
         // no read_expr/write_expr needed; the type name alone is sufficient.
-        "serde_json" => Some(ResolvedType {
-            name: "serde_json::Value".to_string(),
-            import: None,
-            read_expr: None,
-            write_expr: None,
-            extra_fields: vec![],
-        }),
+        "serde_json" => Some(ResolvedType { name: "serde_json::Value".to_string(), import: None, read_expr: None, write_expr: None, extra_fields: vec![] }),
         _ => None,
     }
 }
@@ -168,7 +162,15 @@ fn emit_row_struct(src: &mut String, query: &Query, target: &RustTarget, config:
     Ok(())
 }
 
-fn emit_rust_query(src: &mut String, query: &Query, schema: &Schema, pool_type: &str, target: &RustTarget, strategy: &ListParamStrategy, config: &OutputConfig) -> anyhow::Result<()> {
+fn emit_rust_query(
+    src: &mut String,
+    query: &Query,
+    schema: &Schema,
+    pool_type: &str,
+    target: &RustTarget,
+    strategy: &ListParamStrategy,
+    config: &OutputConfig,
+) -> anyhow::Result<()> {
     let fn_name = to_snake_case(&query.name);
     let row_type = result_row_type(query, schema);
 

@@ -103,10 +103,7 @@ fn test_split_date_field_string_param() {
     );
     let cfg = cfg_with_overrides(vec![(
         "date",
-        TypeOverride::Split {
-            field: TypeRef::String("java.time.LocalDate".to_string()),
-            param: Some(TypeRef::String("String".to_string())),
-        },
+        TypeOverride::Split { field: TypeRef::String("java.time.LocalDate".to_string()), param: Some(TypeRef::String("String".to_string())) },
     )]);
     let files = pg().generate(&schema, &[query], &cfg).unwrap();
     let src = get_file(&files, "Queries.java");

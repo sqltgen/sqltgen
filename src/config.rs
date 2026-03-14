@@ -404,7 +404,6 @@ mod tests {
             gen: HashMap::new(),
         };
 
-
         let paths: Vec<PathBuf> = cfg.expand_queries(&root).unwrap().into_iter().map(|(p, _)| p).collect();
         let expected = vec![root.join("queries/a.sql"), root.join("queries/b.sql"), root.join("more.sql")];
         assert_eq!(paths, expected);
@@ -659,10 +658,7 @@ mod tests {
         let mut cfg = OutputConfig::default();
         cfg.type_overrides.insert(
             "date".to_string(),
-            TypeOverride::Split {
-                field: TypeRef::String("java.time.LocalDate".to_string()),
-                param: Some(TypeRef::String("String".to_string())),
-            },
+            TypeOverride::Split { field: TypeRef::String("java.time.LocalDate".to_string()), param: Some(TypeRef::String("String".to_string())) },
         );
         let field_ref = cfg.get_type_ref(&SqlType::Date, TypeVariant::Field).unwrap();
         let param_ref = cfg.get_type_ref(&SqlType::Date, TypeVariant::Param).unwrap();
@@ -673,10 +669,7 @@ mod tests {
     #[test]
     fn test_get_type_ref_split_no_param_falls_back_to_field() {
         let mut cfg = OutputConfig::default();
-        cfg.type_overrides.insert(
-            "uuid".to_string(),
-            TypeOverride::Split { field: TypeRef::String("java.util.UUID".to_string()), param: None },
-        );
+        cfg.type_overrides.insert("uuid".to_string(), TypeOverride::Split { field: TypeRef::String("java.util.UUID".to_string()), param: None });
         let field_ref = cfg.get_type_ref(&SqlType::Uuid, TypeVariant::Field).unwrap();
         let param_ref = cfg.get_type_ref(&SqlType::Uuid, TypeVariant::Param).unwrap();
         assert!(matches!(field_ref, TypeRef::String(s) if s == "java.util.UUID"));

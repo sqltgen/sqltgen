@@ -173,7 +173,14 @@ impl TypeScriptCodegen {
 // ─── Type emission ────────────────────────────────────────────────────────────
 
 /// Emit a TypeScript `interface` block for the given fields.
-fn emit_ts_interface(src: &mut String, name: &str, fields: &[(&str, &SqlType, bool)], target: &JsTarget, config: &OutputConfig, output: &JsOutput) -> anyhow::Result<()> {
+fn emit_ts_interface(
+    src: &mut String,
+    name: &str,
+    fields: &[(&str, &SqlType, bool)],
+    target: &JsTarget,
+    config: &OutputConfig,
+    output: &JsOutput,
+) -> anyhow::Result<()> {
     writeln!(src, "export interface {name} {{")?;
     for (fname, ftype, nullable) in fields {
         writeln!(src, "  {fname}: {};", js_type_resolved(ftype, *nullable, target, config, output))?;
@@ -183,7 +190,14 @@ fn emit_ts_interface(src: &mut String, name: &str, fields: &[(&str, &SqlType, bo
 }
 
 /// Emit a JSDoc `@typedef` block for the given fields.
-fn emit_js_typedef(src: &mut String, name: &str, fields: &[(&str, &SqlType, bool)], target: &JsTarget, config: &OutputConfig, output: &JsOutput) -> anyhow::Result<()> {
+fn emit_js_typedef(
+    src: &mut String,
+    name: &str,
+    fields: &[(&str, &SqlType, bool)],
+    target: &JsTarget,
+    config: &OutputConfig,
+    output: &JsOutput,
+) -> anyhow::Result<()> {
     writeln!(src, "/**")?;
     writeln!(src, " * @typedef {{Object}} {name}")?;
     for (fname, ftype, nullable) in fields {
@@ -359,7 +373,15 @@ fn list_rewrite_target(lp: &Parameter, target: &JsTarget) -> ListRewriteTarget {
 
 // ─── Query function emission ──────────────────────────────────────────────────
 
-fn emit_query(src: &mut String, query: &Query, schema: &Schema, target: &JsTarget, output: &JsOutput, config: &OutputConfig, strategy: &ListParamStrategy) -> anyhow::Result<()> {
+fn emit_query(
+    src: &mut String,
+    query: &Query,
+    schema: &Schema,
+    target: &JsTarget,
+    output: &JsOutput,
+    config: &OutputConfig,
+    strategy: &ListParamStrategy,
+) -> anyhow::Result<()> {
     match target {
         JsTarget::Postgres => emit_pg_query(src, query, schema, target, output, config, strategy),
         JsTarget::Sqlite => emit_sqlite_query(src, query, schema, target, output, config, strategy),
@@ -434,7 +456,15 @@ fn row_type_name(query: &Query, schema: &Schema) -> String {
 
 // ─── PostgreSQL (pg) ─────────────────────────────────────────────────────────
 
-fn emit_pg_query(src: &mut String, query: &Query, schema: &Schema, target: &JsTarget, output: &JsOutput, config: &OutputConfig, strategy: &ListParamStrategy) -> anyhow::Result<()> {
+fn emit_pg_query(
+    src: &mut String,
+    query: &Query,
+    schema: &Schema,
+    target: &JsTarget,
+    output: &JsOutput,
+    config: &OutputConfig,
+    strategy: &ListParamStrategy,
+) -> anyhow::Result<()> {
     let ctx = QueryContext::new(query, schema, output, target, config, "ClientBase");
     if let Some(lp) = query.params.iter().find(|p| p.is_list) {
         return emit_pg_list_query(src, &ctx, strategy, lp);

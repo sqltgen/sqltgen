@@ -21,24 +21,20 @@ fn try_preset_java(name: &str) -> Option<ResolvedType> {
             import: Some("com.fasterxml.jackson.databind.JsonNode".to_string()),
             read_expr: Some("objectMapper.readValue({raw}, JsonNode.class)".to_string()),
             write_expr: Some("objectMapper.writeValueAsString({value})".to_string()),
-            extra_fields: vec![
-                ExtraField {
-                    declaration: "private static final ObjectMapper objectMapper = new ObjectMapper();".to_string(),
-                    import: Some("com.fasterxml.jackson.databind.ObjectMapper".to_string()),
-                },
-            ],
+            extra_fields: vec![ExtraField {
+                declaration: "private static final ObjectMapper objectMapper = new ObjectMapper();".to_string(),
+                import: Some("com.fasterxml.jackson.databind.ObjectMapper".to_string()),
+            }],
         }),
         "gson" => Some(ResolvedType {
             name: "JsonElement".to_string(),
             import: Some("com.google.gson.JsonElement".to_string()),
             read_expr: Some("GSON.fromJson({raw}, JsonElement.class)".to_string()),
             write_expr: Some("GSON.toJson({value})".to_string()),
-            extra_fields: vec![
-                ExtraField {
-                    declaration: "private static final Gson GSON = new Gson();".to_string(),
-                    import: Some("com.google.gson.Gson".to_string()),
-                },
-            ],
+            extra_fields: vec![ExtraField {
+                declaration: "private static final Gson GSON = new Gson();".to_string(),
+                import: Some("com.google.gson.Gson".to_string()),
+            }],
         }),
         _ => None,
     }
@@ -67,11 +63,8 @@ fn java_field_type(sql_type: &SqlType, nullable: bool, config: &OutputConfig) ->
 /// Return the Java parameter type, applying any configured param type override first.
 fn java_param_type_resolved(p: &Parameter, config: &OutputConfig) -> String {
     if p.is_list {
-        let elem = if let Some(resolved) = get_type_override_java(&p.sql_type, TypeVariant::Param, config) {
-            resolved.name
-        } else {
-            java_type_boxed(&p.sql_type)
-        };
+        let elem =
+            if let Some(resolved) = get_type_override_java(&p.sql_type, TypeVariant::Param, config) { resolved.name } else { java_type_boxed(&p.sql_type) };
         return format!("List<{elem}>");
     }
     if let Some(resolved) = get_type_override_java(&p.sql_type, TypeVariant::Param, config) {
@@ -232,7 +225,14 @@ impl Codegen for JavaCodegen {
     }
 }
 
-fn emit_java_query(src: &mut String, query: &Query, schema: &Schema, target: JdbcTarget, strategy: &ListParamStrategy, config: &OutputConfig) -> anyhow::Result<()> {
+fn emit_java_query(
+    src: &mut String,
+    query: &Query,
+    schema: &Schema,
+    target: JdbcTarget,
+    strategy: &ListParamStrategy,
+    config: &OutputConfig,
+) -> anyhow::Result<()> {
     let ctx = QueryContext {
         query,
         schema,
@@ -447,17 +447,18 @@ fn result_row_type(query: &Query, schema: &Schema) -> String {
 fn emit_row_record(src: &mut String, query: &Query, config: &OutputConfig) -> anyhow::Result<()> {
     let name = format!("{}Row", to_pascal_case(&query.name));
     writeln!(src, "    public record {name}(")?;
-    let fields: Vec<String> =
-        query.result_columns.iter().map(|col| format!("        {} {}", java_field_type(&col.sql_type, col.nullable, config), to_camel_case(&col.name))).collect();
+    let fields: Vec<String> = query
+        .result_columns
+        .iter()
+        .map(|col| format!("        {} {}", java_field_type(&col.sql_type, col.nullable, config), to_camel_case(&col.name)))
+        .collect();
     writeln!(src, "{}", fields.join(",\n"))?;
     writeln!(src, "    ) {{}}")?;
     Ok(())
 }
 
 fn emit_row_constructor(query: &Query, schema: &Schema, config: &OutputConfig) -> String {
-    jdbc::build_row_constructor(query, schema, FALLBACK_TYPE, "new ", |sql_type, nullable, idx| {
-        resolve_java_read_expr(sql_type, nullable, idx, config)
-    })
+    jdbc::build_row_constructor(query, schema, FALLBACK_TYPE, "new ", |sql_type, nullable, idx| resolve_java_read_expr(sql_type, nullable, idx, config))
 }
 
 // ─── Type helpers ─────────────────────────────────────────────────────────────

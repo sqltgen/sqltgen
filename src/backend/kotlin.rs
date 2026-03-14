@@ -24,24 +24,17 @@ fn try_preset_kotlin(name: &str) -> Option<ResolvedType> {
             import: Some("com.fasterxml.jackson.databind.JsonNode".to_string()),
             read_expr: Some("objectMapper.readValue({raw}, JsonNode::class.java)".to_string()),
             write_expr: Some("objectMapper.writeValueAsString({value})".to_string()),
-            extra_fields: vec![
-                ExtraField {
-                    declaration: "private val objectMapper = ObjectMapper()".to_string(),
-                    import: Some("com.fasterxml.jackson.databind.ObjectMapper".to_string()),
-                },
-            ],
+            extra_fields: vec![ExtraField {
+                declaration: "private val objectMapper = ObjectMapper()".to_string(),
+                import: Some("com.fasterxml.jackson.databind.ObjectMapper".to_string()),
+            }],
         }),
         "gson" => Some(ResolvedType {
             name: "JsonElement".to_string(),
             import: Some("com.google.gson.JsonElement".to_string()),
             read_expr: Some("gson.fromJson({raw}, JsonElement::class.java)".to_string()),
             write_expr: Some("gson.toJson({value})".to_string()),
-            extra_fields: vec![
-                ExtraField {
-                    declaration: "private val gson = Gson()".to_string(),
-                    import: Some("com.google.gson.Gson".to_string()),
-                },
-            ],
+            extra_fields: vec![ExtraField { declaration: "private val gson = Gson()".to_string(), import: Some("com.google.gson.Gson".to_string()) }],
         }),
         _ => None,
     }
@@ -204,7 +197,14 @@ impl Codegen for KotlinCodegen {
     }
 }
 
-fn emit_kotlin_query(src: &mut String, query: &Query, schema: &Schema, target: JdbcTarget, strategy: &ListParamStrategy, config: &OutputConfig) -> anyhow::Result<()> {
+fn emit_kotlin_query(
+    src: &mut String,
+    query: &Query,
+    schema: &Schema,
+    target: JdbcTarget,
+    strategy: &ListParamStrategy,
+    config: &OutputConfig,
+) -> anyhow::Result<()> {
     let ctx = QueryContext {
         query,
         schema,
@@ -391,17 +391,18 @@ fn row_class_name(query_name: &str) -> String {
 fn emit_row_class(src: &mut String, query: &Query, config: &OutputConfig) -> anyhow::Result<()> {
     let name = row_class_name(&query.name);
     writeln!(src, "    data class {name}(")?;
-    let fields: Vec<String> =
-        query.result_columns.iter().map(|col| format!("        val {}: {}", to_camel_case(&col.name), kotlin_field_type(&col.sql_type, col.nullable, config))).collect();
+    let fields: Vec<String> = query
+        .result_columns
+        .iter()
+        .map(|col| format!("        val {}: {}", to_camel_case(&col.name), kotlin_field_type(&col.sql_type, col.nullable, config)))
+        .collect();
     writeln!(src, "{}", fields.join(",\n"))?;
     writeln!(src, "    )")?;
     Ok(())
 }
 
 fn emit_row_constructor(query: &Query, schema: &Schema, config: &OutputConfig) -> String {
-    jdbc::build_row_constructor(query, schema, FALLBACK_TYPE, "", |sql_type, nullable, idx| {
-        resolve_kotlin_read_expr(sql_type, nullable, idx, config)
-    })
+    jdbc::build_row_constructor(query, schema, FALLBACK_TYPE, "", |sql_type, nullable, idx| resolve_kotlin_read_expr(sql_type, nullable, idx, config))
 }
 
 // ─── Type helpers ─────────────────────────────────────────────────────────────

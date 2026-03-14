@@ -212,7 +212,14 @@ fn emit_row_dataclass(src: &mut String, query: &Query, target: &PythonTarget, co
     Ok(())
 }
 
-fn emit_python_query(src: &mut String, query: &Query, schema: &Schema, target: &PythonTarget, config: &OutputConfig, strategy: &ListParamStrategy) -> anyhow::Result<()> {
+fn emit_python_query(
+    src: &mut String,
+    query: &Query,
+    schema: &Schema,
+    target: &PythonTarget,
+    config: &OutputConfig,
+    strategy: &ListParamStrategy,
+) -> anyhow::Result<()> {
     if let Some(lp) = query.params.iter().find(|p| p.is_list) {
         return emit_python_list_query(src, query, schema, target, config, strategy, lp);
     }
