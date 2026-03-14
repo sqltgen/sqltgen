@@ -149,7 +149,11 @@ fn unified_diff(expected: &str, actual: &str) -> Vec<String> {
 fn snapshot_test(dialect: &str, parser: &dyn DialectParser, backend_name: &str, codegen: &dyn Codegen) {
     let (schema, queries) = load_fixtures(dialect, parser);
     let files = run_codegen(codegen, &schema, &queries);
-    let golden_dir = e2e_root().join("golden").join(backend_name).join(dialect);
+    // Path: golden/<fixture>/<backend>/<dialect>  (dialect may include a sub-path like "bookstore/postgresql")
+    let golden_dir = match dialect.split_once('/') {
+        Some((fixture, db_dialect)) => e2e_root().join("golden").join(fixture).join(backend_name).join(db_dialect),
+        None => e2e_root().join("golden").join(dialect).join(backend_name),
+    };
     check_golden(&golden_dir, &files);
 }
 
@@ -256,7 +260,8 @@ fn snapshot_test_with_config(fixture: &str, parser: &dyn DialectParser, backend_
     let (schema, queries) = load_fixtures(fixture, parser);
     let mut files = codegen.generate(&schema, &queries, &config).expect("codegen failed");
     files.sort_by(|a, b| a.path.cmp(&b.path));
-    let golden_dir = e2e_root().join("golden").join(backend_name).join(fixture);
+    // Path: golden/<fixture>/<backend>  (no dialect sub-path for fixture-level tests)
+    let golden_dir = e2e_root().join("golden").join(fixture).join(backend_name);
     check_golden(&golden_dir, &files);
 }
 

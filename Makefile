@@ -75,7 +75,8 @@ run-all: $(SQLTGEN)
 
 # ── E2E tests ────────────────────────────────────────────────────────────────
 
-E2E_RUNTIME := tests/e2e/runtime
+E2E_RUNTIME    := tests/e2e/runtime/bookstore
+E2E_RUNTIME_DIR := tests/e2e/runtime
 
 e2e: e2e-snapshot e2e-runtime
 
@@ -162,10 +163,10 @@ e2e-runtime-typescript-mysql: $(SQLTGEN) e2e-db-up
 # ── E2E Docker lifecycle ────────────────────────────────────────────────────
 
 e2e-db-up:
-	docker compose -f $(E2E_RUNTIME)/docker-compose.yml up -d --wait
+	docker compose -f $(E2E_RUNTIME_DIR)/docker-compose.yml up -d --wait
 
 e2e-db-down:
-	docker compose -f $(E2E_RUNTIME)/docker-compose.yml down
+	docker compose -f $(E2E_RUNTIME_DIR)/docker-compose.yml down
 
 # ── CI targets ────────────────────────────────────────────────────────────────
 

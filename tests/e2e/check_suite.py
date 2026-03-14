@@ -52,63 +52,63 @@ FIXTURE_FILES: dict[str, Path] = {
 
 SUITES: list[tuple[str, str, Path, str]] = [
     ("postgresql", "rust",
-     RUNTIME / "rust/postgresql/tests/runtime.rs",
+     RUNTIME / "bookstore/rust/postgresql/tests/runtime.rs",
      r"async fn (test_\w+)"),
 
     ("sqlite", "rust",
-     RUNTIME / "rust/sqlite/tests/runtime.rs",
+     RUNTIME / "bookstore/rust/sqlite/tests/runtime.rs",
      r"async fn (test_\w+)"),
 
     ("mysql", "rust",
-     RUNTIME / "rust/mysql/tests/runtime.rs",
+     RUNTIME / "bookstore/rust/mysql/tests/runtime.rs",
      r"async fn (test_\w+)"),
 
     ("postgresql", "java",
-     RUNTIME / "java/postgresql/src/test/java/com/example/db/RuntimeTest.java",
+     RUNTIME / "bookstore/java/postgresql/src/test/java/com/example/db/RuntimeTest.java",
      r"void (test\w+)"),
 
     ("postgresql", "kotlin",
-     RUNTIME / "kotlin/postgresql/src/test/kotlin/com/example/db/RuntimeTest.kt",
+     RUNTIME / "bookstore/kotlin/postgresql/src/test/kotlin/com/example/db/RuntimeTest.kt",
      r"fun (test\w+)"),
 
     ("postgresql", "python",
-     RUNTIME / "python/postgresql/test_runtime.py",
+     RUNTIME / "bookstore/python/postgresql/test_runtime.py",
      r"def (test_\w+)"),
 
     ("sqlite", "python",
-     RUNTIME / "python/sqlite/test_runtime.py",
+     RUNTIME / "bookstore/python/sqlite/test_runtime.py",
      r"def (test_\w+)"),
 
     ("postgresql", "typescript",
-     RUNTIME / "typescript/postgresql/runtime.test.ts",
+     RUNTIME / "bookstore/typescript/postgresql/runtime.test.ts",
      r"it\(['\"]([^'\"]+)['\"]"),
 
     ("sqlite", "typescript",
-     RUNTIME / "typescript/sqlite/runtime.test.ts",
+     RUNTIME / "bookstore/typescript/sqlite/runtime.test.ts",
      r"it\(['\"]([^'\"]+)['\"]"),
 
     ("mysql", "typescript",
-     RUNTIME / "typescript/mysql/runtime.test.ts",
+     RUNTIME / "bookstore/typescript/mysql/runtime.test.ts",
      r"it\(['\"]([^'\"]+)['\"]"),
 
     ("sqlite", "java",
-     RUNTIME / "java/sqlite/src/test/java/com/example/db/RuntimeTest.java",
+     RUNTIME / "bookstore/java/sqlite/src/test/java/com/example/db/RuntimeTest.java",
      r"void (test\w+)"),
 
     ("mysql", "java",
-     RUNTIME / "java/mysql/src/test/java/com/example/db/RuntimeTest.java",
+     RUNTIME / "bookstore/java/mysql/src/test/java/com/example/db/RuntimeTest.java",
      r"void (test\w+)"),
 
     ("sqlite", "kotlin",
-     RUNTIME / "kotlin/sqlite/src/test/kotlin/com/example/db/RuntimeTest.kt",
+     RUNTIME / "bookstore/kotlin/sqlite/src/test/kotlin/com/example/db/RuntimeTest.kt",
      r"fun (test\w+)"),
 
     ("mysql", "kotlin",
-     RUNTIME / "kotlin/mysql/src/test/kotlin/com/example/db/RuntimeTest.kt",
+     RUNTIME / "bookstore/kotlin/mysql/src/test/kotlin/com/example/db/RuntimeTest.kt",
      r"fun (test\w+)"),
 
     ("mysql", "python",
-     RUNTIME / "python/mysql/test_runtime.py",
+     RUNTIME / "bookstore/python/mysql/test_runtime.py",
      r"def (test_\w+)"),
 ]
 

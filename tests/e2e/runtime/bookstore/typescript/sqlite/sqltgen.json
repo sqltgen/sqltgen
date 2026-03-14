@@ -1,0 +1,12 @@
+{
+    "version": "1",
+    "engine": "sqlite",
+    "schema": "../../../../fixtures/bookstore/sqlite/schema.sql",
+    "queries": "../../../../fixtures/bookstore/sqlite/queries.sql",
+    "gen": {
+        "typescript": {
+            "out": "gen",
+            "package": "db"
+        }
+    }
+}
