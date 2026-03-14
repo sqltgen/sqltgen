@@ -15,7 +15,7 @@ use sqltgen::backend::python::{PythonCodegen, PythonTarget};
 use sqltgen::backend::rust::{RustCodegen, RustTarget};
 use sqltgen::backend::typescript::{JsOutput, JsTarget, TypeScriptCodegen};
 use sqltgen::backend::{Codegen, GeneratedFile};
-use sqltgen::config::OutputConfig;
+use sqltgen::config::{OutputConfig, TypeOverride, TypeRef};
 use sqltgen::frontend::mysql::MysqlParser;
 use sqltgen::frontend::postgres::PostgresParser;
 use sqltgen::frontend::sqlite::SqliteParser;
@@ -245,6 +245,71 @@ fn snapshot_javascript_mysql() {
 #[test]
 fn snapshot_rust_provenance() {
     snapshot_test("provenance", &PostgresParser, "rust", &RustCodegen { target: RustTarget::Postgres });
+}
+
+// ─── Type override snapshot tests ────────────────────────────────────────
+//
+// These use a dedicated fixture with JSON/JSONB columns and per-backend
+// preset configurations (jackson, serde_json, object).
+
+fn snapshot_test_with_config(fixture: &str, parser: &dyn DialectParser, backend_name: &str, codegen: &dyn Codegen, config: OutputConfig) {
+    let (schema, queries) = load_fixtures(fixture, parser);
+    let mut files = codegen.generate(&schema, &queries, &config).expect("codegen failed");
+    files.sort_by(|a, b| a.path.cmp(&b.path));
+    let golden_dir = e2e_root().join("golden").join(backend_name).join(fixture);
+    check_golden(&golden_dir, &files);
+}
+
+/// OutputConfig with all common type overrides for Java/Kotlin (jackson preset + FQN temporal/uuid).
+fn config_jackson() -> OutputConfig {
+    let mut cfg = output_config();
+    let fqn = |s: &str| TypeOverride::Same(TypeRef::String(s.to_string()));
+    cfg.type_overrides.insert("json".to_string(), fqn("jackson"));
+    cfg.type_overrides.insert("jsonb".to_string(), fqn("jackson"));
+    cfg.type_overrides.insert("uuid".to_string(), fqn("java.util.UUID"));
+    cfg.type_overrides.insert("date".to_string(), fqn("java.time.LocalDate"));
+    cfg.type_overrides.insert("time".to_string(), fqn("java.time.LocalTime"));
+    cfg.type_overrides.insert("timestamp".to_string(), fqn("java.time.LocalDateTime"));
+    cfg.type_overrides.insert("timestamptz".to_string(), fqn("java.time.OffsetDateTime"));
+    cfg
+}
+
+/// OutputConfig with JSON/JSONB → serde_json preset (Rust).
+fn config_serde_json() -> OutputConfig {
+    let mut cfg = output_config();
+    let preset = |s: &str| TypeOverride::Same(TypeRef::String(s.to_string()));
+    cfg.type_overrides.insert("json".to_string(), preset("serde_json"));
+    cfg.type_overrides.insert("jsonb".to_string(), preset("serde_json"));
+    cfg
+}
+
+/// OutputConfig with JSON/JSONB → object preset (TypeScript/JavaScript).
+fn config_object() -> OutputConfig {
+    let mut cfg = output_config();
+    let preset = |s: &str| TypeOverride::Same(TypeRef::String(s.to_string()));
+    cfg.type_overrides.insert("json".to_string(), preset("object"));
+    cfg.type_overrides.insert("jsonb".to_string(), preset("object"));
+    cfg
+}
+
+#[test]
+fn snapshot_type_overrides_java() {
+    snapshot_test_with_config("type_overrides", &PostgresParser, "java", &JavaCodegen { target: JdbcTarget::Postgres }, config_jackson());
+}
+
+#[test]
+fn snapshot_type_overrides_kotlin() {
+    snapshot_test_with_config("type_overrides", &PostgresParser, "kotlin", &KotlinCodegen { target: JdbcTarget::Postgres }, config_jackson());
+}
+
+#[test]
+fn snapshot_type_overrides_rust() {
+    snapshot_test_with_config("type_overrides", &PostgresParser, "rust", &RustCodegen { target: RustTarget::Postgres }, config_serde_json());
+}
+
+#[test]
+fn snapshot_type_overrides_typescript() {
+    snapshot_test_with_config("type_overrides", &PostgresParser, "typescript", &TypeScriptCodegen { target: JsTarget::Postgres, output: JsOutput::TypeScript }, config_object());
 }
 
 // ─── Error resilience tests ───────────────────────────────────────────────
