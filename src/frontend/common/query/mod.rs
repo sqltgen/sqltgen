@@ -241,7 +241,7 @@ pub(super) fn collect_cte_params(
                 collect_delete_where_params(del, schema, config, mapping, query_name);
             },
             SetExpr::Insert(Statement::Insert(ins)) => {
-                collect_insert_value_params(ins, schema, mapping);
+                collect_insert_value_params(ins, schema, config, mapping, query_name);
             },
             SetExpr::Select(select) => {
                 let all_tables = collect_from_tables(select, schema, &local_ctes, config);

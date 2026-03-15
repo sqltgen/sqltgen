@@ -292,7 +292,7 @@ pub(super) fn collect_params_from_expr(expr: &Expr, ctx: &mut ResolverContext) {
 /// Returns `Some(idx)` for `$N`, `$N::type`, and `($N::type)`. Returns `None` for
 /// any other expression shape. Used to detect nullable placeholder contexts
 /// such as `$1 IS NULL` and `$1::bigint IS NULL`.
-fn placeholder_idx_in_expr(expr: &Expr) -> Option<usize> {
+pub(super) fn placeholder_idx_in_expr(expr: &Expr) -> Option<usize> {
     match expr {
         Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) => placeholder_idx(p),
         Expr::Cast { expr, .. } => {
@@ -409,7 +409,9 @@ pub(super) fn collect_join_params(select: &Select, ctx: &mut ResolverContext) {
 
 /// Collect parameter mappings from LIMIT and OFFSET expressions.
 ///
-/// LIMIT/OFFSET params are always typed as `BigInt` since they control row counts.
+/// LIMIT/OFFSET params are typed as `BigInt` because all three supported engines
+/// treat them as 64-bit integers: PostgreSQL accepts bigint-range values, SQLite
+/// stores integers as 64-bit in memory, and MySQL documents a max of 2^64−1.
 pub(super) fn collect_limit_offset_params(q: &SqlQuery, mapping: &mut HashMap<usize, (String, SqlType, bool)>) {
     if let Some(LimitClause::LimitOffset { limit, offset, .. }) = &q.limit_clause {
         if let Some(Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. })) = limit {

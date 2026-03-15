@@ -183,7 +183,6 @@ fn param_in_limit_is_typed() {
         SELECT id, name FROM users LIMIT $1;";
     let q = &parse_queries(sql, &make_schema()).unwrap()[0];
     assert_eq!(q.params.len(), 1);
-    // LIMIT should produce BigInt (or Integer)
     assert_eq!(q.params[0].sql_type, SqlType::BigInt);
 }
 

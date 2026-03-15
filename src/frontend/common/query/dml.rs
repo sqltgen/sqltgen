@@ -7,14 +7,14 @@
 use std::collections::HashMap;
 
 use sqlparser::ast::{
-    Assignment, AssignmentTarget, Delete, Expr, FromTable, Insert, ObjectNamePart, OnConflictAction, OnInsert, Query as SqlQuery, SetExpr, TableFactor,
-    TableWithJoins, Value, ValueWithSpan, Values,
+    Assignment, AssignmentTarget, Delete, Expr, FromTable, Insert, ObjectNamePart, OnConflictAction, OnInsert, Query as SqlQuery, SelectItem, SetExpr,
+    TableFactor, TableWithJoins, Value, ValueWithSpan, Values,
 };
 
 use crate::frontend::common::{ident_to_str, obj_name_to_str};
 use crate::ir::{Query, Schema, SqlType, Table};
 
-use super::params::collect_params_from_expr;
+use super::params::{collect_params_from_expr, collect_select_params, placeholder_idx_in_expr};
 use super::{
     build_alias_map, build_params, collect_cte_params, count_params, delete_table_name, insert_table_name, placeholder_idx, resolve_returning,
     unresolved_query, QueryAnnotation, ResolverConfig, ResolverContext,
@@ -30,7 +30,7 @@ pub(super) fn build_insert(ann: &QueryAnnotation, sql: &str, insert: &Insert, sc
     };
 
     let mut mapping = HashMap::new();
-    collect_insert_value_params(insert, schema, &mut mapping);
+    collect_insert_value_params(insert, schema, config, &mut mapping, &ann.name);
     collect_on_conflict_params(insert, table, config, &mut mapping, &ann.name);
     let params = build_params(mapping, count_params(sql));
     let result_columns = insert.returning.as_deref().map_or(vec![], |items| resolve_returning(items, table, config));
@@ -42,7 +42,7 @@ pub(super) fn build_insert(ann: &QueryAnnotation, sql: &str, insert: &Insert, sc
 pub(super) fn build_query_from_insert(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, ins: &Insert, schema: &Schema, config: &ResolverConfig) -> Query {
     let mut mapping = HashMap::new();
     collect_cte_params(q.with.as_ref(), schema, config, &mut mapping, &ann.name);
-    collect_insert_value_params(ins, schema, &mut mapping);
+    collect_insert_value_params(ins, schema, config, &mut mapping, &ann.name);
     let params = build_params(mapping, count_params(sql));
     let result_columns = schema
         .tables
@@ -83,27 +83,54 @@ fn collect_on_conflict_params(
     }
 }
 
-/// Collect typed parameter mappings from an INSERT … VALUES statement.
+/// Collect typed parameter mappings from an INSERT statement's source.
 ///
-/// Maps each positional `$N` placeholder in the VALUES rows to the column type
-/// it corresponds to, using the INSERT column list for position-to-column mapping.
-/// SELECT-source INSERTs are skipped since position semantics are ambiguous there.
-pub(super) fn collect_insert_value_params(ins: &Insert, schema: &Schema, mapping: &mut HashMap<usize, (String, SqlType, bool)>) {
+/// Handles both `INSERT … VALUES` and `INSERT … SELECT` forms:
+/// - VALUES: maps each positional placeholder in the value rows to the corresponding
+///   INSERT target column type.
+/// - SELECT: maps positional placeholders in the SELECT projection to the INSERT
+///   target columns, then delegates WHERE/JOIN/HAVING inference to `collect_select_params`.
+pub(super) fn collect_insert_value_params(
+    ins: &Insert,
+    schema: &Schema,
+    config: &ResolverConfig,
+    mapping: &mut HashMap<usize, (String, SqlType, bool)>,
+    query_name: &str,
+) {
     let table_name = insert_table_name(ins);
     let Some(table) = schema.tables.iter().find(|t| t.name == table_name) else { return };
     let col_names: Vec<String> = ins.columns.iter().map(ident_to_str).collect();
     let Some(source) = &ins.source else { return };
-    let SetExpr::Values(Values { rows, .. }) = source.body.as_ref() else { return };
-    for row in rows {
-        for (pos, val_expr) in row.iter().enumerate() {
-            if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = val_expr {
-                if let Some(idx) = placeholder_idx(p) {
+
+    match source.body.as_ref() {
+        SetExpr::Values(Values { rows, .. }) => {
+            for row in rows {
+                for (pos, val_expr) in row.iter().enumerate() {
+                    if let Some(idx) = placeholder_idx_in_expr(val_expr) {
+                        if let Some(col) = col_names.get(pos).and_then(|n| table.columns.iter().find(|c| &c.name == n)) {
+                            mapping.entry(idx).or_insert((col.name.clone(), col.sql_type.clone(), col.nullable));
+                        }
+                    }
+                }
+            }
+        },
+        SetExpr::Select(select) => {
+            // Type SELECT-list placeholders from INSERT target columns (positional).
+            for (pos, item) in select.projection.iter().enumerate() {
+                let expr = match item {
+                    SelectItem::UnnamedExpr(e) | SelectItem::ExprWithAlias { expr: e, .. } => e,
+                    _ => continue,
+                };
+                if let Some(idx) = placeholder_idx_in_expr(expr) {
                     if let Some(col) = col_names.get(pos).and_then(|n| table.columns.iter().find(|c| &c.name == n)) {
                         mapping.entry(idx).or_insert((col.name.clone(), col.sql_type.clone(), col.nullable));
                     }
                 }
             }
-        }
+            // Type WHERE/JOIN/HAVING params from the SELECT's FROM tables.
+            collect_select_params(select, schema, config, &[], mapping, query_name);
+        },
+        _ => {},
     }
 }
 
@@ -182,11 +209,9 @@ pub(super) fn collect_update_params(
             },
             _ => continue,
         };
-        if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = &assignment.value {
-            if let Some(idx) = placeholder_idx(p) {
-                if let Some(col) = table.columns.iter().find(|c| c.name == col_name) {
-                    mapping.entry(idx).or_insert((col.name.clone(), col.sql_type.clone(), col.nullable));
-                }
+        if let Some(idx) = placeholder_idx_in_expr(&assignment.value) {
+            if let Some(col) = table.columns.iter().find(|c| c.name == col_name) {
+                mapping.entry(idx).or_insert((col.name.clone(), col.sql_type.clone(), col.nullable));
             }
         }
     }

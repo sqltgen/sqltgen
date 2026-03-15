@@ -186,4 +186,134 @@ mod tests {
         assert!(q.params[0].is_list, "annotation must set is_list");
         assert_eq!(q.params[0].sql_type, SqlType::BigInt);
     }
+
+    // ─── Bug: INSERT … SELECT param inference ────────────────────────────────
+
+    fn make_insert_select_schema() -> Schema {
+        Schema {
+            tables: vec![
+                Table {
+                    name: "resource".into(),
+                    columns: vec![
+                        Column { name: "id".into(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
+                        Column { name: "owner_id".into(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: false },
+                        Column { name: "name".into(), sql_type: SqlType::Text, nullable: false, is_primary_key: false },
+                    ],
+                },
+                Table {
+                    name: "owner".into(),
+                    columns: vec![
+                        Column { name: "id".into(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
+                        Column { name: "account_id".into(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: false },
+                    ],
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn test_insert_select_list_params_typed_from_target_columns() {
+        // Repro 1: params in the SELECT list of INSERT…SELECT must be typed from
+        // the INSERT target columns (positional). Currently they are unresolved and
+        // fall back to Text/Custom.
+        let sql = "-- name: CreateResource :one\n\
+            INSERT INTO resource (id, owner_id, name)\n\
+            SELECT @resource_id, o.id, @name\n\
+            FROM owner o\n\
+            WHERE o.id = @owner_id AND o.account_id = @account_id\n\
+            RETURNING id, owner_id, name;";
+        let q = &parse_queries(sql, &make_insert_select_schema()).unwrap()[0];
+        let resource_id = q.params.iter().find(|p| p.name == "resource_id").expect("resource_id param");
+        assert_eq!(resource_id.sql_type, SqlType::BigInt, "resource_id must be BigInt (from resource.id)");
+        let name = q.params.iter().find(|p| p.name == "name").expect("name param");
+        assert_eq!(name.sql_type, SqlType::Text, "name must be Text (from resource.name)");
+        let owner_id = q.params.iter().find(|p| p.name == "owner_id").expect("owner_id param");
+        assert_eq!(owner_id.sql_type, SqlType::BigInt, "owner_id must be BigInt (from owner.id)");
+        let account_id = q.params.iter().find(|p| p.name == "account_id").expect("account_id param");
+        assert_eq!(account_id.sql_type, SqlType::BigInt, "account_id must be BigInt (from owner.account_id)");
+    }
+
+    // ─── Bug: INSERT … VALUES with cast-wrapped placeholders ─────────────────
+
+    #[test]
+    fn test_insert_values_cast_placeholder_typed_from_column() {
+        // INSERT INTO … VALUES (@id::bigint, @name) — the named-param preprocessor
+        // detects @id::bigint as an inline cast and sets BigInt via annotation.
+        // This is the common/supported path.
+        let sql = "-- name: CreateUser :exec\n\
+            INSERT INTO users (id, name) VALUES (@id::bigint, @name);";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let id_p = q.params.iter().find(|p| p.name == "id").expect("id param");
+        assert_eq!(id_p.sql_type, SqlType::BigInt, "id must be BigInt (from inline cast)");
+        let name_p = q.params.iter().find(|p| p.name == "name").expect("name param");
+        assert_eq!(name_p.sql_type, SqlType::Text, "name must be Text (from users.name column)");
+    }
+
+    #[test]
+    fn test_insert_values_bare_cast_placeholder_typed_from_column() {
+        // INSERT INTO … VALUES ($1::bigint, $2) — a cast-wrapped placeholder in
+        // VALUES. The positional column type (users.id = BigInt) must be used,
+        // not the fallback default.
+        let sql = "-- name: CreateUser :exec\n\
+            INSERT INTO users (id, name) VALUES ($1::bigint, $2);";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        assert_eq!(q.params[0].sql_type, SqlType::BigInt, "$1::bigint must be BigInt (from users.id)");
+        assert_eq!(q.params[1].sql_type, SqlType::Text, "$2 must be Text (from users.name)");
+    }
+
+    // ─── UPDATE SET param inference ──────────────────────────────────────────
+
+    #[test]
+    fn test_update_set_param_typed_from_column() {
+        // Basic case: UPDATE users SET name = @name WHERE id = @id
+        // @name must be typed as Text (from users.name), @id as BigInt (from users.id).
+        let sql = "-- name: UpdateUser :exec\n\
+            UPDATE users SET name = @name WHERE id = @id;";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let name_p = q.params.iter().find(|p| p.name == "name").expect("name param");
+        assert_eq!(name_p.sql_type, SqlType::Text, "name must be Text (from users.name)");
+        let id_p = q.params.iter().find(|p| p.name == "id").expect("id param");
+        assert_eq!(id_p.sql_type, SqlType::BigInt, "id must be BigInt (from users.id)");
+    }
+
+    #[test]
+    fn test_update_set_cast_placeholder_typed_from_column() {
+        // Cast-wrapped placeholder in SET: UPDATE users SET id = $1::bigint WHERE ...
+        // The bare-Placeholder pattern in collect_update_params must not miss this.
+        let sql = "-- name: UpdateUserId :exec\n\
+            UPDATE users SET id = $1::bigint WHERE name = $2;";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        assert_eq!(q.params[0].sql_type, SqlType::BigInt, "$1::bigint in SET must be BigInt (from users.id)");
+        assert_eq!(q.params[1].sql_type, SqlType::Text, "$2 in WHERE must be Text (from users.name)");
+    }
+
+    // ─── LIMIT / OFFSET param type ───────────────────────────────────────────
+
+    #[test]
+    fn test_limit_offset_params_typed_as_bigint() {
+        // All three supported engines treat LIMIT/OFFSET as 64-bit integers
+        // (PostgreSQL: bigint-range, SQLite: 64-bit in memory, MySQL: up to 2^64−1).
+        let sql = "-- name: ListUsersPaged :many\nSELECT id, name FROM users LIMIT $1 OFFSET $2;";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        assert_eq!(q.params.len(), 2);
+        let limit_p = q.params.iter().find(|p| p.name == "limit").expect("limit param");
+        assert_eq!(limit_p.sql_type, SqlType::BigInt, "LIMIT param must be BigInt");
+        let offset_p = q.params.iter().find(|p| p.name == "offset").expect("offset param");
+        assert_eq!(offset_p.sql_type, SqlType::BigInt, "OFFSET param must be BigInt");
+    }
+
+    // ─── Repro 4: nullable predicate context (regression guard) ──────────────
+
+    #[test]
+    fn test_nullable_param_in_predicate_context() {
+        // Repro 4: a param used in `(@id IS NULL OR col = @id)` must be inferred
+        // nullable. This is already covered by test_is_null_param_inferred_as_nullable
+        // but this variant uses @name syntax to guard against regressions.
+        let sql = "-- name: FindResource :many\n\
+            SELECT id, name FROM users WHERE (@id::bigint IS NULL OR id = @id::bigint);";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let id_p = q.params.iter().find(|p| p.name == "id").expect("id param");
+        assert_eq!(id_p.sql_type, SqlType::BigInt);
+        assert!(id_p.nullable, "param tested with IS NULL must be nullable");
+    }
 }

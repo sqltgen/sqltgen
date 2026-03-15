@@ -36,6 +36,11 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
   uses ON CONFLICT DO UPDATE RETURNING)
 
 ### Fixed
+- **`INSERT … SELECT` parameter inference** — params in the SELECT projection of an
+  `INSERT INTO t (cols) SELECT $1, … FROM … WHERE …` were previously unresolved
+  (falling back to `Text`/`Custom`). The frontend now maps each SELECT-list
+  placeholder to the corresponding INSERT target column type, and delegates
+  WHERE/JOIN/HAVING inference to the standard SELECT analysis pass.
 - **Java/Kotlin**: native list strategy now correctly JSON-quotes text elements when
   building JSON arrays for SQLite `json_each` and MySQL `JSON_TABLE` — previously
   produced invalid JSON for string values containing `"` or `\`
