@@ -3,7 +3,6 @@ package com.example.db;
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.io.IOException;
-import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -54,15 +53,15 @@ class RuntimeTest {
         Queries.createAuthor(conn, "Herbert", null, 1920);
         Queries.createAuthor(conn, "Le Guin", "Earthsea", 1929);
 
-        Queries.createBook(conn, 1, "Foundation", "sci-fi", new BigDecimal("9.99"), "1951-01-01");
-        Queries.createBook(conn, 1, "I Robot",    "sci-fi", new BigDecimal("7.99"), "1950-01-01");
-        Queries.createBook(conn, 2, "Dune",       "sci-fi", new BigDecimal("12.99"), "1965-01-01");
-        Queries.createBook(conn, 3, "Earthsea",   "fantasy", new BigDecimal("8.99"), "1968-01-01");
+        Queries.createBook(conn, 1, "Foundation", "sci-fi", 9.99, "1951-01-01");
+        Queries.createBook(conn, 1, "I Robot",    "sci-fi", 7.99, "1950-01-01");
+        Queries.createBook(conn, 2, "Dune",       "sci-fi", 12.99, "1965-01-01");
+        Queries.createBook(conn, 3, "Earthsea",   "fantasy", 8.99, "1968-01-01");
 
         Queries.createCustomer(conn, "Alice", "alice@example.com");
         Queries.createSale(conn, 1);
-        Queries.addSaleItem(conn, 1, 1, 2, new BigDecimal("9.99"));   // Foundation qty 2
-        Queries.addSaleItem(conn, 1, 3, 1, new BigDecimal("12.99"));  // Dune qty 1
+        Queries.addSaleItem(conn, 1, 1, 2, 9.99);   // Foundation qty 2
+        Queries.addSaleItem(conn, 1, 3, 1, 12.99);  // Dune qty 1
     }
 
     // ─── :one tests ───────────────────────────────────────────────────────────
@@ -132,7 +131,7 @@ class RuntimeTest {
     @Test
     void testCreateBook() throws SQLException {
         seed();
-        Queries.createBook(conn, 1, "New Book", "mystery", new BigDecimal("14.50"), null);
+        Queries.createBook(conn, 1, "New Book", "mystery", 14.50, null);
         var book = Queries.getBook(conn, 5).orElseThrow();
         assertEquals("New Book", book.title());
         assertEquals("mystery", book.genre());
@@ -163,7 +162,7 @@ class RuntimeTest {
     @Test
     void testAddSaleItem() throws SQLException {
         seed();
-        Queries.addSaleItem(conn, 1, 4, 1, new BigDecimal("8.99"));
+        Queries.addSaleItem(conn, 1, 4, 1, 8.99);
         try (var s = conn.createStatement();
              var rs = s.executeQuery("SELECT COUNT(*) FROM sale_item WHERE sale_id = 1")) {
             rs.next();
@@ -298,8 +297,7 @@ class RuntimeTest {
     void testGetBooksByPriceRange() throws SQLException {
         seed();
         // Foundation (9.99) and Earthsea (8.99) in [8.00, 10.00]
-        var results = Queries.getBooksByPriceRange(conn,
-            new BigDecimal("8.00"), new BigDecimal("10.00"));
+        var results = Queries.getBooksByPriceRange(conn, 8.00, 10.00);
         assertEquals(2, results.size());
     }
 
@@ -394,7 +392,7 @@ class RuntimeTest {
     @Test
     void testGetBookPriceLabel() throws SQLException {
         seed();
-        var rows = Queries.getBookPriceLabel(conn, new BigDecimal("10.00"));
+        var rows = Queries.getBookPriceLabel(conn, 10.00);
         assertEquals(4, rows.size());
         var dune = rows.stream().filter(r -> r.title().equals("Dune")).findFirst().orElseThrow();
         assertEquals("expensive", dune.priceLabel());
@@ -405,9 +403,9 @@ class RuntimeTest {
     @Test
     void testGetBookPriceOrDefault() throws SQLException {
         seed();
-        var rows = Queries.getBookPriceOrDefault(conn, new BigDecimal("0.00"));
+        var rows = Queries.getBookPriceOrDefault(conn, 0.00);
         assertEquals(4, rows.size());
-        assertTrue(rows.stream().allMatch(r -> r.effectivePrice().compareTo(BigDecimal.ZERO) > 0));
+        assertTrue(rows.stream().allMatch(r -> r.effectivePrice() > 0.0));
     }
 
     // ─── Product type coverage ────────────────────────────────────────────────
@@ -548,13 +546,9 @@ class RuntimeTest {
         seed();
         // Book prices: 9.99, 7.99, 12.99, 8.99 → min=7.99, max=12.99, sum=39.96, avg≈9.99
         var row = Queries.getBookPriceAggregates(conn).orElseThrow();
-        assertTrue(row.minPrice().subtract(new BigDecimal("7.99")).abs()
-            .compareTo(new BigDecimal("0.01")) < 0);
-        assertTrue(row.maxPrice().subtract(new BigDecimal("12.99")).abs()
-            .compareTo(new BigDecimal("0.01")) < 0);
-        assertTrue(row.sumPrice().subtract(new BigDecimal("39.96")).abs()
-            .compareTo(new BigDecimal("0.01")) < 0);
-        assertTrue(row.avgPrice().subtract(new BigDecimal("9.99")).abs()
-            .compareTo(new BigDecimal("0.01")) < 0);
+        assertTrue(Math.abs(row.minPrice() - 7.99) < 0.01);
+        assertTrue(Math.abs(row.maxPrice() - 12.99) < 0.01);
+        assertTrue(Math.abs(row.sumPrice() - 39.96) < 0.01);
+        assertTrue(Math.abs(row.avgPrice() - 9.99) < 0.01);
     }
 }

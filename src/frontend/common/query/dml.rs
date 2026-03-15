@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 use sqlparser::ast::{
     Assignment, AssignmentTarget, Delete, Expr, FromTable, Insert, ObjectNamePart, OnConflictAction, OnInsert, Query as SqlQuery, SelectItem, SetExpr,
-    TableFactor, TableWithJoins, Value, ValueWithSpan, Values,
+    TableFactor, TableWithJoins, Values,
 };
 
 use crate::frontend::common::{ident_to_str, obj_name_to_str};
@@ -16,8 +16,8 @@ use crate::ir::{Query, Schema, SqlType, Table};
 
 use super::params::{collect_params_from_expr, collect_select_params, placeholder_idx_in_expr};
 use super::{
-    build_alias_map, build_params, collect_cte_params, count_params, delete_table_name, insert_table_name, placeholder_idx, resolve_returning,
-    unresolved_query, QueryAnnotation, ResolverConfig, ResolverContext,
+    build_alias_map, build_params, collect_cte_params, count_params, delete_table_name, insert_table_name, resolve_returning, unresolved_query,
+    QueryAnnotation, ResolverConfig, ResolverContext,
 };
 
 // ─── INSERT ──────────────────────────────────────────────────────────────────

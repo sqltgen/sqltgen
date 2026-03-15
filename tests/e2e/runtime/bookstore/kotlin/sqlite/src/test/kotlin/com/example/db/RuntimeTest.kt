@@ -4,7 +4,6 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import java.math.BigDecimal
 import java.nio.file.Files
 import java.nio.file.Path
 import java.sql.Connection
@@ -48,15 +47,15 @@ class RuntimeTest {
         Queries.createAuthor(conn, "Herbert", null, 1920)
         Queries.createAuthor(conn, "Le Guin", "Earthsea", 1929)
 
-        Queries.createBook(conn, 1, "Foundation", "sci-fi", BigDecimal("9.99"), "1951-01-01")
-        Queries.createBook(conn, 1, "I Robot",    "sci-fi", BigDecimal("7.99"), "1950-01-01")
-        Queries.createBook(conn, 2, "Dune",       "sci-fi", BigDecimal("12.99"), "1965-01-01")
-        Queries.createBook(conn, 3, "Earthsea",   "fantasy", BigDecimal("8.99"), "1968-01-01")
+        Queries.createBook(conn, 1, "Foundation", "sci-fi", 9.99, "1951-01-01")
+        Queries.createBook(conn, 1, "I Robot",    "sci-fi", 7.99, "1950-01-01")
+        Queries.createBook(conn, 2, "Dune",       "sci-fi", 12.99, "1965-01-01")
+        Queries.createBook(conn, 3, "Earthsea",   "fantasy", 8.99, "1968-01-01")
 
         Queries.createCustomer(conn, "Alice", "alice@example.com")
         Queries.createSale(conn, 1)
-        Queries.addSaleItem(conn, 1, 1, 2, BigDecimal("9.99"))   // Foundation qty 2
-        Queries.addSaleItem(conn, 1, 3, 1, BigDecimal("12.99"))  // Dune qty 1
+        Queries.addSaleItem(conn, 1, 1, 2, 9.99)   // Foundation qty 2
+        Queries.addSaleItem(conn, 1, 3, 1, 12.99)  // Dune qty 1
     }
 
     // ─── :one tests ───────────────────────────────────────────────────────────
@@ -126,7 +125,7 @@ class RuntimeTest {
     @Test
     fun testCreateBook() {
         seed()
-        Queries.createBook(conn, 1, "New Book", "mystery", BigDecimal("14.50"), null)
+        Queries.createBook(conn, 1, "New Book", "mystery", 14.50, null)
         val book = Queries.getBook(conn, 5)!!
         assertEquals("New Book", book.title)
         assertEquals("mystery", book.genre)
@@ -159,7 +158,7 @@ class RuntimeTest {
     @Test
     fun testAddSaleItem() {
         seed()
-        Queries.addSaleItem(conn, 1, 4, 1, BigDecimal("8.99"))
+        Queries.addSaleItem(conn, 1, 4, 1, 8.99)
         val count = conn.createStatement().use { s ->
             s.executeQuery("SELECT COUNT(*) FROM sale_item WHERE sale_id = 1").use { rs ->
                 rs.next(); rs.getInt(1)
@@ -294,7 +293,7 @@ class RuntimeTest {
     fun testGetBooksByPriceRange() {
         seed()
         // Foundation (9.99) and Earthsea (8.99) in [8.00, 10.00]
-        val results = Queries.getBooksByPriceRange(conn, BigDecimal("8.00"), BigDecimal("10.00"))
+        val results = Queries.getBooksByPriceRange(conn, 8.00, 10.00)
         assertEquals(2, results.size)
     }
 
@@ -387,7 +386,7 @@ class RuntimeTest {
     @Test
     fun testGetBookPriceLabel() {
         seed()
-        val rows = Queries.getBookPriceLabel(conn, BigDecimal("10.00"))
+        val rows = Queries.getBookPriceLabel(conn, 10.00)
         assertEquals(4, rows.size)
         val dune = rows.first { it.title == "Dune" }
         assertEquals("expensive", dune.priceLabel)
@@ -398,9 +397,9 @@ class RuntimeTest {
     @Test
     fun testGetBookPriceOrDefault() {
         seed()
-        val rows = Queries.getBookPriceOrDefault(conn, BigDecimal("0.00"))
+        val rows = Queries.getBookPriceOrDefault(conn, 0.00)
         assertEquals(4, rows.size)
-        assertTrue(rows.all { it.effectivePrice > BigDecimal.ZERO })
+        assertTrue(rows.all { it.effectivePrice > 0.0 })
     }
 
     // ─── Product type coverage ────────────────────────────────────────────────
@@ -544,9 +543,9 @@ class RuntimeTest {
         seed()
         // Book prices: 9.99, 7.99, 12.99, 8.99 → min=7.99, max=12.99, sum=39.96, avg≈9.99
         val row = Queries.getBookPriceAggregates(conn)!!
-        assertTrue(row.minPrice!!.subtract(BigDecimal("7.99")).abs() < BigDecimal("0.01"))
-        assertTrue(row.maxPrice!!.subtract(BigDecimal("12.99")).abs() < BigDecimal("0.01"))
-        assertTrue(row.sumPrice!!.subtract(BigDecimal("39.96")).abs() < BigDecimal("0.01"))
-        assertTrue(row.avgPrice!!.subtract(BigDecimal("9.99")).abs() < BigDecimal("0.01"))
+        assertTrue(Math.abs(row.minPrice!! - 7.99) < 0.01)
+        assertTrue(Math.abs(row.maxPrice!! - 12.99) < 0.01)
+        assertTrue(Math.abs(row.sumPrice!! - 39.96) < 0.01)
+        assertTrue(Math.abs(row.avgPrice!! - 9.99) < 0.01)
     }
 }
