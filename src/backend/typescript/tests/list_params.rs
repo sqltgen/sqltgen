@@ -13,7 +13,7 @@ fn pg_list_by_ids_query() -> Query {
     Query::many(
         "GetByIds",
         "SELECT id FROM t WHERE id IN ($1)",
-        vec![Parameter::list(1, "ids", SqlType::BigInt, false).with_native_list_sql("SELECT id FROM t WHERE id = ANY($1)")],
+        vec![Parameter::list(1, "ids", SqlType::BigInt, false).with_native_list("SELECT id FROM t WHERE id = ANY($1)", NativeListBind::Array)],
         vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
     )
 }
@@ -22,7 +22,8 @@ fn sqlite_list_by_ids_query() -> Query {
     Query::many(
         "GetByIds",
         "SELECT id FROM t WHERE id IN ($1)",
-        vec![Parameter::list(1, "ids", SqlType::BigInt, false).with_native_list_sql("SELECT id FROM t WHERE id IN (SELECT value FROM json_each($1))")],
+        vec![Parameter::list(1, "ids", SqlType::BigInt, false)
+            .with_native_list("SELECT id FROM t WHERE id IN (SELECT value FROM json_each($1))", NativeListBind::Json)],
         vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
     )
 }
@@ -32,7 +33,7 @@ fn mysql_list_by_ids_query() -> Query {
         "GetByIds",
         "SELECT id FROM t WHERE id IN ($1)",
         vec![Parameter::list(1, "ids", SqlType::BigInt, false)
-            .with_native_list_sql("SELECT id FROM t WHERE id IN (SELECT value FROM JSON_TABLE($1,'$[*]' COLUMNS(value BIGINT PATH '$')) t)")],
+            .with_native_list("SELECT id FROM t WHERE id IN (SELECT value FROM JSON_TABLE($1,'$[*]' COLUMNS(value BIGINT PATH '$')) t)", NativeListBind::Json)],
         vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
     )
 }

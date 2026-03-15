@@ -1,7 +1,7 @@
 use super::*;
 use crate::backend::test_helpers::{cfg, get_file, user_table};
 use crate::config::{ListParamStrategy, OutputConfig};
-use crate::ir::{Parameter, Query, ResultColumn, Schema, SqlType};
+use crate::ir::{NativeListBind, Parameter, Query, ResultColumn, Schema, SqlType};
 
 pub fn pg() -> RustCodegen {
     RustCodegen { target: RustTarget::Postgres }

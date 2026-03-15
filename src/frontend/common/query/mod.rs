@@ -10,7 +10,14 @@ use sqlparser::dialect::Dialect;
 use sqlparser::parser::Parser;
 
 use crate::frontend::common::{ident_to_str, named_params, obj_name_to_str};
-use crate::ir::{Column, Parameter, Query, QueryCmd, ResultColumn, Schema, SqlType, Table};
+use crate::ir::{Column, NativeListBind, Parameter, Query, QueryCmd, ResultColumn, Schema, SqlType, Table};
+
+/// Dialect-specific function that rewrites list-param SQL and returns the binding method.
+///
+/// Takes the list parameter (with its final `sql_type` and `index`) and the current
+/// query SQL (with `$N` placeholders). Returns the rewritten SQL and the
+/// [`NativeListBind`] backends must use, or `None` when native expansion is unavailable.
+type NativeListSqlFn = fn(&Parameter, &str) -> Option<(String, NativeListBind)>;
 
 use dml::{build_delete, build_insert, build_update, collect_delete_where_params, collect_insert_value_params, collect_update_params};
 use params::{collect_join_params, collect_limit_offset_params, collect_params_from_expr};
@@ -33,14 +40,13 @@ pub(crate) struct ResolverConfig {
     /// Used by `resolve_expr` for CAST expressions. Each dialect supplies its own
     /// mapping function (e.g. `postgres::typemap::map`).
     pub typemap: fn(&sqlparser::ast::DataType) -> SqlType,
-    /// Compute the native list-param SQL for a given list parameter.
+    /// Compute the native list-param SQL and binding method for a given list parameter.
     ///
     /// Takes the list parameter (with its final `sql_type` and `index`) and
     /// the current query SQL (with `$N` placeholders). Returns the rewritten
-    /// SQL with the dialect-specific list expansion substituted for `IN ($N)`,
-    /// using `$N` placeholders throughout so backends can apply their standard
-    /// rewriting. Returns `None` when native expansion is unavailable.
-    pub native_list_sql: Option<fn(&Parameter, &str) -> Option<String>>,
+    /// SQL and the [`NativeListBind`] method backends must use, or `None` when
+    /// native expansion is unavailable.
+    pub native_list_sql: Option<NativeListSqlFn>,
 }
 
 impl Default for ResolverConfig {
@@ -191,8 +197,7 @@ fn build_query_with_dialect(dialect: &dyn Dialect, ann: &QueryAnnotation, sql: &
     Ok(query)
 }
 
-/// Populate `Parameter::native_list_sql` for each list parameter using the
-/// dialect-provided rewrite function from `config`.
+/// Populate `native_list_sql` and `native_list_bind` for each list parameter.
 ///
 /// Called after parameter types and names are fully resolved. Only executes
 /// when `config.native_list_sql` is `Some`.
@@ -200,7 +205,10 @@ fn apply_native_list_sql(query: &mut Query, config: &ResolverConfig) {
     let Some(rewrite) = config.native_list_sql else { return };
     for p in &mut query.params {
         if p.is_list {
-            p.native_list_sql = rewrite(p, &query.sql);
+            if let Some((sql, bind)) = rewrite(p, &query.sql) {
+                p.native_list_sql = Some(sql);
+                p.native_list_bind = Some(bind);
+            }
         }
     }
 }

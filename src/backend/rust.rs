@@ -7,7 +7,7 @@ use crate::backend::naming::{to_pascal_case, to_snake_case};
 use crate::backend::sql_rewrite::{positional_bind_names, rewrite_to_anon_params, split_at_in_clause};
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::{resolve_type_ref, Engine, ListParamStrategy, OutputConfig, ResolvedType, TypeVariant};
-use crate::ir::{Parameter, Query, QueryCmd, Schema, SqlType};
+use crate::ir::{NativeListBind, Parameter, Query, QueryCmd, Schema, SqlType};
 
 pub enum RustTarget {
     Postgres,
@@ -257,13 +257,13 @@ fn emit_rust_native_list_query(
 ) -> anyhow::Result<()> {
     let sql = normalize_sql_for_sqlx(native_sql, target).replace('"', "\\\"").replace('\n', " ");
     let lp_name = to_snake_case(&list_param.name);
-    match target {
-        RustTarget::Postgres => {
+    match list_param.native_list_bind {
+        Some(NativeListBind::Array) => {
             // sqlx-postgres: bind the list directly (sqlx handles Vec<T> → ANY($1))
             let bind_names: Vec<&str> = query.params.iter().map(|p| p.name.as_str()).collect();
             emit_rust_sqlx_call(src, query, &sql, &bind_names, row_type)
         },
-        RustTarget::Sqlite | RustTarget::Mysql => {
+        Some(NativeListBind::Json) | None => {
             // SQLite/MySQL: list param is bound as a JSON array string
             writeln!(src, "    let {lp_name}_json = {};", json_list_expr(&lp_name, &list_param.sql_type))?;
             let bind_names: Vec<String> = query.params.iter().map(|p| if p.is_list { format!("{lp_name}_json") } else { to_snake_case(&p.name) }).collect();

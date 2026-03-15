@@ -219,7 +219,7 @@ impl Codegen for KotlinCodegen {
                     emit_row_class(&mut src, query, config)?;
                     writeln!(src)?;
                 }
-                emit_kotlin_query(&mut src, query, schema, self.target, &strategy, config)?;
+                emit_kotlin_query(&mut src, query, schema, &strategy, config)?;
             }
 
             writeln!(src)?;
@@ -240,14 +240,7 @@ impl Codegen for KotlinCodegen {
     }
 }
 
-fn emit_kotlin_query(
-    src: &mut String,
-    query: &Query,
-    schema: &Schema,
-    target: JdbcTarget,
-    strategy: &ListParamStrategy,
-    config: &OutputConfig,
-) -> anyhow::Result<()> {
+fn emit_kotlin_query(src: &mut String, query: &Query, schema: &Schema, strategy: &ListParamStrategy, config: &OutputConfig) -> anyhow::Result<()> {
     let ctx = QueryContext {
         query,
         schema,
@@ -259,7 +252,7 @@ fn emit_kotlin_query(
     };
 
     if let Some(lp) = query.params.iter().find(|p| p.is_list) {
-        match jdbc::resolve_list_strategy(target, strategy, query, lp) {
+        match jdbc::resolve_list_strategy(strategy, lp) {
             ListAction::PgNative(sql) => emit_kotlin_list_pg_native(src, &ctx, lp, &sql, config),
             ListAction::Dynamic => emit_kotlin_list_dynamic(src, &ctx, lp, config),
             ListAction::JsonNative(sql) => emit_kotlin_list_json_native(src, &ctx, lp, &sql, config),

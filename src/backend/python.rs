@@ -7,7 +7,7 @@ use crate::backend::naming::{to_pascal_case, to_snake_case};
 use crate::backend::sql_rewrite::{positional_bind_names, rewrite_to_anon_params, rewrite_to_percent_s, split_at_in_clause};
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::{resolve_type_ref, Engine, ListParamStrategy, OutputConfig, ResolvedType, TypeVariant};
-use crate::ir::{Parameter, Query, QueryCmd, Schema, SqlType};
+use crate::ir::{NativeListBind, Parameter, Query, QueryCmd, Schema, SqlType};
 
 /// Resolve any configured type override for the given SQL type and variant.
 ///
@@ -340,50 +340,55 @@ fn emit_python_list_query(
 
     writeln!(src, "def {fn_name}({params_sig}) -> {return_type}:")?;
 
-    match (target, strategy) {
-        (PythonTarget::Postgres, ListParamStrategy::Native) => {
-            // psycopg3 accepts a Python list for = ANY(%s)
-            let scalar_args = build_scalar_args(&scalar_params, lp, &lp_name);
-            writeln!(src, "    with conn.cursor() as cur:")?;
-            writeln!(src, "        cur.execute({const_name}, {scalar_args})")?;
-            emit_python_result_block(src, query, schema, "cur", "        ")?;
+    match strategy {
+        ListParamStrategy::Native => match &lp.native_list_bind {
+            Some(NativeListBind::Array) => {
+                // psycopg3 accepts a Python list for = ANY(%s); no JSON serialization needed
+                let scalar_args = build_scalar_args(&scalar_params, lp, &lp_name);
+                writeln!(src, "    with conn.cursor() as cur:")?;
+                writeln!(src, "        cur.execute({const_name}, {scalar_args})")?;
+                emit_python_result_block(src, query, schema, "cur", "        ")?;
+            },
+            Some(NativeListBind::Json) | None => {
+                // SQLite/MySQL: serialize the list to a JSON string before binding
+                writeln!(src, "    import json")?;
+                writeln!(src, "    {lp_name}_json = json.dumps({lp_name})")?;
+                let scalar_args = build_scalar_args(&scalar_params, lp, &format!("{lp_name}_json"));
+                match target {
+                    PythonTarget::Sqlite => {
+                        writeln!(src, "    cur = conn.execute({const_name}, {scalar_args})")?;
+                        emit_python_result_block(src, query, schema, "cur", "    ")?;
+                    },
+                    PythonTarget::Postgres | PythonTarget::Mysql => {
+                        writeln!(src, "    with conn.cursor() as cur:")?;
+                        writeln!(src, "        cur.execute({const_name}, {scalar_args})")?;
+                        emit_python_result_block(src, query, schema, "cur", "        ")?;
+                    },
+                }
+            },
         },
-        (PythonTarget::Sqlite, ListParamStrategy::Native) => {
-            writeln!(src, "    import json")?;
-            writeln!(src, "    {lp_name}_json = json.dumps({lp_name})")?;
-            let scalar_args = build_scalar_args(&scalar_params, lp, &format!("{lp_name}_json"));
-            writeln!(src, "    cur = conn.execute({const_name}, {scalar_args})")?;
-            emit_python_result_block(src, query, schema, "cur", "    ")?;
-        },
-        (PythonTarget::Mysql, ListParamStrategy::Native) => {
-            // mysql-connector: pass JSON string
-            writeln!(src, "    import json")?;
-            writeln!(src, "    {lp_name}_json = json.dumps({lp_name})")?;
-            let scalar_args = build_scalar_args(&scalar_params, lp, &format!("{lp_name}_json"));
-            writeln!(src, "    with conn.cursor() as cur:")?;
-            writeln!(src, "        cur.execute({const_name}, {scalar_args})")?;
-            emit_python_result_block(src, query, schema, "cur", "        ")?;
-        },
-        (PythonTarget::Postgres | PythonTarget::Mysql, ListParamStrategy::Dynamic) => {
-            let (before_raw, after_raw) = split_at_in_clause(&query.sql, lp.index).unwrap_or_else(|| (query.sql.clone(), String::new()));
-            let before = normalize_sql(&before_raw, target).replace('"', "\\\"").replace('\n', " ");
-            let after = normalize_sql(&after_raw, target).replace('"', "\\\"").replace('\n', " ");
-            let args_expr = build_dynamic_args(&scalar_params, lp);
-            writeln!(src, "    placeholders = \", \".join([\"%s\"] * len({lp_name}))")?;
-            writeln!(src, "    sql = f\"{before}IN ({{placeholders}}){after}\"")?;
-            writeln!(src, "    with conn.cursor() as cur:")?;
-            writeln!(src, "        cur.execute(sql, {args_expr})")?;
-            emit_python_result_block(src, query, schema, "cur", "        ")?;
-        },
-        (PythonTarget::Sqlite, ListParamStrategy::Dynamic) => {
-            let (before_raw, after_raw) = split_at_in_clause(&query.sql, lp.index).unwrap_or_else(|| (query.sql.clone(), String::new()));
-            let before = rewrite_to_anon_params(&before_raw).replace('"', "\\\"").replace('\n', " ");
-            let after = rewrite_to_anon_params(&after_raw).replace('"', "\\\"").replace('\n', " ");
-            let args_expr = build_dynamic_args(&scalar_params, lp);
-            writeln!(src, "    placeholders = \", \".join([\"?\"] * len({lp_name}))")?;
-            writeln!(src, "    sql = f\"{before}IN ({{placeholders}}){after}\"")?;
-            writeln!(src, "    cur = conn.execute(sql, {args_expr})")?;
-            emit_python_result_block(src, query, schema, "cur", "    ")?;
+        ListParamStrategy::Dynamic => match target {
+            PythonTarget::Postgres | PythonTarget::Mysql => {
+                let (before_raw, after_raw) = split_at_in_clause(&query.sql, lp.index).unwrap_or_else(|| (query.sql.clone(), String::new()));
+                let before = normalize_sql(&before_raw, target).replace('"', "\\\"").replace('\n', " ");
+                let after = normalize_sql(&after_raw, target).replace('"', "\\\"").replace('\n', " ");
+                let args_expr = build_dynamic_args(&scalar_params, lp);
+                writeln!(src, "    placeholders = \", \".join([\"%s\"] * len({lp_name}))")?;
+                writeln!(src, "    sql = f\"{before}IN ({{placeholders}}){after}\"")?;
+                writeln!(src, "    with conn.cursor() as cur:")?;
+                writeln!(src, "        cur.execute(sql, {args_expr})")?;
+                emit_python_result_block(src, query, schema, "cur", "        ")?;
+            },
+            PythonTarget::Sqlite => {
+                let (before_raw, after_raw) = split_at_in_clause(&query.sql, lp.index).unwrap_or_else(|| (query.sql.clone(), String::new()));
+                let before = rewrite_to_anon_params(&before_raw).replace('"', "\\\"").replace('\n', " ");
+                let after = rewrite_to_anon_params(&after_raw).replace('"', "\\\"").replace('\n', " ");
+                let args_expr = build_dynamic_args(&scalar_params, lp);
+                writeln!(src, "    placeholders = \", \".join([\"?\"] * len({lp_name}))")?;
+                writeln!(src, "    sql = f\"{before}IN ({{placeholders}}){after}\"")?;
+                writeln!(src, "    cur = conn.execute(sql, {args_expr})")?;
+                emit_python_result_block(src, query, schema, "cur", "    ")?;
+            },
         },
     }
 

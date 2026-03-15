@@ -281,7 +281,15 @@ mod tests {
 
     #[test]
     fn test_rewrite_list_sql_native_pg_array() {
-        let lp = Parameter { index: 1, name: "ids".to_string(), sql_type: SqlType::Integer, nullable: false, is_list: true, native_list_sql: None };
+        let lp = Parameter {
+            index: 1,
+            name: "ids".to_string(),
+            sql_type: SqlType::Integer,
+            nullable: false,
+            is_list: true,
+            native_list_sql: None,
+            native_list_bind: None,
+        };
         let sql = "SELECT * FROM t WHERE id IN ($1)";
         let result = rewrite_list_sql_native(sql, &lp, ListRewriteTarget::PgArray);
         assert_eq!(result, "SELECT * FROM t WHERE id = ANY($1)");
@@ -289,7 +297,15 @@ mod tests {
 
     #[test]
     fn test_rewrite_list_sql_native_json_each() {
-        let lp = Parameter { index: 1, name: "ids".to_string(), sql_type: SqlType::Integer, nullable: false, is_list: true, native_list_sql: None };
+        let lp = Parameter {
+            index: 1,
+            name: "ids".to_string(),
+            sql_type: SqlType::Integer,
+            nullable: false,
+            is_list: true,
+            native_list_sql: None,
+            native_list_bind: None,
+        };
         let sql = "SELECT * FROM t WHERE id IN ($1)";
         let result = rewrite_list_sql_native(sql, &lp, ListRewriteTarget::JsonEach("?".to_string()));
         assert_eq!(result, "SELECT * FROM t WHERE id IN (SELECT value FROM json_each(?))");
@@ -297,7 +313,15 @@ mod tests {
 
     #[test]
     fn test_rewrite_list_sql_native_json_table() {
-        let lp = Parameter { index: 1, name: "ids".to_string(), sql_type: SqlType::Integer, nullable: false, is_list: true, native_list_sql: None };
+        let lp = Parameter {
+            index: 1,
+            name: "ids".to_string(),
+            sql_type: SqlType::Integer,
+            nullable: false,
+            is_list: true,
+            native_list_sql: None,
+            native_list_bind: None,
+        };
         let sql = "SELECT * FROM t WHERE id IN ($1)";
         let result = rewrite_list_sql_native(sql, &lp, ListRewriteTarget::JsonTable { placeholder: "%s".to_string(), col_type: "INT".to_string() });
         assert_eq!(result, "SELECT * FROM t WHERE id IN (SELECT value FROM JSON_TABLE(%s,'$[*]' COLUMNS(value INT PATH '$')) t)");
@@ -305,7 +329,15 @@ mod tests {
 
     #[test]
     fn test_rewrite_list_sql_native_not_found_falls_back() {
-        let lp = Parameter { index: 1, name: "ids".to_string(), sql_type: SqlType::Integer, nullable: false, is_list: true, native_list_sql: None };
+        let lp = Parameter {
+            index: 1,
+            name: "ids".to_string(),
+            sql_type: SqlType::Integer,
+            nullable: false,
+            is_list: true,
+            native_list_sql: None,
+            native_list_bind: None,
+        };
         let sql = "SELECT * FROM t WHERE id = $1";
         let result = rewrite_list_sql_native(sql, &lp, ListRewriteTarget::PgArray);
         assert_eq!(result, sql);

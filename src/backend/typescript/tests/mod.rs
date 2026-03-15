@@ -1,7 +1,7 @@
 use super::*;
 use crate::backend::test_helpers::get_file;
 use crate::config::OutputConfig;
-use crate::ir::{Column, Parameter, Query, ResultColumn, Schema, SqlType, Table};
+use crate::ir::{Column, NativeListBind, Parameter, Query, ResultColumn, Schema, SqlType, Table};
 
 pub fn schema_with_users() -> Schema {
     Schema {

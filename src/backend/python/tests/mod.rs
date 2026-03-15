@@ -1,7 +1,7 @@
 use super::*;
 use crate::backend::test_helpers::{cfg, get_file, user_table};
 use crate::config::OutputConfig;
-use crate::ir::{Column, Parameter, Query, ResultColumn, Schema, SqlType, Table};
+use crate::ir::{Column, NativeListBind, Parameter, Query, ResultColumn, Schema, SqlType, Table};
 
 pub fn pg() -> PythonCodegen {
     PythonCodegen { target: PythonTarget::Postgres }

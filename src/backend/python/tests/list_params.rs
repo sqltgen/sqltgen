@@ -8,7 +8,7 @@ fn test_generate_pg_native_list_param() {
     let query = Query::many(
         "GetByIds",
         "SELECT id FROM t WHERE id IN ($1)",
-        vec![Parameter::list(1, "ids", SqlType::BigInt, false).with_native_list_sql("SELECT id FROM t WHERE id = ANY($1)")],
+        vec![Parameter::list(1, "ids", SqlType::BigInt, false).with_native_list("SELECT id FROM t WHERE id = ANY($1)", NativeListBind::Array)],
         vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
@@ -27,7 +27,10 @@ fn test_generate_pg_native_list_param_with_scalar() {
     let query = Query::many(
         "GetByIds",
         "SELECT id FROM t WHERE active = $1 AND id IN ($2)",
-        vec![Parameter::scalar(1, "active", SqlType::Boolean, false), Parameter::list(2, "ids", SqlType::BigInt, false)],
+        vec![
+            Parameter::scalar(1, "active", SqlType::Boolean, false),
+            Parameter::list(2, "ids", SqlType::BigInt, false).with_native_list("SELECT id FROM t WHERE active = $1 AND id = ANY($2)", NativeListBind::Array),
+        ],
         vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
@@ -44,7 +47,8 @@ fn test_generate_sqlite_native_list_param() {
     let query = Query::many(
         "GetByIds",
         "SELECT id FROM t WHERE id IN ($1)",
-        vec![Parameter::list(1, "ids", SqlType::BigInt, false).with_native_list_sql("SELECT id FROM t WHERE id IN (SELECT value FROM json_each($1))")],
+        vec![Parameter::list(1, "ids", SqlType::BigInt, false)
+            .with_native_list("SELECT id FROM t WHERE id IN (SELECT value FROM json_each($1))", NativeListBind::Json)],
         vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
     );
     let files = sq().generate(&schema, &[query], &cfg()).unwrap();
@@ -65,7 +69,7 @@ fn test_generate_mysql_native_list_param() {
         "GetByIds",
         "SELECT id FROM t WHERE id IN ($1)",
         vec![Parameter::list(1, "ids", SqlType::BigInt, false)
-            .with_native_list_sql("SELECT id FROM t WHERE id IN (SELECT value FROM JSON_TABLE($1,'$[*]' COLUMNS(value BIGINT PATH '$')) t)")],
+            .with_native_list("SELECT id FROM t WHERE id IN (SELECT value FROM JSON_TABLE($1,'$[*]' COLUMNS(value BIGINT PATH '$')) t)", NativeListBind::Json)],
         vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
     );
     let files = my().generate(&schema, &[query], &cfg()).unwrap();
@@ -184,7 +188,7 @@ fn test_generate_list_param_execrows_cmd() {
     let query = Query::exec_rows(
         "DeleteByIds",
         "DELETE FROM t WHERE id IN ($1)",
-        vec![Parameter::list(1, "ids", SqlType::BigInt, false).with_native_list_sql("DELETE FROM t WHERE id = ANY($1)")],
+        vec![Parameter::list(1, "ids", SqlType::BigInt, false).with_native_list("DELETE FROM t WHERE id = ANY($1)", NativeListBind::Array)],
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.py");

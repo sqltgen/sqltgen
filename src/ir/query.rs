@@ -1,5 +1,22 @@
 use super::types::SqlType;
 
+/// How a native list parameter is bound to the query at the driver level.
+///
+/// Set by the dialect frontend alongside [`Parameter::native_list_sql`]. Tells
+/// backends which binding code to emit without needing to inspect the source dialect.
+#[derive(Debug, Clone, PartialEq)]
+pub enum NativeListBind {
+    /// Pass the list directly as a driver-native array.
+    ///
+    /// PostgreSQL: JDBC `createArrayOf`, sqlx `Vec<T>`, psycopg3 list, pg JS array.
+    Array,
+    /// Serialize the list to a JSON string before binding.
+    ///
+    /// SQLite (`json_each`) and MySQL (`JSON_TABLE`): the driver receives a single
+    /// JSON array string which the database function unpacks inside the query.
+    Json,
+}
+
 #[derive(Debug, Clone)]
 pub struct Query {
     /// Camel-case name from the `-- name: Foo :cmd` annotation.
@@ -98,24 +115,30 @@ pub struct Parameter {
     /// `$N → ?` for JDBC/SQLite/MySQL). `None` for non-list parameters and
     /// for dialects that do not support native list expansion.
     pub native_list_sql: Option<String>,
+    /// How this list parameter must be bound when `native_list_sql` is used.
+    ///
+    /// Set alongside `native_list_sql` by the dialect frontend. `None` when
+    /// no native SQL is available.
+    pub native_list_bind: Option<NativeListBind>,
 }
 
 impl Parameter {
     /// Construct a scalar (non-list) parameter.
     pub fn scalar(index: usize, name: impl Into<String>, sql_type: SqlType, nullable: bool) -> Self {
-        Self { index, name: name.into(), sql_type, nullable, is_list: false, native_list_sql: None }
+        Self { index, name: name.into(), sql_type, nullable, is_list: false, native_list_sql: None, native_list_bind: None }
     }
 
     /// Construct a list parameter (`-- @name type[] not null`).
     pub fn list(index: usize, name: impl Into<String>, sql_type: SqlType, nullable: bool) -> Self {
-        Self { index, name: name.into(), sql_type, nullable, is_list: true, native_list_sql: None }
+        Self { index, name: name.into(), sql_type, nullable, is_list: true, native_list_sql: None, native_list_bind: None }
     }
 
-    /// Set `native_list_sql`, consuming `self` (builder-style).
+    /// Set `native_list_sql` and `native_list_bind` together, consuming `self` (builder-style).
     ///
     /// Used in tests to simulate what dialect frontends compute.
-    pub fn with_native_list_sql(mut self, sql: impl Into<String>) -> Self {
+    pub fn with_native_list(mut self, sql: impl Into<String>, bind: NativeListBind) -> Self {
         self.native_list_sql = Some(sql.into());
+        self.native_list_bind = Some(bind);
         self
     }
 }

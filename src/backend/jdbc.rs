@@ -4,7 +4,7 @@ use crate::backend::common::{infer_row_type_name, infer_table, jdbc_bind_sequenc
 use crate::backend::naming::{to_camel_case, to_pascal_case};
 use crate::backend::sql_rewrite::{rewrite_to_anon_params, split_at_in_clause};
 use crate::config::{Engine, ListParamStrategy};
-use crate::ir::{Parameter, Query, QueryCmd, Schema, SqlType};
+use crate::ir::{NativeListBind, Parameter, Query, QueryCmd, Schema, SqlType};
 
 /// Database engine target shared by all JDBC backends (Java, Kotlin).
 ///
@@ -127,19 +127,18 @@ pub enum ListAction {
     JsonNative(String),
 }
 
-/// Resolve the list-param action for a given JDBC target and strategy setting.
+/// Resolve the list-param action for a given strategy setting and parameter.
 ///
-/// Uses the pre-computed `native_list_sql` from the IR (set by the dialect
-/// frontend) so this function no longer contains any dialect-specific SQL logic.
+/// Uses the pre-computed `native_list_sql` and `native_list_bind` from the IR
+/// (set by the dialect frontend) so this function contains no dialect-specific logic.
 /// Falls back to dynamic expansion when native SQL is unavailable or not requested.
-pub fn resolve_list_strategy(target: JdbcTarget, strategy: &ListParamStrategy, _query: &Query, lp: &Parameter) -> ListAction {
+pub fn resolve_list_strategy(strategy: &ListParamStrategy, lp: &Parameter) -> ListAction {
     if *strategy == ListParamStrategy::Native {
-        if let Some(native_sql) = &lp.native_list_sql {
-            // Rewrite all $N → ? for JDBC and use the pre-computed SQL.
+        if let (Some(native_sql), Some(bind)) = (&lp.native_list_sql, &lp.native_list_bind) {
             let sql = rewrite_to_anon_params(native_sql);
-            return match target {
-                JdbcTarget::Postgres => ListAction::PgNative(sql),
-                JdbcTarget::Sqlite | JdbcTarget::Mysql => ListAction::JsonNative(sql),
+            return match bind {
+                NativeListBind::Array => ListAction::PgNative(sql),
+                NativeListBind::Json => ListAction::JsonNative(sql),
             };
         }
     }
@@ -374,10 +373,10 @@ mod tests {
         let q = make_query(
             "GetUsers",
             "SELECT * FROM users WHERE id IN ($1)",
-            vec![Parameter::list(1, "ids", SqlType::BigInt, false).with_native_list_sql("SELECT * FROM users WHERE id = ANY($1)")],
+            vec![Parameter::list(1, "ids", SqlType::BigInt, false).with_native_list("SELECT * FROM users WHERE id = ANY($1)", NativeListBind::Array)],
         );
         let lp = &q.params[0];
-        match resolve_list_strategy(JdbcTarget::Postgres, &ListParamStrategy::Native, &q, lp) {
+        match resolve_list_strategy(&ListParamStrategy::Native, lp) {
             ListAction::PgNative(sql) => assert!(sql.contains("= ANY(")),
             other => panic!("expected PgNative, got {:?}", std::mem::discriminant(&other)),
         }
@@ -387,7 +386,7 @@ mod tests {
     fn test_resolve_list_strategy_dynamic() {
         let q = make_query("GetUsers", "SELECT * FROM users WHERE id IN ($1)", vec![Parameter::list(1, "ids", SqlType::BigInt, false)]);
         let lp = &q.params[0];
-        assert!(matches!(resolve_list_strategy(JdbcTarget::Postgres, &ListParamStrategy::Dynamic, &q, lp), ListAction::Dynamic));
+        assert!(matches!(resolve_list_strategy(&ListParamStrategy::Dynamic, lp), ListAction::Dynamic));
     }
 
     #[test]
