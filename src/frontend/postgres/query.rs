@@ -114,6 +114,29 @@ mod tests {
         assert_eq!(queries.len(), 3);
     }
 
+    #[test]
+    fn test_is_null_param_inferred_as_nullable() {
+        // Pattern: `(@id::bigint IS NULL OR tbl.id = @id::bigint)` — a named param
+        // checked for NULL must be inferred as nullable so backends emit an
+        // Option/nullable type rather than a non-null type.
+        let sql = "-- name: FilterById :many\nSELECT id, name FROM users WHERE (@id::bigint IS NULL OR id = @id::bigint);";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        assert_eq!(q.params.len(), 1);
+        assert_eq!(q.params[0].name, "id");
+        assert_eq!(q.params[0].sql_type, SqlType::BigInt);
+        assert!(q.params[0].nullable, "param inside IS NULL must be inferred as nullable");
+    }
+
+    #[test]
+    fn test_is_null_plain_placeholder_inferred_as_nullable() {
+        // Same pattern with a plain $1 placeholder (no named params).
+        let sql = "-- name: FilterById :many\nSELECT id, name FROM users WHERE ($1 IS NULL OR id = $1);";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        assert_eq!(q.params.len(), 1);
+        assert_eq!(q.params[0].sql_type, SqlType::BigInt);
+        assert!(q.params[0].nullable, "plain $1 inside IS NULL must be inferred as nullable");
+    }
+
     // ─── Bug C: list-param patterns with named params ─────────────────────────
 
     #[test]

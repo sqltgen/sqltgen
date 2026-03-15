@@ -34,10 +34,12 @@ pub(super) fn collect_select_params(
     if !all_tables.is_empty() {
         if let Some(expr) = &select.selection {
             collect_params_from_expr(expr, ctx);
+            mark_is_null_nullable(expr, ctx.mapping);
         }
         collect_join_params(select, ctx);
         if let Some(expr) = &select.having {
             collect_params_from_expr(expr, ctx);
+            mark_is_null_nullable(expr, ctx.mapping);
         }
     }
     collect_projection_params(select, ctx);
@@ -279,6 +281,55 @@ pub(super) fn collect_params_from_expr(expr: &Expr, ctx: &mut ResolverContext) {
                     }
                 }
             }
+        },
+        _ => {},
+    }
+}
+
+/// Extracts the positional index from a placeholder expression, unwrapping through
+/// `CAST(… AS type)` and `(…)` nesting.
+///
+/// Returns `Some(idx)` for `$N`, `$N::type`, and `($N::type)`. Returns `None` for
+/// any other expression shape. Used to detect nullable placeholder contexts
+/// such as `$1 IS NULL` and `$1::bigint IS NULL`.
+fn placeholder_idx_in_expr(expr: &Expr) -> Option<usize> {
+    match expr {
+        Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) => placeholder_idx(p),
+        Expr::Cast { expr, .. } => {
+            if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = expr.as_ref() {
+                placeholder_idx(p)
+            } else {
+                None
+            }
+        },
+        Expr::Nested(inner) => placeholder_idx_in_expr(inner),
+        _ => None,
+    }
+}
+
+/// Walk an expression tree and mark any placeholder that appears directly inside
+/// `IS NULL` or `IS NOT NULL` as nullable in `mapping`.
+///
+/// This is a second pass over the WHERE/HAVING expression, run after the main
+/// type-inference pass so all parameter types are already present in `mapping`.
+/// The two-pass approach is necessary because `$1 IS NULL OR col = $1` processes
+/// the IS NULL branch before the comparison that inserts the entry.
+fn mark_is_null_nullable(expr: &Expr, mapping: &mut HashMap<usize, (String, SqlType, bool)>) {
+    match expr {
+        Expr::IsNull(inner) | Expr::IsNotNull(inner) => {
+            if let Some(idx) = placeholder_idx_in_expr(inner) {
+                if let Some(entry) = mapping.get_mut(&idx) {
+                    entry.2 = true;
+                }
+            }
+            mark_is_null_nullable(inner, mapping);
+        },
+        Expr::BinaryOp { left, right, .. } => {
+            mark_is_null_nullable(left, mapping);
+            mark_is_null_nullable(right, mapping);
+        },
+        Expr::Nested(inner) | Expr::UnaryOp { expr: inner, .. } | Expr::Cast { expr: inner, .. } => {
+            mark_is_null_nullable(inner, mapping);
         },
         _ => {},
     }
