@@ -5,5 +5,5 @@ data class SaleItem(
     val saleId: Int,
     val bookId: Int,
     val quantity: Int,
-    val unitPrice: java.math.BigDecimal
+    val unitPrice: Double
 )

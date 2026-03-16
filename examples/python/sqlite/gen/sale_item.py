@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import dataclasses
-import decimal
 
 
 @dataclasses.dataclass
@@ -11,4 +10,4 @@ class SaleItem:
     sale_id: int
     book_id: int
     quantity: int
-    unit_price: decimal.Decimal
+    unit_price: float

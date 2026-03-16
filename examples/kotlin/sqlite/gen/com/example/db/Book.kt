@@ -5,6 +5,6 @@ data class Book(
     val authorId: Int,
     val title: String,
     val genre: String,
-    val price: java.math.BigDecimal,
+    val price: Double,
     val publishedAt: String?
 )

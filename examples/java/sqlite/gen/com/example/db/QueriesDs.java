@@ -31,7 +31,7 @@ public final class QueriesDs {
         }
     }
 
-    public void createBook(int authorId, String title, String genre, java.math.BigDecimal price, String publishedAt) throws SQLException {
+    public void createBook(int authorId, String title, String genre, double price, String publishedAt) throws SQLException {
         try (Connection conn = dataSource.getConnection()) {
             Queries.createBook(conn, authorId, title, genre, price, publishedAt);
         }
@@ -73,7 +73,7 @@ public final class QueriesDs {
         }
     }
 
-    public void addSaleItem(int saleId, int bookId, int quantity, java.math.BigDecimal unitPrice) throws SQLException {
+    public void addSaleItem(int saleId, int bookId, int quantity, double unitPrice) throws SQLException {
         try (Connection conn = dataSource.getConnection()) {
             Queries.addSaleItem(conn, saleId, bookId, quantity, unitPrice);
         }

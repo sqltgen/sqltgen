@@ -13,7 +13,7 @@ class QueriesDs(private val dataSource: DataSource) {
     fun listAuthors(): List<Author> =
         dataSource.connection.use { conn -> Queries.listAuthors(conn) }
 
-    fun createBook(authorId: Int, title: String, genre: String, price: java.math.BigDecimal, publishedAt: String?): Unit =
+    fun createBook(authorId: Int, title: String, genre: String, price: Double, publishedAt: String?): Unit =
         dataSource.connection.use { conn -> Queries.createBook(conn, authorId, title, genre, price, publishedAt) }
 
     fun getBook(id: Int): Book? =
@@ -34,7 +34,7 @@ class QueriesDs(private val dataSource: DataSource) {
     fun createSale(customerId: Int): Unit =
         dataSource.connection.use { conn -> Queries.createSale(conn, customerId) }
 
-    fun addSaleItem(saleId: Int, bookId: Int, quantity: Int, unitPrice: java.math.BigDecimal): Unit =
+    fun addSaleItem(saleId: Int, bookId: Int, quantity: Int, unitPrice: Double): Unit =
         dataSource.connection.use { conn -> Queries.addSaleItem(conn, saleId, bookId, quantity, unitPrice) }
 
     fun listBooksWithAuthor(): List<Queries.ListBooksWithAuthorRow> =

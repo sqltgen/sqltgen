@@ -48,12 +48,12 @@ public final class Queries {
 
     private static final String SQL_CREATE_BOOK =
         "INSERT INTO book (author_id, title, genre, price, published_at) VALUES (?, ?, ?, ?, ?);";
-    public static void createBook(Connection conn, int authorId, String title, String genre, java.math.BigDecimal price, String publishedAt) throws SQLException {
+    public static void createBook(Connection conn, int authorId, String title, String genre, double price, String publishedAt) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_CREATE_BOOK)) {
             ps.setInt(1, authorId);
             ps.setString(2, title);
             ps.setString(3, genre);
-            ps.setBigDecimal(4, price);
+            ps.setDouble(4, price);
             ps.setObject(5, publishedAt);
             ps.executeUpdate();
         }
@@ -66,7 +66,7 @@ public final class Queries {
             ps.setInt(1, id);
             try (ResultSet rs = ps.executeQuery()) {
                 if (!rs.next()) return Optional.empty();
-                return Optional.of(new Book(rs.getInt(1), rs.getInt(2), rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getString(6)));
+                return Optional.of(new Book(rs.getInt(1), rs.getInt(2), rs.getString(3), rs.getString(4), rs.getDouble(5), rs.getString(6)));
             }
         }
     }
@@ -79,7 +79,7 @@ public final class Queries {
             ps.setString(1, json);
             List<Book> rows = new ArrayList<>();
             try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) rows.add(new Book(rs.getInt(1), rs.getInt(2), rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getString(6)));
+                while (rs.next()) rows.add(new Book(rs.getInt(1), rs.getInt(2), rs.getString(3), rs.getString(4), rs.getDouble(5), rs.getString(6)));
             }
             return rows;
         }
@@ -92,7 +92,7 @@ public final class Queries {
             ps.setString(1, genre);
             List<Book> rows = new ArrayList<>();
             try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) rows.add(new Book(rs.getInt(1), rs.getInt(2), rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getString(6)));
+                while (rs.next()) rows.add(new Book(rs.getInt(1), rs.getInt(2), rs.getString(3), rs.getString(4), rs.getDouble(5), rs.getString(6)));
             }
             return rows;
         }
@@ -106,7 +106,7 @@ public final class Queries {
             ps.setString(2, genre);
             List<Book> rows = new ArrayList<>();
             try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) rows.add(new Book(rs.getInt(1), rs.getInt(2), rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getString(6)));
+                while (rs.next()) rows.add(new Book(rs.getInt(1), rs.getInt(2), rs.getString(3), rs.getString(4), rs.getDouble(5), rs.getString(6)));
             }
             return rows;
         }
@@ -133,12 +133,12 @@ public final class Queries {
 
     private static final String SQL_ADD_SALE_ITEM =
         "INSERT INTO sale_item (sale_id, book_id, quantity, unit_price) VALUES (?, ?, ?, ?);";
-    public static void addSaleItem(Connection conn, int saleId, int bookId, int quantity, java.math.BigDecimal unitPrice) throws SQLException {
+    public static void addSaleItem(Connection conn, int saleId, int bookId, int quantity, double unitPrice) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_ADD_SALE_ITEM)) {
             ps.setInt(1, saleId);
             ps.setInt(2, bookId);
             ps.setInt(3, quantity);
-            ps.setBigDecimal(4, unitPrice);
+            ps.setDouble(4, unitPrice);
             ps.executeUpdate();
         }
     }
@@ -147,7 +147,7 @@ public final class Queries {
         int id,
         String title,
         String genre,
-        java.math.BigDecimal price,
+        double price,
         String publishedAt,
         String authorName,
         String authorBio
@@ -159,7 +159,7 @@ public final class Queries {
         try (PreparedStatement ps = conn.prepareStatement(SQL_LIST_BOOKS_WITH_AUTHOR)) {
             List<ListBooksWithAuthorRow> rows = new ArrayList<>();
             try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) rows.add(new ListBooksWithAuthorRow(rs.getInt(1), rs.getString(2), rs.getString(3), rs.getBigDecimal(4), rs.getString(5), rs.getString(6), rs.getString(7)));
+                while (rs.next()) rows.add(new ListBooksWithAuthorRow(rs.getInt(1), rs.getString(2), rs.getString(3), rs.getDouble(4), rs.getString(5), rs.getString(6), rs.getString(7)));
             }
             return rows;
         }
@@ -171,7 +171,7 @@ public final class Queries {
         try (PreparedStatement ps = conn.prepareStatement(SQL_GET_BOOKS_NEVER_ORDERED)) {
             List<Book> rows = new ArrayList<>();
             try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) rows.add(new Book(rs.getInt(1), rs.getInt(2), rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getString(6)));
+                while (rs.next()) rows.add(new Book(rs.getInt(1), rs.getInt(2), rs.getString(3), rs.getString(4), rs.getDouble(5), rs.getString(6)));
             }
             return rows;
         }
@@ -181,7 +181,7 @@ public final class Queries {
         int id,
         String title,
         String genre,
-        java.math.BigDecimal price,
+        double price,
         Long unitsSold
     ) {}
 
@@ -191,7 +191,7 @@ public final class Queries {
         try (PreparedStatement ps = conn.prepareStatement(SQL_GET_TOP_SELLING_BOOKS)) {
             List<GetTopSellingBooksRow> rows = new ArrayList<>();
             try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) rows.add(new GetTopSellingBooksRow(rs.getInt(1), rs.getString(2), rs.getString(3), rs.getBigDecimal(4), getNullableLong(rs, 5)));
+                while (rs.next()) rows.add(new GetTopSellingBooksRow(rs.getInt(1), rs.getString(2), rs.getString(3), rs.getDouble(4), getNullableLong(rs, 5)));
             }
             return rows;
         }
@@ -201,7 +201,7 @@ public final class Queries {
         int id,
         String name,
         String email,
-        java.math.BigDecimal totalSpent
+        Double totalSpent
     ) {}
 
     private static final String SQL_GET_BEST_CUSTOMERS =
@@ -210,7 +210,7 @@ public final class Queries {
         try (PreparedStatement ps = conn.prepareStatement(SQL_GET_BEST_CUSTOMERS)) {
             List<GetBestCustomersRow> rows = new ArrayList<>();
             try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) rows.add(new GetBestCustomersRow(rs.getInt(1), rs.getString(2), rs.getString(3), rs.getBigDecimal(4)));
+                while (rs.next()) rows.add(new GetBestCustomersRow(rs.getInt(1), rs.getString(2), rs.getString(3), getNullableDouble(rs, 4)));
             }
             return rows;
         }

@@ -5,6 +5,6 @@ public record Book(
     int authorId,
     String title,
     String genre,
-    java.math.BigDecimal price,
+    double price,
     String publishedAt
 ) {}

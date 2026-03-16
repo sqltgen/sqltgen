@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import dataclasses
 import sqlite3
-import decimal
 
 from .author import Author
 from .book import Book
@@ -41,7 +40,7 @@ def list_authors(conn: sqlite3.Connection) -> list[Author]:
     return [Author(*row) for row in conn.execute(SQL_LIST_AUTHORS).fetchall()]
 
 
-def create_book(conn: sqlite3.Connection, author_id: int, title: str, genre: str, price: decimal.Decimal, published_at: str | None) -> None:
+def create_book(conn: sqlite3.Connection, author_id: int, title: str, genre: str, price: float, published_at: str | None) -> None:
     conn.execute(SQL_CREATE_BOOK, (author_id, title, genre, price, published_at))
 
 
@@ -75,7 +74,7 @@ def create_sale(conn: sqlite3.Connection, customer_id: int) -> None:
     conn.execute(SQL_CREATE_SALE, (customer_id,))
 
 
-def add_sale_item(conn: sqlite3.Connection, sale_id: int, book_id: int, quantity: int, unit_price: decimal.Decimal) -> None:
+def add_sale_item(conn: sqlite3.Connection, sale_id: int, book_id: int, quantity: int, unit_price: float) -> None:
     conn.execute(SQL_ADD_SALE_ITEM, (sale_id, book_id, quantity, unit_price))
 
 
@@ -84,7 +83,7 @@ class ListBooksWithAuthorRow:
     id: int
     title: str
     genre: str
-    price: decimal.Decimal
+    price: float
     published_at: str | None
     author_name: str
     author_bio: str | None
@@ -103,7 +102,7 @@ class GetTopSellingBooksRow:
     id: int
     title: str
     genre: str
-    price: decimal.Decimal
+    price: float
     units_sold: int | None
 
 
@@ -116,7 +115,7 @@ class GetBestCustomersRow:
     id: int
     name: str
     email: str
-    total_spent: decimal.Decimal | None
+    total_spent: float | None
 
 
 def get_best_customers(conn: sqlite3.Connection) -> list[GetBestCustomersRow]:

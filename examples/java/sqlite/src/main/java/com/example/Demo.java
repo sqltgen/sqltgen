@@ -2,7 +2,6 @@ package com.example;
 
 import com.example.db.QueriesDs;
 
-import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -53,11 +52,11 @@ public class Demo {
         q.createAuthor("Isaac Asimov",      null,                                  1920);
         System.out.println("[sqlite] inserted 3 authors");
 
-        q.createBook(1, "The Left Hand of Darkness", "sci-fi", new BigDecimal("12.99"), null);
-        q.createBook(1, "The Dispossessed",           "sci-fi", new BigDecimal("11.50"), null);
-        q.createBook(2, "Dune",                       "sci-fi", new BigDecimal("14.99"), null);
-        q.createBook(3, "Foundation",                 "sci-fi", new BigDecimal("10.99"), null);
-        q.createBook(3, "The Caves of Steel",         "sci-fi", new BigDecimal("9.99"),  null);
+        q.createBook(1, "The Left Hand of Darkness", "sci-fi", 12.99, null);
+        q.createBook(1, "The Dispossessed",           "sci-fi", 11.50, null);
+        q.createBook(2, "Dune",                       "sci-fi", 14.99, null);
+        q.createBook(3, "Foundation",                 "sci-fi", 10.99, null);
+        q.createBook(3, "The Caves of Steel",         "sci-fi",  9.99, null);
         System.out.println("[sqlite] inserted 5 books");
 
         q.createCustomer("Carol", "carol@example.com");
@@ -65,11 +64,11 @@ public class Demo {
         System.out.println("[sqlite] inserted 2 customers");
 
         q.createSale(1);
-        q.addSaleItem(1, 3, 2, new BigDecimal("14.99"));
-        q.addSaleItem(1, 4, 1, new BigDecimal("10.99"));
+        q.addSaleItem(1, 3, 2, 14.99);
+        q.addSaleItem(1, 4, 1, 10.99);
         q.createSale(2);
-        q.addSaleItem(2, 3, 1, new BigDecimal("14.99"));
-        q.addSaleItem(2, 1, 1, new BigDecimal("12.99"));
+        q.addSaleItem(2, 3, 1, 14.99);
+        q.addSaleItem(2, 1, 1, 12.99);
         System.out.println("[sqlite] inserted 2 sales with items");
     }
 

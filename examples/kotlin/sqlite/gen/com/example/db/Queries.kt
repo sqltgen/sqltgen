@@ -37,12 +37,12 @@ object Queries {
     }
 
     private const val SQL_CREATE_BOOK = "INSERT INTO book (author_id, title, genre, price, published_at) VALUES (?, ?, ?, ?, ?);"
-    fun createBook(conn: Connection, authorId: Int, title: String, genre: String, price: java.math.BigDecimal, publishedAt: String?): Unit {
+    fun createBook(conn: Connection, authorId: Int, title: String, genre: String, price: Double, publishedAt: String?): Unit {
         conn.prepareStatement(SQL_CREATE_BOOK).use { ps ->
             ps.setInt(1, authorId)
             ps.setString(2, title)
             ps.setString(3, genre)
-            ps.setBigDecimal(4, price)
+            ps.setDouble(4, price)
             ps.setObject(5, publishedAt)
             ps.executeUpdate()
         }
@@ -54,7 +54,7 @@ object Queries {
             ps.setInt(1, id)
             ps.executeQuery().use { rs ->
                 if (!rs.next()) return null
-                return Book(rs.getInt(1), rs.getInt(2), rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getString(6))
+                return Book(rs.getInt(1), rs.getInt(2), rs.getString(3), rs.getString(4), rs.getDouble(5), rs.getString(6))
             }
         }
     }
@@ -66,7 +66,7 @@ object Queries {
             ps.setString(1, json)
             val rows = mutableListOf<Book>()
             ps.executeQuery().use { rs ->
-                while (rs.next()) rows.add(Book(rs.getInt(1), rs.getInt(2), rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getString(6)))
+                while (rs.next()) rows.add(Book(rs.getInt(1), rs.getInt(2), rs.getString(3), rs.getString(4), rs.getDouble(5), rs.getString(6)))
             }
             return rows
         }
@@ -78,7 +78,7 @@ object Queries {
             ps.setString(1, genre)
             val rows = mutableListOf<Book>()
             ps.executeQuery().use { rs ->
-                while (rs.next()) rows.add(Book(rs.getInt(1), rs.getInt(2), rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getString(6)))
+                while (rs.next()) rows.add(Book(rs.getInt(1), rs.getInt(2), rs.getString(3), rs.getString(4), rs.getDouble(5), rs.getString(6)))
             }
             return rows
         }
@@ -91,7 +91,7 @@ object Queries {
             ps.setString(2, genre)
             val rows = mutableListOf<Book>()
             ps.executeQuery().use { rs ->
-                while (rs.next()) rows.add(Book(rs.getInt(1), rs.getInt(2), rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getString(6)))
+                while (rs.next()) rows.add(Book(rs.getInt(1), rs.getInt(2), rs.getString(3), rs.getString(4), rs.getDouble(5), rs.getString(6)))
             }
             return rows
         }
@@ -115,12 +115,12 @@ object Queries {
     }
 
     private const val SQL_ADD_SALE_ITEM = "INSERT INTO sale_item (sale_id, book_id, quantity, unit_price) VALUES (?, ?, ?, ?);"
-    fun addSaleItem(conn: Connection, saleId: Int, bookId: Int, quantity: Int, unitPrice: java.math.BigDecimal): Unit {
+    fun addSaleItem(conn: Connection, saleId: Int, bookId: Int, quantity: Int, unitPrice: Double): Unit {
         conn.prepareStatement(SQL_ADD_SALE_ITEM).use { ps ->
             ps.setInt(1, saleId)
             ps.setInt(2, bookId)
             ps.setInt(3, quantity)
-            ps.setBigDecimal(4, unitPrice)
+            ps.setDouble(4, unitPrice)
             ps.executeUpdate()
         }
     }
@@ -129,7 +129,7 @@ object Queries {
         val id: Int,
         val title: String,
         val genre: String,
-        val price: java.math.BigDecimal,
+        val price: Double,
         val publishedAt: String?,
         val authorName: String,
         val authorBio: String?
@@ -140,7 +140,7 @@ object Queries {
         conn.prepareStatement(SQL_LIST_BOOKS_WITH_AUTHOR).use { ps ->
             val rows = mutableListOf<ListBooksWithAuthorRow>()
             ps.executeQuery().use { rs ->
-                while (rs.next()) rows.add(ListBooksWithAuthorRow(rs.getInt(1), rs.getString(2), rs.getString(3), rs.getBigDecimal(4), rs.getString(5), rs.getString(6), rs.getString(7)))
+                while (rs.next()) rows.add(ListBooksWithAuthorRow(rs.getInt(1), rs.getString(2), rs.getString(3), rs.getDouble(4), rs.getString(5), rs.getString(6), rs.getString(7)))
             }
             return rows
         }
@@ -151,7 +151,7 @@ object Queries {
         conn.prepareStatement(SQL_GET_BOOKS_NEVER_ORDERED).use { ps ->
             val rows = mutableListOf<Book>()
             ps.executeQuery().use { rs ->
-                while (rs.next()) rows.add(Book(rs.getInt(1), rs.getInt(2), rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getString(6)))
+                while (rs.next()) rows.add(Book(rs.getInt(1), rs.getInt(2), rs.getString(3), rs.getString(4), rs.getDouble(5), rs.getString(6)))
             }
             return rows
         }
@@ -161,7 +161,7 @@ object Queries {
         val id: Int,
         val title: String,
         val genre: String,
-        val price: java.math.BigDecimal,
+        val price: Double,
         val unitsSold: Long?
     )
 
@@ -170,7 +170,7 @@ object Queries {
         conn.prepareStatement(SQL_GET_TOP_SELLING_BOOKS).use { ps ->
             val rows = mutableListOf<GetTopSellingBooksRow>()
             ps.executeQuery().use { rs ->
-                while (rs.next()) rows.add(GetTopSellingBooksRow(rs.getInt(1), rs.getString(2), rs.getString(3), rs.getBigDecimal(4), getNullableLong(rs, 5)))
+                while (rs.next()) rows.add(GetTopSellingBooksRow(rs.getInt(1), rs.getString(2), rs.getString(3), rs.getDouble(4), getNullableLong(rs, 5)))
             }
             return rows
         }
@@ -180,7 +180,7 @@ object Queries {
         val id: Int,
         val name: String,
         val email: String,
-        val totalSpent: java.math.BigDecimal?
+        val totalSpent: Double?
     )
 
     private const val SQL_GET_BEST_CUSTOMERS = "WITH customer_spend AS (     SELECT s.customer_id,            SUM(si.quantity * si.unit_price) AS total_spent     FROM sale s     JOIN sale_item si ON si.sale_id = s.id     GROUP BY s.customer_id ) SELECT c.id, c.name, c.email,        cs.total_spent FROM customer c JOIN customer_spend cs ON cs.customer_id = c.id ORDER BY cs.total_spent DESC;"
@@ -188,7 +188,7 @@ object Queries {
         conn.prepareStatement(SQL_GET_BEST_CUSTOMERS).use { ps ->
             val rows = mutableListOf<GetBestCustomersRow>()
             ps.executeQuery().use { rs ->
-                while (rs.next()) rows.add(GetBestCustomersRow(rs.getInt(1), rs.getString(2), rs.getString(3), rs.getBigDecimal(4)))
+                while (rs.next()) rows.add(GetBestCustomersRow(rs.getInt(1), rs.getString(2), rs.getString(3), getNullableDouble(rs, 4)))
             }
             return rows
         }
