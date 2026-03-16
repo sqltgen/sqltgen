@@ -65,6 +65,13 @@ impl Codegen for PythonCodegen {
     fn generate(&self, schema: &Schema, queries: &[Query], config: &OutputConfig) -> anyhow::Result<Vec<GeneratedFile>> {
         let mut files = Vec::new();
 
+        // Emit the engine-specific helper module
+        let helper = match self.target {
+            PythonTarget::Sqlite => include_str!("python/_sqltgen_sqlite.py"),
+            _ => include_str!("python/_sqltgen_cursor.py"),
+        };
+        files.push(GeneratedFile { path: PathBuf::from(&config.out).join("_sqltgen.py"), content: helper.to_string() });
+
         // One @dataclass file per table
         for table in &schema.tables {
             let class_name = to_pascal_case(&table.name);
@@ -158,6 +165,7 @@ fn build_queries_file(queries: &[Query], schema: &Schema, target: &PythonTarget,
         PythonTarget::Sqlite => writeln!(src, "import sqlite3")?,
         PythonTarget::Mysql => writeln!(src, "import mysql.connector")?,
     }
+    writeln!(src, "from ._sqltgen import execute, exec_stmt")?;
     imports.write(&mut src)?;
 
     // Table imports (sorted, only tables used as return types)
@@ -223,55 +231,44 @@ fn emit_python_query(src: &mut String, ctx: &PythonQueryContext, strategy: &List
     if let Some(lp) = ctx.query.params.iter().find(|p| p.is_list) {
         return emit_python_list_query(src, ctx, strategy, lp);
     }
-    match ctx.target {
-        PythonTarget::Postgres => emit_cursor_query(src, ctx, "psycopg.Connection"),
-        PythonTarget::Mysql => emit_cursor_query(src, ctx, "mysql.connector.MySQLConnection"),
-        PythonTarget::Sqlite => emit_sqlite_query(src, ctx),
+    emit_standard_query(src, ctx)
+}
+
+/// Returns the connection type annotation string for the given target.
+fn conn_type_str(target: &PythonTarget) -> &'static str {
+    match target {
+        PythonTarget::Postgres => "psycopg.Connection",
+        PythonTarget::Mysql => "mysql.connector.MySQLConnection",
+        PythonTarget::Sqlite => "sqlite3.Connection",
     }
 }
 
-/// Emits a query function using a cursor context manager (`with conn.cursor() as cur:`).
-/// Used by both the psycopg (Postgres) and mysql-connector-python (MySQL) targets,
-/// which share the same cursor API and `%s` placeholder style.
-fn emit_cursor_query(src: &mut String, ctx: &PythonQueryContext, conn_type: &str) -> anyhow::Result<()> {
+/// Emits a query function using the `_sqltgen` helper (`execute` / `exec_stmt`).
+/// Engine-agnostic: all three targets produce identical code structure.
+fn emit_standard_query(src: &mut String, ctx: &PythonQueryContext) -> anyhow::Result<()> {
     let fn_name = to_snake_case(&ctx.query.name);
     let const_name = sql_const_name(&ctx.query.name);
     let return_type = cursor_return_type(ctx.query, ctx.schema);
+    let conn_type = conn_type_str(ctx.target);
 
     let params_sig: String = std::iter::once(format!("conn: {conn_type}"))
-        .chain(ctx.query.params.iter().map(|p| format!("{}: {}", to_snake_case(&p.name), python_param_type_resolved(&p.sql_type, p.nullable, ctx.target, ctx.config))))
+        .chain(
+            ctx.query
+                .params
+                .iter()
+                .map(|p| format!("{}: {}", to_snake_case(&p.name), python_param_type_resolved(&p.sql_type, p.nullable, ctx.target, ctx.config))),
+        )
         .collect::<Vec<_>>()
         .join(", ");
 
+    let args = build_helper_args(&const_name, ctx.query);
     writeln!(src, "def {fn_name}({params_sig}) -> {return_type}:")?;
-    writeln!(src, "    with conn.cursor() as cur:")?;
-
-    let execute_call = build_execute_call(&const_name, ctx.query);
-    writeln!(src, "        cur.{execute_call}")?;
-
-    emit_python_result_block(src, ctx, "cur", "        ")
-}
-
-fn emit_sqlite_query(src: &mut String, ctx: &PythonQueryContext) -> anyhow::Result<()> {
-    let fn_name = to_snake_case(&ctx.query.name);
-    let const_name = sql_const_name(&ctx.query.name);
-    let return_type = cursor_return_type(ctx.query, ctx.schema);
-
-    let params_sig: String = std::iter::once("conn: sqlite3.Connection".to_string())
-        .chain(ctx.query.params.iter().map(|p| format!("{}: {}", to_snake_case(&p.name), python_param_type_resolved(&p.sql_type, p.nullable, ctx.target, ctx.config))))
-        .collect::<Vec<_>>()
-        .join(", ");
-
-    writeln!(src, "def {fn_name}({params_sig}) -> {return_type}:")?;
-
-    // sqlite3 uses conn.execute() directly — no cursor context manager
-    let execute_call = build_execute_call(&const_name, ctx.query);
     if ctx.query.cmd == QueryCmd::Exec {
-        writeln!(src, "    conn.{execute_call}")?;
+        writeln!(src, "    exec_stmt({args})")?;
     } else {
-        emit_python_result_block(src, ctx, &format!("conn.{execute_call}"), "    ")?;
+        writeln!(src, "    with execute({args}) as cur:")?;
+        emit_python_result_block(src, ctx, "cur", "        ")?;
     }
-
     Ok(())
 }
 
@@ -279,11 +276,7 @@ fn emit_sqlite_query(src: &mut String, ctx: &PythonQueryContext) -> anyhow::Resu
 fn emit_python_list_query(src: &mut String, ctx: &PythonQueryContext, strategy: &ListParamStrategy, lp: &Parameter) -> anyhow::Result<()> {
     let fn_name = to_snake_case(&ctx.query.name);
     let const_name = sql_const_name(&ctx.query.name);
-    let conn_type = match ctx.target {
-        PythonTarget::Postgres => "psycopg.Connection",
-        PythonTarget::Mysql => "mysql.connector.MySQLConnection",
-        PythonTarget::Sqlite => "sqlite3.Connection",
-    };
+    let conn_type = conn_type_str(ctx.target);
     let return_type = cursor_return_type(ctx.query, ctx.schema);
     let lp_name = to_snake_case(&lp.name);
     let scalar_params: Vec<&Parameter> = ctx.query.params.iter().filter(|p| !p.is_list).collect();
@@ -307,53 +300,42 @@ fn emit_python_list_query(src: &mut String, ctx: &PythonQueryContext, strategy: 
             Some(NativeListBind::Array) => {
                 // psycopg3 accepts a Python list for = ANY(%s); no JSON serialization needed
                 let scalar_args = build_scalar_args(&scalar_params, lp, &lp_name);
-                writeln!(src, "    with conn.cursor() as cur:")?;
-                writeln!(src, "        cur.execute({const_name}, {scalar_args})")?;
-                emit_python_result_block(src, ctx, "cur", "        ")?;
+                emit_list_body(src, ctx, &format!("conn, {const_name}, {scalar_args}"))?;
             },
             Some(NativeListBind::Json) | None => {
                 // SQLite/MySQL: serialize the list to a JSON string before binding
                 writeln!(src, "    import json")?;
                 writeln!(src, "    {lp_name}_json = json.dumps({lp_name})")?;
                 let scalar_args = build_scalar_args(&scalar_params, lp, &format!("{lp_name}_json"));
-                match ctx.target {
-                    PythonTarget::Sqlite => {
-                        writeln!(src, "    cur = conn.execute({const_name}, {scalar_args})")?;
-                        emit_python_result_block(src, ctx, "cur", "    ")?;
-                    },
-                    PythonTarget::Postgres | PythonTarget::Mysql => {
-                        writeln!(src, "    with conn.cursor() as cur:")?;
-                        writeln!(src, "        cur.execute({const_name}, {scalar_args})")?;
-                        emit_python_result_block(src, ctx, "cur", "        ")?;
-                    },
-                }
+                emit_list_body(src, ctx, &format!("conn, {const_name}, {scalar_args}"))?;
             },
         },
-        ListParamStrategy::Dynamic => match ctx.target {
-            PythonTarget::Postgres | PythonTarget::Mysql => {
-                let (before_raw, after_raw) = split_at_in_clause(&ctx.query.sql, lp.index).unwrap_or_else(|| (ctx.query.sql.clone(), String::new()));
-                let before = normalize_sql(&before_raw, ctx.target).replace('"', "\\\"").replace('\n', " ");
-                let after = normalize_sql(&after_raw, ctx.target).replace('"', "\\\"").replace('\n', " ");
-                let args_expr = build_dynamic_args(&scalar_params, lp);
-                writeln!(src, "    placeholders = \", \".join([\"%s\"] * len({lp_name}))")?;
-                writeln!(src, "    sql = f\"{before}IN ({{placeholders}}){after}\"")?;
-                writeln!(src, "    with conn.cursor() as cur:")?;
-                writeln!(src, "        cur.execute(sql, {args_expr})")?;
-                emit_python_result_block(src, ctx, "cur", "        ")?;
-            },
-            PythonTarget::Sqlite => {
-                let (before_raw, after_raw) = split_at_in_clause(&ctx.query.sql, lp.index).unwrap_or_else(|| (ctx.query.sql.clone(), String::new()));
-                let before = rewrite_to_anon_params(&before_raw).replace('"', "\\\"").replace('\n', " ");
-                let after = rewrite_to_anon_params(&after_raw).replace('"', "\\\"").replace('\n', " ");
-                let args_expr = build_dynamic_args(&scalar_params, lp);
-                writeln!(src, "    placeholders = \", \".join([\"?\"] * len({lp_name}))")?;
-                writeln!(src, "    sql = f\"{before}IN ({{placeholders}}){after}\"")?;
-                writeln!(src, "    cur = conn.execute(sql, {args_expr})")?;
-                emit_python_result_block(src, ctx, "cur", "    ")?;
-            },
+        ListParamStrategy::Dynamic => {
+            let placeholder = match ctx.target {
+                PythonTarget::Sqlite => "\"?\"",
+                _ => "\"%s\"",
+            };
+            let (before_raw, after_raw) = split_at_in_clause(&ctx.query.sql, lp.index).unwrap_or_else(|| (ctx.query.sql.clone(), String::new()));
+            let before = normalize_sql(&before_raw, ctx.target).replace('"', "\\\"").replace('\n', " ");
+            let after = normalize_sql(&after_raw, ctx.target).replace('"', "\\\"").replace('\n', " ");
+            let args_expr = build_dynamic_args(&scalar_params, lp);
+            writeln!(src, "    placeholders = \", \".join([{placeholder}] * len({lp_name}))")?;
+            writeln!(src, "    sql = f\"{before}IN ({{placeholders}}){after}\"")?;
+            emit_list_body(src, ctx, &format!("conn, sql, {args_expr}"))?;
         },
     }
 
+    Ok(())
+}
+
+/// Emit the body of a list-param query: `exec_stmt(…)` for Exec, `with execute(…) as cur:` otherwise.
+fn emit_list_body(src: &mut String, ctx: &PythonQueryContext, helper_args: &str) -> anyhow::Result<()> {
+    if ctx.query.cmd == QueryCmd::Exec {
+        writeln!(src, "    exec_stmt({helper_args})")?;
+    } else {
+        writeln!(src, "    with execute({helper_args}) as cur:")?;
+        emit_python_result_block(src, ctx, "cur", "        ")?;
+    }
     Ok(())
 }
 
@@ -415,15 +397,18 @@ fn build_dynamic_args(scalar_params: &[&Parameter], lp: &Parameter) -> String {
     }
 }
 
-fn build_execute_call(const_name: &str, query: &Query) -> String {
+/// Returns the argument string for `execute(…)` / `exec_stmt(…)` helper calls.
+///
+/// Produces `conn, SQL_CONST` (no params) or `conn, SQL_CONST, (a, b, …)` (with params).
+/// Args are in SQL occurrence order so reused params appear multiple times, matching
+/// the positional `%s` / `?` placeholders in the rewritten SQL.
+fn build_helper_args(const_name: &str, query: &Query) -> String {
     if query.params.is_empty() {
-        return format!("execute({const_name})");
+        return format!("conn, {const_name}");
     }
-    // Build args in SQL occurrence order so reused params appear multiple times,
-    // matching the positional %s / ? placeholders in the rewritten SQL.
     let args: Vec<String> = positional_bind_names(query).iter().map(|&n| to_snake_case(n)).collect();
     let tuple = if args.len() == 1 { format!("({},)", args[0]) } else { format!("({})", args.join(", ")) };
-    format!("execute({const_name}, {tuple})")
+    format!("conn, {const_name}, {tuple}")
 }
 
 fn cursor_return_type(query: &Query, schema: &Schema) -> String {

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import sqlite3
+from ._sqltgen import execute, exec_stmt
 
 from .author import Author
 from .book import Book
@@ -26,56 +27,61 @@ SQL_GET_BEST_CUSTOMERS = "WITH customer_spend AS (     SELECT s.customer_id,    
 
 
 def create_author(conn: sqlite3.Connection, name: str, bio: str | None, birth_year: int | None) -> None:
-    conn.execute(SQL_CREATE_AUTHOR, (name, bio, birth_year))
+    exec_stmt(conn, SQL_CREATE_AUTHOR, (name, bio, birth_year))
 
 
 def get_author(conn: sqlite3.Connection, id: int) -> Author | None:
-    row = conn.execute(SQL_GET_AUTHOR, (id,)).fetchone()
-    if row is None:
-        return None
-    return Author(*row)
+    with execute(conn, SQL_GET_AUTHOR, (id,)) as cur:
+        row = cur.fetchone()
+        if row is None:
+            return None
+        return Author(*row)
 
 
 def list_authors(conn: sqlite3.Connection) -> list[Author]:
-    return [Author(*row) for row in conn.execute(SQL_LIST_AUTHORS).fetchall()]
+    with execute(conn, SQL_LIST_AUTHORS) as cur:
+        return [Author(*row) for row in cur.fetchall()]
 
 
 def create_book(conn: sqlite3.Connection, author_id: int, title: str, genre: str, price: float, published_at: str | None) -> None:
-    conn.execute(SQL_CREATE_BOOK, (author_id, title, genre, price, published_at))
+    exec_stmt(conn, SQL_CREATE_BOOK, (author_id, title, genre, price, published_at))
 
 
 def get_book(conn: sqlite3.Connection, id: int) -> Book | None:
-    row = conn.execute(SQL_GET_BOOK, (id,)).fetchone()
-    if row is None:
-        return None
-    return Book(*row)
+    with execute(conn, SQL_GET_BOOK, (id,)) as cur:
+        row = cur.fetchone()
+        if row is None:
+            return None
+        return Book(*row)
 
 
 def get_books_by_ids(conn: sqlite3.Connection, ids: list[int]) -> list[Book]:
     import json
     ids_json = json.dumps(ids)
-    cur = conn.execute(SQL_GET_BOOKS_BY_IDS, (ids_json,))
-    return [Book(*row) for row in cur.fetchall()]
+    with execute(conn, SQL_GET_BOOKS_BY_IDS, (ids_json,)) as cur:
+        return [Book(*row) for row in cur.fetchall()]
 
 
 def list_books_by_genre(conn: sqlite3.Connection, genre: str) -> list[Book]:
-    return [Book(*row) for row in conn.execute(SQL_LIST_BOOKS_BY_GENRE, (genre,)).fetchall()]
+    with execute(conn, SQL_LIST_BOOKS_BY_GENRE, (genre,)) as cur:
+        return [Book(*row) for row in cur.fetchall()]
 
 
 def list_books_by_genre_or_all(conn: sqlite3.Connection, genre: str) -> list[Book]:
-    return [Book(*row) for row in conn.execute(SQL_LIST_BOOKS_BY_GENRE_OR_ALL, (genre, genre)).fetchall()]
+    with execute(conn, SQL_LIST_BOOKS_BY_GENRE_OR_ALL, (genre, genre)) as cur:
+        return [Book(*row) for row in cur.fetchall()]
 
 
 def create_customer(conn: sqlite3.Connection, name: str, email: str) -> None:
-    conn.execute(SQL_CREATE_CUSTOMER, (name, email))
+    exec_stmt(conn, SQL_CREATE_CUSTOMER, (name, email))
 
 
 def create_sale(conn: sqlite3.Connection, customer_id: int) -> None:
-    conn.execute(SQL_CREATE_SALE, (customer_id,))
+    exec_stmt(conn, SQL_CREATE_SALE, (customer_id,))
 
 
 def add_sale_item(conn: sqlite3.Connection, sale_id: int, book_id: int, quantity: int, unit_price: float) -> None:
-    conn.execute(SQL_ADD_SALE_ITEM, (sale_id, book_id, quantity, unit_price))
+    exec_stmt(conn, SQL_ADD_SALE_ITEM, (sale_id, book_id, quantity, unit_price))
 
 
 @dataclasses.dataclass
@@ -90,11 +96,13 @@ class ListBooksWithAuthorRow:
 
 
 def list_books_with_author(conn: sqlite3.Connection) -> list[ListBooksWithAuthorRow]:
-    return [ListBooksWithAuthorRow(*row) for row in conn.execute(SQL_LIST_BOOKS_WITH_AUTHOR).fetchall()]
+    with execute(conn, SQL_LIST_BOOKS_WITH_AUTHOR) as cur:
+        return [ListBooksWithAuthorRow(*row) for row in cur.fetchall()]
 
 
 def get_books_never_ordered(conn: sqlite3.Connection) -> list[Book]:
-    return [Book(*row) for row in conn.execute(SQL_GET_BOOKS_NEVER_ORDERED).fetchall()]
+    with execute(conn, SQL_GET_BOOKS_NEVER_ORDERED) as cur:
+        return [Book(*row) for row in cur.fetchall()]
 
 
 @dataclasses.dataclass
@@ -107,7 +115,8 @@ class GetTopSellingBooksRow:
 
 
 def get_top_selling_books(conn: sqlite3.Connection) -> list[GetTopSellingBooksRow]:
-    return [GetTopSellingBooksRow(*row) for row in conn.execute(SQL_GET_TOP_SELLING_BOOKS).fetchall()]
+    with execute(conn, SQL_GET_TOP_SELLING_BOOKS) as cur:
+        return [GetTopSellingBooksRow(*row) for row in cur.fetchall()]
 
 
 @dataclasses.dataclass
@@ -119,4 +128,5 @@ class GetBestCustomersRow:
 
 
 def get_best_customers(conn: sqlite3.Connection) -> list[GetBestCustomersRow]:
-    return [GetBestCustomersRow(*row) for row in conn.execute(SQL_GET_BEST_CUSTOMERS).fetchall()]
+    with execute(conn, SQL_GET_BEST_CUSTOMERS) as cur:
+        return [GetBestCustomersRow(*row) for row in cur.fetchall()]

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import mysql.connector
+from ._sqltgen import execute, exec_stmt
 import decimal
 import datetime
 
@@ -30,13 +31,11 @@ SQL_GET_BEST_CUSTOMERS = "WITH customer_spend AS (     SELECT s.customer_id,    
 
 
 def create_author(conn: mysql.connector.MySQLConnection, name: str, bio: str | None, birth_year: int | None) -> None:
-    with conn.cursor() as cur:
-        cur.execute(SQL_CREATE_AUTHOR, (name, bio, birth_year))
+    exec_stmt(conn, SQL_CREATE_AUTHOR, (name, bio, birth_year))
 
 
 def get_author(conn: mysql.connector.MySQLConnection, id: int) -> Author | None:
-    with conn.cursor() as cur:
-        cur.execute(SQL_GET_AUTHOR, (id,))
+    with execute(conn, SQL_GET_AUTHOR, (id,)) as cur:
         row = cur.fetchone()
         if row is None:
             return None
@@ -44,29 +43,24 @@ def get_author(conn: mysql.connector.MySQLConnection, id: int) -> Author | None:
 
 
 def list_authors(conn: mysql.connector.MySQLConnection) -> list[Author]:
-    with conn.cursor() as cur:
-        cur.execute(SQL_LIST_AUTHORS)
+    with execute(conn, SQL_LIST_AUTHORS) as cur:
         return [Author(*row) for row in cur.fetchall()]
 
 
 def update_author_bio(conn: mysql.connector.MySQLConnection, bio: str | None, id: int) -> None:
-    with conn.cursor() as cur:
-        cur.execute(SQL_UPDATE_AUTHOR_BIO, (bio, id))
+    exec_stmt(conn, SQL_UPDATE_AUTHOR_BIO, (bio, id))
 
 
 def delete_author(conn: mysql.connector.MySQLConnection, id: int) -> None:
-    with conn.cursor() as cur:
-        cur.execute(SQL_DELETE_AUTHOR, (id,))
+    exec_stmt(conn, SQL_DELETE_AUTHOR, (id,))
 
 
 def create_book(conn: mysql.connector.MySQLConnection, author_id: int, title: str, genre: str, price: decimal.Decimal, published_at: datetime.date | None) -> None:
-    with conn.cursor() as cur:
-        cur.execute(SQL_CREATE_BOOK, (author_id, title, genre, price, published_at))
+    exec_stmt(conn, SQL_CREATE_BOOK, (author_id, title, genre, price, published_at))
 
 
 def get_book(conn: mysql.connector.MySQLConnection, id: int) -> Book | None:
-    with conn.cursor() as cur:
-        cur.execute(SQL_GET_BOOK, (id,))
+    with execute(conn, SQL_GET_BOOK, (id,)) as cur:
         row = cur.fetchone()
         if row is None:
             return None
@@ -76,36 +70,30 @@ def get_book(conn: mysql.connector.MySQLConnection, id: int) -> Book | None:
 def get_books_by_ids(conn: mysql.connector.MySQLConnection, ids: list[int]) -> list[Book]:
     import json
     ids_json = json.dumps(ids)
-    with conn.cursor() as cur:
-        cur.execute(SQL_GET_BOOKS_BY_IDS, (ids_json,))
+    with execute(conn, SQL_GET_BOOKS_BY_IDS, (ids_json,)) as cur:
         return [Book(*row) for row in cur.fetchall()]
 
 
 def list_books_by_genre(conn: mysql.connector.MySQLConnection, genre: str) -> list[Book]:
-    with conn.cursor() as cur:
-        cur.execute(SQL_LIST_BOOKS_BY_GENRE, (genre,))
+    with execute(conn, SQL_LIST_BOOKS_BY_GENRE, (genre,)) as cur:
         return [Book(*row) for row in cur.fetchall()]
 
 
 def list_books_by_genre_or_all(conn: mysql.connector.MySQLConnection, genre: str) -> list[Book]:
-    with conn.cursor() as cur:
-        cur.execute(SQL_LIST_BOOKS_BY_GENRE_OR_ALL, (genre, genre))
+    with execute(conn, SQL_LIST_BOOKS_BY_GENRE_OR_ALL, (genre, genre)) as cur:
         return [Book(*row) for row in cur.fetchall()]
 
 
 def create_customer(conn: mysql.connector.MySQLConnection, name: str, email: str) -> None:
-    with conn.cursor() as cur:
-        cur.execute(SQL_CREATE_CUSTOMER, (name, email))
+    exec_stmt(conn, SQL_CREATE_CUSTOMER, (name, email))
 
 
 def create_sale(conn: mysql.connector.MySQLConnection, customer_id: int) -> None:
-    with conn.cursor() as cur:
-        cur.execute(SQL_CREATE_SALE, (customer_id,))
+    exec_stmt(conn, SQL_CREATE_SALE, (customer_id,))
 
 
 def add_sale_item(conn: mysql.connector.MySQLConnection, sale_id: int, book_id: int, quantity: int, unit_price: decimal.Decimal) -> None:
-    with conn.cursor() as cur:
-        cur.execute(SQL_ADD_SALE_ITEM, (sale_id, book_id, quantity, unit_price))
+    exec_stmt(conn, SQL_ADD_SALE_ITEM, (sale_id, book_id, quantity, unit_price))
 
 
 @dataclasses.dataclass
@@ -120,14 +108,12 @@ class ListBooksWithAuthorRow:
 
 
 def list_books_with_author(conn: mysql.connector.MySQLConnection) -> list[ListBooksWithAuthorRow]:
-    with conn.cursor() as cur:
-        cur.execute(SQL_LIST_BOOKS_WITH_AUTHOR)
+    with execute(conn, SQL_LIST_BOOKS_WITH_AUTHOR) as cur:
         return [ListBooksWithAuthorRow(*row) for row in cur.fetchall()]
 
 
 def get_books_never_ordered(conn: mysql.connector.MySQLConnection) -> list[Book]:
-    with conn.cursor() as cur:
-        cur.execute(SQL_GET_BOOKS_NEVER_ORDERED)
+    with execute(conn, SQL_GET_BOOKS_NEVER_ORDERED) as cur:
         return [Book(*row) for row in cur.fetchall()]
 
 
@@ -141,8 +127,7 @@ class GetTopSellingBooksRow:
 
 
 def get_top_selling_books(conn: mysql.connector.MySQLConnection) -> list[GetTopSellingBooksRow]:
-    with conn.cursor() as cur:
-        cur.execute(SQL_GET_TOP_SELLING_BOOKS)
+    with execute(conn, SQL_GET_TOP_SELLING_BOOKS) as cur:
         return [GetTopSellingBooksRow(*row) for row in cur.fetchall()]
 
 
@@ -155,6 +140,5 @@ class GetBestCustomersRow:
 
 
 def get_best_customers(conn: mysql.connector.MySQLConnection) -> list[GetBestCustomersRow]:
-    with conn.cursor() as cur:
-        cur.execute(SQL_GET_BEST_CUSTOMERS)
+    with execute(conn, SQL_GET_BEST_CUSTOMERS) as cur:
         return [GetBestCustomersRow(*row) for row in cur.fetchall()]

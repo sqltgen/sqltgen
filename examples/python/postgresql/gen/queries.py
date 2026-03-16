@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import psycopg
+from ._sqltgen import execute, exec_stmt
 import decimal
 import datetime
 
@@ -30,8 +31,7 @@ SQL_GET_BEST_CUSTOMERS = "WITH customer_spend AS (     SELECT s.customer_id,    
 
 
 def create_author(conn: psycopg.Connection, name: str, bio: str | None, birth_year: int | None) -> Author | None:
-    with conn.cursor() as cur:
-        cur.execute(SQL_CREATE_AUTHOR, (name, bio, birth_year))
+    with execute(conn, SQL_CREATE_AUTHOR, (name, bio, birth_year)) as cur:
         row = cur.fetchone()
         if row is None:
             return None
@@ -39,8 +39,7 @@ def create_author(conn: psycopg.Connection, name: str, bio: str | None, birth_ye
 
 
 def get_author(conn: psycopg.Connection, id: int) -> Author | None:
-    with conn.cursor() as cur:
-        cur.execute(SQL_GET_AUTHOR, (id,))
+    with execute(conn, SQL_GET_AUTHOR, (id,)) as cur:
         row = cur.fetchone()
         if row is None:
             return None
@@ -48,14 +47,12 @@ def get_author(conn: psycopg.Connection, id: int) -> Author | None:
 
 
 def list_authors(conn: psycopg.Connection) -> list[Author]:
-    with conn.cursor() as cur:
-        cur.execute(SQL_LIST_AUTHORS)
+    with execute(conn, SQL_LIST_AUTHORS) as cur:
         return [Author(*row) for row in cur.fetchall()]
 
 
 def update_author_bio(conn: psycopg.Connection, bio: str | None, id: int) -> Author | None:
-    with conn.cursor() as cur:
-        cur.execute(SQL_UPDATE_AUTHOR_BIO, (bio, id))
+    with execute(conn, SQL_UPDATE_AUTHOR_BIO, (bio, id)) as cur:
         row = cur.fetchone()
         if row is None:
             return None
@@ -69,8 +66,7 @@ class DeleteAuthorRow:
 
 
 def delete_author(conn: psycopg.Connection, id: int) -> DeleteAuthorRow | None:
-    with conn.cursor() as cur:
-        cur.execute(SQL_DELETE_AUTHOR, (id,))
+    with execute(conn, SQL_DELETE_AUTHOR, (id,)) as cur:
         row = cur.fetchone()
         if row is None:
             return None
@@ -78,8 +74,7 @@ def delete_author(conn: psycopg.Connection, id: int) -> DeleteAuthorRow | None:
 
 
 def create_book(conn: psycopg.Connection, author_id: int, title: str, genre: str, price: decimal.Decimal, published_at: datetime.date | None) -> Book | None:
-    with conn.cursor() as cur:
-        cur.execute(SQL_CREATE_BOOK, (author_id, title, genre, price, published_at))
+    with execute(conn, SQL_CREATE_BOOK, (author_id, title, genre, price, published_at)) as cur:
         row = cur.fetchone()
         if row is None:
             return None
@@ -87,8 +82,7 @@ def create_book(conn: psycopg.Connection, author_id: int, title: str, genre: str
 
 
 def get_book(conn: psycopg.Connection, id: int) -> Book | None:
-    with conn.cursor() as cur:
-        cur.execute(SQL_GET_BOOK, (id,))
+    with execute(conn, SQL_GET_BOOK, (id,)) as cur:
         row = cur.fetchone()
         if row is None:
             return None
@@ -96,20 +90,17 @@ def get_book(conn: psycopg.Connection, id: int) -> Book | None:
 
 
 def get_books_by_ids(conn: psycopg.Connection, ids: list[int]) -> list[Book]:
-    with conn.cursor() as cur:
-        cur.execute(SQL_GET_BOOKS_BY_IDS, (ids,))
+    with execute(conn, SQL_GET_BOOKS_BY_IDS, (ids,)) as cur:
         return [Book(*row) for row in cur.fetchall()]
 
 
 def list_books_by_genre(conn: psycopg.Connection, genre: str) -> list[Book]:
-    with conn.cursor() as cur:
-        cur.execute(SQL_LIST_BOOKS_BY_GENRE, (genre,))
+    with execute(conn, SQL_LIST_BOOKS_BY_GENRE, (genre,)) as cur:
         return [Book(*row) for row in cur.fetchall()]
 
 
 def list_books_by_genre_or_all(conn: psycopg.Connection, genre: str) -> list[Book]:
-    with conn.cursor() as cur:
-        cur.execute(SQL_LIST_BOOKS_BY_GENRE_OR_ALL, (genre, genre))
+    with execute(conn, SQL_LIST_BOOKS_BY_GENRE_OR_ALL, (genre, genre)) as cur:
         return [Book(*row) for row in cur.fetchall()]
 
 
@@ -119,8 +110,7 @@ class CreateCustomerRow:
 
 
 def create_customer(conn: psycopg.Connection, name: str, email: str) -> CreateCustomerRow | None:
-    with conn.cursor() as cur:
-        cur.execute(SQL_CREATE_CUSTOMER, (name, email))
+    with execute(conn, SQL_CREATE_CUSTOMER, (name, email)) as cur:
         row = cur.fetchone()
         if row is None:
             return None
@@ -133,8 +123,7 @@ class CreateSaleRow:
 
 
 def create_sale(conn: psycopg.Connection, customer_id: int) -> CreateSaleRow | None:
-    with conn.cursor() as cur:
-        cur.execute(SQL_CREATE_SALE, (customer_id,))
+    with execute(conn, SQL_CREATE_SALE, (customer_id,)) as cur:
         row = cur.fetchone()
         if row is None:
             return None
@@ -142,8 +131,7 @@ def create_sale(conn: psycopg.Connection, customer_id: int) -> CreateSaleRow | N
 
 
 def add_sale_item(conn: psycopg.Connection, sale_id: int, book_id: int, quantity: int, unit_price: decimal.Decimal) -> None:
-    with conn.cursor() as cur:
-        cur.execute(SQL_ADD_SALE_ITEM, (sale_id, book_id, quantity, unit_price))
+    exec_stmt(conn, SQL_ADD_SALE_ITEM, (sale_id, book_id, quantity, unit_price))
 
 
 @dataclasses.dataclass
@@ -158,14 +146,12 @@ class ListBooksWithAuthorRow:
 
 
 def list_books_with_author(conn: psycopg.Connection) -> list[ListBooksWithAuthorRow]:
-    with conn.cursor() as cur:
-        cur.execute(SQL_LIST_BOOKS_WITH_AUTHOR)
+    with execute(conn, SQL_LIST_BOOKS_WITH_AUTHOR) as cur:
         return [ListBooksWithAuthorRow(*row) for row in cur.fetchall()]
 
 
 def get_books_never_ordered(conn: psycopg.Connection) -> list[Book]:
-    with conn.cursor() as cur:
-        cur.execute(SQL_GET_BOOKS_NEVER_ORDERED)
+    with execute(conn, SQL_GET_BOOKS_NEVER_ORDERED) as cur:
         return [Book(*row) for row in cur.fetchall()]
 
 
@@ -179,8 +165,7 @@ class GetTopSellingBooksRow:
 
 
 def get_top_selling_books(conn: psycopg.Connection) -> list[GetTopSellingBooksRow]:
-    with conn.cursor() as cur:
-        cur.execute(SQL_GET_TOP_SELLING_BOOKS)
+    with execute(conn, SQL_GET_TOP_SELLING_BOOKS) as cur:
         return [GetTopSellingBooksRow(*row) for row in cur.fetchall()]
 
 
@@ -193,6 +178,5 @@ class GetBestCustomersRow:
 
 
 def get_best_customers(conn: psycopg.Connection) -> list[GetBestCustomersRow]:
-    with conn.cursor() as cur:
-        cur.execute(SQL_GET_BEST_CUSTOMERS)
+    with execute(conn, SQL_GET_BEST_CUSTOMERS) as cur:
         return [GetBestCustomersRow(*row) for row in cur.fetchall()]

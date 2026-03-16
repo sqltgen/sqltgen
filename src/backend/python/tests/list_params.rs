@@ -57,8 +57,8 @@ fn test_generate_sqlite_native_list_param() {
     assert!(src.contains("json_each"), "SQLite native uses json_each");
     assert!(src.contains("json.dumps(ids)"), "SQLite native serialises list to JSON");
     assert!(src.contains("ids_json"), "JSON variable must be named ids_json");
-    // SQLite uses conn.execute, not a cursor context manager.
-    assert!(src.contains("conn.execute("), "SQLite uses conn.execute directly");
+    // All engines use the _sqltgen execute helper
+    assert!(src.contains("with execute(conn,"), "uses _sqltgen execute helper");
     assert!(!src.contains("= ANY"), "SQLite must not use pg ANY syntax");
 }
 
@@ -78,8 +78,8 @@ fn test_generate_mysql_native_list_param() {
     assert!(src.contains("JSON_TABLE"), "MySQL native uses JSON_TABLE");
     assert!(src.contains("json.dumps(ids)"), "MySQL native serialises list to JSON");
     assert!(src.contains("ids_json"), "JSON variable must be named ids_json");
-    // MySQL connector uses a cursor context manager, not conn.execute directly.
-    assert!(src.contains("with conn.cursor() as cur:"), "MySQL uses cursor context manager");
+    // All engines use the _sqltgen execute helper
+    assert!(src.contains("with execute(conn,"), "uses _sqltgen execute helper");
     assert!(!src.contains("json_each"), "MySQL must not use SQLite json_each");
 }
 
@@ -141,8 +141,8 @@ fn test_generate_sqlite_dynamic_list_param() {
     assert!(!src.contains(r#""%s""#), "SQLite dynamic must not use %s placeholder");
     assert!(src.contains("placeholders"), "must build placeholders string at runtime");
     assert!(src.contains("tuple(ids)"), "list elements bound via tuple");
-    // SQLite dynamic uses conn.execute, not a cursor context manager.
-    assert!(src.contains("conn.execute(sql,"), "SQLite dynamic uses conn.execute");
+    // All engines use the _sqltgen execute helper
+    assert!(src.contains("with execute(conn, sql,"), "SQLite dynamic uses _sqltgen execute helper");
 }
 
 #[test]
@@ -163,7 +163,7 @@ fn test_generate_mysql_dynamic_list_param() {
     assert!(src.contains(r#""%s""#), "MySQL dynamic must use %s placeholder");
     assert!(src.contains("placeholders"), "must build placeholders string at runtime");
     assert!(src.contains("tuple(ids)"), "list elements bound via tuple");
-    assert!(src.contains("with conn.cursor() as cur:"), "MySQL uses cursor context manager");
+    assert!(src.contains("with execute(conn, sql,"), "MySQL dynamic uses _sqltgen execute helper");
 }
 
 #[test]

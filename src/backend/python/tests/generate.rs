@@ -75,8 +75,8 @@ fn test_generate_psycopg_exec_query() {
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.py");
     assert!(src.contains("def delete_user(conn: psycopg.Connection, id: int) -> None:"));
-    assert!(src.contains("with conn.cursor() as cur:"));
-    assert!(src.contains("cur.execute(SQL_DELETE_USER, (id,))"));
+    assert!(src.contains("exec_stmt(conn, SQL_DELETE_USER, (id,))"));
+    assert!(!src.contains("with conn.cursor()"));
 }
 
 #[test]
@@ -131,14 +131,14 @@ fn test_generate_psycopg_execrows_query() {
 // ─── generate: query commands (sqlite3) ─────────────────────────────────
 
 #[test]
-fn test_generate_sqlite_exec_query_uses_conn_execute() {
+fn test_generate_sqlite_exec_query_uses_exec_stmt() {
     let schema = Schema::default();
     let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = ?1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = sq().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.py");
     assert!(src.contains("def delete_user(conn: sqlite3.Connection, id: int) -> None:"));
-    // sqlite3 uses conn.execute() directly — no cursor context manager
-    assert!(src.contains("conn.execute(SQL_DELETE_USER, (id,))"));
+    // Both SQLite and cursor-based engines use the _sqltgen helper
+    assert!(src.contains("exec_stmt(conn, SQL_DELETE_USER, (id,))"));
     assert!(!src.contains("with conn.cursor()"));
 }
 
@@ -158,7 +158,8 @@ fn test_generate_sqlite_one_query_infers_table_return_type() {
     let files = sq().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.py");
     assert!(src.contains("def get_user(conn: sqlite3.Connection, id: int) -> User | None:"));
-    assert!(src.contains("row = conn.execute(SQL_GET_USER, (id,)).fetchone()"));
+    assert!(src.contains("with execute(conn, SQL_GET_USER, (id,)) as cur:"));
+    assert!(src.contains("row = cur.fetchone()"));
     assert!(src.contains("return User(*row)"));
 }
 
@@ -201,12 +202,14 @@ fn test_generate_mysql_uses_mysql_connection_type() {
 }
 
 #[test]
-fn test_generate_mysql_uses_cursor_context_manager() {
+fn test_generate_mysql_exec_uses_exec_stmt() {
     let schema = Schema::default();
     let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = my().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.py");
-    assert!(src.contains("with conn.cursor() as cur:"));
+    // MySQL uses the _sqltgen helper, same as all other engines
+    assert!(src.contains("exec_stmt(conn, SQL_DELETE_USER, (id,))"));
+    assert!(!src.contains("with conn.cursor()"));
 }
 
 #[test]

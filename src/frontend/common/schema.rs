@@ -59,8 +59,14 @@ fn process_statement(stmt: &Statement, schema: &mut Schema, dialect: DdlDialect)
                 _ => return,
             };
             let name = obj_name_to_str(&f.name);
-            let param_types: Vec<SqlType> =
-                f.args.as_deref().unwrap_or(&[]).iter().filter(|a| matches!(a.mode, None | Some(ArgMode::In))).map(|a| (dialect.map_type)(&a.data_type)).collect();
+            let param_types: Vec<SqlType> = f
+                .args
+                .as_deref()
+                .unwrap_or(&[])
+                .iter()
+                .filter(|a| matches!(a.mode, None | Some(ArgMode::In)))
+                .map(|a| (dialect.map_type)(&a.data_type))
+                .collect();
             if f.or_replace {
                 // Replace the existing overload with the same name and parameter count.
                 // PostgreSQL's OR REPLACE cannot change parameter types — only the body

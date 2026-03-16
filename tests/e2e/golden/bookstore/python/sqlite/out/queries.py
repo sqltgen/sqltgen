@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import sqlite3
+from ._sqltgen import execute, exec_stmt
 from typing import Any
 
 from .author import Author
@@ -57,56 +58,61 @@ SQL_GET_BOOK_PRICE_AGGREGATES = "SELECT MIN(price)  AS min_price,        MAX(pri
 
 
 def create_author(conn: sqlite3.Connection, name: str, bio: str | None, birth_year: int | None) -> None:
-    conn.execute(SQL_CREATE_AUTHOR, (name, bio, birth_year))
+    exec_stmt(conn, SQL_CREATE_AUTHOR, (name, bio, birth_year))
 
 
 def get_author(conn: sqlite3.Connection, id: int) -> Author | None:
-    row = conn.execute(SQL_GET_AUTHOR, (id,)).fetchone()
-    if row is None:
-        return None
-    return Author(*row)
+    with execute(conn, SQL_GET_AUTHOR, (id,)) as cur:
+        row = cur.fetchone()
+        if row is None:
+            return None
+        return Author(*row)
 
 
 def list_authors(conn: sqlite3.Connection) -> list[Author]:
-    return [Author(*row) for row in conn.execute(SQL_LIST_AUTHORS).fetchall()]
+    with execute(conn, SQL_LIST_AUTHORS) as cur:
+        return [Author(*row) for row in cur.fetchall()]
 
 
 def create_book(conn: sqlite3.Connection, author_id: int, title: str, genre: str, price: float, published_at: str | None) -> None:
-    conn.execute(SQL_CREATE_BOOK, (author_id, title, genre, price, published_at))
+    exec_stmt(conn, SQL_CREATE_BOOK, (author_id, title, genre, price, published_at))
 
 
 def get_book(conn: sqlite3.Connection, id: int) -> Book | None:
-    row = conn.execute(SQL_GET_BOOK, (id,)).fetchone()
-    if row is None:
-        return None
-    return Book(*row)
+    with execute(conn, SQL_GET_BOOK, (id,)) as cur:
+        row = cur.fetchone()
+        if row is None:
+            return None
+        return Book(*row)
 
 
 def get_books_by_ids(conn: sqlite3.Connection, ids: list[int]) -> list[Book]:
     import json
     ids_json = json.dumps(ids)
-    cur = conn.execute(SQL_GET_BOOKS_BY_IDS, (ids_json,))
-    return [Book(*row) for row in cur.fetchall()]
+    with execute(conn, SQL_GET_BOOKS_BY_IDS, (ids_json,)) as cur:
+        return [Book(*row) for row in cur.fetchall()]
 
 
 def list_books_by_genre(conn: sqlite3.Connection, genre: str) -> list[Book]:
-    return [Book(*row) for row in conn.execute(SQL_LIST_BOOKS_BY_GENRE, (genre,)).fetchall()]
+    with execute(conn, SQL_LIST_BOOKS_BY_GENRE, (genre,)) as cur:
+        return [Book(*row) for row in cur.fetchall()]
 
 
 def list_books_by_genre_or_all(conn: sqlite3.Connection, genre: str) -> list[Book]:
-    return [Book(*row) for row in conn.execute(SQL_LIST_BOOKS_BY_GENRE_OR_ALL, (genre, genre)).fetchall()]
+    with execute(conn, SQL_LIST_BOOKS_BY_GENRE_OR_ALL, (genre, genre)) as cur:
+        return [Book(*row) for row in cur.fetchall()]
 
 
 def create_customer(conn: sqlite3.Connection, name: str, email: str) -> None:
-    conn.execute(SQL_CREATE_CUSTOMER, (name, email))
+    exec_stmt(conn, SQL_CREATE_CUSTOMER, (name, email))
 
 
 def create_sale(conn: sqlite3.Connection, customer_id: int) -> None:
-    conn.execute(SQL_CREATE_SALE, (customer_id,))
+    exec_stmt(conn, SQL_CREATE_SALE, (customer_id,))
 
 
 def add_sale_item(conn: sqlite3.Connection, sale_id: int, book_id: int, quantity: int, unit_price: float) -> None:
-    conn.execute(SQL_ADD_SALE_ITEM, (sale_id, book_id, quantity, unit_price))
+    exec_stmt(conn, SQL_ADD_SALE_ITEM, (sale_id, book_id, quantity, unit_price))
 
 
 @dataclasses.dataclass
@@ -121,11 +127,13 @@ class ListBooksWithAuthorRow:
 
 
 def list_books_with_author(conn: sqlite3.Connection) -> list[ListBooksWithAuthorRow]:
-    return [ListBooksWithAuthorRow(*row) for row in conn.execute(SQL_LIST_BOOKS_WITH_AUTHOR).fetchall()]
+    with execute(conn, SQL_LIST_BOOKS_WITH_AUTHOR) as cur:
+        return [ListBooksWithAuthorRow(*row) for row in cur.fetchall()]
 
 
 def get_books_never_ordered(conn: sqlite3.Connection) -> list[Book]:
-    return [Book(*row) for row in conn.execute(SQL_GET_BOOKS_NEVER_ORDERED).fetchall()]
+    with execute(conn, SQL_GET_BOOKS_NEVER_ORDERED) as cur:
+        return [Book(*row) for row in cur.fetchall()]
 
 
 @dataclasses.dataclass
@@ -138,7 +146,8 @@ class GetTopSellingBooksRow:
 
 
 def get_top_selling_books(conn: sqlite3.Connection) -> list[GetTopSellingBooksRow]:
-    return [GetTopSellingBooksRow(*row) for row in conn.execute(SQL_GET_TOP_SELLING_BOOKS).fetchall()]
+    with execute(conn, SQL_GET_TOP_SELLING_BOOKS) as cur:
+        return [GetTopSellingBooksRow(*row) for row in cur.fetchall()]
 
 
 @dataclasses.dataclass
@@ -150,7 +159,8 @@ class GetBestCustomersRow:
 
 
 def get_best_customers(conn: sqlite3.Connection) -> list[GetBestCustomersRow]:
-    return [GetBestCustomersRow(*row) for row in conn.execute(SQL_GET_BEST_CUSTOMERS).fetchall()]
+    with execute(conn, SQL_GET_BEST_CUSTOMERS) as cur:
+        return [GetBestCustomersRow(*row) for row in cur.fetchall()]
 
 
 @dataclasses.dataclass
@@ -160,7 +170,8 @@ class CountBooksByGenreRow:
 
 
 def count_books_by_genre(conn: sqlite3.Connection) -> list[CountBooksByGenreRow]:
-    return [CountBooksByGenreRow(*row) for row in conn.execute(SQL_COUNT_BOOKS_BY_GENRE).fetchall()]
+    with execute(conn, SQL_COUNT_BOOKS_BY_GENRE) as cur:
+        return [CountBooksByGenreRow(*row) for row in cur.fetchall()]
 
 
 @dataclasses.dataclass
@@ -172,7 +183,8 @@ class ListBooksWithLimitRow:
 
 
 def list_books_with_limit(conn: sqlite3.Connection, limit: int, offset: int) -> list[ListBooksWithLimitRow]:
-    return [ListBooksWithLimitRow(*row) for row in conn.execute(SQL_LIST_BOOKS_WITH_LIMIT, (limit, offset)).fetchall()]
+    with execute(conn, SQL_LIST_BOOKS_WITH_LIMIT, (limit, offset)) as cur:
+        return [ListBooksWithLimitRow(*row) for row in cur.fetchall()]
 
 
 @dataclasses.dataclass
@@ -184,7 +196,8 @@ class SearchBooksByTitleRow:
 
 
 def search_books_by_title(conn: sqlite3.Connection, title: str) -> list[SearchBooksByTitleRow]:
-    return [SearchBooksByTitleRow(*row) for row in conn.execute(SQL_SEARCH_BOOKS_BY_TITLE, (title,)).fetchall()]
+    with execute(conn, SQL_SEARCH_BOOKS_BY_TITLE, (title,)) as cur:
+        return [SearchBooksByTitleRow(*row) for row in cur.fetchall()]
 
 
 @dataclasses.dataclass
@@ -196,7 +209,8 @@ class GetBooksByPriceRangeRow:
 
 
 def get_books_by_price_range(conn: sqlite3.Connection, price: float, price_2: float) -> list[GetBooksByPriceRangeRow]:
-    return [GetBooksByPriceRangeRow(*row) for row in conn.execute(SQL_GET_BOOKS_BY_PRICE_RANGE, (price, price_2)).fetchall()]
+    with execute(conn, SQL_GET_BOOKS_BY_PRICE_RANGE, (price, price_2)) as cur:
+        return [GetBooksByPriceRangeRow(*row) for row in cur.fetchall()]
 
 
 @dataclasses.dataclass
@@ -208,7 +222,8 @@ class GetBooksInGenresRow:
 
 
 def get_books_in_genres(conn: sqlite3.Connection, genre: str, genre_2: str, genre_3: str) -> list[GetBooksInGenresRow]:
-    return [GetBooksInGenresRow(*row) for row in conn.execute(SQL_GET_BOOKS_IN_GENRES, (genre, genre_2, genre_3)).fetchall()]
+    with execute(conn, SQL_GET_BOOKS_IN_GENRES, (genre, genre_2, genre_3)) as cur:
+        return [GetBooksInGenresRow(*row) for row in cur.fetchall()]
 
 
 @dataclasses.dataclass
@@ -220,7 +235,8 @@ class GetBookPriceLabelRow:
 
 
 def get_book_price_label(conn: sqlite3.Connection, price: float) -> list[GetBookPriceLabelRow]:
-    return [GetBookPriceLabelRow(*row) for row in conn.execute(SQL_GET_BOOK_PRICE_LABEL, (price,)).fetchall()]
+    with execute(conn, SQL_GET_BOOK_PRICE_LABEL, (price,)) as cur:
+        return [GetBookPriceLabelRow(*row) for row in cur.fetchall()]
 
 
 @dataclasses.dataclass
@@ -231,11 +247,13 @@ class GetBookPriceOrDefaultRow:
 
 
 def get_book_price_or_default(conn: sqlite3.Connection, price: float | None) -> list[GetBookPriceOrDefaultRow]:
-    return [GetBookPriceOrDefaultRow(*row) for row in conn.execute(SQL_GET_BOOK_PRICE_OR_DEFAULT, (price,)).fetchall()]
+    with execute(conn, SQL_GET_BOOK_PRICE_OR_DEFAULT, (price,)) as cur:
+        return [GetBookPriceOrDefaultRow(*row) for row in cur.fetchall()]
 
 
 def delete_book_by_id(conn: sqlite3.Connection, id: int) -> int:
-    return conn.execute(SQL_DELETE_BOOK_BY_ID, (id,)).rowcount
+    with execute(conn, SQL_DELETE_BOOK_BY_ID, (id,)) as cur:
+        return cur.rowcount
 
 
 @dataclasses.dataclass
@@ -245,7 +263,8 @@ class GetGenresWithManyBooksRow:
 
 
 def get_genres_with_many_books(conn: sqlite3.Connection, count: int) -> list[GetGenresWithManyBooksRow]:
-    return [GetGenresWithManyBooksRow(*row) for row in conn.execute(SQL_GET_GENRES_WITH_MANY_BOOKS, (count,)).fetchall()]
+    with execute(conn, SQL_GET_GENRES_WITH_MANY_BOOKS, (count,)) as cur:
+        return [GetGenresWithManyBooksRow(*row) for row in cur.fetchall()]
 
 
 @dataclasses.dataclass
@@ -256,11 +275,13 @@ class GetBooksByAuthorParamRow:
 
 
 def get_books_by_author_param(conn: sqlite3.Connection, birth_year: int | None) -> list[GetBooksByAuthorParamRow]:
-    return [GetBooksByAuthorParamRow(*row) for row in conn.execute(SQL_GET_BOOKS_BY_AUTHOR_PARAM, (birth_year,)).fetchall()]
+    with execute(conn, SQL_GET_BOOKS_BY_AUTHOR_PARAM, (birth_year,)) as cur:
+        return [GetBooksByAuthorParamRow(*row) for row in cur.fetchall()]
 
 
 def get_all_book_fields(conn: sqlite3.Connection) -> list[Book]:
-    return [Book(*row) for row in conn.execute(SQL_GET_ALL_BOOK_FIELDS).fetchall()]
+    with execute(conn, SQL_GET_ALL_BOOK_FIELDS) as cur:
+        return [Book(*row) for row in cur.fetchall()]
 
 
 @dataclasses.dataclass
@@ -271,7 +292,8 @@ class GetBooksNotByAuthorRow:
 
 
 def get_books_not_by_author(conn: sqlite3.Connection, name: str) -> list[GetBooksNotByAuthorRow]:
-    return [GetBooksNotByAuthorRow(*row) for row in conn.execute(SQL_GET_BOOKS_NOT_BY_AUTHOR, (name,)).fetchall()]
+    with execute(conn, SQL_GET_BOOKS_NOT_BY_AUTHOR, (name,)) as cur:
+        return [GetBooksNotByAuthorRow(*row) for row in cur.fetchall()]
 
 
 @dataclasses.dataclass
@@ -282,7 +304,8 @@ class GetBooksWithRecentSalesRow:
 
 
 def get_books_with_recent_sales(conn: sqlite3.Connection, ordered_at: Any) -> list[GetBooksWithRecentSalesRow]:
-    return [GetBooksWithRecentSalesRow(*row) for row in conn.execute(SQL_GET_BOOKS_WITH_RECENT_SALES, (ordered_at,)).fetchall()]
+    with execute(conn, SQL_GET_BOOKS_WITH_RECENT_SALES, (ordered_at,)) as cur:
+        return [GetBooksWithRecentSalesRow(*row) for row in cur.fetchall()]
 
 
 @dataclasses.dataclass
@@ -293,7 +316,8 @@ class GetBookWithAuthorNameRow:
 
 
 def get_book_with_author_name(conn: sqlite3.Connection) -> list[GetBookWithAuthorNameRow]:
-    return [GetBookWithAuthorNameRow(*row) for row in conn.execute(SQL_GET_BOOK_WITH_AUTHOR_NAME).fetchall()]
+    with execute(conn, SQL_GET_BOOK_WITH_AUTHOR_NAME) as cur:
+        return [GetBookWithAuthorNameRow(*row) for row in cur.fetchall()]
 
 
 @dataclasses.dataclass
@@ -305,14 +329,16 @@ class GetAuthorStatsRow:
 
 
 def get_author_stats(conn: sqlite3.Connection) -> list[GetAuthorStatsRow]:
-    return [GetAuthorStatsRow(*row) for row in conn.execute(SQL_GET_AUTHOR_STATS).fetchall()]
+    with execute(conn, SQL_GET_AUTHOR_STATS) as cur:
+        return [GetAuthorStatsRow(*row) for row in cur.fetchall()]
 
 
 def get_product(conn: sqlite3.Connection, id: str) -> Product | None:
-    row = conn.execute(SQL_GET_PRODUCT, (id,)).fetchone()
-    if row is None:
-        return None
-    return Product(*row)
+    with execute(conn, SQL_GET_PRODUCT, (id,)) as cur:
+        row = cur.fetchone()
+        if row is None:
+            return None
+        return Product(*row)
 
 
 @dataclasses.dataclass
@@ -329,7 +355,8 @@ class ListActiveProductsRow:
 
 
 def list_active_products(conn: sqlite3.Connection, active: int) -> list[ListActiveProductsRow]:
-    return [ListActiveProductsRow(*row) for row in conn.execute(SQL_LIST_ACTIVE_PRODUCTS, (active,)).fetchall()]
+    with execute(conn, SQL_LIST_ACTIVE_PRODUCTS, (active,)) as cur:
+        return [ListActiveProductsRow(*row) for row in cur.fetchall()]
 
 
 @dataclasses.dataclass
@@ -340,11 +367,13 @@ class GetAuthorsWithNullBioRow:
 
 
 def get_authors_with_null_bio(conn: sqlite3.Connection) -> list[GetAuthorsWithNullBioRow]:
-    return [GetAuthorsWithNullBioRow(*row) for row in conn.execute(SQL_GET_AUTHORS_WITH_NULL_BIO).fetchall()]
+    with execute(conn, SQL_GET_AUTHORS_WITH_NULL_BIO) as cur:
+        return [GetAuthorsWithNullBioRow(*row) for row in cur.fetchall()]
 
 
 def get_authors_with_bio(conn: sqlite3.Connection) -> list[Author]:
-    return [Author(*row) for row in conn.execute(SQL_GET_AUTHORS_WITH_BIO).fetchall()]
+    with execute(conn, SQL_GET_AUTHORS_WITH_BIO) as cur:
+        return [Author(*row) for row in cur.fetchall()]
 
 
 @dataclasses.dataclass
@@ -357,7 +386,8 @@ class GetBooksPublishedBetweenRow:
 
 
 def get_books_published_between(conn: sqlite3.Connection, published_at: str | None, published_at_2: str | None) -> list[GetBooksPublishedBetweenRow]:
-    return [GetBooksPublishedBetweenRow(*row) for row in conn.execute(SQL_GET_BOOKS_PUBLISHED_BETWEEN, (published_at, published_at_2)).fetchall()]
+    with execute(conn, SQL_GET_BOOKS_PUBLISHED_BETWEEN, (published_at, published_at_2)) as cur:
+        return [GetBooksPublishedBetweenRow(*row) for row in cur.fetchall()]
 
 
 @dataclasses.dataclass
@@ -366,7 +396,8 @@ class GetDistinctGenresRow:
 
 
 def get_distinct_genres(conn: sqlite3.Connection) -> list[GetDistinctGenresRow]:
-    return [GetDistinctGenresRow(*row) for row in conn.execute(SQL_GET_DISTINCT_GENRES).fetchall()]
+    with execute(conn, SQL_GET_DISTINCT_GENRES) as cur:
+        return [GetDistinctGenresRow(*row) for row in cur.fetchall()]
 
 
 @dataclasses.dataclass
@@ -378,7 +409,8 @@ class GetBooksWithSalesCountRow:
 
 
 def get_books_with_sales_count(conn: sqlite3.Connection) -> list[GetBooksWithSalesCountRow]:
-    return [GetBooksWithSalesCountRow(*row) for row in conn.execute(SQL_GET_BOOKS_WITH_SALES_COUNT).fetchall()]
+    with execute(conn, SQL_GET_BOOKS_WITH_SALES_COUNT) as cur:
+        return [GetBooksWithSalesCountRow(*row) for row in cur.fetchall()]
 
 
 @dataclasses.dataclass
@@ -387,26 +419,27 @@ class CountSaleItemsRow:
 
 
 def count_sale_items(conn: sqlite3.Connection, sale_id: int) -> CountSaleItemsRow | None:
-    row = conn.execute(SQL_COUNT_SALE_ITEMS, (sale_id,)).fetchone()
-    if row is None:
-        return None
-    return CountSaleItemsRow(*row)
+    with execute(conn, SQL_COUNT_SALE_ITEMS, (sale_id,)) as cur:
+        row = cur.fetchone()
+        if row is None:
+            return None
+        return CountSaleItemsRow(*row)
 
 
 def update_author_bio(conn: sqlite3.Connection, bio: str | None, id: int) -> None:
-    conn.execute(SQL_UPDATE_AUTHOR_BIO, (bio, id))
+    exec_stmt(conn, SQL_UPDATE_AUTHOR_BIO, (bio, id))
 
 
 def delete_author(conn: sqlite3.Connection, id: int) -> None:
-    conn.execute(SQL_DELETE_AUTHOR, (id,))
+    exec_stmt(conn, SQL_DELETE_AUTHOR, (id,))
 
 
 def insert_product(conn: sqlite3.Connection, id: str, sku: str, name: str, active: int, weight_kg: float | None, rating: float | None, metadata: str | None, thumbnail: bytes | None, stock_count: int) -> None:
-    conn.execute(SQL_INSERT_PRODUCT, (id, sku, name, active, weight_kg, rating, metadata, thumbnail, stock_count))
+    exec_stmt(conn, SQL_INSERT_PRODUCT, (id, sku, name, active, weight_kg, rating, metadata, thumbnail, stock_count))
 
 
 def upsert_product(conn: sqlite3.Connection, id: str, sku: str, name: str, active: int, metadata: str | None, stock_count: int) -> None:
-    conn.execute(SQL_UPSERT_PRODUCT, (id, sku, name, active, metadata, stock_count))
+    exec_stmt(conn, SQL_UPSERT_PRODUCT, (id, sku, name, active, metadata, stock_count))
 
 
 @dataclasses.dataclass
@@ -418,10 +451,11 @@ class GetSaleItemQuantityAggregatesRow:
 
 
 def get_sale_item_quantity_aggregates(conn: sqlite3.Connection) -> GetSaleItemQuantityAggregatesRow | None:
-    row = conn.execute(SQL_GET_SALE_ITEM_QUANTITY_AGGREGATES).fetchone()
-    if row is None:
-        return None
-    return GetSaleItemQuantityAggregatesRow(*row)
+    with execute(conn, SQL_GET_SALE_ITEM_QUANTITY_AGGREGATES) as cur:
+        row = cur.fetchone()
+        if row is None:
+            return None
+        return GetSaleItemQuantityAggregatesRow(*row)
 
 
 @dataclasses.dataclass
@@ -433,7 +467,8 @@ class GetBookPriceAggregatesRow:
 
 
 def get_book_price_aggregates(conn: sqlite3.Connection) -> GetBookPriceAggregatesRow | None:
-    row = conn.execute(SQL_GET_BOOK_PRICE_AGGREGATES).fetchone()
-    if row is None:
-        return None
-    return GetBookPriceAggregatesRow(*row)
+    with execute(conn, SQL_GET_BOOK_PRICE_AGGREGATES) as cur:
+        row = cur.fetchone()
+        if row is None:
+            return None
+        return GetBookPriceAggregatesRow(*row)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import mysql.connector
+from ._sqltgen import execute, exec_stmt
 import decimal
 import datetime
 
@@ -56,13 +57,11 @@ SQL_GET_BOOK_PRICE_AGGREGATES = "SELECT MIN(price)  AS min_price,        MAX(pri
 
 
 def create_author(conn: mysql.connector.MySQLConnection, name: str, bio: str | None, birth_year: int | None) -> None:
-    with conn.cursor() as cur:
-        cur.execute(SQL_CREATE_AUTHOR, (name, bio, birth_year))
+    exec_stmt(conn, SQL_CREATE_AUTHOR, (name, bio, birth_year))
 
 
 def get_author(conn: mysql.connector.MySQLConnection, id: int) -> Author | None:
-    with conn.cursor() as cur:
-        cur.execute(SQL_GET_AUTHOR, (id,))
+    with execute(conn, SQL_GET_AUTHOR, (id,)) as cur:
         row = cur.fetchone()
         if row is None:
             return None
@@ -70,29 +69,24 @@ def get_author(conn: mysql.connector.MySQLConnection, id: int) -> Author | None:
 
 
 def list_authors(conn: mysql.connector.MySQLConnection) -> list[Author]:
-    with conn.cursor() as cur:
-        cur.execute(SQL_LIST_AUTHORS)
+    with execute(conn, SQL_LIST_AUTHORS) as cur:
         return [Author(*row) for row in cur.fetchall()]
 
 
 def update_author_bio(conn: mysql.connector.MySQLConnection, bio: str | None, id: int) -> None:
-    with conn.cursor() as cur:
-        cur.execute(SQL_UPDATE_AUTHOR_BIO, (bio, id))
+    exec_stmt(conn, SQL_UPDATE_AUTHOR_BIO, (bio, id))
 
 
 def delete_author(conn: mysql.connector.MySQLConnection, id: int) -> None:
-    with conn.cursor() as cur:
-        cur.execute(SQL_DELETE_AUTHOR, (id,))
+    exec_stmt(conn, SQL_DELETE_AUTHOR, (id,))
 
 
 def create_book(conn: mysql.connector.MySQLConnection, author_id: int, title: str, genre: str, price: decimal.Decimal, published_at: datetime.date | None) -> None:
-    with conn.cursor() as cur:
-        cur.execute(SQL_CREATE_BOOK, (author_id, title, genre, price, published_at))
+    exec_stmt(conn, SQL_CREATE_BOOK, (author_id, title, genre, price, published_at))
 
 
 def get_book(conn: mysql.connector.MySQLConnection, id: int) -> Book | None:
-    with conn.cursor() as cur:
-        cur.execute(SQL_GET_BOOK, (id,))
+    with execute(conn, SQL_GET_BOOK, (id,)) as cur:
         row = cur.fetchone()
         if row is None:
             return None
@@ -102,36 +96,30 @@ def get_book(conn: mysql.connector.MySQLConnection, id: int) -> Book | None:
 def get_books_by_ids(conn: mysql.connector.MySQLConnection, ids: list[int]) -> list[Book]:
     import json
     ids_json = json.dumps(ids)
-    with conn.cursor() as cur:
-        cur.execute(SQL_GET_BOOKS_BY_IDS, (ids_json,))
+    with execute(conn, SQL_GET_BOOKS_BY_IDS, (ids_json,)) as cur:
         return [Book(*row) for row in cur.fetchall()]
 
 
 def list_books_by_genre(conn: mysql.connector.MySQLConnection, genre: str) -> list[Book]:
-    with conn.cursor() as cur:
-        cur.execute(SQL_LIST_BOOKS_BY_GENRE, (genre,))
+    with execute(conn, SQL_LIST_BOOKS_BY_GENRE, (genre,)) as cur:
         return [Book(*row) for row in cur.fetchall()]
 
 
 def list_books_by_genre_or_all(conn: mysql.connector.MySQLConnection, genre: str) -> list[Book]:
-    with conn.cursor() as cur:
-        cur.execute(SQL_LIST_BOOKS_BY_GENRE_OR_ALL, (genre, genre))
+    with execute(conn, SQL_LIST_BOOKS_BY_GENRE_OR_ALL, (genre, genre)) as cur:
         return [Book(*row) for row in cur.fetchall()]
 
 
 def create_customer(conn: mysql.connector.MySQLConnection, name: str, email: str) -> None:
-    with conn.cursor() as cur:
-        cur.execute(SQL_CREATE_CUSTOMER, (name, email))
+    exec_stmt(conn, SQL_CREATE_CUSTOMER, (name, email))
 
 
 def create_sale(conn: mysql.connector.MySQLConnection, customer_id: int) -> None:
-    with conn.cursor() as cur:
-        cur.execute(SQL_CREATE_SALE, (customer_id,))
+    exec_stmt(conn, SQL_CREATE_SALE, (customer_id,))
 
 
 def add_sale_item(conn: mysql.connector.MySQLConnection, sale_id: int, book_id: int, quantity: int, unit_price: decimal.Decimal) -> None:
-    with conn.cursor() as cur:
-        cur.execute(SQL_ADD_SALE_ITEM, (sale_id, book_id, quantity, unit_price))
+    exec_stmt(conn, SQL_ADD_SALE_ITEM, (sale_id, book_id, quantity, unit_price))
 
 
 @dataclasses.dataclass
@@ -146,14 +134,12 @@ class ListBooksWithAuthorRow:
 
 
 def list_books_with_author(conn: mysql.connector.MySQLConnection) -> list[ListBooksWithAuthorRow]:
-    with conn.cursor() as cur:
-        cur.execute(SQL_LIST_BOOKS_WITH_AUTHOR)
+    with execute(conn, SQL_LIST_BOOKS_WITH_AUTHOR) as cur:
         return [ListBooksWithAuthorRow(*row) for row in cur.fetchall()]
 
 
 def get_books_never_ordered(conn: mysql.connector.MySQLConnection) -> list[Book]:
-    with conn.cursor() as cur:
-        cur.execute(SQL_GET_BOOKS_NEVER_ORDERED)
+    with execute(conn, SQL_GET_BOOKS_NEVER_ORDERED) as cur:
         return [Book(*row) for row in cur.fetchall()]
 
 
@@ -167,8 +153,7 @@ class GetTopSellingBooksRow:
 
 
 def get_top_selling_books(conn: mysql.connector.MySQLConnection) -> list[GetTopSellingBooksRow]:
-    with conn.cursor() as cur:
-        cur.execute(SQL_GET_TOP_SELLING_BOOKS)
+    with execute(conn, SQL_GET_TOP_SELLING_BOOKS) as cur:
         return [GetTopSellingBooksRow(*row) for row in cur.fetchall()]
 
 
@@ -181,8 +166,7 @@ class GetBestCustomersRow:
 
 
 def get_best_customers(conn: mysql.connector.MySQLConnection) -> list[GetBestCustomersRow]:
-    with conn.cursor() as cur:
-        cur.execute(SQL_GET_BEST_CUSTOMERS)
+    with execute(conn, SQL_GET_BEST_CUSTOMERS) as cur:
         return [GetBestCustomersRow(*row) for row in cur.fetchall()]
 
 
@@ -193,8 +177,7 @@ class CountBooksByGenreRow:
 
 
 def count_books_by_genre(conn: mysql.connector.MySQLConnection) -> list[CountBooksByGenreRow]:
-    with conn.cursor() as cur:
-        cur.execute(SQL_COUNT_BOOKS_BY_GENRE)
+    with execute(conn, SQL_COUNT_BOOKS_BY_GENRE) as cur:
         return [CountBooksByGenreRow(*row) for row in cur.fetchall()]
 
 
@@ -207,8 +190,7 @@ class ListBooksWithLimitRow:
 
 
 def list_books_with_limit(conn: mysql.connector.MySQLConnection, limit: int, offset: int) -> list[ListBooksWithLimitRow]:
-    with conn.cursor() as cur:
-        cur.execute(SQL_LIST_BOOKS_WITH_LIMIT, (limit, offset))
+    with execute(conn, SQL_LIST_BOOKS_WITH_LIMIT, (limit, offset)) as cur:
         return [ListBooksWithLimitRow(*row) for row in cur.fetchall()]
 
 
@@ -221,8 +203,7 @@ class SearchBooksByTitleRow:
 
 
 def search_books_by_title(conn: mysql.connector.MySQLConnection, title: str) -> list[SearchBooksByTitleRow]:
-    with conn.cursor() as cur:
-        cur.execute(SQL_SEARCH_BOOKS_BY_TITLE, (title,))
+    with execute(conn, SQL_SEARCH_BOOKS_BY_TITLE, (title,)) as cur:
         return [SearchBooksByTitleRow(*row) for row in cur.fetchall()]
 
 
@@ -235,8 +216,7 @@ class GetBooksByPriceRangeRow:
 
 
 def get_books_by_price_range(conn: mysql.connector.MySQLConnection, price: decimal.Decimal, price_2: decimal.Decimal) -> list[GetBooksByPriceRangeRow]:
-    with conn.cursor() as cur:
-        cur.execute(SQL_GET_BOOKS_BY_PRICE_RANGE, (price, price_2))
+    with execute(conn, SQL_GET_BOOKS_BY_PRICE_RANGE, (price, price_2)) as cur:
         return [GetBooksByPriceRangeRow(*row) for row in cur.fetchall()]
 
 
@@ -249,8 +229,7 @@ class GetBooksInGenresRow:
 
 
 def get_books_in_genres(conn: mysql.connector.MySQLConnection, genre: str, genre_2: str, genre_3: str) -> list[GetBooksInGenresRow]:
-    with conn.cursor() as cur:
-        cur.execute(SQL_GET_BOOKS_IN_GENRES, (genre, genre_2, genre_3))
+    with execute(conn, SQL_GET_BOOKS_IN_GENRES, (genre, genre_2, genre_3)) as cur:
         return [GetBooksInGenresRow(*row) for row in cur.fetchall()]
 
 
@@ -263,8 +242,7 @@ class GetBookPriceLabelRow:
 
 
 def get_book_price_label(conn: mysql.connector.MySQLConnection, price: decimal.Decimal) -> list[GetBookPriceLabelRow]:
-    with conn.cursor() as cur:
-        cur.execute(SQL_GET_BOOK_PRICE_LABEL, (price,))
+    with execute(conn, SQL_GET_BOOK_PRICE_LABEL, (price,)) as cur:
         return [GetBookPriceLabelRow(*row) for row in cur.fetchall()]
 
 
@@ -276,14 +254,12 @@ class GetBookPriceOrDefaultRow:
 
 
 def get_book_price_or_default(conn: mysql.connector.MySQLConnection, price: decimal.Decimal | None) -> list[GetBookPriceOrDefaultRow]:
-    with conn.cursor() as cur:
-        cur.execute(SQL_GET_BOOK_PRICE_OR_DEFAULT, (price,))
+    with execute(conn, SQL_GET_BOOK_PRICE_OR_DEFAULT, (price,)) as cur:
         return [GetBookPriceOrDefaultRow(*row) for row in cur.fetchall()]
 
 
 def delete_book_by_id(conn: mysql.connector.MySQLConnection, id: int) -> int:
-    with conn.cursor() as cur:
-        cur.execute(SQL_DELETE_BOOK_BY_ID, (id,))
+    with execute(conn, SQL_DELETE_BOOK_BY_ID, (id,)) as cur:
         return cur.rowcount
 
 
@@ -294,8 +270,7 @@ class GetGenresWithManyBooksRow:
 
 
 def get_genres_with_many_books(conn: mysql.connector.MySQLConnection, count: int) -> list[GetGenresWithManyBooksRow]:
-    with conn.cursor() as cur:
-        cur.execute(SQL_GET_GENRES_WITH_MANY_BOOKS, (count,))
+    with execute(conn, SQL_GET_GENRES_WITH_MANY_BOOKS, (count,)) as cur:
         return [GetGenresWithManyBooksRow(*row) for row in cur.fetchall()]
 
 
@@ -307,14 +282,12 @@ class GetBooksByAuthorParamRow:
 
 
 def get_books_by_author_param(conn: mysql.connector.MySQLConnection, birth_year: int | None) -> list[GetBooksByAuthorParamRow]:
-    with conn.cursor() as cur:
-        cur.execute(SQL_GET_BOOKS_BY_AUTHOR_PARAM, (birth_year,))
+    with execute(conn, SQL_GET_BOOKS_BY_AUTHOR_PARAM, (birth_year,)) as cur:
         return [GetBooksByAuthorParamRow(*row) for row in cur.fetchall()]
 
 
 def get_all_book_fields(conn: mysql.connector.MySQLConnection) -> list[Book]:
-    with conn.cursor() as cur:
-        cur.execute(SQL_GET_ALL_BOOK_FIELDS)
+    with execute(conn, SQL_GET_ALL_BOOK_FIELDS) as cur:
         return [Book(*row) for row in cur.fetchall()]
 
 
@@ -326,8 +299,7 @@ class GetBooksNotByAuthorRow:
 
 
 def get_books_not_by_author(conn: mysql.connector.MySQLConnection, name: str) -> list[GetBooksNotByAuthorRow]:
-    with conn.cursor() as cur:
-        cur.execute(SQL_GET_BOOKS_NOT_BY_AUTHOR, (name,))
+    with execute(conn, SQL_GET_BOOKS_NOT_BY_AUTHOR, (name,)) as cur:
         return [GetBooksNotByAuthorRow(*row) for row in cur.fetchall()]
 
 
@@ -339,8 +311,7 @@ class GetBooksWithRecentSalesRow:
 
 
 def get_books_with_recent_sales(conn: mysql.connector.MySQLConnection, ordered_at: datetime.datetime) -> list[GetBooksWithRecentSalesRow]:
-    with conn.cursor() as cur:
-        cur.execute(SQL_GET_BOOKS_WITH_RECENT_SALES, (ordered_at,))
+    with execute(conn, SQL_GET_BOOKS_WITH_RECENT_SALES, (ordered_at,)) as cur:
         return [GetBooksWithRecentSalesRow(*row) for row in cur.fetchall()]
 
 
@@ -352,8 +323,7 @@ class GetBookWithAuthorNameRow:
 
 
 def get_book_with_author_name(conn: mysql.connector.MySQLConnection) -> list[GetBookWithAuthorNameRow]:
-    with conn.cursor() as cur:
-        cur.execute(SQL_GET_BOOK_WITH_AUTHOR_NAME)
+    with execute(conn, SQL_GET_BOOK_WITH_AUTHOR_NAME) as cur:
         return [GetBookWithAuthorNameRow(*row) for row in cur.fetchall()]
 
 
@@ -366,14 +336,12 @@ class GetAuthorStatsRow:
 
 
 def get_author_stats(conn: mysql.connector.MySQLConnection) -> list[GetAuthorStatsRow]:
-    with conn.cursor() as cur:
-        cur.execute(SQL_GET_AUTHOR_STATS)
+    with execute(conn, SQL_GET_AUTHOR_STATS) as cur:
         return [GetAuthorStatsRow(*row) for row in cur.fetchall()]
 
 
 def get_product(conn: mysql.connector.MySQLConnection, id: str) -> Product | None:
-    with conn.cursor() as cur:
-        cur.execute(SQL_GET_PRODUCT, (id,))
+    with execute(conn, SQL_GET_PRODUCT, (id,)) as cur:
         row = cur.fetchone()
         if row is None:
             return None
@@ -394,8 +362,7 @@ class ListActiveProductsRow:
 
 
 def list_active_products(conn: mysql.connector.MySQLConnection, active: bool) -> list[ListActiveProductsRow]:
-    with conn.cursor() as cur:
-        cur.execute(SQL_LIST_ACTIVE_PRODUCTS, (active,))
+    with execute(conn, SQL_LIST_ACTIVE_PRODUCTS, (active,)) as cur:
         return [ListActiveProductsRow(*row) for row in cur.fetchall()]
 
 
@@ -407,14 +374,12 @@ class GetAuthorsWithNullBioRow:
 
 
 def get_authors_with_null_bio(conn: mysql.connector.MySQLConnection) -> list[GetAuthorsWithNullBioRow]:
-    with conn.cursor() as cur:
-        cur.execute(SQL_GET_AUTHORS_WITH_NULL_BIO)
+    with execute(conn, SQL_GET_AUTHORS_WITH_NULL_BIO) as cur:
         return [GetAuthorsWithNullBioRow(*row) for row in cur.fetchall()]
 
 
 def get_authors_with_bio(conn: mysql.connector.MySQLConnection) -> list[Author]:
-    with conn.cursor() as cur:
-        cur.execute(SQL_GET_AUTHORS_WITH_BIO)
+    with execute(conn, SQL_GET_AUTHORS_WITH_BIO) as cur:
         return [Author(*row) for row in cur.fetchall()]
 
 
@@ -428,8 +393,7 @@ class GetBooksPublishedBetweenRow:
 
 
 def get_books_published_between(conn: mysql.connector.MySQLConnection, published_at: datetime.date | None, published_at_2: datetime.date | None) -> list[GetBooksPublishedBetweenRow]:
-    with conn.cursor() as cur:
-        cur.execute(SQL_GET_BOOKS_PUBLISHED_BETWEEN, (published_at, published_at_2))
+    with execute(conn, SQL_GET_BOOKS_PUBLISHED_BETWEEN, (published_at, published_at_2)) as cur:
         return [GetBooksPublishedBetweenRow(*row) for row in cur.fetchall()]
 
 
@@ -439,8 +403,7 @@ class GetDistinctGenresRow:
 
 
 def get_distinct_genres(conn: mysql.connector.MySQLConnection) -> list[GetDistinctGenresRow]:
-    with conn.cursor() as cur:
-        cur.execute(SQL_GET_DISTINCT_GENRES)
+    with execute(conn, SQL_GET_DISTINCT_GENRES) as cur:
         return [GetDistinctGenresRow(*row) for row in cur.fetchall()]
 
 
@@ -453,8 +416,7 @@ class GetBooksWithSalesCountRow:
 
 
 def get_books_with_sales_count(conn: mysql.connector.MySQLConnection) -> list[GetBooksWithSalesCountRow]:
-    with conn.cursor() as cur:
-        cur.execute(SQL_GET_BOOKS_WITH_SALES_COUNT)
+    with execute(conn, SQL_GET_BOOKS_WITH_SALES_COUNT) as cur:
         return [GetBooksWithSalesCountRow(*row) for row in cur.fetchall()]
 
 
@@ -464,8 +426,7 @@ class CountSaleItemsRow:
 
 
 def count_sale_items(conn: mysql.connector.MySQLConnection, sale_id: int) -> CountSaleItemsRow | None:
-    with conn.cursor() as cur:
-        cur.execute(SQL_COUNT_SALE_ITEMS, (sale_id,))
+    with execute(conn, SQL_COUNT_SALE_ITEMS, (sale_id,)) as cur:
         row = cur.fetchone()
         if row is None:
             return None
@@ -481,8 +442,7 @@ class GetSaleItemQuantityAggregatesRow:
 
 
 def get_sale_item_quantity_aggregates(conn: mysql.connector.MySQLConnection) -> GetSaleItemQuantityAggregatesRow | None:
-    with conn.cursor() as cur:
-        cur.execute(SQL_GET_SALE_ITEM_QUANTITY_AGGREGATES)
+    with execute(conn, SQL_GET_SALE_ITEM_QUANTITY_AGGREGATES) as cur:
         row = cur.fetchone()
         if row is None:
             return None
@@ -498,8 +458,7 @@ class GetBookPriceAggregatesRow:
 
 
 def get_book_price_aggregates(conn: mysql.connector.MySQLConnection) -> GetBookPriceAggregatesRow | None:
-    with conn.cursor() as cur:
-        cur.execute(SQL_GET_BOOK_PRICE_AGGREGATES)
+    with execute(conn, SQL_GET_BOOK_PRICE_AGGREGATES) as cur:
         row = cur.fetchone()
         if row is None:
             return None
