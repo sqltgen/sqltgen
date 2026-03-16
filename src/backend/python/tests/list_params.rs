@@ -4,7 +4,7 @@ use super::*;
 
 #[test]
 fn test_generate_pg_native_list_param() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::many(
         "GetByIds",
         "SELECT id FROM t WHERE id IN ($1)",
@@ -23,7 +23,7 @@ fn test_generate_pg_native_list_param() {
 #[test]
 fn test_generate_pg_native_list_param_with_scalar() {
     // Scalar before list param: args tuple order must mirror SQL order.
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::many(
         "GetByIds",
         "SELECT id FROM t WHERE active = $1 AND id IN ($2)",
@@ -43,7 +43,7 @@ fn test_generate_pg_native_list_param_with_scalar() {
 
 #[test]
 fn test_generate_sqlite_native_list_param() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::many(
         "GetByIds",
         "SELECT id FROM t WHERE id IN ($1)",
@@ -64,7 +64,7 @@ fn test_generate_sqlite_native_list_param() {
 
 #[test]
 fn test_generate_mysql_native_list_param() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::many(
         "GetByIds",
         "SELECT id FROM t WHERE id IN ($1)",
@@ -85,7 +85,7 @@ fn test_generate_mysql_native_list_param() {
 
 #[test]
 fn test_generate_pg_dynamic_list_param() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::many(
         "GetByIds",
         "SELECT id FROM t WHERE id IN ($1)",
@@ -107,7 +107,7 @@ fn test_generate_pg_dynamic_list_param() {
 
 #[test]
 fn test_generate_pg_dynamic_list_param_with_scalar() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::many(
         "GetByIds",
         "SELECT id FROM t WHERE active = $1 AND id IN ($2)",
@@ -124,7 +124,7 @@ fn test_generate_pg_dynamic_list_param_with_scalar() {
 
 #[test]
 fn test_generate_sqlite_dynamic_list_param() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::many(
         "GetByIds",
         "SELECT id FROM t WHERE id IN ($1)",
@@ -147,7 +147,7 @@ fn test_generate_sqlite_dynamic_list_param() {
 
 #[test]
 fn test_generate_mysql_dynamic_list_param() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::many(
         "GetByIds",
         "SELECT id FROM t WHERE id IN ($1)",
@@ -169,7 +169,7 @@ fn test_generate_mysql_dynamic_list_param() {
 #[test]
 fn test_generate_list_param_text_type() {
     // Text list params use list[str] — verify correct Python type annotation.
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::many(
         "GetByTags",
         "SELECT id FROM t WHERE tag IN ($1)",
@@ -184,7 +184,7 @@ fn test_generate_list_param_text_type() {
 #[test]
 fn test_generate_list_param_execrows_cmd() {
     // List params work with :execrows — DELETE / UPDATE with IN clause.
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::exec_rows(
         "DeleteByIds",
         "DELETE FROM t WHERE id IN ($1)",
@@ -205,7 +205,7 @@ fn test_bug_b_postgres_dynamic_scalar_after_in_binding_order() {
     // Dynamic strategy incorrectly places it *before* the list elements in the
     // execute args. Correct order: tuple(list) + (scalar,).
     // This test fails until the root cause is fixed.
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::many(
         "GetActiveByIds",
         "SELECT id FROM t WHERE id IN ($1) AND active = $2",
@@ -226,7 +226,7 @@ fn test_bug_b_postgres_dynamic_scalar_after_in_binding_order() {
 fn test_bug_b_postgres_dynamic_scalar_before_in_no_regression() {
     // When the scalar param appears *before* the IN clause, the current order
     // is correct. Confirm the fix preserves this common pattern.
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::many(
         "GetActiveByIds",
         "SELECT id FROM t WHERE active = $1 AND id IN ($2)",

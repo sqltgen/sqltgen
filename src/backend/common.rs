@@ -238,6 +238,7 @@ mod tests {
                 name: table_name.to_string(),
                 columns: col_names.iter().map(|n| Column { name: n.to_string(), sql_type: SqlType::Text, nullable: false, is_primary_key: false }).collect(),
             }],
+            ..Default::default()
         }
     }
 
@@ -297,7 +298,7 @@ mod tests {
 
     #[test]
     fn test_infer_row_type_name_returns_none_when_no_result_cols() {
-        let schema = Schema { tables: vec![] };
+        let schema = Schema::default();
         let query = Query::exec("DeleteUser", "DELETE FROM users WHERE id = $1", vec![]);
         assert!(infer_row_type_name(&query, &schema).is_none());
     }
@@ -310,7 +311,7 @@ mod tests {
     /// The old name+count check would silently return the table — wrong generated type.
     #[test]
     fn test_infer_table_rejects_type_mismatch() {
-        let schema = Schema { tables: vec![make_typed_table("users", &[("id", SqlType::BigInt, false), ("name", SqlType::Text, false)])] };
+        let schema = Schema::with_tables(vec![make_typed_table("users", &[("id", SqlType::BigInt, false), ("name", SqlType::Text, false)])]);
         let query = Query::new("GetActiveUsers", QueryCmd::Many, "...", vec![], vec![rc("id", SqlType::Text, false), rc("name", SqlType::Text, false)]);
         assert_eq!(infer_table(&query, &schema), None);
     }
@@ -321,7 +322,7 @@ mod tests {
     /// The old check would silently return the table.
     #[test]
     fn test_infer_table_rejects_nullability_mismatch() {
-        let schema = Schema { tables: vec![make_typed_table("users", &[("id", SqlType::BigInt, false), ("name", SqlType::Text, false)])] };
+        let schema = Schema::with_tables(vec![make_typed_table("users", &[("id", SqlType::BigInt, false), ("name", SqlType::Text, false)])]);
         let query = Query::new("ListUsers", QueryCmd::Many, "...", vec![], vec![rc("id", SqlType::BigInt, true), rc("name", SqlType::Text, false)]);
         assert_eq!(infer_table(&query, &schema), None);
     }
@@ -334,7 +335,7 @@ mod tests {
     fn test_infer_table_rejects_ambiguous_structural_match() {
         let users = make_typed_table("users", &[("id", SqlType::BigInt, false), ("name", SqlType::Text, false)]);
         let admins = make_typed_table("admins", &[("id", SqlType::BigInt, false), ("name", SqlType::Text, false)]);
-        let schema = Schema { tables: vec![users, admins] };
+        let schema = Schema::with_tables(vec![users, admins]);
         let query = Query::new("ListAll", QueryCmd::Many, "...", vec![], vec![rc("id", SqlType::BigInt, false), rc("name", SqlType::Text, false)]);
         assert_eq!(infer_table(&query, &schema), None);
     }
@@ -348,7 +349,7 @@ mod tests {
     fn test_infer_table_source_identity_resolves_ambiguity() {
         let users = make_typed_table("users", &[("id", SqlType::BigInt, false), ("name", SqlType::Text, false)]);
         let admins = make_typed_table("admins", &[("id", SqlType::BigInt, false), ("name", SqlType::Text, false)]);
-        let schema = Schema { tables: vec![users, admins] };
+        let schema = Schema::with_tables(vec![users, admins]);
         let query = Query::new("ListUsers", QueryCmd::Many, "...", vec![], vec![rc("id", SqlType::BigInt, false), rc("name", SqlType::Text, false)])
             .with_source_table(Some("users".to_string()));
         assert_eq!(infer_table(&query, &schema), Some("users"));

@@ -58,7 +58,11 @@ pub(super) fn resolve_projection(
                 let resolved = resolve_expr(expr, alias_map, all_tables, config).or_else(|| resolve_scalar_subquery_expr(expr, all_tables, schema, config));
                 match resolved {
                     Some(rc) => result.push(ResultColumn { name, ..rc }),
-                    None => result.push(ResultColumn { name, sql_type: SqlType::Custom("expr".into()), nullable: true }),
+                    // Unknown expression (unrecognized function, complex expr): default
+                    // to nullable Text. This is far more useful than Custom("expr"), which
+                    // backends render as Object/Any? — an unresolvable function almost
+                    // always returns a string-like value at the JDBC/driver level.
+                    None => result.push(ResultColumn { name, sql_type: SqlType::Text, nullable: true }),
                 }
             },
         }
@@ -355,8 +359,20 @@ fn resolve_function(
             resolve_func_first_arg(func, alias_map, all_tables, config).map(|rc| ResultColumn { nullable: true, ..rc })
         },
 
-        _ => None,
+        _ => resolve_udf(func, &fname, config),
     }
+}
+
+/// Look up a user-defined function by name and argument count, returning a typed
+/// [`ResultColumn`] if a matching overload is found in `config.user_functions`.
+///
+/// UDF return values are always nullable — no SQL engine has DDL syntax to
+/// declare a function's return as non-null.
+fn resolve_udf(func: &sqlparser::ast::Function, fname: &str, config: &ResolverConfig) -> Option<ResultColumn> {
+    let arg_count = if let FunctionArguments::List(al) = &func.args { al.args.len() } else { 0 };
+    let overloads = config.user_functions.get(fname)?;
+    let (_, return_type) = overloads.iter().find(|(pt, _)| pt.len() == arg_count).or_else(|| overloads.first())?;
+    Some(ResultColumn { name: fname.to_lowercase(), sql_type: return_type.clone(), nullable: true })
 }
 
 /// Extract the first argument from a function and resolve its type.

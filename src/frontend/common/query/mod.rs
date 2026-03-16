@@ -12,6 +12,8 @@ use sqlparser::parser::Parser;
 use crate::frontend::common::{ident_to_str, named_params, obj_name_to_str};
 use crate::ir::{Column, NativeListBind, Parameter, Query, QueryCmd, ResultColumn, Schema, SqlType, Table};
 
+type UserFunctions = HashMap<String, Vec<(Vec<SqlType>, SqlType)>>;
+
 /// Dialect-specific function that rewrites list-param SQL and returns the binding method.
 ///
 /// Takes the list parameter (with its final `sql_type` and `index`) and the current
@@ -49,6 +51,12 @@ pub(crate) struct ResolverConfig {
     /// SQL and the [`NativeListBind`] method backends must use, or `None` when
     /// native expansion is unavailable.
     pub native_list_sql: Option<NativeListSqlFn>,
+    /// User-defined scalar function overloads extracted from `CREATE FUNCTION` DDL.
+    ///
+    /// Key is the UPPERCASE function name. Value is a list of `(param_types, return_type)`
+    /// pairs in declaration order. PostgreSQL supports overloading by param type/count;
+    /// MySQL does not; SQLite has no DDL functions.
+    pub user_functions: UserFunctions,
 }
 
 impl Default for ResolverConfig {
@@ -59,6 +67,7 @@ impl Default for ResolverConfig {
             avg_integer_type: SqlType::Double,
             typemap: crate::frontend::common::typemap::map_common_or_custom,
             native_list_sql: None,
+            user_functions: HashMap::new(),
         }
     }
 }
@@ -93,12 +102,13 @@ pub(super) fn delete_table_name(del: &Delete) -> Option<String> {
 }
 
 pub(crate) fn parse_queries_with_config(dialect: &dyn Dialect, sql: &str, schema: &Schema, config: &ResolverConfig) -> anyhow::Result<Vec<Query>> {
+    let config = build_effective_config(config, schema);
     let blocks = split_into_blocks(sql);
     let queries = blocks
         .into_iter()
         .filter_map(|(ann, body)| {
             let body = body.trim().trim_end_matches(';').trim();
-            match build_query_with_dialect(dialect, &ann, body, schema, config) {
+            match build_query_with_dialect(dialect, &ann, body, schema, &config) {
                 Ok(q) => Some(q),
                 Err(e) => {
                     eprintln!("warning: cannot parse query {:?}: {e}", ann.name);
@@ -108,6 +118,25 @@ pub(crate) fn parse_queries_with_config(dialect: &dyn Dialect, sql: &str, schema
         })
         .collect();
     Ok(queries)
+}
+
+/// Produce a `ResolverConfig` augmented with user-defined functions from the schema.
+///
+/// The caller's config is used as the base; `user_functions` entries from the
+/// schema's `CREATE FUNCTION` statements are merged in, keyed by UPPERCASE name.
+fn build_effective_config(config: &ResolverConfig, schema: &Schema) -> ResolverConfig {
+    let mut user_functions = config.user_functions.clone();
+    for f in &schema.functions {
+        user_functions.entry(f.name.to_uppercase()).or_default().push((f.param_types.clone(), f.return_type.clone()));
+    }
+    ResolverConfig {
+        sum_integer_type: config.sum_integer_type.clone(),
+        sum_bigint_type: config.sum_bigint_type.clone(),
+        avg_integer_type: config.avg_integer_type.clone(),
+        typemap: config.typemap,
+        native_list_sql: config.native_list_sql,
+        user_functions,
+    }
 }
 
 // ─── Block splitting ─────────────────────────────────────────────────────────

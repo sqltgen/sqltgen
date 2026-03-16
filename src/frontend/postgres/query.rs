@@ -45,6 +45,7 @@ mod tests {
                     Column { name: "bio".into(), sql_type: SqlType::Text, nullable: true, is_primary_key: false },
                 ],
             }],
+            ..Default::default()
         }
     }
 
@@ -208,6 +209,7 @@ mod tests {
                     ],
                 },
             ],
+            ..Default::default()
         }
     }
 
@@ -302,6 +304,35 @@ mod tests {
         assert_eq!(offset_p.sql_type, SqlType::BigInt, "OFFSET param must be BigInt");
     }
 
+    // ─── Unknown function result type ────────────────────────────────────────
+
+    #[test]
+    fn test_unknown_function_aliased_result_defaults_to_text() {
+        // Bug: select fetch_resource_payload(@a, @b) as payload
+        // `fetch_resource_payload` is not in the known-function catalog.
+        // The result column must default to Text (nullable), not Custom("expr")
+        // which backends render as Object / Any?.
+        let sql = "-- name: FetchPayload :one\n\
+            SELECT fetch_resource_payload($1, $2) AS payload;";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        assert_eq!(q.result_columns.len(), 1);
+        let col = &q.result_columns[0];
+        assert_eq!(col.name, "payload");
+        assert_eq!(col.sql_type, SqlType::Text, "unknown function result must default to Text, not Custom");
+        assert!(col.nullable, "unknown function result must be nullable");
+    }
+
+    #[test]
+    fn test_unknown_function_without_alias_is_omitted() {
+        // An unresolvable expression WITHOUT an alias is silently dropped from
+        // the result set (the caller has no way to name the column). This is
+        // existing behaviour — the test guards against accidental regressions.
+        let sql = "-- name: FetchPayload :one\n\
+            SELECT fetch_resource_payload($1, $2);";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        assert_eq!(q.result_columns.len(), 0, "unnamed unresolvable expr must be omitted");
+    }
+
     // ─── RETURNING clause param inference ────────────────────────────────────
 
     #[test]
@@ -356,5 +387,53 @@ mod tests {
         let id_p = q.params.iter().find(|p| p.name == "id").expect("id param");
         assert_eq!(id_p.sql_type, SqlType::BigInt);
         assert!(id_p.nullable, "param tested with IS NULL must be nullable");
+    }
+
+    fn make_udf_schema() -> Schema {
+        use crate::ir::ScalarFunction;
+        Schema {
+            tables: make_schema().tables,
+            functions: vec![ScalarFunction { name: "fetch_payload".into(), return_type: SqlType::Text, param_types: vec![SqlType::BigInt] }],
+        }
+    }
+
+    #[test]
+    fn test_udf_return_type_inferred_from_schema() {
+        let sql = "-- name: GetPayload :one\nSELECT fetch_payload($1) AS payload FROM users WHERE id = $1;";
+        let q = &parse_queries(sql, &make_udf_schema()).unwrap()[0];
+        let payload = q.result_columns.iter().find(|c| c.name == "payload").expect("payload column");
+        assert_eq!(payload.sql_type, SqlType::Text);
+        assert!(payload.nullable, "UDF results are always nullable");
+    }
+
+    #[test]
+    fn test_udf_params_typed_from_signature() {
+        let schema = {
+            use crate::ir::ScalarFunction;
+            Schema {
+                tables: make_schema().tables,
+                functions: vec![ScalarFunction {
+                    name: "fetch_payload".into(),
+                    return_type: SqlType::Text,
+                    param_types: vec![SqlType::BigInt, SqlType::BigInt],
+                }],
+            }
+        };
+        let sql = "-- name: GetPayload :one\nSELECT fetch_payload($1, $2) AS payload FROM users WHERE id = $1;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        let p1 = q.params.iter().find(|p| p.index == 1).expect("$1");
+        let p2 = q.params.iter().find(|p| p.index == 2).expect("$2");
+        assert_eq!(p1.sql_type, SqlType::BigInt);
+        assert_eq!(p2.sql_type, SqlType::BigInt);
+    }
+
+    #[test]
+    fn test_unknown_function_still_defaults_to_text() {
+        // Regression guard: functions not in schema fall back to Text (nullable)
+        let sql = "-- name: DoStuff :one\nSELECT mystery_func($1) AS result FROM users WHERE id = $1;";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let result = q.result_columns.iter().find(|c| c.name == "result").expect("result column");
+        assert_eq!(result.sql_type, SqlType::Text);
+        assert!(result.nullable);
     }
 }

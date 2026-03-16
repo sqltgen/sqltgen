@@ -4,7 +4,7 @@ use super::*;
 
 #[test]
 fn test_generate_table_data_class() {
-    let schema = Schema { tables: vec![user_table()] };
+    let schema = Schema::with_tables(vec![user_table()]);
     let files = pg().generate(&schema, &[], &cfg()).unwrap();
     let src = get_file(&files, "User.kt");
     assert!(src.contains("data class User("));
@@ -15,7 +15,7 @@ fn test_generate_table_data_class() {
 
 #[test]
 fn test_generate_package_declaration() {
-    let schema = Schema { tables: vec![user_table()] };
+    let schema = Schema::with_tables(vec![user_table()]);
     let files = pg().generate(&schema, &[], &cfg_pkg()).unwrap();
     let src = get_file(&files, "User.kt");
     // Kotlin package has no semicolon
@@ -25,7 +25,7 @@ fn test_generate_package_declaration() {
 
 #[test]
 fn test_generate_no_queries_produces_no_queries_file() {
-    let schema = Schema { tables: vec![user_table()] };
+    let schema = Schema::with_tables(vec![user_table()]);
     let files = pg().generate(&schema, &[], &cfg()).unwrap();
     assert_eq!(files.len(), 1);
 }
@@ -34,7 +34,7 @@ fn test_generate_no_queries_produces_no_queries_file() {
 
 #[test]
 fn test_generate_exec_query() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "Queries.kt");
@@ -44,7 +44,7 @@ fn test_generate_exec_query() {
 
 #[test]
 fn test_generate_execrows_query() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::exec_rows("DeleteUsers", "DELETE FROM user WHERE active = $1", vec![Parameter::scalar(1, "active", SqlType::Boolean, false)]);
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "Queries.kt");
@@ -54,7 +54,7 @@ fn test_generate_execrows_query() {
 
 #[test]
 fn test_generate_one_query_infers_table_return_type() {
-    let schema = Schema { tables: vec![user_table()] };
+    let schema = Schema::with_tables(vec![user_table()]);
     let query = Query::one(
         "GetUser",
         "SELECT id, name, bio FROM user WHERE id = $1",
@@ -75,7 +75,7 @@ fn test_generate_one_query_infers_table_return_type() {
 
 #[test]
 fn test_generate_many_query_infers_table_return_type() {
-    let schema = Schema { tables: vec![user_table()] };
+    let schema = Schema::with_tables(vec![user_table()]);
     let query = Query::many(
         "ListUsers",
         "SELECT id, name, bio FROM user",
@@ -97,7 +97,7 @@ fn test_generate_many_query_infers_table_return_type() {
 
 #[test]
 fn test_generate_sql_const_name_is_screaming_snake_case() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::exec("GetUserById", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "Queries.kt");
@@ -108,7 +108,7 @@ fn test_generate_sql_const_name_is_screaming_snake_case() {
 
 #[test]
 fn test_generate_inline_row_class_for_partial_result() {
-    let schema = Schema { tables: vec![user_table()] };
+    let schema = Schema::with_tables(vec![user_table()]);
     let query = Query::one(
         "GetUserName",
         "SELECT name FROM user WHERE id = $1",
@@ -127,7 +127,7 @@ fn test_generate_inline_row_class_for_partial_result() {
 fn test_generate_nullable_long_result_uses_get_object() {
     // rs.getLong returns 0L for NULL; nullable Long? columns must use the
     // getNullableLong helper (wasNull-based, compatible with all JDBC drivers)
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::one(
         "GetCount",
         "SELECT count FROM stats WHERE id = $1",
@@ -142,7 +142,7 @@ fn test_generate_nullable_long_result_uses_get_object() {
 
 #[test]
 fn test_generate_non_nullable_long_result_uses_get_long() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::one(
         "GetCount",
         "SELECT count FROM stats WHERE id = $1",
@@ -158,7 +158,7 @@ fn test_generate_non_nullable_long_result_uses_get_long() {
 
 #[test]
 fn test_generate_queries_ds_file_is_emitted() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     assert!(files.iter().any(|f| f.path.file_name().is_some_and(|n| n == "QueriesDs.kt")));
@@ -166,7 +166,7 @@ fn test_generate_queries_ds_file_is_emitted() {
 
 #[test]
 fn test_generate_queries_ds_class_and_datasource_import() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "QueriesDs.kt");
@@ -176,7 +176,7 @@ fn test_generate_queries_ds_class_and_datasource_import() {
 
 #[test]
 fn test_generate_queries_ds_exec_method_delegates_via_use() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "QueriesDs.kt");
@@ -186,7 +186,7 @@ fn test_generate_queries_ds_exec_method_delegates_via_use() {
 
 #[test]
 fn test_generate_queries_ds_one_method_returns_nullable() {
-    let schema = Schema { tables: vec![user_table()] };
+    let schema = Schema::with_tables(vec![user_table()]);
     let query = Query::one(
         "GetUser",
         "SELECT id, name, bio FROM user WHERE id = $1",
@@ -205,7 +205,7 @@ fn test_generate_queries_ds_one_method_returns_nullable() {
 
 #[test]
 fn test_generate_queries_ds_many_method_returns_list() {
-    let schema = Schema { tables: vec![user_table()] };
+    let schema = Schema::with_tables(vec![user_table()]);
     let query = Query::many(
         "ListUsers",
         "SELECT id, name, bio FROM user",

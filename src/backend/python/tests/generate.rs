@@ -4,7 +4,7 @@ use super::*;
 
 #[test]
 fn test_generate_table_dataclass() {
-    let schema = Schema { tables: vec![user_table()] };
+    let schema = Schema::with_tables(vec![user_table()]);
     let files = pg().generate(&schema, &[], &cfg()).unwrap();
     let src = get_file(&files, "user.py");
     assert!(src.contains("@dataclasses.dataclass"));
@@ -16,7 +16,7 @@ fn test_generate_table_dataclass() {
 
 #[test]
 fn test_generate_init_file_exports_tables_and_queries() {
-    let schema = Schema { tables: vec![user_table()] };
+    let schema = Schema::with_tables(vec![user_table()]);
     let query = Query::one(
         "GetUser",
         "SELECT id, name, bio FROM user WHERE id = $1",
@@ -37,7 +37,7 @@ fn test_generate_init_file_exports_tables_and_queries() {
 
 #[test]
 fn test_generate_postgres_imports_psycopg() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.py");
@@ -47,7 +47,7 @@ fn test_generate_postgres_imports_psycopg() {
 
 #[test]
 fn test_generate_sqlite_imports_sqlite3() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = ?1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = sq().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.py");
@@ -59,7 +59,7 @@ fn test_generate_sqlite_imports_sqlite3() {
 
 #[test]
 fn test_generate_sql_const_name_is_screaming_snake_case() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::exec("GetUserById", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.py");
@@ -70,7 +70,7 @@ fn test_generate_sql_const_name_is_screaming_snake_case() {
 
 #[test]
 fn test_generate_psycopg_exec_query() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.py");
@@ -81,7 +81,7 @@ fn test_generate_psycopg_exec_query() {
 
 #[test]
 fn test_generate_psycopg_one_query_infers_table_return_type() {
-    let schema = Schema { tables: vec![user_table()] };
+    let schema = Schema::with_tables(vec![user_table()]);
     let query = Query::one(
         "GetUser",
         "SELECT id, name, bio FROM user WHERE id = $1",
@@ -101,7 +101,7 @@ fn test_generate_psycopg_one_query_infers_table_return_type() {
 
 #[test]
 fn test_generate_psycopg_many_query_infers_table_return_type() {
-    let schema = Schema { tables: vec![user_table()] };
+    let schema = Schema::with_tables(vec![user_table()]);
     let query = Query::many(
         "ListUsers",
         "SELECT id, name, bio FROM user",
@@ -120,7 +120,7 @@ fn test_generate_psycopg_many_query_infers_table_return_type() {
 
 #[test]
 fn test_generate_psycopg_execrows_query() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::exec_rows("DeleteUsers", "DELETE FROM user WHERE active = $1", vec![Parameter::scalar(1, "active", SqlType::Boolean, false)]);
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.py");
@@ -132,7 +132,7 @@ fn test_generate_psycopg_execrows_query() {
 
 #[test]
 fn test_generate_sqlite_exec_query_uses_conn_execute() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = ?1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = sq().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.py");
@@ -144,7 +144,7 @@ fn test_generate_sqlite_exec_query_uses_conn_execute() {
 
 #[test]
 fn test_generate_sqlite_one_query_infers_table_return_type() {
-    let schema = Schema { tables: vec![user_table()] };
+    let schema = Schema::with_tables(vec![user_table()]);
     let query = Query::one(
         "GetUser",
         "SELECT id, name, bio FROM user WHERE id = ?1",
@@ -166,7 +166,7 @@ fn test_generate_sqlite_one_query_infers_table_return_type() {
 
 #[test]
 fn test_generate_inline_row_dataclass_for_partial_result() {
-    let schema = Schema { tables: vec![user_table()] };
+    let schema = Schema::with_tables(vec![user_table()]);
     let query = Query::one(
         "GetUserName",
         "SELECT name FROM user WHERE id = $1",
@@ -183,7 +183,7 @@ fn test_generate_inline_row_dataclass_for_partial_result() {
 
 #[test]
 fn test_generate_mysql_imports_connector() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = my().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.py");
@@ -193,7 +193,7 @@ fn test_generate_mysql_imports_connector() {
 
 #[test]
 fn test_generate_mysql_uses_mysql_connection_type() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = my().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.py");
@@ -202,7 +202,7 @@ fn test_generate_mysql_uses_mysql_connection_type() {
 
 #[test]
 fn test_generate_mysql_uses_cursor_context_manager() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = my().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.py");
@@ -211,7 +211,7 @@ fn test_generate_mysql_uses_cursor_context_manager() {
 
 #[test]
 fn test_generate_mysql_rewrites_placeholders_to_percent_s() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::exec("GetUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = my().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.py");
@@ -220,7 +220,7 @@ fn test_generate_mysql_rewrites_placeholders_to_percent_s() {
 
 #[test]
 fn test_generate_mysql_one_query() {
-    let schema = Schema { tables: vec![user_table()] };
+    let schema = Schema::with_tables(vec![user_table()]);
     let query = Query::one(
         "GetUser",
         "SELECT id, name, bio FROM user WHERE id = $1",
@@ -266,6 +266,7 @@ fn test_generate_postgres_json_column_no_any_import() {
             name: "doc".to_string(),
             columns: vec![Column { name: "data".to_string(), sql_type: SqlType::Json, nullable: false, is_primary_key: false }],
         }],
+        ..Default::default()
     };
     let files = pg().generate(&schema, &[], &cfg()).unwrap();
     let src = get_file(&files, "doc.py");
@@ -280,6 +281,7 @@ fn test_generate_sqlite_json_column_no_any_import() {
             name: "doc".to_string(),
             columns: vec![Column { name: "data".to_string(), sql_type: SqlType::Json, nullable: false, is_primary_key: false }],
         }],
+        ..Default::default()
     };
     let files = sq().generate(&schema, &[], &cfg()).unwrap();
     let src = get_file(&files, "doc.py");

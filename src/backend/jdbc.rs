@@ -256,6 +256,7 @@ mod tests {
                     crate::ir::Column { name: "name".to_string(), sql_type: SqlType::Text, nullable: false, is_primary_key: false },
                 ],
             }],
+            ..Default::default()
         }
     }
 
@@ -267,7 +268,7 @@ mod tests {
     #[test]
     fn test_result_row_type_uses_fallback() {
         let q = make_query("DeleteUser", "DELETE FROM users WHERE id = $1", vec![]);
-        let schema = Schema { tables: vec![] };
+        let schema = Schema::default();
         assert_eq!(result_row_type(&q, &schema, "Object[]"), "Object[]");
         assert_eq!(result_row_type(&q, &schema, "Any"), "Any");
     }
@@ -294,7 +295,7 @@ mod tests {
             vec![],
             vec![ResultColumn { name: "cnt".to_string(), sql_type: SqlType::BigInt, nullable: false }],
         );
-        let schema = Schema { tables: vec![] };
+        let schema = Schema::default();
         assert_eq!(ds_result_row_type(&q, &schema, "Object[]", "Queries"), "Queries.GetSummaryRow");
     }
 

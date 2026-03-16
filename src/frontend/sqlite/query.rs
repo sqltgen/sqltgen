@@ -38,6 +38,7 @@ mod tests {
                     Column { name: "bio".into(), sql_type: SqlType::Text, nullable: true, is_primary_key: false },
                 ],
             }],
+            ..Default::default()
         }
     }
 

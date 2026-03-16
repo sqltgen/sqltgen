@@ -268,12 +268,30 @@ pub(super) fn collect_params_from_expr(expr: &Expr, ctx: &mut ResolverContext) {
                 } else {
                     None
                 };
-                for arg in &arg_list.args {
+                // For user-defined functions, infer placeholder types from the declared
+                // parameter types. Overload resolution is by argument count.
+                let arg_count = arg_list.args.len();
+                let udf_param_types: Option<&[crate::ir::SqlType]> = if !is_coalesce {
+                    func_name
+                        .as_deref()
+                        .and_then(|n| ctx.config.user_functions.get(n))
+                        .and_then(|overloads| overloads.iter().find(|(pt, _)| pt.len() == arg_count).map(|(pt, _)| pt.as_slice()))
+                } else {
+                    None
+                };
+                for (pos, arg) in arg_list.args.iter().enumerate() {
                     if let FunctionArg::Unnamed(FunctionArgExpr::Expr(inner)) = arg {
                         if let Some(ref rc) = coalesce_type {
                             if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = inner {
                                 if let Some(idx) = placeholder_idx(p) {
                                     ctx.mapping.entry(idx).or_insert((rc.name.clone(), rc.sql_type.clone(), true));
+                                }
+                            }
+                        }
+                        if let Some(param_types) = udf_param_types {
+                            if let Some(param_type) = param_types.get(pos) {
+                                if let Some(idx) = placeholder_idx_in_expr(inner) {
+                                    ctx.mapping.entry(idx).or_insert(("param".into(), param_type.clone(), false));
                                 }
                             }
                         }

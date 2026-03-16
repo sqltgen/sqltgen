@@ -4,7 +4,7 @@ use super::*;
 
 #[test]
 fn test_generate_pg_native_list_param() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::many(
         "GetByIds",
         "SELECT id FROM t WHERE id IN ($1)",
@@ -21,7 +21,7 @@ fn test_generate_pg_native_list_param() {
 
 #[test]
 fn test_generate_pg_dynamic_list_param() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::many(
         "GetByIds",
         "SELECT id FROM t WHERE id IN ($1)",
@@ -39,7 +39,7 @@ fn test_generate_pg_dynamic_list_param() {
 
 #[test]
 fn test_generate_sqlite_native_list_param() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::many(
         "GetByIds",
         "SELECT id FROM t WHERE id IN ($1)",
@@ -58,7 +58,7 @@ fn test_generate_sqlite_native_list_param() {
 
 #[test]
 fn test_generate_mysql_native_list_param() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::many(
         "GetByIds",
         "SELECT id FROM t WHERE id IN ($1)",
@@ -77,7 +77,7 @@ fn test_generate_mysql_native_list_param() {
 
 #[test]
 fn test_generate_mysql_dynamic_list_param() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::many(
         "GetByIds",
         "SELECT id FROM t WHERE id IN ($1)",

@@ -25,6 +25,7 @@ pub(crate) fn parse_queries(sql: &str, schema: &Schema) -> anyhow::Result<Vec<Qu
             avg_integer_type: SqlType::Decimal,
             typemap: crate::frontend::mysql::typemap::map,
             native_list_sql: Some(mysql_native_list_sql),
+            ..Default::default()
         },
     )
 }
@@ -56,6 +57,7 @@ mod tests {
                     Column { name: "bio".into(), sql_type: SqlType::Text, nullable: true, is_primary_key: false },
                 ],
             }],
+            ..Default::default()
         }
     }
 

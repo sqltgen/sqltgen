@@ -17,7 +17,7 @@ fn cfg_with_overrides(overrides: Vec<(&str, TypeOverride)>) -> OutputConfig {
 fn test_pg_write_expr_applied_to_json_param() {
     // "object" preset write_expr = JSON.stringify({value}).
     // The params array must contain JSON.stringify(payload), not the bare name.
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::exec("InsertDoc", "INSERT INTO docs (payload) VALUES ($1)", vec![Parameter::scalar(1, "payload", SqlType::Json, false)]);
     let cfg = cfg_with_overrides(vec![("json", TypeOverride::Same(TypeRef::String("object".to_string())))]);
     let gen = TypeScriptCodegen { target: JsTarget::Postgres, output: JsOutput::TypeScript };
@@ -30,7 +30,7 @@ fn test_pg_write_expr_applied_to_json_param() {
 
 #[test]
 fn test_sqlite_write_expr_applied_to_json_param() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::exec("InsertDoc", "INSERT INTO docs (payload) VALUES (?1)", vec![Parameter::scalar(1, "payload", SqlType::Json, false)]);
     let cfg = cfg_with_overrides(vec![("json", TypeOverride::Same(TypeRef::String("object".to_string())))]);
     let gen = TypeScriptCodegen { target: JsTarget::Sqlite, output: JsOutput::TypeScript };
@@ -42,7 +42,7 @@ fn test_sqlite_write_expr_applied_to_json_param() {
 
 #[test]
 fn test_mysql_write_expr_applied_to_json_param() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::exec("InsertDoc", "INSERT INTO docs (payload) VALUES ($1)", vec![Parameter::scalar(1, "payload", SqlType::Json, false)]);
     let cfg = cfg_with_overrides(vec![("json", TypeOverride::Same(TypeRef::String("object".to_string())))]);
     let gen = TypeScriptCodegen { target: JsTarget::Mysql, output: JsOutput::TypeScript };
@@ -55,7 +55,7 @@ fn test_mysql_write_expr_applied_to_json_param() {
 #[test]
 fn test_explicit_write_expr_applied_to_param() {
     // Explicit TypeRef with write_expr — tests the general mechanism, not just the preset.
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::exec("InsertDoc", "INSERT INTO docs (payload) VALUES ($1)", vec![Parameter::scalar(1, "payload", SqlType::Json, false)]);
     let cfg = cfg_with_overrides(vec![(
         "json",
@@ -76,7 +76,7 @@ fn test_explicit_write_expr_applied_to_param() {
 #[test]
 fn test_no_write_expr_emits_bare_param() {
     // Without any override, params must appear as plain camelCase names.
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::exec("InsertDoc", "INSERT INTO docs (payload) VALUES ($1)", vec![Parameter::scalar(1, "payload", SqlType::Json, false)]);
     let gen = TypeScriptCodegen { target: JsTarget::Postgres, output: JsOutput::TypeScript };
     let files = gen.generate(&schema, &[query], &config()).unwrap();
@@ -92,7 +92,7 @@ fn test_no_write_expr_emits_bare_param() {
 fn test_pg_read_expr_applied_to_one_query() {
     // When read_expr is configured, the returned row must be transformed.
     // For :one, the transform wraps the raw row object.
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::one(
         "GetDoc",
         "SELECT data FROM docs WHERE id = $1",
@@ -119,7 +119,7 @@ fn test_pg_read_expr_applied_to_one_query() {
 #[test]
 fn test_pg_read_expr_applied_to_many_query() {
     // For :many, the transform must map over the rows array.
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query =
         Query::many("ListDocs", "SELECT data FROM docs", vec![], vec![ResultColumn { name: "data".to_string(), sql_type: SqlType::Json, nullable: false }]);
     let cfg = cfg_with_overrides(vec![(
@@ -141,7 +141,7 @@ fn test_pg_read_expr_applied_to_many_query() {
 
 #[test]
 fn test_sqlite_read_expr_applied_to_one_query() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::one(
         "GetDoc",
         "SELECT data FROM docs WHERE id = ?1",
@@ -169,7 +169,7 @@ fn test_sqlite_read_expr_applied_to_one_query() {
 
 #[test]
 fn test_sqlite_read_expr_applied_to_many_query() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query =
         Query::many("ListDocs", "SELECT data FROM docs", vec![], vec![ResultColumn { name: "data".to_string(), sql_type: SqlType::Json, nullable: false }]);
     let cfg = cfg_with_overrides(vec![(
@@ -191,7 +191,7 @@ fn test_sqlite_read_expr_applied_to_many_query() {
 
 #[test]
 fn test_mysql_read_expr_applied_to_one_query() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::one(
         "GetDoc",
         "SELECT data FROM docs WHERE id = $1",
@@ -218,7 +218,7 @@ fn test_mysql_read_expr_applied_to_one_query() {
 #[test]
 fn test_no_read_expr_no_row_transform() {
     // Without a read_expr override, result rows must be returned directly (no map, no raw var).
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::one(
         "GetDoc",
         "SELECT data FROM docs WHERE id = $1",
@@ -238,7 +238,7 @@ fn test_no_read_expr_no_row_transform() {
 #[test]
 fn test_object_preset_sqlite_one_applies_both_exprs() {
     // Full integration: object preset → write_expr on param + read_expr on result.
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::one(
         "RoundtripDoc",
         "SELECT data FROM docs WHERE id = ?1",

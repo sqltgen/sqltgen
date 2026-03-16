@@ -445,4 +445,42 @@ mod tests {
         assert_eq!(schema.tables.len(), 1);
         assert_eq!(schema.tables[0].name, "real_table");
     }
+
+    #[test]
+    fn test_create_function_return_type_parsed() {
+        let ddl = "CREATE FUNCTION fetch_name(resource_id bigint) RETURNS text LANGUAGE sql AS $$ SELECT name FROM users WHERE id = resource_id $$;";
+        let schema = parse_schema(ddl).unwrap();
+        assert_eq!(schema.functions.len(), 1);
+        let f = &schema.functions[0];
+        assert_eq!(f.name, "fetch_name");
+        assert_eq!(f.return_type, SqlType::Text);
+        assert_eq!(f.param_types, vec![SqlType::BigInt]);
+    }
+
+    #[test]
+    fn test_create_function_multiple_params_parsed() {
+        let ddl = "CREATE FUNCTION add_score(user_id bigint, delta integer) RETURNS bigint LANGUAGE sql AS $$ SELECT $1 $$;";
+        let schema = parse_schema(ddl).unwrap();
+        assert_eq!(schema.functions.len(), 1);
+        let f = &schema.functions[0];
+        assert_eq!(f.param_types, vec![SqlType::BigInt, SqlType::Integer]);
+        assert_eq!(f.return_type, SqlType::BigInt);
+    }
+
+    #[test]
+    fn test_create_function_out_params_excluded_from_param_types() {
+        let ddl = "CREATE FUNCTION stats(IN user_id bigint, OUT count bigint) RETURNS bigint LANGUAGE sql AS $$ SELECT 1 $$;";
+        let schema = parse_schema(ddl).unwrap();
+        assert_eq!(schema.functions.len(), 1);
+        // OUT params are return values, not inputs
+        assert_eq!(schema.functions[0].param_types, vec![SqlType::BigInt]);
+    }
+
+    #[test]
+    fn test_create_function_table_returning_skipped() {
+        let ddl = "CREATE FUNCTION get_users() RETURNS TABLE(id bigint, name text) LANGUAGE sql AS $$ SELECT id, name FROM users $$;";
+        let schema = parse_schema(ddl).unwrap();
+        // Table-valued functions are skipped
+        assert_eq!(schema.functions.len(), 0);
+    }
 }

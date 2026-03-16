@@ -13,6 +13,7 @@ pub fn schema_with_users() -> Schema {
                 Column { name: "email".to_string(), sql_type: SqlType::VarChar(Some(255)), nullable: true, is_primary_key: false },
             ],
         }],
+        ..Default::default()
     }
 }
 

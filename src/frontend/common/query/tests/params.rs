@@ -26,6 +26,7 @@ fn make_json_schema() -> Schema {
                 Column { name: "data".into(), sql_type: SqlType::Jsonb, nullable: false, is_primary_key: false },
             ],
         }],
+        ..Default::default()
     }
 }
 

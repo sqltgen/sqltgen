@@ -4,7 +4,7 @@ use super::*;
 
 #[test]
 fn test_generate_table_struct() {
-    let schema = Schema { tables: vec![user_table()] };
+    let schema = Schema::with_tables(vec![user_table()]);
     let files = pg().generate(&schema, &[], &cfg()).unwrap();
     let src = get_file(&files, "user.rs");
     assert!(src.contains("#[derive(Debug, sqlx::FromRow)]"));
@@ -16,7 +16,7 @@ fn test_generate_table_struct() {
 
 #[test]
 fn test_generate_mod_file() {
-    let schema = Schema { tables: vec![user_table()] };
+    let schema = Schema::with_tables(vec![user_table()]);
     let query = Query::one(
         "GetUser",
         "SELECT id, name, bio FROM user WHERE id = $1",
@@ -37,7 +37,7 @@ fn test_generate_mod_file() {
 
 #[test]
 fn test_generate_postgres_uses_pg_pool() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.rs");
@@ -47,7 +47,7 @@ fn test_generate_postgres_uses_pg_pool() {
 
 #[test]
 fn test_generate_sqlite_uses_sqlite_pool() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = ?1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.rs");
@@ -59,7 +59,7 @@ fn test_generate_sqlite_uses_sqlite_pool() {
 
 #[test]
 fn test_generate_exec_query() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.rs");
@@ -70,7 +70,7 @@ fn test_generate_exec_query() {
 
 #[test]
 fn test_generate_execrows_query() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::exec_rows("DeleteUsers", "DELETE FROM user WHERE active = $1", vec![Parameter::scalar(1, "active", SqlType::Boolean, false)]);
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.rs");
@@ -80,7 +80,7 @@ fn test_generate_execrows_query() {
 
 #[test]
 fn test_generate_one_query_infers_table_return_type() {
-    let schema = Schema { tables: vec![user_table()] };
+    let schema = Schema::with_tables(vec![user_table()]);
     let query = Query::one(
         "GetUser",
         "SELECT id, name, bio FROM user WHERE id = $1",
@@ -99,7 +99,7 @@ fn test_generate_one_query_infers_table_return_type() {
 
 #[test]
 fn test_generate_many_query_infers_table_return_type() {
-    let schema = Schema { tables: vec![user_table()] };
+    let schema = Schema::with_tables(vec![user_table()]);
     let query = Query::many(
         "ListUsers",
         "SELECT id, name, bio FROM user",
@@ -120,7 +120,7 @@ fn test_generate_many_query_infers_table_return_type() {
 
 #[test]
 fn test_generate_inline_row_struct_for_partial_result() {
-    let schema = Schema { tables: vec![user_table()] };
+    let schema = Schema::with_tables(vec![user_table()]);
     let query = Query::one(
         "GetUserName",
         "SELECT name FROM user WHERE id = $1",
@@ -137,7 +137,7 @@ fn test_generate_inline_row_struct_for_partial_result() {
 
 #[test]
 fn test_generate_mysql_exec_query() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = mysql().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.rs");
@@ -149,7 +149,7 @@ fn test_generate_mysql_exec_query() {
 
 #[test]
 fn test_generate_sqlite_one_query() {
-    let schema = Schema { tables: vec![user_table()] };
+    let schema = Schema::with_tables(vec![user_table()]);
     let query = Query::one(
         "GetUser",
         "SELECT id, name, bio FROM user WHERE id = ?1",
@@ -169,7 +169,7 @@ fn test_generate_sqlite_one_query() {
 
 #[test]
 fn test_generate_mysql_one_query_returns_option() {
-    let schema = Schema { tables: vec![user_table()] };
+    let schema = Schema::with_tables(vec![user_table()]);
     let query = Query::one(
         "GetUser",
         "SELECT id, name, bio FROM user WHERE id = $1",
@@ -192,7 +192,7 @@ fn test_generate_mysql_one_query_returns_option() {
 fn test_generate_sql_is_inlined_not_constant() {
     // Rust backend inlines SQL directly into sqlx::query(). It does NOT emit
     // a named SQL constant (that is a JDBC backend pattern).
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::exec("GetUserById", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.rs");
@@ -206,7 +206,7 @@ fn test_generate_sql_is_inlined_not_constant() {
 
 #[test]
 fn test_generate_execrows_sqlite() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::exec_rows("DeleteUser", "DELETE FROM user WHERE id = ?1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.rs");

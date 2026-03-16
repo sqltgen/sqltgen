@@ -5,7 +5,7 @@ use super::*;
 #[test]
 fn test_nullable_param_pg_ts() {
     // Nullable param → `T | null` in function signature; pg passes null directly.
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::exec(
         "UpdateBio",
         "UPDATE users SET bio = $1 WHERE id = $2",
@@ -19,7 +19,7 @@ fn test_nullable_param_pg_ts() {
 
 #[test]
 fn test_nullable_param_sqlite_ts() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::exec(
         "UpdateBio",
         "UPDATE users SET bio = ?1 WHERE id = ?2",
@@ -32,7 +32,7 @@ fn test_nullable_param_sqlite_ts() {
 
 #[test]
 fn test_nullable_param_mysql_ts() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::exec(
         "UpdateBio",
         "UPDATE users SET bio = $1 WHERE id = $2",

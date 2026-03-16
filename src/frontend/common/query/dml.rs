@@ -36,7 +36,7 @@ pub(super) fn collect_returning_params(
 ) {
     let all_tables = [(table.clone(), None)];
     let alias_map = build_alias_map(&all_tables);
-    let schema = Schema { tables: vec![table.clone()] };
+    let schema = Schema::with_tables(vec![table.clone()]);
     let ctx = &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema: &schema, config, mapping, query_name };
     for item in items {
         let expr = match item {
@@ -108,7 +108,7 @@ fn collect_on_conflict_params(
     let all_tables = [excluded_table];
     let alias_map = build_alias_map(&all_tables);
     let ctx =
-        &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema: &Schema { tables: vec![table.clone()] }, config, mapping, query_name };
+        &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema: &Schema::with_tables(vec![table.clone()]), config, mapping, query_name };
 
     for assignment in &do_update.assignments {
         collect_params_from_expr(&assignment.value, ctx);

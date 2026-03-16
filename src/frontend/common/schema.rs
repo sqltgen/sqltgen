@@ -1,10 +1,10 @@
-use sqlparser::ast::{ObjectType, Statement};
+use sqlparser::ast::{ArgMode, DataType, ObjectType, Statement};
 use sqlparser::dialect::Dialect;
 use sqlparser::parser::Parser;
 use sqlparser::tokenizer::{Token, Tokenizer};
 
-use super::{apply_alter_table, apply_drop_tables, build_create_table, AlterCaps};
-use crate::ir::{Schema, SqlType, Table};
+use super::{apply_alter_table, apply_drop_tables, build_create_table, obj_name_to_str, AlterCaps};
+use crate::ir::{ScalarFunction, Schema, SqlType, Table};
 
 /// Shared schema-parsing implementation used by all dialect frontends.
 ///
@@ -25,6 +25,7 @@ pub(crate) fn parse_schema_impl(
 
     let mut parser = Parser::new(dialect).with_tokens_with_locations(tokens);
     let mut tables: Vec<Table> = Vec::new();
+    let mut functions: Vec<ScalarFunction> = Vec::new();
 
     loop {
         // Consume any inter-statement semicolons.
@@ -36,7 +37,7 @@ pub(crate) fn parse_schema_impl(
 
         match parser.parse_statement() {
             Ok(stmt) => {
-                process_statement(&stmt, &mut tables, map_type, caps);
+                process_statement(&stmt, &mut tables, &mut functions, map_type, caps);
             },
             Err(_) => {
                 // Skip to the next semicolon so we can recover and continue.
@@ -50,11 +51,17 @@ pub(crate) fn parse_schema_impl(
         }
     }
 
-    Ok(Schema { tables })
+    Ok(Schema { tables, functions })
 }
 
-/// Applies a single DDL statement to the in-memory table list.
-fn process_statement(stmt: &Statement, tables: &mut Vec<Table>, map_type: fn(&sqlparser::ast::DataType) -> SqlType, caps: AlterCaps) {
+/// Applies a single DDL statement to the in-memory table and function lists.
+fn process_statement(
+    stmt: &Statement,
+    tables: &mut Vec<Table>,
+    functions: &mut Vec<ScalarFunction>,
+    map_type: fn(&sqlparser::ast::DataType) -> SqlType,
+    caps: AlterCaps,
+) {
     match stmt {
         Statement::CreateTable(ct) => {
             tables.push(build_create_table(&ct.name, &ct.columns, &ct.constraints, map_type));
@@ -64,6 +71,17 @@ fn process_statement(stmt: &Statement, tables: &mut Vec<Table>, map_type: fn(&sq
         },
         Statement::Drop { object_type: ObjectType::Table, names, .. } => {
             apply_drop_tables(names, tables);
+        },
+        Statement::CreateFunction(f) => {
+            // Skip table-valued functions (RETURNS TABLE(...)) — they are not scalar.
+            let return_type = match &f.return_type {
+                Some(dt) if !matches!(dt, DataType::Table(_)) => map_type(dt),
+                _ => return,
+            };
+            let name = obj_name_to_str(&f.name);
+            let param_types =
+                f.args.as_deref().unwrap_or(&[]).iter().filter(|a| matches!(a.mode, None | Some(ArgMode::In))).map(|a| map_type(&a.data_type)).collect();
+            functions.push(ScalarFunction { name, return_type, param_types });
         },
         _ => {},
     }

@@ -52,7 +52,7 @@ fn src_has_sql_constant(content: &str, needle: &str) -> bool {
 
 #[test]
 fn test_pg_native_list_param_ts() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let content = build_queries_file(&[pg_list_by_ids_query()], &schema, &JsTarget::Postgres, &JsOutput::TypeScript, &config()).unwrap();
     // SQL constant rewrites IN ($1) → = ANY($1); pg accepts a JS array directly.
     assert!(src_has_sql_constant(&content, "= ANY($1)"), "PG native should rewrite to = ANY");
@@ -64,7 +64,7 @@ fn test_pg_native_list_param_ts() {
 
 #[test]
 fn test_pg_native_list_param_js() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let content = build_queries_file(&[pg_list_by_ids_query()], &schema, &JsTarget::Postgres, &JsOutput::JavaScript, &config()).unwrap();
     assert!(src_has_sql_constant(&content, "= ANY($1)"), "PG native should rewrite to = ANY");
     // JS output uses JSDoc comments, not inline TypeScript type annotations.
@@ -73,7 +73,7 @@ fn test_pg_native_list_param_js() {
 
 #[test]
 fn test_pg_dynamic_list_param_ts() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let content = build_queries_file(&[list_by_ids_query()], &schema, &JsTarget::Postgres, &JsOutput::TypeScript, &dynamic_cfg()).unwrap();
     assert!(content.contains("ids: number[]"), "list param must use number[] type");
     // Dynamic builds $N numbered placeholders at runtime.
@@ -87,7 +87,7 @@ fn test_pg_dynamic_list_param_ts() {
 #[test]
 fn test_pg_dynamic_list_param_with_scalar_before() {
     // Scalar before IN: arg order must be [scalar, ...list].
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::many(
         "GetByIds",
         "SELECT id FROM t WHERE active = $1 AND id IN ($2)",
@@ -101,7 +101,7 @@ fn test_pg_dynamic_list_param_with_scalar_before() {
 #[test]
 fn test_pg_dynamic_list_param_with_scalar_after() {
     // Scalar after IN: arg order must be [...list, scalar].
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::many(
         "GetByIds",
         "SELECT id FROM t WHERE id IN ($1) AND active = $2",
@@ -114,7 +114,7 @@ fn test_pg_dynamic_list_param_with_scalar_after() {
 
 #[test]
 fn test_sqlite_native_list_param_ts() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let content = build_queries_file(&[sqlite_list_by_ids_query()], &schema, &JsTarget::Sqlite, &JsOutput::TypeScript, &config()).unwrap();
     // SQL constant uses json_each for SQLite.
     assert!(src_has_sql_constant(&content, "json_each"), "SQLite native should use json_each");
@@ -127,7 +127,7 @@ fn test_sqlite_native_list_param_ts() {
 
 #[test]
 fn test_sqlite_dynamic_list_param_ts() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let content = build_queries_file(&[list_by_ids_query()], &schema, &JsTarget::Sqlite, &JsOutput::TypeScript, &dynamic_cfg()).unwrap();
     assert!(content.contains("ids: number[]"), "list param must use number[] type");
     // SQLite dynamic uses anonymous ? placeholders.
@@ -140,7 +140,7 @@ fn test_sqlite_dynamic_list_param_ts() {
 #[test]
 fn test_sqlite_dynamic_list_param_with_scalar_after() {
     // TypeScript correctly places scalar-after after the list (no Bug B for TS).
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::many(
         "GetByIds",
         "SELECT id FROM t WHERE id IN ($1) AND active = $2",
@@ -153,7 +153,7 @@ fn test_sqlite_dynamic_list_param_with_scalar_after() {
 
 #[test]
 fn test_mysql_native_list_param_ts() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let content = build_queries_file(&[mysql_list_by_ids_query()], &schema, &JsTarget::Mysql, &JsOutput::TypeScript, &config()).unwrap();
     // SQL constant uses JSON_TABLE for MySQL.
     assert!(src_has_sql_constant(&content, "JSON_TABLE"), "MySQL native should use JSON_TABLE");
@@ -165,7 +165,7 @@ fn test_mysql_native_list_param_ts() {
 
 #[test]
 fn test_mysql_dynamic_list_param_ts() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let content = build_queries_file(&[list_by_ids_query()], &schema, &JsTarget::Mysql, &JsOutput::TypeScript, &dynamic_cfg()).unwrap();
     assert!(content.contains("ids: number[]"), "list param must use number[] type");
     // MySQL dynamic uses anonymous ? placeholders (same as SQLite, unlike PG).
@@ -176,7 +176,7 @@ fn test_mysql_dynamic_list_param_ts() {
 
 #[test]
 fn test_list_param_text_type_ts() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::many(
         "GetByTags",
         "SELECT id FROM t WHERE tag IN ($1)",
@@ -189,7 +189,7 @@ fn test_list_param_text_type_ts() {
 
 #[test]
 fn test_list_param_execrows_pg_ts() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::exec_rows("DeleteByIds", "DELETE FROM t WHERE id IN ($1)", vec![Parameter::list(1, "ids", SqlType::BigInt, false)]);
     let content = build_queries_file(&[query], &schema, &JsTarget::Postgres, &JsOutput::TypeScript, &config()).unwrap();
     assert!(content.contains("Promise<number>"), "execrows should return Promise<number>");

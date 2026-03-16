@@ -5,7 +5,7 @@ use super::*;
 #[test]
 fn test_generate_nullable_param_pg() {
     // Nullable param → `Option<T>` in function signature; sqlx handles binding.
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::exec(
         "UpdateBio",
         "UPDATE users SET bio = $1 WHERE id = $2",
@@ -20,7 +20,7 @@ fn test_generate_nullable_param_pg() {
 
 #[test]
 fn test_generate_nullable_param_mysql() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::exec(
         "UpdateBio",
         "UPDATE users SET bio = $1 WHERE id = $2",
@@ -36,7 +36,7 @@ fn test_generate_nullable_param_mysql() {
 
 #[test]
 fn test_generate_sqlite_rewrites_placeholders() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::exec("GetUser", "DELETE FROM user WHERE id = ?1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.rs");
@@ -50,7 +50,7 @@ fn test_generate_sqlite_rewrites_placeholders() {
 fn test_generate_repeated_param_pg_binds_once_per_unique_param() {
     // Postgres uses $N reference-by-index, so sqlx only needs one .bind(genre)
     // even when $1 appears multiple times in the SQL.
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::many(
         "ListByGenreOrAll",
         "SELECT id FROM t WHERE $1 = 'all' OR genre = $1",
@@ -67,7 +67,7 @@ fn test_generate_repeated_param_pg_binds_once_per_unique_param() {
 fn test_generate_repeated_param_mysql_binds_per_occurrence() {
     // MySQL uses ? (positional-sequential), so each occurrence of $1 needs its
     // own .bind(). The first gets .clone() so the value is not moved early.
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::many(
         "ListByGenreOrAll",
         "SELECT id FROM t WHERE $1 = 'all' OR genre = $1",

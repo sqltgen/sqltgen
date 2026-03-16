@@ -13,7 +13,7 @@ fn cfg_with_overrides(overrides: Vec<(&str, TypeOverride)>) -> OutputConfig {
 
 #[test]
 fn test_serde_json_preset_json_column() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::one(
         "GetDoc",
         "SELECT data FROM docs WHERE id = $1",
@@ -34,7 +34,7 @@ fn test_serde_json_preset_json_column() {
 
 #[test]
 fn test_fqn_date_override() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::one(
         "GetEvent",
         "SELECT event_date FROM events WHERE id = $1",
@@ -52,7 +52,7 @@ fn test_fqn_date_override() {
 
 #[test]
 fn test_plain_string_uuid_override() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::one(
         "GetUser",
         "SELECT user_id FROM users WHERE id = $1",
@@ -70,7 +70,7 @@ fn test_plain_string_uuid_override() {
 
 #[test]
 fn test_no_override_json_stays_serde_value() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::one(
         "GetDoc",
         "SELECT data FROM docs WHERE id = $1",

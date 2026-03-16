@@ -137,6 +137,7 @@ fn execrows_cte_with_params_keeps_method_params_when_type_inference_fails() {
                 ],
             },
         ],
+        ..Default::default()
     };
 
     let q = &parse_queries(sql, &schema).unwrap()[0];

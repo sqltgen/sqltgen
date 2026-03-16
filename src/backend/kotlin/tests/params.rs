@@ -5,7 +5,7 @@ use super::*;
 #[test]
 fn test_generate_repeated_param_emits_bind_per_occurrence() {
     // $1 appears 4 times, $2 once — must emit 5 bind calls in SQL order
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::many(
         "FindItems",
         "SELECT * FROM t WHERE a = $1 OR $1 = -1 AND b = $1 OR $1 = 0 AND c = $2",
@@ -25,7 +25,7 @@ fn test_generate_repeated_param_emits_bind_per_occurrence() {
 
 #[test]
 fn test_generate_nullable_param_uses_set_object() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::exec(
         "UpdateBio",
         "UPDATE user SET bio = $1 WHERE id = $2",

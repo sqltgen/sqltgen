@@ -4,7 +4,7 @@ use super::*;
 
 #[test]
 fn test_generate_pg_native_list_param() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::many(
         "GetByIds",
         "SELECT id FROM t WHERE id IN ($1)",
@@ -21,7 +21,7 @@ fn test_generate_pg_native_list_param() {
 
 #[test]
 fn test_generate_pg_dynamic_list_param() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::many(
         "GetByIds",
         "SELECT id FROM t WHERE id IN ($1)",
@@ -40,7 +40,7 @@ fn test_generate_pg_dynamic_list_param() {
 
 #[test]
 fn test_generate_sqlite_native_list_param() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::many(
         "GetByIds",
         "SELECT id FROM t WHERE id IN ($1)",
@@ -62,7 +62,7 @@ fn test_generate_sqlite_native_list_param() {
 fn test_generate_array_result_column_uses_get_array() {
     // Bug: Array columns previously fell through to rs.getObject(idx),
     // which returns a raw JDBC Array object instead of a typed List.
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::one(
         "GetTags",
         "SELECT tags FROM t WHERE id = $1",
@@ -80,7 +80,7 @@ fn test_generate_array_result_column_uses_get_array() {
 fn test_generate_array_param_uses_set_array() {
     // Bug: Array params previously used ps.setObject(idx, val),
     // which doesn't work with PostgreSQL JDBC for array types.
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::exec(
         "UpdateTags",
         "UPDATE t SET tags = $1 WHERE id = $2",
@@ -96,7 +96,7 @@ fn test_generate_array_param_uses_set_array() {
 fn test_generate_jsonb_param_uses_types_other() {
     // Bug: JSONB params previously used ps.setObject(idx, val) without
     // the Types.OTHER hint, which PostgreSQL JDBC rejects.
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::exec(
         "UpdateMeta",
         "UPDATE t SET meta = $1 WHERE id = $2",
@@ -114,7 +114,7 @@ fn test_bug_a_sqlite_native_text_list_json_escaping() {
     // Bug A: The SQLite/MySQL native strategy uses Object::toString for all
     // element types. For Text params this produces bare unquoted strings —
     // invalid JSON. This test fails until the root cause is fixed.
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::many(
         "GetByTags",
         "SELECT id FROM t WHERE tag IN ($1)",
@@ -136,7 +136,7 @@ fn test_bug_a_numeric_list_no_quoting_needed() {
     // Numeric types produce valid JSON via toString() — no per-element quoting
     // is needed. Confirm the fix does not introduce unnecessary quoting for
     // numeric list params.
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::many(
         "GetByIds",
         "SELECT id FROM t WHERE id IN ($1)",
@@ -158,7 +158,7 @@ fn test_bug_b_dynamic_scalar_after_in_binding_order() {
     // Dynamic strategy incorrectly binds it at slot 1 (before list elements).
     // Correct order: [list elements] + [scalar-after].
     // This test fails until the root cause is fixed.
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::many(
         "GetActiveByIds",
         "SELECT id FROM t WHERE id IN ($1) AND active = $2",
@@ -183,7 +183,7 @@ fn test_bug_b_dynamic_scalar_after_in_binding_order() {
 fn test_bug_b_dynamic_scalar_before_in_no_regression() {
     // When the scalar param appears *before* the IN clause, the current binding
     // order is correct. Confirm the fix preserves this common pattern.
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::many(
         "GetActiveByIds",
         "SELECT id FROM t WHERE active = $1 AND id IN ($2)",

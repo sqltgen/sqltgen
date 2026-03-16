@@ -13,7 +13,7 @@ fn cfg_with_overrides(overrides: Vec<(&str, TypeOverride)>) -> OutputConfig {
 
 #[test]
 fn test_jackson_preset_json_column_type() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::one(
         "GetDoc",
         "SELECT data FROM docs WHERE id = $1",
@@ -38,7 +38,7 @@ fn test_jackson_preset_json_column_type() {
 
 #[test]
 fn test_jackson_preset_jsonb_column() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::one(
         "GetMeta",
         "SELECT meta FROM docs WHERE id = $1",
@@ -55,7 +55,7 @@ fn test_jackson_preset_jsonb_column() {
 
 #[test]
 fn test_fqn_date_override() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::one(
         "GetEvent",
         "SELECT event_date FROM events WHERE id = $1",
@@ -74,7 +74,7 @@ fn test_fqn_date_override() {
 
 #[test]
 fn test_plain_string_uuid_override() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::one(
         "GetUser",
         "SELECT user_id FROM users WHERE id = $1",
@@ -94,7 +94,7 @@ fn test_plain_string_uuid_override() {
 
 #[test]
 fn test_split_date_field_string_param() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::one(
         "GetEvent",
         "SELECT event_date FROM events WHERE raw_date = $1",
@@ -120,7 +120,7 @@ fn test_split_date_field_string_param() {
 fn test_read_expr_uses_get_string_as_raw() {
     // When read_expr is present, {raw} must expand to rs.getString — not rs.getObject —
     // so the conversion works on any JDBC driver regardless of type registration.
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::one(
         "GetEvent",
         "SELECT event_date FROM events WHERE id = $1",
@@ -147,7 +147,7 @@ fn test_read_expr_uses_get_string_as_raw() {
 fn test_fqn_override_uses_get_object_with_override_class() {
     // When no read_expr is given for a getObject type, the generated read must use
     // the override class name — not the hardcoded default.
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::one(
         "GetEvent",
         "SELECT event_date FROM events WHERE id = $1",
@@ -165,7 +165,7 @@ fn test_fqn_override_uses_get_object_with_override_class() {
 
 #[test]
 fn test_uuid_fqn_override_uses_get_object_with_override_class() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::one(
         "GetUser",
         "SELECT user_id FROM users WHERE id = $1",
@@ -183,7 +183,7 @@ fn test_uuid_fqn_override_uses_get_object_with_override_class() {
 #[test]
 fn test_jackson_read_expr_uses_get_string() {
     // Jackson preset uses read_expr — verify {raw} expands to rs.getString.
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::one(
         "GetDoc",
         "SELECT data FROM docs WHERE id = $1",
@@ -201,7 +201,7 @@ fn test_jackson_read_expr_uses_get_string() {
 
 #[test]
 fn test_timestamp_fqn_override_uses_get_object_with_override_class() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::one(
         "GetEvent",
         "SELECT created_at FROM events WHERE id = $1",
@@ -220,7 +220,7 @@ fn test_timestamp_fqn_override_uses_get_object_with_override_class() {
 
 #[test]
 fn test_nullable_column_with_override() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::one(
         "GetDoc",
         "SELECT data FROM docs WHERE id = $1",
@@ -248,6 +248,7 @@ fn test_table_model_with_override() {
                 Column { name: "payload".to_string(), sql_type: SqlType::Json, nullable: false, is_primary_key: false },
             ],
         }],
+        ..Default::default()
     };
     let cfg = cfg_with_overrides(vec![("json", TypeOverride::Same(TypeRef::String("jackson".to_string())))]);
     let files = pg().generate(&schema, &[], &cfg).unwrap();
@@ -261,7 +262,7 @@ fn test_table_model_with_override() {
 
 #[test]
 fn test_multiple_overrides_collect_all_imports() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::one(
         "GetDoc",
         "SELECT payload, doc_id FROM docs WHERE id = $1",
@@ -292,7 +293,7 @@ fn test_write_expr_applied_to_param_binding() {
     // When write_expr is configured, the param binding should apply the expression.
     // e.g. jackson: ps.setObject(1, objectMapper.writeValueAsString(payload), Types.OTHER)
     // rather than ps.setObject(1, payload, Types.OTHER)
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::exec("InsertDoc", "INSERT INTO docs (payload) VALUES ($1)", vec![Parameter::scalar(1, "payload".to_string(), SqlType::Json, false)]);
     let cfg = cfg_with_overrides(vec![("json", TypeOverride::Same(TypeRef::String("jackson".to_string())))]);
     let files = pg().generate(&schema, &[query], &cfg).unwrap();
@@ -305,7 +306,7 @@ fn test_write_expr_applied_to_param_binding() {
 
 #[test]
 fn test_no_override_json_stays_string() {
-    let schema = Schema { tables: vec![] };
+    let schema = Schema::default();
     let query = Query::one(
         "GetDoc",
         "SELECT data FROM docs WHERE id = $1",

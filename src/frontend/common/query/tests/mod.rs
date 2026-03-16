@@ -17,6 +17,7 @@ pub fn make_schema() -> Schema {
                 Column { name: "bio".into(), sql_type: SqlType::Text, nullable: true, is_primary_key: false },
             ],
         }],
+        ..Default::default()
     }
 }
 
@@ -39,6 +40,7 @@ pub fn make_join_schema() -> Schema {
                 ],
             },
         ],
+        ..Default::default()
     }
 }
 
@@ -51,6 +53,7 @@ pub fn make_inventory_schema() -> Schema {
                 Column { name: "qty".into(), sql_type: SqlType::Integer, nullable: false, is_primary_key: false },
             ],
         }],
+        ..Default::default()
     }
 }
 
@@ -63,6 +66,7 @@ pub fn make_upsert_schema() -> Schema {
                 Column { name: "count".into(), sql_type: SqlType::Integer, nullable: false, is_primary_key: false },
             ],
         }],
+        ..Default::default()
     }
 }
 
@@ -80,6 +84,7 @@ pub fn make_numeric_schema() -> Schema {
                 Column { name: "label".into(), sql_type: SqlType::Text, nullable: false, is_primary_key: false },
             ],
         }],
+        ..Default::default()
     }
 }
 
