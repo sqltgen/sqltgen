@@ -19,7 +19,9 @@ use crate::ir::{Column, NativeListBind, Parameter, Query, QueryCmd, ResultColumn
 /// [`NativeListBind`] backends must use, or `None` when native expansion is unavailable.
 type NativeListSqlFn = fn(&Parameter, &str) -> Option<(String, NativeListBind)>;
 
-use dml::{build_delete, build_insert, build_update, collect_delete_where_params, collect_insert_value_params, collect_returning_params, collect_update_params};
+use dml::{
+    build_delete, build_insert, build_update, collect_delete_where_params, collect_insert_value_params, collect_returning_params, collect_update_params,
+};
 use params::{collect_join_params, collect_limit_offset_params, collect_params_from_expr};
 use resolve::{col_to_result, resolve_expr, resolve_projection};
 use select::build_select;
