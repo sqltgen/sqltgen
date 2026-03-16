@@ -20,6 +20,33 @@ use super::{
     QueryAnnotation, ResolverConfig, ResolverContext,
 };
 
+// ─── RETURNING params ────────────────────────────────────────────────────────
+
+/// Collect typed parameter mappings from the expressions in a `RETURNING` clause.
+///
+/// Expressions like `RETURNING col + $N` or `RETURNING col || $N` allow parameters
+/// whose type is inferred from the sibling column reference, exactly as in a SELECT
+/// projection. Without this pass, such parameters fall through to the `Text` default.
+pub(super) fn collect_returning_params(
+    items: &[SelectItem],
+    table: &Table,
+    config: &ResolverConfig,
+    mapping: &mut HashMap<usize, (String, SqlType, bool)>,
+    query_name: &str,
+) {
+    let all_tables = [(table.clone(), None)];
+    let alias_map = build_alias_map(&all_tables);
+    let schema = Schema { tables: vec![table.clone()] };
+    let ctx = &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema: &schema, config, mapping, query_name };
+    for item in items {
+        let expr = match item {
+            SelectItem::UnnamedExpr(e) | SelectItem::ExprWithAlias { expr: e, .. } => e,
+            _ => continue,
+        };
+        collect_params_from_expr(expr, ctx);
+    }
+}
+
 // ─── INSERT ──────────────────────────────────────────────────────────────────
 
 /// Build a [`Query`] from a top-level `INSERT` statement.
@@ -32,6 +59,9 @@ pub(super) fn build_insert(ann: &QueryAnnotation, sql: &str, insert: &Insert, sc
     let mut mapping = HashMap::new();
     collect_insert_value_params(insert, schema, config, &mut mapping, &ann.name);
     collect_on_conflict_params(insert, table, config, &mut mapping, &ann.name);
+    if let Some(items) = insert.returning.as_deref() {
+        collect_returning_params(items, table, config, &mut mapping, &ann.name);
+    }
     let params = build_params(mapping, count_params(sql));
     let result_columns = insert.returning.as_deref().map_or(vec![], |items| resolve_returning(items, table, config));
 
@@ -43,6 +73,11 @@ pub(super) fn build_query_from_insert(ann: &QueryAnnotation, sql: &str, q: &SqlQ
     let mut mapping = HashMap::new();
     collect_cte_params(q.with.as_ref(), schema, config, &mut mapping, &ann.name);
     collect_insert_value_params(ins, schema, config, &mut mapping, &ann.name);
+    if let Some(table) = schema.tables.iter().find(|t| t.name == insert_table_name(ins)) {
+        if let Some(items) = ins.returning.as_deref() {
+            collect_returning_params(items, table, config, &mut mapping, &ann.name);
+        }
+    }
     let params = build_params(mapping, count_params(sql));
     let result_columns = schema
         .tables
@@ -148,6 +183,9 @@ pub(super) fn build_update(ann: &QueryAnnotation, sql: &str, u: &sqlparser::ast:
 
     let mut mapping: HashMap<usize, (String, SqlType, bool)> = HashMap::new();
     collect_update_params(&u.table, &u.assignments, u.selection.as_ref(), schema, config, &mut mapping, &ann.name);
+    if let Some(items) = u.returning.as_deref() {
+        collect_returning_params(items, table, config, &mut mapping, &ann.name);
+    }
     let params = build_params(mapping, count_params(sql));
     let result_columns = u.returning.as_deref().map_or(vec![], |items| resolve_returning(items, table, config));
     Query::new(ann.name.clone(), ann.cmd.clone(), sql, params, result_columns)
@@ -162,14 +200,19 @@ pub(super) fn build_query_from_update(
     schema: &Schema,
     config: &ResolverConfig,
 ) -> Query {
-    let mut mapping = HashMap::new();
-    collect_cte_params(q.with.as_ref(), schema, config, &mut mapping, &ann.name);
-    collect_update_params(&u.table, &u.assignments, u.selection.as_ref(), schema, config, &mut mapping, &ann.name);
-    let params = build_params(mapping, count_params(sql));
     let table_name = match &u.table.relation {
         TableFactor::Table { name, .. } => obj_name_to_str(name),
         _ => return unresolved_query(ann, sql),
     };
+    let mut mapping = HashMap::new();
+    collect_cte_params(q.with.as_ref(), schema, config, &mut mapping, &ann.name);
+    collect_update_params(&u.table, &u.assignments, u.selection.as_ref(), schema, config, &mut mapping, &ann.name);
+    if let Some(table) = schema.tables.iter().find(|t| t.name == table_name) {
+        if let Some(items) = u.returning.as_deref() {
+            collect_returning_params(items, table, config, &mut mapping, &ann.name);
+        }
+    }
+    let params = build_params(mapping, count_params(sql));
     let result_columns = schema
         .tables
         .iter()
@@ -250,6 +293,9 @@ pub(super) fn build_delete(ann: &QueryAnnotation, sql: &str, delete: &Delete, sc
             expr,
             &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping: &mut mapping, query_name: &ann.name },
         );
+    }
+    if let Some(items) = delete.returning.as_deref() {
+        collect_returning_params(items, table, config, &mut mapping, &ann.name);
     }
 
     let params = build_params(mapping, count_params(sql));

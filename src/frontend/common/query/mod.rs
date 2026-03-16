@@ -19,7 +19,7 @@ use crate::ir::{Column, NativeListBind, Parameter, Query, QueryCmd, ResultColumn
 /// [`NativeListBind`] backends must use, or `None` when native expansion is unavailable.
 type NativeListSqlFn = fn(&Parameter, &str) -> Option<(String, NativeListBind)>;
 
-use dml::{build_delete, build_insert, build_update, collect_delete_where_params, collect_insert_value_params, collect_update_params};
+use dml::{build_delete, build_insert, build_update, collect_delete_where_params, collect_insert_value_params, collect_returning_params, collect_update_params};
 use params::{collect_join_params, collect_limit_offset_params, collect_params_from_expr};
 use resolve::{col_to_result, resolve_expr, resolve_projection};
 use select::build_select;
@@ -236,12 +236,32 @@ pub(super) fn collect_cte_params(
         match cte.query.body.as_ref() {
             SetExpr::Update(Statement::Update(u)) => {
                 collect_update_params(&u.table, &u.assignments, u.selection.as_ref(), schema, config, mapping, query_name);
+                if let TableFactor::Table { name, .. } = &u.table.relation {
+                    let table_name = obj_name_to_str(name);
+                    if let Some(table) = schema.tables.iter().find(|t| t.name == table_name) {
+                        if let Some(items) = u.returning.as_deref() {
+                            collect_returning_params(items, table, config, mapping, query_name);
+                        }
+                    }
+                }
             },
             SetExpr::Delete(Statement::Delete(del)) => {
                 collect_delete_where_params(del, schema, config, mapping, query_name);
+                if let Some(table_name) = delete_table_name(del) {
+                    if let Some(table) = schema.tables.iter().find(|t| t.name == table_name) {
+                        if let Some(items) = del.returning.as_deref() {
+                            collect_returning_params(items, table, config, mapping, query_name);
+                        }
+                    }
+                }
             },
             SetExpr::Insert(Statement::Insert(ins)) => {
                 collect_insert_value_params(ins, schema, config, mapping, query_name);
+                if let Some(table) = schema.tables.iter().find(|t| t.name == insert_table_name(ins)) {
+                    if let Some(items) = ins.returning.as_deref() {
+                        collect_returning_params(items, table, config, mapping, query_name);
+                    }
+                }
             },
             SetExpr::Select(select) => {
                 let all_tables = collect_from_tables(select, schema, &local_ctes, config);

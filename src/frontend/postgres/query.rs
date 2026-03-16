@@ -302,6 +302,47 @@ mod tests {
         assert_eq!(offset_p.sql_type, SqlType::BigInt, "OFFSET param must be BigInt");
     }
 
+    // ─── RETURNING clause param inference ────────────────────────────────────
+
+    #[test]
+    fn test_returning_expr_param_typed_from_column() {
+        // Params inside RETURNING expressions must be typed from the sibling column,
+        // not just fall through to the Text default.
+        // RETURNING id + $2 → $2 must be BigInt (from users.id), not Text.
+        let sql = "-- name: CreateUser :one\n\
+            INSERT INTO users (name) VALUES ($1) RETURNING id + $2 AS adjusted_id;";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        assert_eq!(q.params.len(), 2);
+        let p2 = q.params.iter().find(|p| p.index == 2).expect("$2");
+        assert_eq!(p2.sql_type, SqlType::BigInt, "$2 in RETURNING id + $2 must be BigInt (from users.id)");
+    }
+
+    #[test]
+    fn test_returning_expr_param_in_cte_insert() {
+        // Data-modifying CTE: WITH ins AS (INSERT … RETURNING id + $2)
+        // $2 in the RETURNING must be typed from users.id (BigInt), not fall back to Text.
+        let sql = "-- name: CreateUserAndReturn :one\n\
+            WITH ins AS (\
+              INSERT INTO users (name) VALUES ($1) RETURNING id + $2 AS adjusted_id\
+            ) SELECT adjusted_id FROM ins;";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let p2 = q.params.iter().find(|p| p.index == 2).expect("$2");
+        assert_eq!(p2.sql_type, SqlType::BigInt, "$2 in CTE INSERT RETURNING id + $2 must be BigInt");
+    }
+
+    #[test]
+    fn test_returning_expr_param_in_cte_update() {
+        // Data-modifying CTE: WITH upd AS (UPDATE … RETURNING id + $2)
+        // $2 in the RETURNING must be typed from users.id (BigInt), not fall back to Text.
+        let sql = "-- name: UpdateUserAndReturn :one\n\
+            WITH upd AS (\
+              UPDATE users SET name = $1 WHERE id = $2 RETURNING id + $3 AS adjusted_id\
+            ) SELECT adjusted_id FROM upd;";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let p3 = q.params.iter().find(|p| p.index == 3).expect("$3");
+        assert_eq!(p3.sql_type, SqlType::BigInt, "$3 in CTE UPDATE RETURNING id + $3 must be BigInt");
+    }
+
     // ─── Repro 4: nullable predicate context (regression guard) ──────────────
 
     #[test]
