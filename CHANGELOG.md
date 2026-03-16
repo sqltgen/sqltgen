@@ -11,6 +11,14 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
 ## [Unreleased]
 
 ### Added
+- **Python: `_sqltgen.py` helper module** — each Python codegen run now emits a
+  `_sqltgen.py` alongside the query files. It provides two engine-agnostic
+  helpers (`execute` context manager, `exec_stmt` for `:exec` queries) that
+  abstract away the cursor API differences between psycopg3/mysql-connector
+  (`with conn.cursor() as cur`) and sqlite3 (`conn.execute()` directly).
+  Generated query functions are now structurally identical across all three
+  Python engines — only the connection type annotation and SQL placeholder
+  style differ.
 - **Query grouping** — the `queries` config field now accepts an object
   (map form) in addition to a string or array. Each key becomes a named
   group and each backend emits one output file per group. Java/Kotlin

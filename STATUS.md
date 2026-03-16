@@ -191,20 +191,20 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 
 | Module | Tests |
 |---|---|
-| Config | 8 |
-| Frontend — PostgreSQL (typemap + schema + query) | 49 |
+| Config | 24 |
+| Frontend — PostgreSQL (typemap + schema + query) | 75 |
 | Frontend — SQLite (typemap + schema + query) | 39 |
 | Frontend — MySQL (typemap + schema + query) | 34 |
-| Frontend — common (query parser, CTEs, subqueries, named params, list params, source_table) | 194 |
-| Backend — Java | 45 |
-| Backend — Kotlin | 46 |
-| Backend — Rust | 32 |
-| Backend — Python | 41 |
-| Backend — common (common + sql_rewrite + naming) | 47 |
+| Frontend — common (query parser, CTEs, subqueries, named params, list params, source_table) | 201 |
+| Backend — Java | 63 |
+| Backend — Kotlin | 62 |
+| Backend — Rust | 39 |
+| Backend — Python | 44 |
+| Backend — common (common + sql_rewrite + naming) | 48 |
 | Backend — JDBC | 13 |
-| Backend — TypeScript / JavaScript | 33 |
-| Integration (snapshots + resilience) | 21 |
-| **Total** | **602** |
+| Backend — TypeScript / JavaScript | 48 |
+| Integration (snapshots + resilience) | 25 |
+| **Total** | **715** |
 
 ---
 
