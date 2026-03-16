@@ -11,6 +11,7 @@ pub mod sql_rewrite;
 #[cfg(test)]
 pub mod test_helpers;
 pub mod typescript;
+pub mod c;
 
 use std::path::PathBuf;
 

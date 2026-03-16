@@ -314,6 +314,7 @@ pub enum Language {
     Python,
     TypeScript,
     JavaScript,
+    C,
 }
 
 impl std::fmt::Display for Language {
