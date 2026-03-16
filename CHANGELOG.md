@@ -61,10 +61,9 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
 
 ### Changed
 - **Python backend internals:** refactored to a two-layer shape where engine/driver
-  differences are resolved once at codegen time into a `PythonCoreContract`
-  (helper module source, SQL placeholder normalization mode, connection type alias,
-  runtime banner, dynamic placeholder token, JSON mapping mode). Query/model emitters
-  now consume that contract without branching on engine target.
+  differences are resolved once at codegen time into a `PythonCoreContract` split
+  into runtime and SQL sub-contracts. Query/model emitters now consume these
+  pre-resolved contracts without branching on engine target.
 
 ### Fixed
 - Rust backend SQL embedding now has explicit regression coverage for quoted
