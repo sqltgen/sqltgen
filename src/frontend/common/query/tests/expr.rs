@@ -54,6 +54,31 @@ fn expr_null_literal() {
 }
 
 #[test]
+fn expr_mixed_projection_integer_literal_and_column() {
+    let schema = make_schema();
+    let sql = "-- name: MixedIntAndColumn :one\nSELECT 1 AS flag, name FROM users;";
+    let q = &parse_queries(sql, &schema).unwrap()[0];
+    assert_eq!(q.result_columns.len(), 2);
+    assert_eq!(q.result_columns[0].name, "flag");
+    assert_eq!(q.result_columns[0].sql_type, SqlType::Integer);
+    assert_eq!(q.result_columns[1].name, "name");
+    assert_eq!(q.result_columns[1].sql_type, SqlType::Text);
+}
+
+#[test]
+fn expr_mixed_projection_null_literal_and_column() {
+    let schema = make_schema();
+    let sql = "-- name: MixedNullAndColumn :one\nSELECT NULL AS placeholder, name FROM users;";
+    let q = &parse_queries(sql, &schema).unwrap()[0];
+    assert_eq!(q.result_columns.len(), 2);
+    assert_eq!(q.result_columns[0].name, "placeholder");
+    assert_eq!(q.result_columns[0].sql_type, SqlType::Text);
+    assert!(q.result_columns[0].nullable);
+    assert_eq!(q.result_columns[1].name, "name");
+    assert_eq!(q.result_columns[1].sql_type, SqlType::Text);
+}
+
+#[test]
 fn expr_arithmetic_literals() {
     let schema = make_schema();
     let sql = "-- name: Calc :one\nSELECT 1 + 2 AS sum FROM users;";

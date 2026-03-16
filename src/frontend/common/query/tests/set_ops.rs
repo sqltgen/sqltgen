@@ -115,3 +115,21 @@ fn union_all_no_params_still_typed() {
     assert_eq!(q.result_columns[0].sql_type, SqlType::BigInt);
     assert_eq!(q.params.len(), 0);
 }
+
+#[test]
+fn union_all_with_null_placeholders_preserves_shape_and_nullability() {
+    let schema = make_schema();
+    let sql = "-- name: UnionNullPlaceholder :many\n\
+        SELECT id, NULL AS other FROM users\n\
+        UNION ALL\n\
+        SELECT NULL AS id, name AS other FROM users;";
+    let queries = parse_queries(sql, &schema).unwrap();
+    let q = &queries[0];
+    assert_eq!(q.result_columns.len(), 2);
+    assert_eq!(q.result_columns[0].name, "id");
+    assert_eq!(q.result_columns[0].sql_type, SqlType::BigInt);
+    assert!(q.result_columns[0].nullable);
+    assert_eq!(q.result_columns[1].name, "other");
+    assert_eq!(q.result_columns[1].sql_type, SqlType::Text);
+    assert!(q.result_columns[1].nullable);
+}

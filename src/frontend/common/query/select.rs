@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use sqlparser::ast::{ObjectNamePart, Query as SqlQuery, Select, SelectItem, SelectItemQualifiedWildcardKind, SetExpr, Statement, TableWithJoins, With};
 
 use crate::frontend::common::ident_to_str;
-use crate::ir::{Query, Schema, Table};
+use crate::ir::{Query, ResultColumn, Schema, Table};
 
 use super::dml::{build_query_from_insert, build_query_from_update};
 use super::params::{collect_limit_offset_params, collect_order_by_params, collect_select_params, collect_set_expr_params};
@@ -170,17 +170,15 @@ pub(super) fn build_source_provenance(
 /// Result columns come from the leftmost SELECT branch (per SQL standard).
 /// Parameters are collected recursively from all branches.
 fn build_set_operation(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, body: &SetExpr, schema: &Schema, config: &ResolverConfig, ctes: &[Table]) -> Query {
-    // Resolve result columns from the leftmost SELECT branch.
-    let result_columns = leftmost_select(body)
-        .map(|select| {
-            let all_tables = collect_from_tables(select, schema, ctes, config);
-            if all_tables.is_empty() {
-                return vec![];
-            }
-            let alias_map = build_alias_map(&all_tables);
-            resolve_projection(select, &alias_map, &all_tables, config, schema)
-        })
-        .unwrap_or_default();
+    // Resolve result columns from all SELECT branches, then keep the leftmost
+    // names/types while widening nullability across branches positionally.
+    let branch_columns = resolve_set_branch_columns(body, schema, config, ctes);
+    let mut result_columns = branch_columns.first().cloned().unwrap_or_default();
+    for cols in branch_columns.iter().skip(1) {
+        for (left, right) in result_columns.iter_mut().zip(cols.iter()) {
+            left.nullable = left.nullable || right.nullable;
+        }
+    }
 
     // Collect params from CTEs + all set-operation branches + LIMIT/OFFSET + ORDER BY.
     let params = {
@@ -215,5 +213,31 @@ fn leftmost_select(expr: &SetExpr) -> Option<&Select> {
         SetExpr::Select(select) => Some(select),
         SetExpr::SetOperation { left, .. } => leftmost_select(left),
         _ => None,
+    }
+}
+
+/// Resolve projection columns for each SELECT branch in a set-expression tree.
+fn resolve_set_branch_columns(expr: &SetExpr, schema: &Schema, config: &ResolverConfig, ctes: &[Table]) -> Vec<Vec<ResultColumn>> {
+    let mut selects = Vec::new();
+    collect_set_selects(expr, &mut selects);
+    selects
+        .into_iter()
+        .map(|select| {
+            let all_tables = collect_from_tables(select, schema, ctes, config);
+            let alias_map = build_alias_map(&all_tables);
+            resolve_projection(select, &alias_map, &all_tables, config, schema)
+        })
+        .collect()
+}
+
+/// Collect all SELECT leaves from a set-expression tree in left-to-right order.
+fn collect_set_selects<'a>(expr: &'a SetExpr, out: &mut Vec<&'a Select>) {
+    match expr {
+        SetExpr::Select(select) => out.push(select),
+        SetExpr::SetOperation { left, right, .. } => {
+            collect_set_selects(left, out);
+            collect_set_selects(right, out);
+        },
+        _ => {},
     }
 }
