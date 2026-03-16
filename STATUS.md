@@ -200,12 +200,12 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | Backend — Java | 63 |
 | Backend — Kotlin | 62 |
 | Backend — Rust | 41 |
-| Backend — Python | 47 |
+| Backend — Python | 49 |
 | Backend — common (common + sql_rewrite + naming) | 48 |
 | Backend — JDBC | 13 |
 | Backend — TypeScript / JavaScript | 49 |
 | Integration (snapshots + resilience) | 25 |
-| **Total** | **724** |
+| **Total** | **726** |
 
 ---
 

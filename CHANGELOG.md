@@ -55,6 +55,9 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
   `GetAuthorsWithBio`, `GetBooksPublishedBetween`, `GetDistinctGenres`,
   `GetBooksWithSalesCount`, `CountSaleItems`; `UpsertProduct` (PostgreSQL only,
   uses ON CONFLICT DO UPDATE RETURNING)
+- Python backend regression tests that assert generated `queries.py` stays
+  adapter-driven (uses `_sqltgen` helper API) and contains no engine-target
+  conditional branching markers.
 
 ### Changed
 - **Python backend internals:** refactored to a two-layer shape where engine/driver

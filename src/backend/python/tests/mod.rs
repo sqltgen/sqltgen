@@ -13,6 +13,7 @@ pub fn my() -> PythonCodegen {
     PythonCodegen { target: PythonTarget::Mysql }
 }
 
+mod architecture;
 mod generate;
 mod grouping;
 mod list_params;
