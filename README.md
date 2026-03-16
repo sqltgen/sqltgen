@@ -23,6 +23,17 @@ No reflection. No runtime query building. Just your SQL, compiled to code.
 
 ## Quick example
 
+**`schema.sql`**
+
+```sql
+CREATE TABLE author (
+    id         BIGSERIAL PRIMARY KEY,
+    name       TEXT    NOT NULL,
+    bio        TEXT,
+    birth_year INTEGER
+);
+```
+
 **`queries.sql`**
 
 ```sql
@@ -48,7 +59,7 @@ RETURNING *;
 {
   "version": "1",
   "engine": "postgresql",
-  "schema": "migrations/",
+  "schema": "schema.sql",
   "queries": "queries.sql",
   "gen": {
     "java":       { "out": "gen", "package": "com.example.db" },
