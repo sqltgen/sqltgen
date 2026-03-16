@@ -44,6 +44,12 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
   uses ON CONFLICT DO UPDATE RETURNING)
 
 ### Fixed
+- Literal and simple expression projection resolution now infers types for
+  `NULL`, numeric, string, and boolean literals in `resolve_expr`, preventing
+  unnamed literal select items from being dropped.
+- `UNION`/set-operation result nullability now widens across branches by
+  projection position, so `NULL` placeholders in non-left branches correctly
+  mark result columns nullable.
 - **`INSERT … SELECT` parameter inference** — params in the SELECT projection of an
   `INSERT INTO t (cols) SELECT $1, … FROM … WHERE …` were previously unresolved
   (falling back to `Text`/`Custom`). The frontend now maps each SELECT-list
