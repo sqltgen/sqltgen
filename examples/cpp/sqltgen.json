@@ -4,6 +4,6 @@
 	"schema": "schema.sql",
 	"queries": "queries.sql",
 	"gen": {
-		"c": { "out": "gen", "package": "" }
+		"cpp": { "out": "gen", "package": "" }
 	}
 }
