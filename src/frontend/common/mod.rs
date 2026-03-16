@@ -9,7 +9,21 @@ use sqlparser::ast::{
 
 use crate::ir::{Column, SqlType, Table};
 
-// ─── ALTER TABLE capabilities ────────────────────────────────────────────────
+// ─── Dialect DDL configuration ───────────────────────────────────────────────
+
+/// Bundles the dialect-specific knobs needed for DDL processing.
+///
+/// Every DDL helper function needs the same two pieces of dialect knowledge:
+/// how to map `sqlparser` `DataType` nodes to `SqlType`, and which
+/// `ALTER TABLE` operations the dialect supports. Grouping them avoids
+/// threading two separate arguments through every call in the chain.
+#[derive(Clone, Copy)]
+pub(crate) struct DdlDialect {
+    /// Maps a sqlparser `DataType` to the canonical `SqlType` for this dialect.
+    pub map_type: fn(&DataType) -> SqlType,
+    /// Which `ALTER TABLE` operations this dialect supports.
+    pub alter_caps: AlterCaps,
+}
 
 /// Controls which `ALTER TABLE` operations the common handler will apply.
 ///
@@ -44,29 +58,21 @@ pub(crate) fn apply_drop_tables(names: &[ObjectName], tables: &mut Vec<Table>) {
 
 /// Applies `ALTER TABLE` operations to the in-memory table list.
 ///
-/// Only operations enabled in `caps` are applied; the rest are silently
-/// skipped.  This prevents the handler from applying operations that the
-/// target dialect does not actually support.
-///
-/// `map_type` is the dialect-specific type mapper, used for `ADD COLUMN` and
-/// `ALTER COLUMN … SET DATA TYPE`.
-pub(crate) fn apply_alter_table(
-    name: &ObjectName,
-    operations: &[AlterTableOperation],
-    tables: &mut [Table],
-    map_type: fn(&DataType) -> SqlType,
-    caps: AlterCaps,
-) {
+/// Only operations enabled in `dialect.alter_caps` are applied; the rest are
+/// silently skipped. This prevents the handler from applying operations that
+/// the target dialect does not actually support.
+pub(crate) fn apply_alter_table(name: &ObjectName, operations: &[AlterTableOperation], tables: &mut [Table], dialect: DdlDialect) {
     let table_name = obj_name_to_str(name);
     let Some(idx) = tables.iter().position(|t| t.name == table_name) else {
         return;
     };
 
+    let caps = dialect.alter_caps;
     for op in operations {
         let table = &mut tables[idx];
         match op {
             AlterTableOperation::AddColumn { column_def, .. } if caps.add_column => {
-                table.columns.push(build_column(column_def, map_type));
+                table.columns.push(build_column(column_def, dialect.map_type));
             },
             AlterTableOperation::DropColumn { column_names, .. } if caps.drop_column => {
                 let names: Vec<String> = column_names.iter().map(ident_to_str).collect();
@@ -79,7 +85,7 @@ pub(crate) fn apply_alter_table(
                         AlterColumnOperation::SetNotNull => col.nullable = false,
                         AlterColumnOperation::DropNotNull => col.nullable = true,
                         AlterColumnOperation::SetDataType { data_type, .. } => {
-                            col.sql_type = map_type(data_type);
+                            col.sql_type = (dialect.map_type)(data_type);
                         },
                         _ => {},
                     }
@@ -170,9 +176,7 @@ pub(crate) fn build_column(col_def: &ColumnDef, map_type: fn(&DataType) -> SqlTy
 }
 
 /// Builds a [`Table`] from a `CREATE TABLE` AST node.
-///
-/// `map_type` is passed through to [`build_column`].
-pub(crate) fn build_create_table(name: &ObjectName, column_defs: &[ColumnDef], constraints: &[TableConstraint], map_type: fn(&DataType) -> SqlType) -> Table {
+pub(crate) fn build_create_table(name: &ObjectName, column_defs: &[ColumnDef], constraints: &[TableConstraint], dialect: DdlDialect) -> Table {
     let table_name = obj_name_to_str(name);
 
     // Collect table-level PRIMARY KEY column names
@@ -181,7 +185,7 @@ pub(crate) fn build_create_table(name: &ObjectName, column_defs: &[ColumnDef], c
         pk_cols.extend(pk_columns_from_constraint(constraint));
     }
 
-    let mut columns: Vec<Column> = column_defs.iter().map(|col_def| build_column(col_def, map_type)).collect();
+    let mut columns: Vec<Column> = column_defs.iter().map(|col_def| build_column(col_def, dialect.map_type)).collect();
 
     // Promote columns that appear in a table-level PRIMARY KEY
     for col in &mut columns {
@@ -214,12 +218,16 @@ mod tests {
         }
     }
 
+    fn test_dialect() -> DdlDialect {
+        DdlDialect { map_type: test_map, alter_caps: AlterCaps::ALL }
+    }
+
     /// Helper: parse DDL with the generic dialect and return the first CREATE TABLE.
     fn parse_create_table(ddl: &str) -> Table {
         let stmts = Parser::parse_sql(&GenericDialect {}, ddl).unwrap();
         for stmt in stmts {
             if let sqlparser::ast::Statement::CreateTable(ct) = stmt {
-                return build_create_table(&ct.name, &ct.columns, &ct.constraints, test_map);
+                return build_create_table(&ct.name, &ct.columns, &ct.constraints, test_dialect());
             }
         }
         panic!("no CREATE TABLE found");
@@ -357,7 +365,7 @@ mod tests {
         }];
         let stmts = Parser::parse_sql(&GenericDialect {}, "ALTER TABLE ghost ADD COLUMN x TEXT;").unwrap();
         if let sqlparser::ast::Statement::AlterTable(a) = &stmts[0] {
-            apply_alter_table(&a.name, &a.operations, &mut tables, test_map, AlterCaps::ALL);
+            apply_alter_table(&a.name, &a.operations, &mut tables, DdlDialect { map_type: test_map, alter_caps: AlterCaps::ALL });
         }
         assert_eq!(tables[0].columns.len(), 1);
     }
@@ -373,7 +381,7 @@ mod tests {
         }];
         let stmts = Parser::parse_sql(&GenericDialect {}, "ALTER TABLE users DROP COLUMN bio;").unwrap();
         if let sqlparser::ast::Statement::AlterTable(a) = &stmts[0] {
-            apply_alter_table(&a.name, &a.operations, &mut tables, test_map, AlterCaps::SQLITE);
+            apply_alter_table(&a.name, &a.operations, &mut tables, DdlDialect { map_type: test_map, alter_caps: AlterCaps::SQLITE });
         }
         // DROP COLUMN should be ignored under SQLite caps
         assert_eq!(tables[0].columns.len(), 2);
@@ -390,7 +398,7 @@ mod tests {
         }];
         let stmts = Parser::parse_sql(&GenericDialect {}, "ALTER TABLE users DROP COLUMN bio;").unwrap();
         if let sqlparser::ast::Statement::AlterTable(a) = &stmts[0] {
-            apply_alter_table(&a.name, &a.operations, &mut tables, test_map, AlterCaps::ALL);
+            apply_alter_table(&a.name, &a.operations, &mut tables, DdlDialect { map_type: test_map, alter_caps: AlterCaps::ALL });
         }
         // DROP COLUMN should work under ALL caps
         assert_eq!(tables[0].columns.len(), 1);
@@ -405,7 +413,7 @@ mod tests {
         // ADD COLUMN — should work
         let stmts = Parser::parse_sql(&GenericDialect {}, "ALTER TABLE users ADD COLUMN name TEXT NOT NULL;").unwrap();
         if let sqlparser::ast::Statement::AlterTable(a) = &stmts[0] {
-            apply_alter_table(&a.name, &a.operations, &mut tables, test_map, AlterCaps::SQLITE);
+            apply_alter_table(&a.name, &a.operations, &mut tables, DdlDialect { map_type: test_map, alter_caps: AlterCaps::SQLITE });
         }
         assert_eq!(tables[0].columns.len(), 2);
         assert_eq!(tables[0].columns[1].name, "name");
@@ -413,7 +421,7 @@ mod tests {
         // RENAME COLUMN — should work
         let stmts = Parser::parse_sql(&GenericDialect {}, "ALTER TABLE users RENAME COLUMN name TO full_name;").unwrap();
         if let sqlparser::ast::Statement::AlterTable(a) = &stmts[0] {
-            apply_alter_table(&a.name, &a.operations, &mut tables, test_map, AlterCaps::SQLITE);
+            apply_alter_table(&a.name, &a.operations, &mut tables, DdlDialect { map_type: test_map, alter_caps: AlterCaps::SQLITE });
         }
         assert_eq!(tables[0].columns[1].name, "full_name");
     }

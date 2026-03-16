@@ -1,7 +1,7 @@
 use sqlparser::dialect::PostgreSqlDialect;
 
 use crate::frontend::common::schema::parse_schema_impl;
-use crate::frontend::common::AlterCaps;
+use crate::frontend::common::{AlterCaps, DdlDialect};
 use crate::frontend::postgres::typemap;
 use crate::ir::Schema;
 
@@ -12,7 +12,7 @@ use crate::ir::Schema;
 /// [`parse_schema_impl`] with the PostgreSQL dialect, full `ALTER TABLE`
 /// capabilities, and the PostgreSQL type mapper.
 pub(crate) fn parse_schema(ddl: &str) -> anyhow::Result<Schema> {
-    parse_schema_impl(ddl, &PostgreSqlDialect {}, typemap::map, AlterCaps::ALL)
+    parse_schema_impl(ddl, &PostgreSqlDialect {}, DdlDialect { map_type: typemap::map, alter_caps: AlterCaps::ALL })
 }
 
 #[cfg(test)]
@@ -474,6 +474,16 @@ mod tests {
         assert_eq!(schema.functions.len(), 1);
         // OUT params are return values, not inputs
         assert_eq!(schema.functions[0].param_types, vec![SqlType::BigInt]);
+    }
+
+    #[test]
+    fn test_create_or_replace_function_replaces_existing() {
+        let ddl = "\
+            CREATE FUNCTION fetch_name(resource_id bigint) RETURNS text LANGUAGE sql AS $$ SELECT '' $$;\
+            CREATE OR REPLACE FUNCTION fetch_name(resource_id bigint) RETURNS bigint LANGUAGE sql AS $$ SELECT 1 $$;";
+        let schema = parse_schema(ddl).unwrap();
+        assert_eq!(schema.functions.len(), 1, "OR REPLACE must not duplicate the function");
+        assert_eq!(schema.functions[0].return_type, SqlType::BigInt, "OR REPLACE must update the return type");
     }
 
     #[test]

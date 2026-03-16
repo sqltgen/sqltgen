@@ -1,7 +1,7 @@
 use sqlparser::dialect::SQLiteDialect;
 
 use crate::frontend::common::schema::parse_schema_impl;
-use crate::frontend::common::AlterCaps;
+use crate::frontend::common::{AlterCaps, DdlDialect};
 use crate::frontend::sqlite::typemap;
 use crate::ir::Schema;
 
@@ -12,7 +12,7 @@ use crate::ir::Schema;
 /// [`parse_schema_impl`] with the SQLite dialect, limited `ALTER TABLE`
 /// capabilities, and the SQLite type mapper.
 pub(crate) fn parse_schema(ddl: &str) -> anyhow::Result<Schema> {
-    parse_schema_impl(ddl, &SQLiteDialect {}, typemap::map, AlterCaps::SQLITE)
+    parse_schema_impl(ddl, &SQLiteDialect {}, DdlDialect { map_type: typemap::map, alter_caps: AlterCaps::SQLITE })
 }
 
 #[cfg(test)]

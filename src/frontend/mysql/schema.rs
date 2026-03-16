@@ -1,7 +1,7 @@
 use sqlparser::dialect::MySqlDialect;
 
 use crate::frontend::common::schema::parse_schema_impl;
-use crate::frontend::common::AlterCaps;
+use crate::frontend::common::{AlterCaps, DdlDialect};
 use crate::frontend::mysql::typemap;
 use crate::ir::Schema;
 
@@ -12,7 +12,7 @@ use crate::ir::Schema;
 /// [`parse_schema_impl`] with the MySQL dialect, full `ALTER TABLE`
 /// capabilities, and the MySQL type mapper.
 pub(crate) fn parse_schema(ddl: &str) -> anyhow::Result<Schema> {
-    parse_schema_impl(ddl, &MySqlDialect {}, typemap::map, AlterCaps::ALL)
+    parse_schema_impl(ddl, &MySqlDialect {}, DdlDialect { map_type: typemap::map, alter_caps: AlterCaps::ALL })
 }
 
 #[cfg(test)]
