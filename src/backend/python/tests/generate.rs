@@ -55,6 +55,22 @@ fn test_generate_sqlite_imports_sqlite3() {
     assert!(!src.contains("import psycopg"));
 }
 
+#[test]
+fn test_generate_postgres_emits_cursor_helper_module() {
+    let files = pg().generate(&Schema::default(), &[], &cfg()).unwrap();
+    let src = get_file(&files, "_sqltgen.py");
+    assert!(src.contains("with conn.cursor() as cur:"));
+    assert!(!src.contains("yield conn.execute(sql, params)"));
+}
+
+#[test]
+fn test_generate_sqlite_emits_sqlite_helper_module() {
+    let files = sq().generate(&Schema::default(), &[], &cfg()).unwrap();
+    let src = get_file(&files, "_sqltgen.py");
+    assert!(src.contains("yield conn.execute(sql, params)"));
+    assert!(!src.contains("with conn.cursor() as cur:"));
+}
+
 // ─── generate: SQL constant name ────────────────────────────────────────
 
 #[test]

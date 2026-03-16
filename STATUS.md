@@ -171,6 +171,7 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | | Java | Kotlin | Rust | Go | Python | TypeScript | JavaScript |
 |---|---|---|---|---|---|---|---|
 | Current target | JDBC | JDBC | sqlx | — | psycopg3 / sqlite3 / mysql-connector | pg / better-sqlite3 / mysql2 | pg / better-sqlite3 / mysql2 |
+| Two-layer adapter/core architecture | ⚠️ | ⚠️ | ⚠️ | 🚧 | ✅ | ⚠️ | ⚠️ |
 | Planned target | JDBC | JDBC | sqlx | database/sql | psycopg3 / sqlite3 / mysql-connector | pg / better-sqlite3 / mysql2 | pg / better-sqlite3 / mysql2 |
 
 ---
@@ -199,12 +200,12 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | Backend — Java | 63 |
 | Backend — Kotlin | 62 |
 | Backend — Rust | 41 |
-| Backend — Python | 45 |
+| Backend — Python | 47 |
 | Backend — common (common + sql_rewrite + naming) | 48 |
 | Backend — JDBC | 13 |
 | Backend — TypeScript / JavaScript | 49 |
 | Integration (snapshots + resilience) | 25 |
-| **Total** | **722** |
+| **Total** | **724** |
 
 ---
 

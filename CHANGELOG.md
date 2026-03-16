@@ -56,6 +56,13 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
   `GetBooksWithSalesCount`, `CountSaleItems`; `UpsertProduct` (PostgreSQL only,
   uses ON CONFLICT DO UPDATE RETURNING)
 
+### Changed
+- **Python backend internals:** refactored to a two-layer shape where engine/driver
+  differences are resolved once at codegen time into a `PythonCoreContract`
+  (helper module source, SQL placeholder normalization mode, connection type alias,
+  runtime banner, dynamic placeholder token, JSON mapping mode). Query/model emitters
+  now consume that contract without branching on engine target.
+
 ### Fixed
 - Rust backend SQL embedding now has explicit regression coverage for quoted
   identifiers and string literals to ensure generated SQL remains in raw string
