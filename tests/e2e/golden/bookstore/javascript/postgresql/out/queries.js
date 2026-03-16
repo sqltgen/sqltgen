@@ -2,6 +2,19 @@
 // Runtime: pg (node-postgres) — npm install pg
 
 /** @typedef {import('pg').ClientBase} ClientBase */
+/** @typedef {ClientBase} Db */
+/** @typedef {() => Db | Promise<Db>} ConnectFn */
+
+/** @param {Db} db */
+async function releaseDb(db) {
+  if (typeof db.release === 'function') {
+    db.release();
+    return;
+  }
+  if (typeof db.close === 'function') {
+    db.close();
+  }
+}
 
 /** @typedef {import('./author.js').Author} Author */
 /** @typedef {import('./book.js').Book} Book */
@@ -216,7 +229,7 @@ const SQL_GET_BOOK_PRICE_AGGREGATES = `SELECT MIN(price)  AS min_price,
 FROM book`;
 
 /**
- * @param {ClientBase} db
+ * @param {Db} db
  * @param {string} name
  * @param {string | null} bio
  * @param {number | null} birthYear
@@ -228,7 +241,7 @@ export async function createAuthor(db, name, bio, birthYear) {
 }
 
 /**
- * @param {ClientBase} db
+ * @param {Db} db
  * @param {number} id
  * @returns {Promise<Author | null>}
  */
@@ -238,7 +251,7 @@ export async function getAuthor(db, id) {
 }
 
 /**
- * @param {ClientBase} db
+ * @param {Db} db
  * @returns {Promise<Author[]>}
  */
 export async function listAuthors(db) {
@@ -247,7 +260,7 @@ export async function listAuthors(db) {
 }
 
 /**
- * @param {ClientBase} db
+ * @param {Db} db
  * @param {string | null} bio
  * @param {number} id
  * @returns {Promise<Author | null>}
@@ -264,7 +277,7 @@ export async function updateAuthorBio(db, bio, id) {
  */
 
 /**
- * @param {ClientBase} db
+ * @param {Db} db
  * @param {number} id
  * @returns {Promise<DeleteAuthorRow | null>}
  */
@@ -274,7 +287,7 @@ export async function deleteAuthor(db, id) {
 }
 
 /**
- * @param {ClientBase} db
+ * @param {Db} db
  * @param {number} authorId
  * @param {string} title
  * @param {string} genre
@@ -288,7 +301,7 @@ export async function createBook(db, authorId, title, genre, price, publishedAt)
 }
 
 /**
- * @param {ClientBase} db
+ * @param {Db} db
  * @param {number} id
  * @returns {Promise<Book | null>}
  */
@@ -298,7 +311,7 @@ export async function getBook(db, id) {
 }
 
 /**
- * @param {ClientBase} db
+ * @param {Db} db
  * @param {number[]} ids
  * @returns {Promise<Book[]>}
  */
@@ -308,7 +321,7 @@ export async function getBooksByIds(db, ids) {
 }
 
 /**
- * @param {ClientBase} db
+ * @param {Db} db
  * @param {string} genre
  * @returns {Promise<Book[]>}
  */
@@ -318,7 +331,7 @@ export async function listBooksByGenre(db, genre) {
 }
 
 /**
- * @param {ClientBase} db
+ * @param {Db} db
  * @param {string} genre
  * @returns {Promise<Book[]>}
  */
@@ -333,7 +346,7 @@ export async function listBooksByGenreOrAll(db, genre) {
  */
 
 /**
- * @param {ClientBase} db
+ * @param {Db} db
  * @param {string} name
  * @param {string} email
  * @returns {Promise<CreateCustomerRow | null>}
@@ -349,7 +362,7 @@ export async function createCustomer(db, name, email) {
  */
 
 /**
- * @param {ClientBase} db
+ * @param {Db} db
  * @param {number} customerId
  * @returns {Promise<CreateSaleRow | null>}
  */
@@ -359,7 +372,7 @@ export async function createSale(db, customerId) {
 }
 
 /**
- * @param {ClientBase} db
+ * @param {Db} db
  * @param {number} saleId
  * @param {number} bookId
  * @param {number} quantity
@@ -382,7 +395,7 @@ export async function addSaleItem(db, saleId, bookId, quantity, unitPrice) {
  */
 
 /**
- * @param {ClientBase} db
+ * @param {Db} db
  * @returns {Promise<ListBooksWithAuthorRow[]>}
  */
 export async function listBooksWithAuthor(db) {
@@ -391,7 +404,7 @@ export async function listBooksWithAuthor(db) {
 }
 
 /**
- * @param {ClientBase} db
+ * @param {Db} db
  * @returns {Promise<Book[]>}
  */
 export async function getBooksNeverOrdered(db) {
@@ -409,7 +422,7 @@ export async function getBooksNeverOrdered(db) {
  */
 
 /**
- * @param {ClientBase} db
+ * @param {Db} db
  * @returns {Promise<GetTopSellingBooksRow[]>}
  */
 export async function getTopSellingBooks(db) {
@@ -426,7 +439,7 @@ export async function getTopSellingBooks(db) {
  */
 
 /**
- * @param {ClientBase} db
+ * @param {Db} db
  * @returns {Promise<GetBestCustomersRow[]>}
  */
 export async function getBestCustomers(db) {
@@ -441,7 +454,7 @@ export async function getBestCustomers(db) {
  */
 
 /**
- * @param {ClientBase} db
+ * @param {Db} db
  * @returns {Promise<CountBooksByGenreRow[]>}
  */
 export async function countBooksByGenre(db) {
@@ -458,7 +471,7 @@ export async function countBooksByGenre(db) {
  */
 
 /**
- * @param {ClientBase} db
+ * @param {Db} db
  * @param {number} limit
  * @param {number} offset
  * @returns {Promise<ListBooksWithLimitRow[]>}
@@ -477,7 +490,7 @@ export async function listBooksWithLimit(db, limit, offset) {
  */
 
 /**
- * @param {ClientBase} db
+ * @param {Db} db
  * @param {string} title
  * @returns {Promise<SearchBooksByTitleRow[]>}
  */
@@ -495,7 +508,7 @@ export async function searchBooksByTitle(db, title) {
  */
 
 /**
- * @param {ClientBase} db
+ * @param {Db} db
  * @param {number} price
  * @param {number} price2
  * @returns {Promise<GetBooksByPriceRangeRow[]>}
@@ -514,7 +527,7 @@ export async function getBooksByPriceRange(db, price, price2) {
  */
 
 /**
- * @param {ClientBase} db
+ * @param {Db} db
  * @param {string} genre
  * @param {string} genre2
  * @param {string} genre3
@@ -534,7 +547,7 @@ export async function getBooksInGenres(db, genre, genre2, genre3) {
  */
 
 /**
- * @param {ClientBase} db
+ * @param {Db} db
  * @param {number} price
  * @returns {Promise<GetBookPriceLabelRow[]>}
  */
@@ -551,7 +564,7 @@ export async function getBookPriceLabel(db, price) {
  */
 
 /**
- * @param {ClientBase} db
+ * @param {Db} db
  * @param {number | null} price
  * @returns {Promise<GetBookPriceOrDefaultRow[]>}
  */
@@ -561,7 +574,7 @@ export async function getBookPriceOrDefault(db, price) {
 }
 
 /**
- * @param {ClientBase} db
+ * @param {Db} db
  * @param {number} id
  * @returns {Promise<number>}
  */
@@ -577,7 +590,7 @@ export async function deleteBookById(db, id) {
  */
 
 /**
- * @param {ClientBase} db
+ * @param {Db} db
  * @param {number} count
  * @returns {Promise<GetGenresWithManyBooksRow[]>}
  */
@@ -594,7 +607,7 @@ export async function getGenresWithManyBooks(db, count) {
  */
 
 /**
- * @param {ClientBase} db
+ * @param {Db} db
  * @param {number | null} birthYear
  * @returns {Promise<GetBooksByAuthorParamRow[]>}
  */
@@ -604,7 +617,7 @@ export async function getBooksByAuthorParam(db, birthYear) {
 }
 
 /**
- * @param {ClientBase} db
+ * @param {Db} db
  * @returns {Promise<Book[]>}
  */
 export async function getAllBookFields(db) {
@@ -620,7 +633,7 @@ export async function getAllBookFields(db) {
  */
 
 /**
- * @param {ClientBase} db
+ * @param {Db} db
  * @param {string} name
  * @returns {Promise<GetBooksNotByAuthorRow[]>}
  */
@@ -637,7 +650,7 @@ export async function getBooksNotByAuthor(db, name) {
  */
 
 /**
- * @param {ClientBase} db
+ * @param {Db} db
  * @param {Date} orderedAt
  * @returns {Promise<GetBooksWithRecentSalesRow[]>}
  */
@@ -654,7 +667,7 @@ export async function getBooksWithRecentSales(db, orderedAt) {
  */
 
 /**
- * @param {ClientBase} db
+ * @param {Db} db
  * @returns {Promise<GetBookWithAuthorNameRow[]>}
  */
 export async function getBookWithAuthorName(db) {
@@ -671,7 +684,7 @@ export async function getBookWithAuthorName(db) {
  */
 
 /**
- * @param {ClientBase} db
+ * @param {Db} db
  * @returns {Promise<GetAuthorStatsRow[]>}
  */
 export async function getAuthorStats(db) {
@@ -688,7 +701,7 @@ export async function getAuthorStats(db) {
  */
 
 /**
- * @param {ClientBase} db
+ * @param {Db} db
  * @param {Date | null} publishedAt
  * @returns {Promise<ArchiveAndReturnBooksRow[]>}
  */
@@ -698,7 +711,7 @@ export async function archiveAndReturnBooks(db, publishedAt) {
 }
 
 /**
- * @param {ClientBase} db
+ * @param {Db} db
  * @param {string} id
  * @returns {Promise<Product | null>}
  */
@@ -722,7 +735,7 @@ export async function getProduct(db, id) {
  */
 
 /**
- * @param {ClientBase} db
+ * @param {Db} db
  * @param {boolean} active
  * @returns {Promise<ListActiveProductsRow[]>}
  */
@@ -732,7 +745,7 @@ export async function listActiveProducts(db, active) {
 }
 
 /**
- * @param {ClientBase} db
+ * @param {Db} db
  * @param {string} id
  * @param {string} sku
  * @param {string} name
@@ -758,7 +771,7 @@ export async function insertProduct(db, id, sku, name, active, weightKg, rating,
  */
 
 /**
- * @param {ClientBase} db
+ * @param {Db} db
  * @returns {Promise<GetAuthorsWithNullBioRow[]>}
  */
 export async function getAuthorsWithNullBio(db) {
@@ -767,7 +780,7 @@ export async function getAuthorsWithNullBio(db) {
 }
 
 /**
- * @param {ClientBase} db
+ * @param {Db} db
  * @returns {Promise<Author[]>}
  */
 export async function getAuthorsWithBio(db) {
@@ -785,7 +798,7 @@ export async function getAuthorsWithBio(db) {
  */
 
 /**
- * @param {ClientBase} db
+ * @param {Db} db
  * @param {Date | null} publishedAt
  * @param {Date | null} publishedAt2
  * @returns {Promise<GetBooksPublishedBetweenRow[]>}
@@ -801,7 +814,7 @@ export async function getBooksPublishedBetween(db, publishedAt, publishedAt2) {
  */
 
 /**
- * @param {ClientBase} db
+ * @param {Db} db
  * @returns {Promise<GetDistinctGenresRow[]>}
  */
 export async function getDistinctGenres(db) {
@@ -818,7 +831,7 @@ export async function getDistinctGenres(db) {
  */
 
 /**
- * @param {ClientBase} db
+ * @param {Db} db
  * @returns {Promise<GetBooksWithSalesCountRow[]>}
  */
 export async function getBooksWithSalesCount(db) {
@@ -832,7 +845,7 @@ export async function getBooksWithSalesCount(db) {
  */
 
 /**
- * @param {ClientBase} db
+ * @param {Db} db
  * @param {number} saleId
  * @returns {Promise<CountSaleItemsRow | null>}
  */
@@ -852,7 +865,7 @@ export async function countSaleItems(db, saleId) {
  */
 
 /**
- * @param {ClientBase} db
+ * @param {Db} db
  * @param {string} id
  * @param {string} sku
  * @param {string} name
@@ -875,7 +888,7 @@ export async function upsertProduct(db, id, sku, name, active, tags, stockCount)
  */
 
 /**
- * @param {ClientBase} db
+ * @param {Db} db
  * @returns {Promise<GetSaleItemQuantityAggregatesRow | null>}
  */
 export async function getSaleItemQuantityAggregates(db) {
@@ -892,10 +905,422 @@ export async function getSaleItemQuantityAggregates(db) {
  */
 
 /**
- * @param {ClientBase} db
+ * @param {Db} db
  * @returns {Promise<GetBookPriceAggregatesRow | null>}
  */
 export async function getBookPriceAggregates(db) {
   const result = await db.query(SQL_GET_BOOK_PRICE_AGGREGATES, []);
   return result.rows[0] ?? null;
+}
+
+export class Querier {
+  /** @param {ConnectFn} connect */
+  constructor(connect) {
+    this.connect = connect;
+  }
+
+  async createAuthor(name, bio, birthYear) {
+    const db = await this.connect();
+    try {
+      return createAuthor(db, name, bio, birthYear);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async getAuthor(id) {
+    const db = await this.connect();
+    try {
+      return getAuthor(db, id);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async listAuthors() {
+    const db = await this.connect();
+    try {
+      return listAuthors(db);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async updateAuthorBio(bio, id) {
+    const db = await this.connect();
+    try {
+      return updateAuthorBio(db, bio, id);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async deleteAuthor(id) {
+    const db = await this.connect();
+    try {
+      return deleteAuthor(db, id);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async createBook(authorId, title, genre, price, publishedAt) {
+    const db = await this.connect();
+    try {
+      return createBook(db, authorId, title, genre, price, publishedAt);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async getBook(id) {
+    const db = await this.connect();
+    try {
+      return getBook(db, id);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async getBooksByIds(ids) {
+    const db = await this.connect();
+    try {
+      return getBooksByIds(db, ids);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async listBooksByGenre(genre) {
+    const db = await this.connect();
+    try {
+      return listBooksByGenre(db, genre);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async listBooksByGenreOrAll(genre) {
+    const db = await this.connect();
+    try {
+      return listBooksByGenreOrAll(db, genre);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async createCustomer(name, email) {
+    const db = await this.connect();
+    try {
+      return createCustomer(db, name, email);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async createSale(customerId) {
+    const db = await this.connect();
+    try {
+      return createSale(db, customerId);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async addSaleItem(saleId, bookId, quantity, unitPrice) {
+    const db = await this.connect();
+    try {
+      return addSaleItem(db, saleId, bookId, quantity, unitPrice);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async listBooksWithAuthor() {
+    const db = await this.connect();
+    try {
+      return listBooksWithAuthor(db);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async getBooksNeverOrdered() {
+    const db = await this.connect();
+    try {
+      return getBooksNeverOrdered(db);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async getTopSellingBooks() {
+    const db = await this.connect();
+    try {
+      return getTopSellingBooks(db);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async getBestCustomers() {
+    const db = await this.connect();
+    try {
+      return getBestCustomers(db);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async countBooksByGenre() {
+    const db = await this.connect();
+    try {
+      return countBooksByGenre(db);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async listBooksWithLimit(limit, offset) {
+    const db = await this.connect();
+    try {
+      return listBooksWithLimit(db, limit, offset);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async searchBooksByTitle(title) {
+    const db = await this.connect();
+    try {
+      return searchBooksByTitle(db, title);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async getBooksByPriceRange(price, price2) {
+    const db = await this.connect();
+    try {
+      return getBooksByPriceRange(db, price, price2);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async getBooksInGenres(genre, genre2, genre3) {
+    const db = await this.connect();
+    try {
+      return getBooksInGenres(db, genre, genre2, genre3);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async getBookPriceLabel(price) {
+    const db = await this.connect();
+    try {
+      return getBookPriceLabel(db, price);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async getBookPriceOrDefault(price) {
+    const db = await this.connect();
+    try {
+      return getBookPriceOrDefault(db, price);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async deleteBookById(id) {
+    const db = await this.connect();
+    try {
+      return deleteBookById(db, id);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async getGenresWithManyBooks(count) {
+    const db = await this.connect();
+    try {
+      return getGenresWithManyBooks(db, count);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async getBooksByAuthorParam(birthYear) {
+    const db = await this.connect();
+    try {
+      return getBooksByAuthorParam(db, birthYear);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async getAllBookFields() {
+    const db = await this.connect();
+    try {
+      return getAllBookFields(db);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async getBooksNotByAuthor(name) {
+    const db = await this.connect();
+    try {
+      return getBooksNotByAuthor(db, name);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async getBooksWithRecentSales(orderedAt) {
+    const db = await this.connect();
+    try {
+      return getBooksWithRecentSales(db, orderedAt);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async getBookWithAuthorName() {
+    const db = await this.connect();
+    try {
+      return getBookWithAuthorName(db);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async getAuthorStats() {
+    const db = await this.connect();
+    try {
+      return getAuthorStats(db);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async archiveAndReturnBooks(publishedAt) {
+    const db = await this.connect();
+    try {
+      return archiveAndReturnBooks(db, publishedAt);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async getProduct(id) {
+    const db = await this.connect();
+    try {
+      return getProduct(db, id);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async listActiveProducts(active) {
+    const db = await this.connect();
+    try {
+      return listActiveProducts(db, active);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async insertProduct(id, sku, name, active, weightKg, rating, tags, metadata, thumbnail, stockCount) {
+    const db = await this.connect();
+    try {
+      return insertProduct(db, id, sku, name, active, weightKg, rating, tags, metadata, thumbnail, stockCount);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async getAuthorsWithNullBio() {
+    const db = await this.connect();
+    try {
+      return getAuthorsWithNullBio(db);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async getAuthorsWithBio() {
+    const db = await this.connect();
+    try {
+      return getAuthorsWithBio(db);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async getBooksPublishedBetween(publishedAt, publishedAt2) {
+    const db = await this.connect();
+    try {
+      return getBooksPublishedBetween(db, publishedAt, publishedAt2);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async getDistinctGenres() {
+    const db = await this.connect();
+    try {
+      return getDistinctGenres(db);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async getBooksWithSalesCount() {
+    const db = await this.connect();
+    try {
+      return getBooksWithSalesCount(db);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async countSaleItems(saleId) {
+    const db = await this.connect();
+    try {
+      return countSaleItems(db, saleId);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async upsertProduct(id, sku, name, active, tags, stockCount) {
+    const db = await this.connect();
+    try {
+      return upsertProduct(db, id, sku, name, active, tags, stockCount);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async getSaleItemQuantityAggregates() {
+    const db = await this.connect();
+    try {
+      return getSaleItemQuantityAggregates(db);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async getBookPriceAggregates() {
+    const db = await this.connect();
+    try {
+      return getBookPriceAggregates(db);
+    } finally {
+      await releaseDb(db);
+    }
+  }
 }

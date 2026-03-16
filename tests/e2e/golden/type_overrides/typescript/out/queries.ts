@@ -2,6 +2,20 @@
 // Runtime: pg (node-postgres) — npm install pg
 
 import type { ClientBase } from 'pg';
+type Db = ClientBase;
+type ConnectFn = () => Db | Promise<Db>;
+type ClosableDb = Db & { release?: () => void; close?: () => void };
+
+async function releaseDb(db: Db): Promise<void> {
+  const closable = db as ClosableDb;
+  if (typeof closable.release === 'function') {
+    closable.release();
+    return;
+  }
+  if (typeof closable.close === 'function') {
+    closable.close();
+  }
+}
 
 import type { Event } from './event';
 
@@ -17,23 +31,23 @@ const SQL_UPDATE_PAYLOAD = `UPDATE event SET payload = $1, meta = $2 WHERE id = 
 const SQL_FIND_BY_DATE = `SELECT id, name FROM event WHERE event_date = $1`;
 const SQL_FIND_BY_UUID = `SELECT id, name FROM event WHERE doc_id = $1`;
 
-export async function getEvent(db: ClientBase, id: number): Promise<Event | null> {
+export async function getEvent(db: Db, id: number): Promise<Event | null> {
   const result = await db.query<Event>(SQL_GET_EVENT, [id]);
   const raw = result.rows[0];
   if (!raw) return null;
   return { ...raw, payload: JSON.parse(raw.payload as string), meta: JSON.parse(raw.meta as string) };
 }
 
-export async function listEvents(db: ClientBase): Promise<Event[]> {
+export async function listEvents(db: Db): Promise<Event[]> {
   const result = await db.query<Event>(SQL_LIST_EVENTS, []);
   return result.rows.map(raw => ({ ...raw, payload: JSON.parse(raw.payload as string), meta: JSON.parse(raw.meta as string) }));
 }
 
-export async function insertEvent(db: ClientBase, name: string, payload: unknown, meta: unknown | null, docId: string, createdAt: Date, scheduledAt: Date | null, eventDate: Date | null, eventTime: Date | null): Promise<void> {
+export async function insertEvent(db: Db, name: string, payload: unknown, meta: unknown | null, docId: string, createdAt: Date, scheduledAt: Date | null, eventDate: Date | null, eventTime: Date | null): Promise<void> {
   await db.query(SQL_INSERT_EVENT, [name, JSON.stringify(payload), JSON.stringify(meta), docId, createdAt, scheduledAt, eventDate, eventTime]);
 }
 
-export async function updatePayload(db: ClientBase, payload: unknown, meta: unknown | null, id: number): Promise<void> {
+export async function updatePayload(db: Db, payload: unknown, meta: unknown | null, id: number): Promise<void> {
   await db.query(SQL_UPDATE_PAYLOAD, [JSON.stringify(payload), JSON.stringify(meta), id]);
 }
 
@@ -42,7 +56,7 @@ export interface FindByDateRow {
   name: string;
 }
 
-export async function findByDate(db: ClientBase, eventDate: Date | null): Promise<FindByDateRow | null> {
+export async function findByDate(db: Db, eventDate: Date | null): Promise<FindByDateRow | null> {
   const result = await db.query<FindByDateRow>(SQL_FIND_BY_DATE, [eventDate]);
   return result.rows[0] ?? null;
 }
@@ -52,7 +66,65 @@ export interface FindByUuidRow {
   name: string;
 }
 
-export async function findByUuid(db: ClientBase, docId: string): Promise<FindByUuidRow | null> {
+export async function findByUuid(db: Db, docId: string): Promise<FindByUuidRow | null> {
   const result = await db.query<FindByUuidRow>(SQL_FIND_BY_UUID, [docId]);
   return result.rows[0] ?? null;
+}
+
+export class Querier {
+  constructor(private readonly connect: ConnectFn) {}
+
+  async getEvent(id: number): Promise<Event | null> {
+    const db = await this.connect();
+    try {
+      return getEvent(db, id);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async listEvents(): Promise<Event[]> {
+    const db = await this.connect();
+    try {
+      return listEvents(db);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async insertEvent(name: string, payload: unknown, meta: unknown | null, docId: string, createdAt: Date, scheduledAt: Date | null, eventDate: Date | null, eventTime: Date | null): Promise<void> {
+    const db = await this.connect();
+    try {
+      return insertEvent(db, name, payload, meta, docId, createdAt, scheduledAt, eventDate, eventTime);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async updatePayload(payload: unknown, meta: unknown | null, id: number): Promise<void> {
+    const db = await this.connect();
+    try {
+      return updatePayload(db, payload, meta, id);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async findByDate(eventDate: Date | null): Promise<FindByDateRow | null> {
+    const db = await this.connect();
+    try {
+      return findByDate(db, eventDate);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async findByUuid(docId: string): Promise<FindByUuidRow | null> {
+    const db = await this.connect();
+    try {
+      return findByUuid(db, docId);
+    } finally {
+      await releaseDb(db);
+    }
+  }
 }

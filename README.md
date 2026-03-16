@@ -78,11 +78,15 @@ RETURNING *;
 // gen/com/example/db/Author.java
 public record Author(long id, String name, String bio, Integer birthYear) {}
 
-// gen/com/example/db/Queries.java  (DataSource variant also generated)
+// gen/com/example/db/Queries.java
 public static Optional<Author> getAuthor(Connection conn, long id) throws SQLException { … }
 public static List<Author>     listAuthors(Connection conn) throws SQLException { … }
 public static Optional<Author> createAuthor(Connection conn, String name, String bio,
                                             Integer birthYear) throws SQLException { … }
+
+// gen/com/example/db/Querier.java
+var q = new Querier(dataSource);
+q.getAuthor(1L);
 ```
 
 And equivalently in Kotlin, Rust (sqlx async functions), Python (psycopg3),
@@ -203,9 +207,12 @@ a **grouped map** that names each group explicitly:
 ```
 
 Each group produces its own output file. In Java/Kotlin the group name is
-PascalCased and suffixed with `Queries` (`UsersQueries.java`); in Rust, Python,
-TypeScript, and JavaScript the group name is used directly (`users.rs`, `users.ts`).
-A single-file config is unchanged — it always produces `Queries.java` / `queries.ts`.
+PascalCased and suffixed with `Queries` (`UsersQueries.java`) plus a matching
+`UsersQuerier.java` / `.kt` wrapper. In Rust, Python, TypeScript, and JavaScript
+the group name is used directly (`users.rs`, `users.py`, `users.ts`, `users.js`) and
+each queries module also emits a `UsersQuerier` (or default `Querier`) wrapper.
+The single-file form always uses `Queries` + `Querier` (JVM) and `queries` +
+`Querier` (Rust/Python/TS/JS).
 
 ---
 

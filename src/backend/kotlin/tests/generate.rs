@@ -154,14 +154,14 @@ fn test_generate_non_nullable_long_result_uses_get_long() {
     assert!(src.contains("rs.getLong(1)"));
 }
 
-// ─── generate: QueriesDs ────────────────────────────────────────────────
+// ─── generate: Querier ────────────────────────────────────────────────
 
 #[test]
 fn test_generate_queries_ds_file_is_emitted() {
     let schema = Schema::default();
     let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
-    assert!(files.iter().any(|f| f.path.file_name().is_some_and(|n| n == "QueriesDs.kt")));
+    assert!(files.iter().any(|f| f.path.file_name().is_some_and(|n| n == "Querier.kt")));
 }
 
 #[test]
@@ -169,9 +169,9 @@ fn test_generate_queries_ds_class_and_datasource_import() {
     let schema = Schema::default();
     let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
-    let src = get_file(&files, "QueriesDs.kt");
+    let src = get_file(&files, "Querier.kt");
     assert!(src.contains("import javax.sql.DataSource"));
-    assert!(src.contains("class QueriesDs(private val dataSource: DataSource)"));
+    assert!(src.contains("class Querier(private val dataSource: DataSource)"));
 }
 
 #[test]
@@ -179,7 +179,7 @@ fn test_generate_queries_ds_exec_method_delegates_via_use() {
     let schema = Schema::default();
     let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
-    let src = get_file(&files, "QueriesDs.kt");
+    let src = get_file(&files, "Querier.kt");
     assert!(src.contains("fun deleteUser(id: Long): Unit ="));
     assert!(src.contains("dataSource.connection.use { conn -> Queries.deleteUser(conn, id) }"));
 }
@@ -198,7 +198,7 @@ fn test_generate_queries_ds_one_method_returns_nullable() {
         ],
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
-    let src = get_file(&files, "QueriesDs.kt");
+    let src = get_file(&files, "Querier.kt");
     assert!(src.contains("fun getUser(id: Long): User? ="));
     assert!(src.contains("dataSource.connection.use { conn -> Queries.getUser(conn, id) }"));
 }
@@ -217,7 +217,7 @@ fn test_generate_queries_ds_many_method_returns_list() {
         ],
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
-    let src = get_file(&files, "QueriesDs.kt");
+    let src = get_file(&files, "Querier.kt");
     assert!(src.contains("fun listUsers(): List<User> ="));
     assert!(src.contains("dataSource.connection.use { conn -> Queries.listUsers(conn) }"));
 }

@@ -6,10 +6,10 @@ import java.util.List;
 import java.util.Optional;
 import javax.sql.DataSource;
 
-public final class QueriesDs {
+public final class Querier {
     private final DataSource dataSource;
 
-    public QueriesDs(DataSource dataSource) {
+    public Querier(DataSource dataSource) {
         this.dataSource = dataSource;
     }
 

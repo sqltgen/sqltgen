@@ -2,21 +2,27 @@ package com.example.db
 
 import javax.sql.DataSource
 
-class QueriesDs(private val dataSource: DataSource) {
+class Querier(private val dataSource: DataSource) {
 
     fun createAuthor(name: String, bio: String?, birthYear: Int?): Unit =
         dataSource.connection.use { conn -> Queries.createAuthor(conn, name, bio, birthYear) }
 
-    fun getAuthor(id: Int): Author? =
+    fun getAuthor(id: Long): Author? =
         dataSource.connection.use { conn -> Queries.getAuthor(conn, id) }
 
     fun listAuthors(): List<Author> =
         dataSource.connection.use { conn -> Queries.listAuthors(conn) }
 
-    fun createBook(authorId: Int, title: String, genre: String, price: Double, publishedAt: String?): Unit =
+    fun updateAuthorBio(bio: String?, id: Long): Unit =
+        dataSource.connection.use { conn -> Queries.updateAuthorBio(conn, bio, id) }
+
+    fun deleteAuthor(id: Long): Unit =
+        dataSource.connection.use { conn -> Queries.deleteAuthor(conn, id) }
+
+    fun createBook(authorId: Long, title: String, genre: String, price: java.math.BigDecimal, publishedAt: java.time.LocalDate?): Unit =
         dataSource.connection.use { conn -> Queries.createBook(conn, authorId, title, genre, price, publishedAt) }
 
-    fun getBook(id: Int): Book? =
+    fun getBook(id: Long): Book? =
         dataSource.connection.use { conn -> Queries.getBook(conn, id) }
 
     fun getBooksByIds(ids: List<Long>): List<Book> =
@@ -31,10 +37,10 @@ class QueriesDs(private val dataSource: DataSource) {
     fun createCustomer(name: String, email: String): Unit =
         dataSource.connection.use { conn -> Queries.createCustomer(conn, name, email) }
 
-    fun createSale(customerId: Int): Unit =
+    fun createSale(customerId: Long): Unit =
         dataSource.connection.use { conn -> Queries.createSale(conn, customerId) }
 
-    fun addSaleItem(saleId: Int, bookId: Int, quantity: Int, unitPrice: Double): Unit =
+    fun addSaleItem(saleId: Long, bookId: Long, quantity: Int, unitPrice: java.math.BigDecimal): Unit =
         dataSource.connection.use { conn -> Queries.addSaleItem(conn, saleId, bookId, quantity, unitPrice) }
 
     fun listBooksWithAuthor(): List<Queries.ListBooksWithAuthorRow> =

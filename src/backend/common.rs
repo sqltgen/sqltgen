@@ -42,6 +42,18 @@ pub fn queries_class_name(group: &str) -> String {
     }
 }
 
+/// Return the Querier wrapper class/object name for a query group.
+///
+/// - `""` or `"queries"` → `"Querier"` (default, no prefix)
+/// - Any other group → `"{PascalCase(group)}Querier"` (e.g. `"users"` → `"UsersQuerier"`)
+pub fn querier_class_name(group: &str) -> String {
+    if group.is_empty() || group == "queries" {
+        "Querier".to_string()
+    } else {
+        format!("{}Querier", to_pascal_case(group))
+    }
+}
+
 /// Return the file stem for a query group in non-JDBC backends (Rust, Python, TS/JS, Go).
 ///
 /// - `""` → `"queries"` (default)
@@ -440,6 +452,18 @@ mod tests {
     fn test_queries_file_stem_named_group() {
         assert_eq!(queries_file_stem("users"), "users");
         assert_eq!(queries_file_stem("user_posts"), "user_posts");
+    }
+
+    #[test]
+    fn test_querier_class_name_default_group() {
+        assert_eq!(querier_class_name(""), "Querier");
+        assert_eq!(querier_class_name("queries"), "Querier");
+    }
+
+    #[test]
+    fn test_querier_class_name_named_group() {
+        assert_eq!(querier_class_name("users"), "UsersQuerier");
+        assert_eq!(querier_class_name("user_posts"), "UserPostsQuerier");
     }
 
     // ─── group_queries ────────────────────────────────────────────────────────

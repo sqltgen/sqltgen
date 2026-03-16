@@ -11,6 +11,19 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
 ## [Unreleased]
 
 ### Added
+- **Cross-language `Querier` wrappers** — all generated backends now emit a
+  `Querier` object/class as the primary instance API for query execution:
+  Java/Kotlin (DataSource-backed), Rust (`DbPool`-backed), Python
+  (connection-factory-backed), and TypeScript/JavaScript
+  (connect-factory-backed).
+- **Java/Kotlin rename** — generated DataSource wrappers were renamed from
+  `QueriesDs` to `Querier` (including grouped variants such as
+  `UsersQuerier`/`PostsQuerier`).
+- **Engine-agnostic query module aliases** — Rust query files now alias the
+  selected sqlx pool type to `DbPool`, Python query files alias engine-specific
+  connection types to `Connection`, and TypeScript/JavaScript query files alias
+  driver connection types to `Db` so generated method signatures stay stable
+  across engines.
 - **Python: `_sqltgen.py` helper module** — each Python codegen run now emits a
   `_sqltgen.py` alongside the query files. It provides two engine-agnostic
   helpers (`execute` context manager, `exec_stmt` for `:exec` queries) that
@@ -22,8 +35,8 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
 - **Query grouping** — the `queries` config field now accepts an object
   (map form) in addition to a string or array. Each key becomes a named
   group and each backend emits one output file per group. Java/Kotlin
-  produce `{Group}Queries.java` / `{Group}Queries.kt` + a matching `Ds`
-  class; Rust, Python, TypeScript, and JavaScript produce one file per
+  produce `{Group}Queries.java` / `{Group}Queries.kt` + a matching
+  `{Group}Querier` class; Rust, Python, TypeScript, and JavaScript produce one file per
   group named after the key (`users.rs`, `users.py`, `users.ts`, …).
   Single-file configs and array configs are unchanged — the array form
   auto-derives the group name from each file's stem.
@@ -126,9 +139,9 @@ First public release.
 - `:execrows` — executes and returns the number of affected rows
 
 #### Backends (codegen)
-- **Java** — JDBC; `record` row models; `Queries` (connection) + `QueriesDs`
+- **Java** — JDBC; `record` row models; `Queries` (connection) + `Querier`
   (DataSource) classes; nullable params via `setObject`
-- **Kotlin** — JDBC; `data class` row models; `Queries` object + `QueriesDs` class
+- **Kotlin** — JDBC; `data class` row models; `Queries` object + `Querier` class
 - **Rust** — sqlx; async functions; `#[derive(sqlx::FromRow)]` structs; `mod.rs`
   generated for each output directory
 - **Python** — psycopg3 (PostgreSQL), sqlite3 (SQLite), mysql-connector-python (MySQL);

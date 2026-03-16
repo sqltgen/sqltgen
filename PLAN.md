@@ -77,12 +77,12 @@ SQL files
 
 | Language | Status | Notes |
 |---|---|---|
-| `java.rs` | ✅ | Record classes + `Queries` class with JDBC methods |
-| `kotlin.rs` | ✅ | Data classes + `Queries` object with JDBC methods |
-| `rust.rs` | ✅ | `sqlx` async functions + `#[derive(FromRow)]` structs; `mod.rs` generated |
-| `python.rs` | ✅ | `@dataclass` models + psycopg3 / sqlite3 / mysql-connector functions |
+| `java.rs` | ✅ | Record classes + `Queries` class with JDBC methods + `Querier` DataSource wrapper |
+| `kotlin.rs` | ✅ | Data classes + `Queries` object with JDBC methods + `Querier` DataSource wrapper |
+| `rust.rs` | ✅ | `sqlx` async functions + `#[derive(FromRow)]` structs + `Querier` pool wrapper; `mod.rs` generated |
+| `python.rs` | ✅ | `@dataclass` models + psycopg3 / sqlite3 / mysql-connector functions + `Querier` connection wrapper |
 | `go.rs` | 🚧 | Stub — `unimplemented!()` |
-| `typescript.rs` | ✅ | TypeScript (interfaces) + JavaScript (JSDoc) output; pg / better-sqlite3 / mysql2 drivers |
+| `typescript.rs` | ✅ | TypeScript (interfaces) + JavaScript (JSDoc) output; pg / better-sqlite3 / mysql2 drivers; emits `Querier` wrapper |
 
 ## CLI (`src/main.rs`)
 
@@ -132,7 +132,7 @@ sqltgen aims for excellent JSON support across all backends. Current state and g
 
 ### Low priority / future
 
-1. **Querier interface** — emit an interface/protocol/ABC for the Queries type (testability)
+1. **Querier interface** — emit an interface/protocol/ABC for the generated Querier type (testability)
 2. **Transaction support** — `with_tx(tx)` constructor on the Queries wrapper
 3. **Enum support** — `CREATE TYPE foo AS ENUM` → typed enum / sealed class / string alias
 4. **Field renaming config** — `rename: { db_col: "FieldName" }` map in config

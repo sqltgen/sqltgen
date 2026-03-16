@@ -6,16 +6,16 @@ import java.util.List;
 import java.util.Optional;
 import javax.sql.DataSource;
 
-public final class QueriesDs {
+public final class Querier {
     private final DataSource dataSource;
 
-    public QueriesDs(DataSource dataSource) {
+    public Querier(DataSource dataSource) {
         this.dataSource = dataSource;
     }
 
-    public void createAuthor(String name, String bio, Integer birthYear) throws SQLException {
+    public Optional<Author> createAuthor(String name, String bio, Integer birthYear) throws SQLException {
         try (Connection conn = dataSource.getConnection()) {
-            Queries.createAuthor(conn, name, bio, birthYear);
+            return Queries.createAuthor(conn, name, bio, birthYear);
         }
     }
 
@@ -31,21 +31,21 @@ public final class QueriesDs {
         }
     }
 
-    public void updateAuthorBio(String bio, long id) throws SQLException {
+    public Optional<Author> updateAuthorBio(String bio, long id) throws SQLException {
         try (Connection conn = dataSource.getConnection()) {
-            Queries.updateAuthorBio(conn, bio, id);
+            return Queries.updateAuthorBio(conn, bio, id);
         }
     }
 
-    public void deleteAuthor(long id) throws SQLException {
+    public Optional<Queries.DeleteAuthorRow> deleteAuthor(long id) throws SQLException {
         try (Connection conn = dataSource.getConnection()) {
-            Queries.deleteAuthor(conn, id);
+            return Queries.deleteAuthor(conn, id);
         }
     }
 
-    public void createBook(long authorId, String title, String genre, java.math.BigDecimal price, java.time.LocalDate publishedAt) throws SQLException {
+    public Optional<Book> createBook(long authorId, String title, String genre, java.math.BigDecimal price, java.time.LocalDate publishedAt) throws SQLException {
         try (Connection conn = dataSource.getConnection()) {
-            Queries.createBook(conn, authorId, title, genre, price, publishedAt);
+            return Queries.createBook(conn, authorId, title, genre, price, publishedAt);
         }
     }
 
@@ -73,15 +73,15 @@ public final class QueriesDs {
         }
     }
 
-    public void createCustomer(String name, String email) throws SQLException {
+    public Optional<Queries.CreateCustomerRow> createCustomer(String name, String email) throws SQLException {
         try (Connection conn = dataSource.getConnection()) {
-            Queries.createCustomer(conn, name, email);
+            return Queries.createCustomer(conn, name, email);
         }
     }
 
-    public void createSale(long customerId) throws SQLException {
+    public Optional<Queries.CreateSaleRow> createSale(long customerId) throws SQLException {
         try (Connection conn = dataSource.getConnection()) {
-            Queries.createSale(conn, customerId);
+            return Queries.createSale(conn, customerId);
         }
     }
 

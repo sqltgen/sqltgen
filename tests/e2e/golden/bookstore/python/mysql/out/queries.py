@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import dataclasses
 import mysql.connector
+from collections.abc import Callable
+from contextlib import closing
 from ._sqltgen import execute, exec_stmt
 import decimal
 import datetime
+
+Connection = mysql.connector.MySQLConnection
 
 from .author import Author
 from .book import Book
@@ -282,11 +286,11 @@ FROM book
 """
 
 
-def create_author(conn: mysql.connector.MySQLConnection, name: str, bio: str | None, birth_year: int | None) -> None:
+def create_author(conn: Connection, name: str, bio: str | None, birth_year: int | None) -> None:
     exec_stmt(conn, SQL_CREATE_AUTHOR, (name, bio, birth_year))
 
 
-def get_author(conn: mysql.connector.MySQLConnection, id: int) -> Author | None:
+def get_author(conn: Connection, id: int) -> Author | None:
     with execute(conn, SQL_GET_AUTHOR, (id,)) as cur:
         row = cur.fetchone()
         if row is None:
@@ -294,24 +298,24 @@ def get_author(conn: mysql.connector.MySQLConnection, id: int) -> Author | None:
         return Author(*row)
 
 
-def list_authors(conn: mysql.connector.MySQLConnection) -> list[Author]:
+def list_authors(conn: Connection) -> list[Author]:
     with execute(conn, SQL_LIST_AUTHORS) as cur:
         return [Author(*row) for row in cur.fetchall()]
 
 
-def update_author_bio(conn: mysql.connector.MySQLConnection, bio: str | None, id: int) -> None:
+def update_author_bio(conn: Connection, bio: str | None, id: int) -> None:
     exec_stmt(conn, SQL_UPDATE_AUTHOR_BIO, (bio, id))
 
 
-def delete_author(conn: mysql.connector.MySQLConnection, id: int) -> None:
+def delete_author(conn: Connection, id: int) -> None:
     exec_stmt(conn, SQL_DELETE_AUTHOR, (id,))
 
 
-def create_book(conn: mysql.connector.MySQLConnection, author_id: int, title: str, genre: str, price: decimal.Decimal, published_at: datetime.date | None) -> None:
+def create_book(conn: Connection, author_id: int, title: str, genre: str, price: decimal.Decimal, published_at: datetime.date | None) -> None:
     exec_stmt(conn, SQL_CREATE_BOOK, (author_id, title, genre, price, published_at))
 
 
-def get_book(conn: mysql.connector.MySQLConnection, id: int) -> Book | None:
+def get_book(conn: Connection, id: int) -> Book | None:
     with execute(conn, SQL_GET_BOOK, (id,)) as cur:
         row = cur.fetchone()
         if row is None:
@@ -319,32 +323,32 @@ def get_book(conn: mysql.connector.MySQLConnection, id: int) -> Book | None:
         return Book(*row)
 
 
-def get_books_by_ids(conn: mysql.connector.MySQLConnection, ids: list[int]) -> list[Book]:
+def get_books_by_ids(conn: Connection, ids: list[int]) -> list[Book]:
     import json
     ids_json = json.dumps(ids)
     with execute(conn, SQL_GET_BOOKS_BY_IDS, (ids_json,)) as cur:
         return [Book(*row) for row in cur.fetchall()]
 
 
-def list_books_by_genre(conn: mysql.connector.MySQLConnection, genre: str) -> list[Book]:
+def list_books_by_genre(conn: Connection, genre: str) -> list[Book]:
     with execute(conn, SQL_LIST_BOOKS_BY_GENRE, (genre,)) as cur:
         return [Book(*row) for row in cur.fetchall()]
 
 
-def list_books_by_genre_or_all(conn: mysql.connector.MySQLConnection, genre: str) -> list[Book]:
+def list_books_by_genre_or_all(conn: Connection, genre: str) -> list[Book]:
     with execute(conn, SQL_LIST_BOOKS_BY_GENRE_OR_ALL, (genre, genre)) as cur:
         return [Book(*row) for row in cur.fetchall()]
 
 
-def create_customer(conn: mysql.connector.MySQLConnection, name: str, email: str) -> None:
+def create_customer(conn: Connection, name: str, email: str) -> None:
     exec_stmt(conn, SQL_CREATE_CUSTOMER, (name, email))
 
 
-def create_sale(conn: mysql.connector.MySQLConnection, customer_id: int) -> None:
+def create_sale(conn: Connection, customer_id: int) -> None:
     exec_stmt(conn, SQL_CREATE_SALE, (customer_id,))
 
 
-def add_sale_item(conn: mysql.connector.MySQLConnection, sale_id: int, book_id: int, quantity: int, unit_price: decimal.Decimal) -> None:
+def add_sale_item(conn: Connection, sale_id: int, book_id: int, quantity: int, unit_price: decimal.Decimal) -> None:
     exec_stmt(conn, SQL_ADD_SALE_ITEM, (sale_id, book_id, quantity, unit_price))
 
 
@@ -359,12 +363,12 @@ class ListBooksWithAuthorRow:
     author_bio: str | None
 
 
-def list_books_with_author(conn: mysql.connector.MySQLConnection) -> list[ListBooksWithAuthorRow]:
+def list_books_with_author(conn: Connection) -> list[ListBooksWithAuthorRow]:
     with execute(conn, SQL_LIST_BOOKS_WITH_AUTHOR) as cur:
         return [ListBooksWithAuthorRow(*row) for row in cur.fetchall()]
 
 
-def get_books_never_ordered(conn: mysql.connector.MySQLConnection) -> list[Book]:
+def get_books_never_ordered(conn: Connection) -> list[Book]:
     with execute(conn, SQL_GET_BOOKS_NEVER_ORDERED) as cur:
         return [Book(*row) for row in cur.fetchall()]
 
@@ -378,7 +382,7 @@ class GetTopSellingBooksRow:
     units_sold: decimal.Decimal | None
 
 
-def get_top_selling_books(conn: mysql.connector.MySQLConnection) -> list[GetTopSellingBooksRow]:
+def get_top_selling_books(conn: Connection) -> list[GetTopSellingBooksRow]:
     with execute(conn, SQL_GET_TOP_SELLING_BOOKS) as cur:
         return [GetTopSellingBooksRow(*row) for row in cur.fetchall()]
 
@@ -391,7 +395,7 @@ class GetBestCustomersRow:
     total_spent: decimal.Decimal | None
 
 
-def get_best_customers(conn: mysql.connector.MySQLConnection) -> list[GetBestCustomersRow]:
+def get_best_customers(conn: Connection) -> list[GetBestCustomersRow]:
     with execute(conn, SQL_GET_BEST_CUSTOMERS) as cur:
         return [GetBestCustomersRow(*row) for row in cur.fetchall()]
 
@@ -402,7 +406,7 @@ class CountBooksByGenreRow:
     book_count: int
 
 
-def count_books_by_genre(conn: mysql.connector.MySQLConnection) -> list[CountBooksByGenreRow]:
+def count_books_by_genre(conn: Connection) -> list[CountBooksByGenreRow]:
     with execute(conn, SQL_COUNT_BOOKS_BY_GENRE) as cur:
         return [CountBooksByGenreRow(*row) for row in cur.fetchall()]
 
@@ -415,7 +419,7 @@ class ListBooksWithLimitRow:
     price: decimal.Decimal
 
 
-def list_books_with_limit(conn: mysql.connector.MySQLConnection, limit: int, offset: int) -> list[ListBooksWithLimitRow]:
+def list_books_with_limit(conn: Connection, limit: int, offset: int) -> list[ListBooksWithLimitRow]:
     with execute(conn, SQL_LIST_BOOKS_WITH_LIMIT, (limit, offset)) as cur:
         return [ListBooksWithLimitRow(*row) for row in cur.fetchall()]
 
@@ -428,7 +432,7 @@ class SearchBooksByTitleRow:
     price: decimal.Decimal
 
 
-def search_books_by_title(conn: mysql.connector.MySQLConnection, title: str) -> list[SearchBooksByTitleRow]:
+def search_books_by_title(conn: Connection, title: str) -> list[SearchBooksByTitleRow]:
     with execute(conn, SQL_SEARCH_BOOKS_BY_TITLE, (title,)) as cur:
         return [SearchBooksByTitleRow(*row) for row in cur.fetchall()]
 
@@ -441,7 +445,7 @@ class GetBooksByPriceRangeRow:
     price: decimal.Decimal
 
 
-def get_books_by_price_range(conn: mysql.connector.MySQLConnection, price: decimal.Decimal, price_2: decimal.Decimal) -> list[GetBooksByPriceRangeRow]:
+def get_books_by_price_range(conn: Connection, price: decimal.Decimal, price_2: decimal.Decimal) -> list[GetBooksByPriceRangeRow]:
     with execute(conn, SQL_GET_BOOKS_BY_PRICE_RANGE, (price, price_2)) as cur:
         return [GetBooksByPriceRangeRow(*row) for row in cur.fetchall()]
 
@@ -454,7 +458,7 @@ class GetBooksInGenresRow:
     price: decimal.Decimal
 
 
-def get_books_in_genres(conn: mysql.connector.MySQLConnection, genre: str, genre_2: str, genre_3: str) -> list[GetBooksInGenresRow]:
+def get_books_in_genres(conn: Connection, genre: str, genre_2: str, genre_3: str) -> list[GetBooksInGenresRow]:
     with execute(conn, SQL_GET_BOOKS_IN_GENRES, (genre, genre_2, genre_3)) as cur:
         return [GetBooksInGenresRow(*row) for row in cur.fetchall()]
 
@@ -467,7 +471,7 @@ class GetBookPriceLabelRow:
     price_label: str
 
 
-def get_book_price_label(conn: mysql.connector.MySQLConnection, price: decimal.Decimal) -> list[GetBookPriceLabelRow]:
+def get_book_price_label(conn: Connection, price: decimal.Decimal) -> list[GetBookPriceLabelRow]:
     with execute(conn, SQL_GET_BOOK_PRICE_LABEL, (price,)) as cur:
         return [GetBookPriceLabelRow(*row) for row in cur.fetchall()]
 
@@ -479,12 +483,12 @@ class GetBookPriceOrDefaultRow:
     effective_price: decimal.Decimal
 
 
-def get_book_price_or_default(conn: mysql.connector.MySQLConnection, price: decimal.Decimal | None) -> list[GetBookPriceOrDefaultRow]:
+def get_book_price_or_default(conn: Connection, price: decimal.Decimal | None) -> list[GetBookPriceOrDefaultRow]:
     with execute(conn, SQL_GET_BOOK_PRICE_OR_DEFAULT, (price,)) as cur:
         return [GetBookPriceOrDefaultRow(*row) for row in cur.fetchall()]
 
 
-def delete_book_by_id(conn: mysql.connector.MySQLConnection, id: int) -> int:
+def delete_book_by_id(conn: Connection, id: int) -> int:
     with execute(conn, SQL_DELETE_BOOK_BY_ID, (id,)) as cur:
         return cur.rowcount
 
@@ -495,7 +499,7 @@ class GetGenresWithManyBooksRow:
     book_count: int
 
 
-def get_genres_with_many_books(conn: mysql.connector.MySQLConnection, count: int) -> list[GetGenresWithManyBooksRow]:
+def get_genres_with_many_books(conn: Connection, count: int) -> list[GetGenresWithManyBooksRow]:
     with execute(conn, SQL_GET_GENRES_WITH_MANY_BOOKS, (count,)) as cur:
         return [GetGenresWithManyBooksRow(*row) for row in cur.fetchall()]
 
@@ -507,12 +511,12 @@ class GetBooksByAuthorParamRow:
     price: decimal.Decimal
 
 
-def get_books_by_author_param(conn: mysql.connector.MySQLConnection, birth_year: int | None) -> list[GetBooksByAuthorParamRow]:
+def get_books_by_author_param(conn: Connection, birth_year: int | None) -> list[GetBooksByAuthorParamRow]:
     with execute(conn, SQL_GET_BOOKS_BY_AUTHOR_PARAM, (birth_year,)) as cur:
         return [GetBooksByAuthorParamRow(*row) for row in cur.fetchall()]
 
 
-def get_all_book_fields(conn: mysql.connector.MySQLConnection) -> list[Book]:
+def get_all_book_fields(conn: Connection) -> list[Book]:
     with execute(conn, SQL_GET_ALL_BOOK_FIELDS) as cur:
         return [Book(*row) for row in cur.fetchall()]
 
@@ -524,7 +528,7 @@ class GetBooksNotByAuthorRow:
     genre: str
 
 
-def get_books_not_by_author(conn: mysql.connector.MySQLConnection, name: str) -> list[GetBooksNotByAuthorRow]:
+def get_books_not_by_author(conn: Connection, name: str) -> list[GetBooksNotByAuthorRow]:
     with execute(conn, SQL_GET_BOOKS_NOT_BY_AUTHOR, (name,)) as cur:
         return [GetBooksNotByAuthorRow(*row) for row in cur.fetchall()]
 
@@ -536,7 +540,7 @@ class GetBooksWithRecentSalesRow:
     genre: str
 
 
-def get_books_with_recent_sales(conn: mysql.connector.MySQLConnection, ordered_at: datetime.datetime) -> list[GetBooksWithRecentSalesRow]:
+def get_books_with_recent_sales(conn: Connection, ordered_at: datetime.datetime) -> list[GetBooksWithRecentSalesRow]:
     with execute(conn, SQL_GET_BOOKS_WITH_RECENT_SALES, (ordered_at,)) as cur:
         return [GetBooksWithRecentSalesRow(*row) for row in cur.fetchall()]
 
@@ -548,7 +552,7 @@ class GetBookWithAuthorNameRow:
     author_name: str | None
 
 
-def get_book_with_author_name(conn: mysql.connector.MySQLConnection) -> list[GetBookWithAuthorNameRow]:
+def get_book_with_author_name(conn: Connection) -> list[GetBookWithAuthorNameRow]:
     with execute(conn, SQL_GET_BOOK_WITH_AUTHOR_NAME) as cur:
         return [GetBookWithAuthorNameRow(*row) for row in cur.fetchall()]
 
@@ -561,12 +565,12 @@ class GetAuthorStatsRow:
     total_sold: decimal.Decimal
 
 
-def get_author_stats(conn: mysql.connector.MySQLConnection) -> list[GetAuthorStatsRow]:
+def get_author_stats(conn: Connection) -> list[GetAuthorStatsRow]:
     with execute(conn, SQL_GET_AUTHOR_STATS) as cur:
         return [GetAuthorStatsRow(*row) for row in cur.fetchall()]
 
 
-def get_product(conn: mysql.connector.MySQLConnection, id: str) -> Product | None:
+def get_product(conn: Connection, id: str) -> Product | None:
     with execute(conn, SQL_GET_PRODUCT, (id,)) as cur:
         row = cur.fetchone()
         if row is None:
@@ -587,7 +591,7 @@ class ListActiveProductsRow:
     stock_count: int
 
 
-def list_active_products(conn: mysql.connector.MySQLConnection, active: bool) -> list[ListActiveProductsRow]:
+def list_active_products(conn: Connection, active: bool) -> list[ListActiveProductsRow]:
     with execute(conn, SQL_LIST_ACTIVE_PRODUCTS, (active,)) as cur:
         return [ListActiveProductsRow(*row) for row in cur.fetchall()]
 
@@ -599,12 +603,12 @@ class GetAuthorsWithNullBioRow:
     birth_year: int | None
 
 
-def get_authors_with_null_bio(conn: mysql.connector.MySQLConnection) -> list[GetAuthorsWithNullBioRow]:
+def get_authors_with_null_bio(conn: Connection) -> list[GetAuthorsWithNullBioRow]:
     with execute(conn, SQL_GET_AUTHORS_WITH_NULL_BIO) as cur:
         return [GetAuthorsWithNullBioRow(*row) for row in cur.fetchall()]
 
 
-def get_authors_with_bio(conn: mysql.connector.MySQLConnection) -> list[Author]:
+def get_authors_with_bio(conn: Connection) -> list[Author]:
     with execute(conn, SQL_GET_AUTHORS_WITH_BIO) as cur:
         return [Author(*row) for row in cur.fetchall()]
 
@@ -618,7 +622,7 @@ class GetBooksPublishedBetweenRow:
     published_at: datetime.date | None
 
 
-def get_books_published_between(conn: mysql.connector.MySQLConnection, published_at: datetime.date | None, published_at_2: datetime.date | None) -> list[GetBooksPublishedBetweenRow]:
+def get_books_published_between(conn: Connection, published_at: datetime.date | None, published_at_2: datetime.date | None) -> list[GetBooksPublishedBetweenRow]:
     with execute(conn, SQL_GET_BOOKS_PUBLISHED_BETWEEN, (published_at, published_at_2)) as cur:
         return [GetBooksPublishedBetweenRow(*row) for row in cur.fetchall()]
 
@@ -628,7 +632,7 @@ class GetDistinctGenresRow:
     genre: str
 
 
-def get_distinct_genres(conn: mysql.connector.MySQLConnection) -> list[GetDistinctGenresRow]:
+def get_distinct_genres(conn: Connection) -> list[GetDistinctGenresRow]:
     with execute(conn, SQL_GET_DISTINCT_GENRES) as cur:
         return [GetDistinctGenresRow(*row) for row in cur.fetchall()]
 
@@ -641,7 +645,7 @@ class GetBooksWithSalesCountRow:
     total_quantity: decimal.Decimal
 
 
-def get_books_with_sales_count(conn: mysql.connector.MySQLConnection) -> list[GetBooksWithSalesCountRow]:
+def get_books_with_sales_count(conn: Connection) -> list[GetBooksWithSalesCountRow]:
     with execute(conn, SQL_GET_BOOKS_WITH_SALES_COUNT) as cur:
         return [GetBooksWithSalesCountRow(*row) for row in cur.fetchall()]
 
@@ -651,7 +655,7 @@ class CountSaleItemsRow:
     item_count: int
 
 
-def count_sale_items(conn: mysql.connector.MySQLConnection, sale_id: int) -> CountSaleItemsRow | None:
+def count_sale_items(conn: Connection, sale_id: int) -> CountSaleItemsRow | None:
     with execute(conn, SQL_COUNT_SALE_ITEMS, (sale_id,)) as cur:
         row = cur.fetchone()
         if row is None:
@@ -667,7 +671,7 @@ class GetSaleItemQuantityAggregatesRow:
     avg_qty: decimal.Decimal | None
 
 
-def get_sale_item_quantity_aggregates(conn: mysql.connector.MySQLConnection) -> GetSaleItemQuantityAggregatesRow | None:
+def get_sale_item_quantity_aggregates(conn: Connection) -> GetSaleItemQuantityAggregatesRow | None:
     with execute(conn, SQL_GET_SALE_ITEM_QUANTITY_AGGREGATES) as cur:
         row = cur.fetchone()
         if row is None:
@@ -683,9 +687,182 @@ class GetBookPriceAggregatesRow:
     avg_price: decimal.Decimal | None
 
 
-def get_book_price_aggregates(conn: mysql.connector.MySQLConnection) -> GetBookPriceAggregatesRow | None:
+def get_book_price_aggregates(conn: Connection) -> GetBookPriceAggregatesRow | None:
     with execute(conn, SQL_GET_BOOK_PRICE_AGGREGATES) as cur:
         row = cur.fetchone()
         if row is None:
             return None
         return GetBookPriceAggregatesRow(*row)
+
+
+class Querier:
+    def __init__(self, connect: Callable[[], Connection]) -> None:
+        self._connect = connect
+
+    def create_author(self, name: str, bio: str | None, birth_year: int | None) -> None:
+        with closing(self._connect()) as conn:
+            return create_author(conn, name, bio, birth_year)
+
+    def get_author(self, id: int) -> Author | None:
+        with closing(self._connect()) as conn:
+            return get_author(conn, id)
+
+    def list_authors(self) -> list[Author]:
+        with closing(self._connect()) as conn:
+            return list_authors(conn)
+
+    def update_author_bio(self, bio: str | None, id: int) -> None:
+        with closing(self._connect()) as conn:
+            return update_author_bio(conn, bio, id)
+
+    def delete_author(self, id: int) -> None:
+        with closing(self._connect()) as conn:
+            return delete_author(conn, id)
+
+    def create_book(self, author_id: int, title: str, genre: str, price: decimal.Decimal, published_at: datetime.date | None) -> None:
+        with closing(self._connect()) as conn:
+            return create_book(conn, author_id, title, genre, price, published_at)
+
+    def get_book(self, id: int) -> Book | None:
+        with closing(self._connect()) as conn:
+            return get_book(conn, id)
+
+    def get_books_by_ids(self, ids: list[int]) -> list[Book]:
+        with closing(self._connect()) as conn:
+            return get_books_by_ids(conn, ids)
+
+    def list_books_by_genre(self, genre: str) -> list[Book]:
+        with closing(self._connect()) as conn:
+            return list_books_by_genre(conn, genre)
+
+    def list_books_by_genre_or_all(self, genre: str) -> list[Book]:
+        with closing(self._connect()) as conn:
+            return list_books_by_genre_or_all(conn, genre)
+
+    def create_customer(self, name: str, email: str) -> None:
+        with closing(self._connect()) as conn:
+            return create_customer(conn, name, email)
+
+    def create_sale(self, customer_id: int) -> None:
+        with closing(self._connect()) as conn:
+            return create_sale(conn, customer_id)
+
+    def add_sale_item(self, sale_id: int, book_id: int, quantity: int, unit_price: decimal.Decimal) -> None:
+        with closing(self._connect()) as conn:
+            return add_sale_item(conn, sale_id, book_id, quantity, unit_price)
+
+    def list_books_with_author(self) -> list[ListBooksWithAuthorRow]:
+        with closing(self._connect()) as conn:
+            return list_books_with_author(conn)
+
+    def get_books_never_ordered(self) -> list[Book]:
+        with closing(self._connect()) as conn:
+            return get_books_never_ordered(conn)
+
+    def get_top_selling_books(self) -> list[GetTopSellingBooksRow]:
+        with closing(self._connect()) as conn:
+            return get_top_selling_books(conn)
+
+    def get_best_customers(self) -> list[GetBestCustomersRow]:
+        with closing(self._connect()) as conn:
+            return get_best_customers(conn)
+
+    def count_books_by_genre(self) -> list[CountBooksByGenreRow]:
+        with closing(self._connect()) as conn:
+            return count_books_by_genre(conn)
+
+    def list_books_with_limit(self, limit: int, offset: int) -> list[ListBooksWithLimitRow]:
+        with closing(self._connect()) as conn:
+            return list_books_with_limit(conn, limit, offset)
+
+    def search_books_by_title(self, title: str) -> list[SearchBooksByTitleRow]:
+        with closing(self._connect()) as conn:
+            return search_books_by_title(conn, title)
+
+    def get_books_by_price_range(self, price: decimal.Decimal, price_2: decimal.Decimal) -> list[GetBooksByPriceRangeRow]:
+        with closing(self._connect()) as conn:
+            return get_books_by_price_range(conn, price, price_2)
+
+    def get_books_in_genres(self, genre: str, genre_2: str, genre_3: str) -> list[GetBooksInGenresRow]:
+        with closing(self._connect()) as conn:
+            return get_books_in_genres(conn, genre, genre_2, genre_3)
+
+    def get_book_price_label(self, price: decimal.Decimal) -> list[GetBookPriceLabelRow]:
+        with closing(self._connect()) as conn:
+            return get_book_price_label(conn, price)
+
+    def get_book_price_or_default(self, price: decimal.Decimal | None) -> list[GetBookPriceOrDefaultRow]:
+        with closing(self._connect()) as conn:
+            return get_book_price_or_default(conn, price)
+
+    def delete_book_by_id(self, id: int) -> int:
+        with closing(self._connect()) as conn:
+            return delete_book_by_id(conn, id)
+
+    def get_genres_with_many_books(self, count: int) -> list[GetGenresWithManyBooksRow]:
+        with closing(self._connect()) as conn:
+            return get_genres_with_many_books(conn, count)
+
+    def get_books_by_author_param(self, birth_year: int | None) -> list[GetBooksByAuthorParamRow]:
+        with closing(self._connect()) as conn:
+            return get_books_by_author_param(conn, birth_year)
+
+    def get_all_book_fields(self) -> list[Book]:
+        with closing(self._connect()) as conn:
+            return get_all_book_fields(conn)
+
+    def get_books_not_by_author(self, name: str) -> list[GetBooksNotByAuthorRow]:
+        with closing(self._connect()) as conn:
+            return get_books_not_by_author(conn, name)
+
+    def get_books_with_recent_sales(self, ordered_at: datetime.datetime) -> list[GetBooksWithRecentSalesRow]:
+        with closing(self._connect()) as conn:
+            return get_books_with_recent_sales(conn, ordered_at)
+
+    def get_book_with_author_name(self) -> list[GetBookWithAuthorNameRow]:
+        with closing(self._connect()) as conn:
+            return get_book_with_author_name(conn)
+
+    def get_author_stats(self) -> list[GetAuthorStatsRow]:
+        with closing(self._connect()) as conn:
+            return get_author_stats(conn)
+
+    def get_product(self, id: str) -> Product | None:
+        with closing(self._connect()) as conn:
+            return get_product(conn, id)
+
+    def list_active_products(self, active: bool) -> list[ListActiveProductsRow]:
+        with closing(self._connect()) as conn:
+            return list_active_products(conn, active)
+
+    def get_authors_with_null_bio(self) -> list[GetAuthorsWithNullBioRow]:
+        with closing(self._connect()) as conn:
+            return get_authors_with_null_bio(conn)
+
+    def get_authors_with_bio(self) -> list[Author]:
+        with closing(self._connect()) as conn:
+            return get_authors_with_bio(conn)
+
+    def get_books_published_between(self, published_at: datetime.date | None, published_at_2: datetime.date | None) -> list[GetBooksPublishedBetweenRow]:
+        with closing(self._connect()) as conn:
+            return get_books_published_between(conn, published_at, published_at_2)
+
+    def get_distinct_genres(self) -> list[GetDistinctGenresRow]:
+        with closing(self._connect()) as conn:
+            return get_distinct_genres(conn)
+
+    def get_books_with_sales_count(self) -> list[GetBooksWithSalesCountRow]:
+        with closing(self._connect()) as conn:
+            return get_books_with_sales_count(conn)
+
+    def count_sale_items(self, sale_id: int) -> CountSaleItemsRow | None:
+        with closing(self._connect()) as conn:
+            return count_sale_items(conn, sale_id)
+
+    def get_sale_item_quantity_aggregates(self) -> GetSaleItemQuantityAggregatesRow | None:
+        with closing(self._connect()) as conn:
+            return get_sale_item_quantity_aggregates(conn)
+
+    def get_book_price_aggregates(self) -> GetBookPriceAggregatesRow | None:
+        with closing(self._connect()) as conn:
+            return get_book_price_aggregates(conn)

@@ -12,9 +12,9 @@ fn test_generate_grouped_produces_one_file_per_group() {
     let files = pg().generate(&schema, &[users_q, posts_q], &cfg()).unwrap();
     let names: Vec<&str> = files.iter().filter_map(|f| f.path.file_name().and_then(|n| n.to_str())).collect();
     assert!(names.contains(&"UsersQueries.java"), "expected UsersQueries.java, got {names:?}");
-    assert!(names.contains(&"UsersQueriesDs.java"), "expected UsersQueriesDs.java");
+    assert!(names.contains(&"UsersQuerier.java"), "expected UsersQuerier.java");
     assert!(names.contains(&"PostsQueries.java"), "expected PostsQueries.java");
-    assert!(names.contains(&"PostsQueriesDs.java"), "expected PostsQueriesDs.java");
+    assert!(names.contains(&"PostsQuerier.java"), "expected PostsQuerier.java");
     assert!(!names.contains(&"Queries.java"), "Queries.java must not appear when all queries are in named groups");
 }
 

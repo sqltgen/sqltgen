@@ -1,6 +1,6 @@
 package com.example;
 
-import com.example.db.QueriesDs;
+import com.example.db.Querier;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -13,7 +13,7 @@ public class Demo {
 
     // file::memory:?cache=shared allows multiple connections to share the same
     // in-memory database. The keeper connection in run() holds it open for the
-    // full demo lifetime so the data survives across QueriesDs method calls.
+    // full demo lifetime so the data survives across Querier method calls.
     private static final String SQLITE_URL = "jdbc:sqlite:file::memory:?cache=shared";
 
     public static void run() throws Exception {
@@ -22,7 +22,7 @@ public class Demo {
         // Keep one connection open so the in-memory DB is not dropped between calls.
         try (Connection keeper = ds.getConnection()) {
             applyMigrations(keeper);
-            var q = new QueriesDs(ds);
+            var q = new Querier(ds);
             seed(q);
             query(q);
         }
@@ -46,7 +46,7 @@ public class Demo {
         }
     }
 
-    private static void seed(QueriesDs q) throws Exception {
+    private static void seed(Querier q) throws Exception {
         q.createAuthor("Ursula K. Le Guin", "Science fiction and fantasy author", 1929);
         q.createAuthor("Frank Herbert",     "Author of the Dune series",           1920);
         q.createAuthor("Isaac Asimov",      null,                                  1920);
@@ -72,7 +72,7 @@ public class Demo {
         System.out.println("[sqlite] inserted 2 sales with items");
     }
 
-    private static void query(QueriesDs q) throws Exception {
+    private static void query(Querier q) throws Exception {
         var authors = q.listAuthors();
         System.out.println("[sqlite] listAuthors: " + authors.size() + " row(s)");
 

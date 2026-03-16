@@ -1,4 +1,4 @@
-use sqlx::PgPool;
+use sqlx::{PgPool as DbPool};
 
 use super::event::Event;
 
@@ -14,7 +14,7 @@ pub struct FindByUuidRow {
     pub name: String,
 }
 
-pub async fn get_event(pool: &PgPool, id: i64) -> Result<Option<Event>, sqlx::Error> {
+pub async fn get_event(pool: &DbPool, id: i64) -> Result<Option<Event>, sqlx::Error> {
     let sql = r##"
         SELECT id, name, payload, meta, doc_id, created_at, scheduled_at, event_date, event_time
         FROM event
@@ -26,7 +26,7 @@ pub async fn get_event(pool: &PgPool, id: i64) -> Result<Option<Event>, sqlx::Er
         .await
 }
 
-pub async fn list_events(pool: &PgPool) -> Result<Vec<Event>, sqlx::Error> {
+pub async fn list_events(pool: &DbPool) -> Result<Vec<Event>, sqlx::Error> {
     let sql = r##"
         SELECT id, name, payload, meta, doc_id, created_at, scheduled_at, event_date, event_time
         FROM event
@@ -37,7 +37,7 @@ pub async fn list_events(pool: &PgPool) -> Result<Vec<Event>, sqlx::Error> {
         .await
 }
 
-pub async fn insert_event(pool: &PgPool, name: String, payload: serde_json::Value, meta: Option<serde_json::Value>, doc_id: uuid::Uuid, created_at: time::PrimitiveDateTime, scheduled_at: Option<time::OffsetDateTime>, event_date: Option<time::Date>, event_time: Option<time::Time>) -> Result<(), sqlx::Error> {
+pub async fn insert_event(pool: &DbPool, name: String, payload: serde_json::Value, meta: Option<serde_json::Value>, doc_id: uuid::Uuid, created_at: time::PrimitiveDateTime, scheduled_at: Option<time::OffsetDateTime>, event_date: Option<time::Date>, event_time: Option<time::Time>) -> Result<(), sqlx::Error> {
     let sql = r##"
         INSERT INTO event (name, payload, meta, doc_id, created_at, scheduled_at, event_date, event_time)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -56,7 +56,7 @@ pub async fn insert_event(pool: &PgPool, name: String, payload: serde_json::Valu
         .map(|_| ())
 }
 
-pub async fn update_payload(pool: &PgPool, payload: serde_json::Value, meta: Option<serde_json::Value>, id: i64) -> Result<(), sqlx::Error> {
+pub async fn update_payload(pool: &DbPool, payload: serde_json::Value, meta: Option<serde_json::Value>, id: i64) -> Result<(), sqlx::Error> {
     let sql = r##"
         UPDATE event SET payload = $1, meta = $2 WHERE id = $3
     "##;
@@ -69,7 +69,7 @@ pub async fn update_payload(pool: &PgPool, payload: serde_json::Value, meta: Opt
         .map(|_| ())
 }
 
-pub async fn find_by_date(pool: &PgPool, event_date: Option<time::Date>) -> Result<Option<FindByDateRow>, sqlx::Error> {
+pub async fn find_by_date(pool: &DbPool, event_date: Option<time::Date>) -> Result<Option<FindByDateRow>, sqlx::Error> {
     let sql = r##"
         SELECT id, name FROM event WHERE event_date = $1
     "##;
@@ -79,7 +79,7 @@ pub async fn find_by_date(pool: &PgPool, event_date: Option<time::Date>) -> Resu
         .await
 }
 
-pub async fn find_by_uuid(pool: &PgPool, doc_id: uuid::Uuid) -> Result<Option<FindByUuidRow>, sqlx::Error> {
+pub async fn find_by_uuid(pool: &DbPool, doc_id: uuid::Uuid) -> Result<Option<FindByUuidRow>, sqlx::Error> {
     let sql = r##"
         SELECT id, name FROM event WHERE doc_id = $1
     "##;
@@ -87,4 +87,38 @@ pub async fn find_by_uuid(pool: &PgPool, doc_id: uuid::Uuid) -> Result<Option<Fi
         .bind(doc_id)
         .fetch_optional(pool)
         .await
+}
+
+pub struct Querier<'a> {
+    pool: &'a DbPool,
+}
+
+impl<'a> Querier<'a> {
+    pub fn new(pool: &'a DbPool) -> Self {
+        Self { pool }
+    }
+
+    pub async fn get_event(&self, id: i64) -> Result<Option<Event>, sqlx::Error> {
+        get_event(self.pool, id).await
+    }
+
+    pub async fn list_events(&self) -> Result<Vec<Event>, sqlx::Error> {
+        list_events(self.pool).await
+    }
+
+    pub async fn insert_event(&self, name: String, payload: serde_json::Value, meta: Option<serde_json::Value>, doc_id: uuid::Uuid, created_at: time::PrimitiveDateTime, scheduled_at: Option<time::OffsetDateTime>, event_date: Option<time::Date>, event_time: Option<time::Time>) -> Result<(), sqlx::Error> {
+        insert_event(self.pool, name, payload, meta, doc_id, created_at, scheduled_at, event_date, event_time).await
+    }
+
+    pub async fn update_payload(&self, payload: serde_json::Value, meta: Option<serde_json::Value>, id: i64) -> Result<(), sqlx::Error> {
+        update_payload(self.pool, payload, meta, id).await
+    }
+
+    pub async fn find_by_date(&self, event_date: Option<time::Date>) -> Result<Option<FindByDateRow>, sqlx::Error> {
+        find_by_date(self.pool, event_date).await
+    }
+
+    pub async fn find_by_uuid(&self, doc_id: uuid::Uuid) -> Result<Option<FindByUuidRow>, sqlx::Error> {
+        find_by_uuid(self.pool, doc_id).await
+    }
 }

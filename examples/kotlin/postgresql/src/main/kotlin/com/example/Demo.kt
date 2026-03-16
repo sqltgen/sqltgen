@@ -1,6 +1,6 @@
 package com.example
 
-import com.example.db.QueriesDs
+import com.example.db.Querier
 import java.math.BigDecimal
 import org.postgresql.ds.PGSimpleDataSource
 
@@ -15,12 +15,12 @@ object Demo {
             setUser(PG_USER)
             setPassword(PG_PASS)
         }
-        val q = QueriesDs(ds)
+        val q = Querier(ds)
         seed(q)
         query(q)
     }
 
-    private fun seed(q: QueriesDs) {
+    private fun seed(q: Querier) {
         val leGuin  = q.createAuthor("Ursula K. Le Guin", "Science fiction and fantasy author", 1929)!!
         val herbert = q.createAuthor("Frank Herbert",     "Author of the Dune series",           1920)!!
         val asimov  = q.createAuthor("Isaac Asimov",      null,                                  1920)!!
@@ -46,7 +46,7 @@ object Demo {
         println("[pg] inserted 2 sales with items")
     }
 
-    private fun query(q: QueriesDs) {
+    private fun query(q: Querier) {
         val authors = q.listAuthors()
         println("[pg] listAuthors: ${authors.size} row(s)")
 

@@ -1,6 +1,6 @@
 package com.example;
 
-import com.example.db.QueriesDs;
+import com.example.db.Querier;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -16,12 +16,12 @@ public class Demo {
         ds.setURL(url);
         ds.setUser(PG_USER);
         ds.setPassword(PG_PASS);
-        var q = new QueriesDs(ds);
+        var q = new Querier(ds);
         seed(q);
         query(q);
     }
 
-    private static void seed(QueriesDs q) throws Exception {
+    private static void seed(Querier q) throws Exception {
         var leGuin  = q.createAuthor("Ursula K. Le Guin", "Science fiction and fantasy author", 1929).orElseThrow();
         var herbert = q.createAuthor("Frank Herbert",     "Author of the Dune series",           1920).orElseThrow();
         var asimov  = q.createAuthor("Isaac Asimov",      null,                                  1920).orElseThrow();
@@ -47,7 +47,7 @@ public class Demo {
         System.out.println("[pg] inserted 2 sales with items");
     }
 
-    private static void query(QueriesDs q) throws Exception {
+    private static void query(Querier q) throws Exception {
         var authors = q.listAuthors();
         System.out.println("[pg] listAuthors: " + authors.size() + " row(s)");
 

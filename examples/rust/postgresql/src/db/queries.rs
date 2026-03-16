@@ -1,4 +1,4 @@
-use sqlx::PgPool;
+use sqlx::{PgPool as DbPool};
 
 use super::author::Author;
 use super::book::Book;
@@ -47,7 +47,7 @@ pub struct GetBestCustomersRow {
     pub total_spent: Option<rust_decimal::Decimal>,
 }
 
-pub async fn create_author(pool: &PgPool, name: String, bio: Option<String>, birth_year: Option<i32>) -> Result<Option<Author>, sqlx::Error> {
+pub async fn create_author(pool: &DbPool, name: String, bio: Option<String>, birth_year: Option<i32>) -> Result<Option<Author>, sqlx::Error> {
     let sql = r##"
         INSERT INTO author (name, bio, birth_year)
         VALUES ($1, $2, $3)
@@ -61,7 +61,7 @@ pub async fn create_author(pool: &PgPool, name: String, bio: Option<String>, bir
         .await
 }
 
-pub async fn get_author(pool: &PgPool, id: i64) -> Result<Option<Author>, sqlx::Error> {
+pub async fn get_author(pool: &DbPool, id: i64) -> Result<Option<Author>, sqlx::Error> {
     let sql = r##"
         SELECT id, name, bio, birth_year
         FROM author
@@ -73,7 +73,7 @@ pub async fn get_author(pool: &PgPool, id: i64) -> Result<Option<Author>, sqlx::
         .await
 }
 
-pub async fn list_authors(pool: &PgPool) -> Result<Vec<Author>, sqlx::Error> {
+pub async fn list_authors(pool: &DbPool) -> Result<Vec<Author>, sqlx::Error> {
     let sql = r##"
         SELECT id, name, bio, birth_year
         FROM author
@@ -84,7 +84,7 @@ pub async fn list_authors(pool: &PgPool) -> Result<Vec<Author>, sqlx::Error> {
         .await
 }
 
-pub async fn update_author_bio(pool: &PgPool, bio: Option<String>, id: i64) -> Result<Option<Author>, sqlx::Error> {
+pub async fn update_author_bio(pool: &DbPool, bio: Option<String>, id: i64) -> Result<Option<Author>, sqlx::Error> {
     let sql = r##"
         UPDATE author SET bio = $1 WHERE id = $2
         RETURNING *
@@ -96,7 +96,7 @@ pub async fn update_author_bio(pool: &PgPool, bio: Option<String>, id: i64) -> R
         .await
 }
 
-pub async fn delete_author(pool: &PgPool, id: i64) -> Result<Option<DeleteAuthorRow>, sqlx::Error> {
+pub async fn delete_author(pool: &DbPool, id: i64) -> Result<Option<DeleteAuthorRow>, sqlx::Error> {
     let sql = r##"
         DELETE FROM author WHERE id = $1
         RETURNING id, name
@@ -107,7 +107,7 @@ pub async fn delete_author(pool: &PgPool, id: i64) -> Result<Option<DeleteAuthor
         .await
 }
 
-pub async fn create_book(pool: &PgPool, author_id: i64, title: String, genre: String, price: rust_decimal::Decimal, published_at: Option<time::Date>) -> Result<Option<Book>, sqlx::Error> {
+pub async fn create_book(pool: &DbPool, author_id: i64, title: String, genre: String, price: rust_decimal::Decimal, published_at: Option<time::Date>) -> Result<Option<Book>, sqlx::Error> {
     let sql = r##"
         INSERT INTO book (author_id, title, genre, price, published_at)
         VALUES ($1, $2, $3, $4, $5)
@@ -123,7 +123,7 @@ pub async fn create_book(pool: &PgPool, author_id: i64, title: String, genre: St
         .await
 }
 
-pub async fn get_book(pool: &PgPool, id: i64) -> Result<Option<Book>, sqlx::Error> {
+pub async fn get_book(pool: &DbPool, id: i64) -> Result<Option<Book>, sqlx::Error> {
     let sql = r##"
         SELECT id, author_id, title, genre, price, published_at
         FROM book
@@ -135,7 +135,7 @@ pub async fn get_book(pool: &PgPool, id: i64) -> Result<Option<Book>, sqlx::Erro
         .await
 }
 
-pub async fn get_books_by_ids(pool: &PgPool, ids: &[i64]) -> Result<Vec<Book>, sqlx::Error> {
+pub async fn get_books_by_ids(pool: &DbPool, ids: &[i64]) -> Result<Vec<Book>, sqlx::Error> {
     let sql = r##"
         SELECT id, author_id, title, genre, price, published_at
         FROM book
@@ -148,7 +148,7 @@ pub async fn get_books_by_ids(pool: &PgPool, ids: &[i64]) -> Result<Vec<Book>, s
         .await
 }
 
-pub async fn list_books_by_genre(pool: &PgPool, genre: String) -> Result<Vec<Book>, sqlx::Error> {
+pub async fn list_books_by_genre(pool: &DbPool, genre: String) -> Result<Vec<Book>, sqlx::Error> {
     let sql = r##"
         SELECT id, author_id, title, genre, price, published_at
         FROM book
@@ -161,7 +161,7 @@ pub async fn list_books_by_genre(pool: &PgPool, genre: String) -> Result<Vec<Boo
         .await
 }
 
-pub async fn list_books_by_genre_or_all(pool: &PgPool, genre: String) -> Result<Vec<Book>, sqlx::Error> {
+pub async fn list_books_by_genre_or_all(pool: &DbPool, genre: String) -> Result<Vec<Book>, sqlx::Error> {
     let sql = r##"
         SELECT id, author_id, title, genre, price, published_at
         FROM book
@@ -174,7 +174,7 @@ pub async fn list_books_by_genre_or_all(pool: &PgPool, genre: String) -> Result<
         .await
 }
 
-pub async fn create_customer(pool: &PgPool, name: String, email: String) -> Result<Option<CreateCustomerRow>, sqlx::Error> {
+pub async fn create_customer(pool: &DbPool, name: String, email: String) -> Result<Option<CreateCustomerRow>, sqlx::Error> {
     let sql = r##"
         INSERT INTO customer (name, email)
         VALUES ($1, $2)
@@ -187,7 +187,7 @@ pub async fn create_customer(pool: &PgPool, name: String, email: String) -> Resu
         .await
 }
 
-pub async fn create_sale(pool: &PgPool, customer_id: i64) -> Result<Option<CreateSaleRow>, sqlx::Error> {
+pub async fn create_sale(pool: &DbPool, customer_id: i64) -> Result<Option<CreateSaleRow>, sqlx::Error> {
     let sql = r##"
         INSERT INTO sale (customer_id)
         VALUES ($1)
@@ -199,7 +199,7 @@ pub async fn create_sale(pool: &PgPool, customer_id: i64) -> Result<Option<Creat
         .await
 }
 
-pub async fn add_sale_item(pool: &PgPool, sale_id: i64, book_id: i64, quantity: i32, unit_price: rust_decimal::Decimal) -> Result<(), sqlx::Error> {
+pub async fn add_sale_item(pool: &DbPool, sale_id: i64, book_id: i64, quantity: i32, unit_price: rust_decimal::Decimal) -> Result<(), sqlx::Error> {
     let sql = r##"
         INSERT INTO sale_item (sale_id, book_id, quantity, unit_price)
         VALUES ($1, $2, $3, $4)
@@ -214,7 +214,7 @@ pub async fn add_sale_item(pool: &PgPool, sale_id: i64, book_id: i64, quantity: 
         .map(|_| ())
 }
 
-pub async fn list_books_with_author(pool: &PgPool) -> Result<Vec<ListBooksWithAuthorRow>, sqlx::Error> {
+pub async fn list_books_with_author(pool: &DbPool) -> Result<Vec<ListBooksWithAuthorRow>, sqlx::Error> {
     let sql = r##"
         SELECT b.id, b.title, b.genre, b.price, b.published_at,
                a.name AS author_name, a.bio AS author_bio
@@ -227,7 +227,7 @@ pub async fn list_books_with_author(pool: &PgPool) -> Result<Vec<ListBooksWithAu
         .await
 }
 
-pub async fn get_books_never_ordered(pool: &PgPool) -> Result<Vec<Book>, sqlx::Error> {
+pub async fn get_books_never_ordered(pool: &DbPool) -> Result<Vec<Book>, sqlx::Error> {
     let sql = r##"
         SELECT b.id, b.author_id, b.title, b.genre, b.price, b.published_at
         FROM book b
@@ -240,7 +240,7 @@ pub async fn get_books_never_ordered(pool: &PgPool) -> Result<Vec<Book>, sqlx::E
         .await
 }
 
-pub async fn get_top_selling_books(pool: &PgPool) -> Result<Vec<GetTopSellingBooksRow>, sqlx::Error> {
+pub async fn get_top_selling_books(pool: &DbPool) -> Result<Vec<GetTopSellingBooksRow>, sqlx::Error> {
     let sql = r##"
         WITH book_sales AS (
             SELECT book_id,
@@ -259,7 +259,7 @@ pub async fn get_top_selling_books(pool: &PgPool) -> Result<Vec<GetTopSellingBoo
         .await
 }
 
-pub async fn get_best_customers(pool: &PgPool) -> Result<Vec<GetBestCustomersRow>, sqlx::Error> {
+pub async fn get_best_customers(pool: &DbPool) -> Result<Vec<GetBestCustomersRow>, sqlx::Error> {
     let sql = r##"
         WITH customer_spend AS (
             SELECT s.customer_id,
@@ -277,4 +277,82 @@ pub async fn get_best_customers(pool: &PgPool) -> Result<Vec<GetBestCustomersRow
     sqlx::query_as::<_, GetBestCustomersRow>(sql)
         .fetch_all(pool)
         .await
+}
+
+pub struct Querier<'a> {
+    pool: &'a DbPool,
+}
+
+impl<'a> Querier<'a> {
+    pub fn new(pool: &'a DbPool) -> Self {
+        Self { pool }
+    }
+
+    pub async fn create_author(&self, name: String, bio: Option<String>, birth_year: Option<i32>) -> Result<Option<Author>, sqlx::Error> {
+        create_author(self.pool, name, bio, birth_year).await
+    }
+
+    pub async fn get_author(&self, id: i64) -> Result<Option<Author>, sqlx::Error> {
+        get_author(self.pool, id).await
+    }
+
+    pub async fn list_authors(&self) -> Result<Vec<Author>, sqlx::Error> {
+        list_authors(self.pool).await
+    }
+
+    pub async fn update_author_bio(&self, bio: Option<String>, id: i64) -> Result<Option<Author>, sqlx::Error> {
+        update_author_bio(self.pool, bio, id).await
+    }
+
+    pub async fn delete_author(&self, id: i64) -> Result<Option<DeleteAuthorRow>, sqlx::Error> {
+        delete_author(self.pool, id).await
+    }
+
+    pub async fn create_book(&self, author_id: i64, title: String, genre: String, price: rust_decimal::Decimal, published_at: Option<time::Date>) -> Result<Option<Book>, sqlx::Error> {
+        create_book(self.pool, author_id, title, genre, price, published_at).await
+    }
+
+    pub async fn get_book(&self, id: i64) -> Result<Option<Book>, sqlx::Error> {
+        get_book(self.pool, id).await
+    }
+
+    pub async fn get_books_by_ids(&self, ids: &[i64]) -> Result<Vec<Book>, sqlx::Error> {
+        get_books_by_ids(self.pool, ids).await
+    }
+
+    pub async fn list_books_by_genre(&self, genre: String) -> Result<Vec<Book>, sqlx::Error> {
+        list_books_by_genre(self.pool, genre).await
+    }
+
+    pub async fn list_books_by_genre_or_all(&self, genre: String) -> Result<Vec<Book>, sqlx::Error> {
+        list_books_by_genre_or_all(self.pool, genre).await
+    }
+
+    pub async fn create_customer(&self, name: String, email: String) -> Result<Option<CreateCustomerRow>, sqlx::Error> {
+        create_customer(self.pool, name, email).await
+    }
+
+    pub async fn create_sale(&self, customer_id: i64) -> Result<Option<CreateSaleRow>, sqlx::Error> {
+        create_sale(self.pool, customer_id).await
+    }
+
+    pub async fn add_sale_item(&self, sale_id: i64, book_id: i64, quantity: i32, unit_price: rust_decimal::Decimal) -> Result<(), sqlx::Error> {
+        add_sale_item(self.pool, sale_id, book_id, quantity, unit_price).await
+    }
+
+    pub async fn list_books_with_author(&self) -> Result<Vec<ListBooksWithAuthorRow>, sqlx::Error> {
+        list_books_with_author(self.pool).await
+    }
+
+    pub async fn get_books_never_ordered(&self) -> Result<Vec<Book>, sqlx::Error> {
+        get_books_never_ordered(self.pool).await
+    }
+
+    pub async fn get_top_selling_books(&self) -> Result<Vec<GetTopSellingBooksRow>, sqlx::Error> {
+        get_top_selling_books(self.pool).await
+    }
+
+    pub async fn get_best_customers(&self) -> Result<Vec<GetBestCustomersRow>, sqlx::Error> {
+        get_best_customers(self.pool).await
+    }
 }

@@ -2,6 +2,20 @@
 // Runtime: mysql2 — npm install mysql2
 
 import type { Connection, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
+type Db = Connection;
+type ConnectFn = () => Db | Promise<Db>;
+type ClosableDb = Db & { release?: () => void; close?: () => void };
+
+async function releaseDb(db: Db): Promise<void> {
+  const closable = db as ClosableDb;
+  if (typeof closable.release === 'function') {
+    closable.release();
+    return;
+  }
+  if (typeof closable.close === 'function') {
+    closable.close();
+  }
+}
 
 import type { Author } from './author';
 import type { Book } from './book';
@@ -73,62 +87,62 @@ FROM customer c
 JOIN customer_spend cs ON cs.customer_id = c.id
 ORDER BY cs.total_spent DESC`;
 
-export async function createAuthor(db: Connection, name: string, bio: string | null, birthYear: number | null): Promise<void> {
+export async function createAuthor(db: Db, name: string, bio: string | null, birthYear: number | null): Promise<void> {
   await db.query(SQL_CREATE_AUTHOR, [name, bio, birthYear]);
 }
 
-export async function getAuthor(db: Connection, id: number): Promise<Author | null> {
+export async function getAuthor(db: Db, id: number): Promise<Author | null> {
   const [rows] = await db.query<RowDataPacket[]>(SQL_GET_AUTHOR, [id]);
   return (rows[0] as Author | undefined) ?? null;
 }
 
-export async function listAuthors(db: Connection): Promise<Author[]> {
+export async function listAuthors(db: Db): Promise<Author[]> {
   const [rows] = await db.query<RowDataPacket[]>(SQL_LIST_AUTHORS, []);
   return rows as Author[];
 }
 
-export async function updateAuthorBio(db: Connection, bio: string | null, id: number): Promise<void> {
+export async function updateAuthorBio(db: Db, bio: string | null, id: number): Promise<void> {
   await db.query(SQL_UPDATE_AUTHOR_BIO, [bio, id]);
 }
 
-export async function deleteAuthor(db: Connection, id: number): Promise<void> {
+export async function deleteAuthor(db: Db, id: number): Promise<void> {
   await db.query(SQL_DELETE_AUTHOR, [id]);
 }
 
-export async function createBook(db: Connection, authorId: number, title: string, genre: string, price: number, publishedAt: string | null): Promise<void> {
+export async function createBook(db: Db, authorId: number, title: string, genre: string, price: number, publishedAt: string | null): Promise<void> {
   await db.query(SQL_CREATE_BOOK, [authorId, title, genre, price, publishedAt]);
 }
 
-export async function getBook(db: Connection, id: number): Promise<Book | null> {
+export async function getBook(db: Db, id: number): Promise<Book | null> {
   const [rows] = await db.query<RowDataPacket[]>(SQL_GET_BOOK, [id]);
   return (rows[0] as Book | undefined) ?? null;
 }
 
-export async function getBooksByIds(db: Connection, ids: number[]): Promise<Book[]> {
+export async function getBooksByIds(db: Db, ids: number[]): Promise<Book[]> {
   const idsJson = JSON.stringify(ids);
   const [rows] = await db.query<RowDataPacket[]>(SQL_GET_BOOKS_BY_IDS, [idsJson]);
   return rows as Book[];
 }
 
-export async function listBooksByGenre(db: Connection, genre: string): Promise<Book[]> {
+export async function listBooksByGenre(db: Db, genre: string): Promise<Book[]> {
   const [rows] = await db.query<RowDataPacket[]>(SQL_LIST_BOOKS_BY_GENRE, [genre]);
   return rows as Book[];
 }
 
-export async function listBooksByGenreOrAll(db: Connection, genre: string): Promise<Book[]> {
+export async function listBooksByGenreOrAll(db: Db, genre: string): Promise<Book[]> {
   const [rows] = await db.query<RowDataPacket[]>(SQL_LIST_BOOKS_BY_GENRE_OR_ALL, [genre, genre]);
   return rows as Book[];
 }
 
-export async function createCustomer(db: Connection, name: string, email: string): Promise<void> {
+export async function createCustomer(db: Db, name: string, email: string): Promise<void> {
   await db.query(SQL_CREATE_CUSTOMER, [name, email]);
 }
 
-export async function createSale(db: Connection, customerId: number): Promise<void> {
+export async function createSale(db: Db, customerId: number): Promise<void> {
   await db.query(SQL_CREATE_SALE, [customerId]);
 }
 
-export async function addSaleItem(db: Connection, saleId: number, bookId: number, quantity: number, unitPrice: number): Promise<void> {
+export async function addSaleItem(db: Db, saleId: number, bookId: number, quantity: number, unitPrice: number): Promise<void> {
   await db.query(SQL_ADD_SALE_ITEM, [saleId, bookId, quantity, unitPrice]);
 }
 
@@ -142,12 +156,12 @@ export interface ListBooksWithAuthorRow {
   author_bio: string | null;
 }
 
-export async function listBooksWithAuthor(db: Connection): Promise<ListBooksWithAuthorRow[]> {
+export async function listBooksWithAuthor(db: Db): Promise<ListBooksWithAuthorRow[]> {
   const [rows] = await db.query<RowDataPacket[]>(SQL_LIST_BOOKS_WITH_AUTHOR, []);
   return rows as ListBooksWithAuthorRow[];
 }
 
-export async function getBooksNeverOrdered(db: Connection): Promise<Book[]> {
+export async function getBooksNeverOrdered(db: Db): Promise<Book[]> {
   const [rows] = await db.query<RowDataPacket[]>(SQL_GET_BOOKS_NEVER_ORDERED, []);
   return rows as Book[];
 }
@@ -160,7 +174,7 @@ export interface GetTopSellingBooksRow {
   units_sold: number | null;
 }
 
-export async function getTopSellingBooks(db: Connection): Promise<GetTopSellingBooksRow[]> {
+export async function getTopSellingBooks(db: Db): Promise<GetTopSellingBooksRow[]> {
   const [rows] = await db.query<RowDataPacket[]>(SQL_GET_TOP_SELLING_BOOKS, []);
   return rows as GetTopSellingBooksRow[];
 }
@@ -172,7 +186,164 @@ export interface GetBestCustomersRow {
   total_spent: number | null;
 }
 
-export async function getBestCustomers(db: Connection): Promise<GetBestCustomersRow[]> {
+export async function getBestCustomers(db: Db): Promise<GetBestCustomersRow[]> {
   const [rows] = await db.query<RowDataPacket[]>(SQL_GET_BEST_CUSTOMERS, []);
   return rows as GetBestCustomersRow[];
+}
+
+export class Querier {
+  constructor(private readonly connect: ConnectFn) {}
+
+  async createAuthor(name: string, bio: string | null, birthYear: number | null): Promise<void> {
+    const db = await this.connect();
+    try {
+      return createAuthor(db, name, bio, birthYear);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async getAuthor(id: number): Promise<Author | null> {
+    const db = await this.connect();
+    try {
+      return getAuthor(db, id);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async listAuthors(): Promise<Author[]> {
+    const db = await this.connect();
+    try {
+      return listAuthors(db);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async updateAuthorBio(bio: string | null, id: number): Promise<void> {
+    const db = await this.connect();
+    try {
+      return updateAuthorBio(db, bio, id);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async deleteAuthor(id: number): Promise<void> {
+    const db = await this.connect();
+    try {
+      return deleteAuthor(db, id);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async createBook(authorId: number, title: string, genre: string, price: number, publishedAt: string | null): Promise<void> {
+    const db = await this.connect();
+    try {
+      return createBook(db, authorId, title, genre, price, publishedAt);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async getBook(id: number): Promise<Book | null> {
+    const db = await this.connect();
+    try {
+      return getBook(db, id);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async getBooksByIds(ids: number[]): Promise<Book[]> {
+    const db = await this.connect();
+    try {
+      return getBooksByIds(db, ids);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async listBooksByGenre(genre: string): Promise<Book[]> {
+    const db = await this.connect();
+    try {
+      return listBooksByGenre(db, genre);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async listBooksByGenreOrAll(genre: string): Promise<Book[]> {
+    const db = await this.connect();
+    try {
+      return listBooksByGenreOrAll(db, genre);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async createCustomer(name: string, email: string): Promise<void> {
+    const db = await this.connect();
+    try {
+      return createCustomer(db, name, email);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async createSale(customerId: number): Promise<void> {
+    const db = await this.connect();
+    try {
+      return createSale(db, customerId);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async addSaleItem(saleId: number, bookId: number, quantity: number, unitPrice: number): Promise<void> {
+    const db = await this.connect();
+    try {
+      return addSaleItem(db, saleId, bookId, quantity, unitPrice);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async listBooksWithAuthor(): Promise<ListBooksWithAuthorRow[]> {
+    const db = await this.connect();
+    try {
+      return listBooksWithAuthor(db);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async getBooksNeverOrdered(): Promise<Book[]> {
+    const db = await this.connect();
+    try {
+      return getBooksNeverOrdered(db);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async getTopSellingBooks(): Promise<GetTopSellingBooksRow[]> {
+    const db = await this.connect();
+    try {
+      return getTopSellingBooks(db);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async getBestCustomers(): Promise<GetBestCustomersRow[]> {
+    const db = await this.connect();
+    try {
+      return getBestCustomers(db);
+    } finally {
+      await releaseDb(db);
+    }
+  }
 }

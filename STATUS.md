@@ -110,7 +110,7 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | Nullable params | ✅ `setObject` | ✅ `setObject` | — | 🚧 | — | ✅ pass `null` | ✅ pass `null` |
 | Typed result getters (Date, UUID…) | ✅ `getObject(n, T.class)` | ✅ `getObject(n, T::class.java)` | ✅ | 🚧 | — positional unpacking | ✅ driver handles | ✅ driver handles |
 | Transaction support (`with_tx`) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Querier interface / protocol / ABC | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Querier object / class wrapper | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ |
 
 ---
 
@@ -198,13 +198,13 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | Frontend — common (query parser, CTEs, subqueries, named params, list params, source_table) | 204 |
 | Backend — Java | 63 |
 | Backend — Kotlin | 62 |
-| Backend — Rust | 40 |
-| Backend — Python | 44 |
+| Backend — Rust | 41 |
+| Backend — Python | 45 |
 | Backend — common (common + sql_rewrite + naming) | 48 |
 | Backend — JDBC | 13 |
-| Backend — TypeScript / JavaScript | 48 |
+| Backend — TypeScript / JavaScript | 49 |
 | Integration (snapshots + resilience) | 25 |
-| **Total** | **719** |
+| **Total** | **722** |
 
 ---
 

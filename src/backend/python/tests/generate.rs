@@ -74,7 +74,7 @@ fn test_generate_psycopg_exec_query() {
     let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.py");
-    assert!(src.contains("def delete_user(conn: psycopg.Connection, id: int) -> None:"));
+    assert!(src.contains("def delete_user(conn: Connection, id: int) -> None:"));
     assert!(src.contains("exec_stmt(conn, SQL_DELETE_USER, (id,))"));
     assert!(!src.contains("with conn.cursor()"));
 }
@@ -94,7 +94,7 @@ fn test_generate_psycopg_one_query_infers_table_return_type() {
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.py");
-    assert!(src.contains("def get_user(conn: psycopg.Connection, id: int) -> User | None:"));
+    assert!(src.contains("def get_user(conn: Connection, id: int) -> User | None:"));
     assert!(src.contains("row = cur.fetchone()"));
     assert!(src.contains("return User(*row)"));
 }
@@ -114,7 +114,7 @@ fn test_generate_psycopg_many_query_infers_table_return_type() {
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.py");
-    assert!(src.contains("def list_users(conn: psycopg.Connection) -> list[User]:"));
+    assert!(src.contains("def list_users(conn: Connection) -> list[User]:"));
     assert!(src.contains("return [User(*row) for row in cur.fetchall()]"));
 }
 
@@ -124,7 +124,7 @@ fn test_generate_psycopg_execrows_query() {
     let query = Query::exec_rows("DeleteUsers", "DELETE FROM user WHERE active = $1", vec![Parameter::scalar(1, "active", SqlType::Boolean, false)]);
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.py");
-    assert!(src.contains("def delete_users(conn: psycopg.Connection, active: bool) -> int:"));
+    assert!(src.contains("def delete_users(conn: Connection, active: bool) -> int:"));
     assert!(src.contains("return cur.rowcount"));
 }
 
@@ -136,7 +136,7 @@ fn test_generate_sqlite_exec_query_uses_exec_stmt() {
     let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = ?1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = sq().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.py");
-    assert!(src.contains("def delete_user(conn: sqlite3.Connection, id: int) -> None:"));
+    assert!(src.contains("def delete_user(conn: Connection, id: int) -> None:"));
     // Both SQLite and cursor-based engines use the _sqltgen helper
     assert!(src.contains("exec_stmt(conn, SQL_DELETE_USER, (id,))"));
     assert!(!src.contains("with conn.cursor()"));
@@ -157,7 +157,7 @@ fn test_generate_sqlite_one_query_infers_table_return_type() {
     );
     let files = sq().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.py");
-    assert!(src.contains("def get_user(conn: sqlite3.Connection, id: int) -> User | None:"));
+    assert!(src.contains("def get_user(conn: Connection, id: int) -> User | None:"));
     assert!(src.contains("with execute(conn, SQL_GET_USER, (id,)) as cur:"));
     assert!(src.contains("row = cur.fetchone()"));
     assert!(src.contains("return User(*row)"));
@@ -198,7 +198,7 @@ fn test_generate_mysql_uses_mysql_connection_type() {
     let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = my().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.py");
-    assert!(src.contains("conn: mysql.connector.MySQLConnection"));
+    assert!(src.contains("Connection = mysql.connector.MySQLConnection"));
 }
 
 #[test]
@@ -237,9 +237,24 @@ fn test_generate_mysql_one_query() {
     );
     let files = my().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.py");
-    assert!(src.contains("def get_user(conn: mysql.connector.MySQLConnection, id: int) -> User | None:"));
+    assert!(src.contains("def get_user(conn: Connection, id: int) -> User | None:"));
     assert!(src.contains("row = cur.fetchone()"));
     assert!(src.contains("return User(*row)"));
+}
+
+#[test]
+fn test_generate_querier_wrapper_is_emitted() {
+    let schema = Schema::default();
+    let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
+    let files = pg().generate(&schema, &[query], &cfg()).unwrap();
+    let src = get_file(&files, "queries.py");
+    assert!(src.contains("class Querier:"));
+    assert!(src.contains("from collections.abc import Callable"));
+    assert!(src.contains("from contextlib import closing"));
+    assert!(src.contains("def __init__(self, connect: Callable[[], Connection]) -> None:"));
+    assert!(src.contains("def delete_user(self, id: int) -> None:"));
+    assert!(src.contains("with closing(self._connect()) as conn:"));
+    assert!(src.contains("return delete_user(conn, id)"));
 }
 
 // ─── generate: JSON type mapping ────────────────────────────────────────

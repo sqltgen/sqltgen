@@ -152,14 +152,14 @@ fn test_generate_non_nullable_integer_result_uses_get_int() {
     assert!(src.contains("rs.getInt(1)"));
 }
 
-// ─── generate: QueriesDs ────────────────────────────────────────────────
+// ─── generate: Querier ────────────────────────────────────────────────
 
 #[test]
 fn test_generate_queries_ds_file_is_emitted() {
     let schema = Schema::default();
     let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id".to_string(), SqlType::BigInt, false)]);
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
-    assert!(files.iter().any(|f| f.path.file_name().is_some_and(|n| n == "QueriesDs.java")));
+    assert!(files.iter().any(|f| f.path.file_name().is_some_and(|n| n == "Querier.java")));
 }
 
 #[test]
@@ -167,11 +167,11 @@ fn test_generate_queries_ds_constructor_and_datasource_import() {
     let schema = Schema::default();
     let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id".to_string(), SqlType::BigInt, false)]);
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
-    let src = get_file(&files, "QueriesDs.java");
+    let src = get_file(&files, "Querier.java");
     assert!(src.contains("import javax.sql.DataSource;"));
-    assert!(src.contains("public final class QueriesDs {"));
+    assert!(src.contains("public final class Querier {"));
     assert!(src.contains("private final DataSource dataSource;"));
-    assert!(src.contains("public QueriesDs(DataSource dataSource)"));
+    assert!(src.contains("public Querier(DataSource dataSource)"));
 }
 
 #[test]
@@ -179,7 +179,7 @@ fn test_generate_queries_ds_exec_method_delegates_to_queries() {
     let schema = Schema::default();
     let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id".to_string(), SqlType::BigInt, false)]);
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
-    let src = get_file(&files, "QueriesDs.java");
+    let src = get_file(&files, "Querier.java");
     assert!(src.contains("public void deleteUser(long id) throws SQLException"));
     assert!(src.contains("try (Connection conn = dataSource.getConnection())"));
     assert!(src.contains("Queries.deleteUser(conn, id);"));
@@ -199,7 +199,7 @@ fn test_generate_queries_ds_one_method_returns_optional() {
         ],
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
-    let src = get_file(&files, "QueriesDs.java");
+    let src = get_file(&files, "Querier.java");
     assert!(src.contains("import java.util.Optional;"));
     assert!(src.contains("public Optional<User> getUser(long id) throws SQLException"));
     assert!(src.contains("return Queries.getUser(conn, id);"));
@@ -219,7 +219,7 @@ fn test_generate_queries_ds_many_method_returns_list() {
         ],
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
-    let src = get_file(&files, "QueriesDs.java");
+    let src = get_file(&files, "Querier.java");
     assert!(src.contains("import java.util.List;"));
     assert!(src.contains("public List<User> listUsers() throws SQLException"));
     assert!(src.contains("return Queries.listUsers(conn);"));

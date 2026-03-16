@@ -1,6 +1,6 @@
 package com.example
 
-import com.example.db.QueriesDs
+import com.example.db.Querier
 import java.nio.file.Files
 import java.nio.file.Path
 import java.sql.Connection
@@ -11,7 +11,7 @@ object Demo {
 
     // file::memory:?cache=shared allows multiple connections to share the same
     // in-memory database. The keeper connection in run() holds it open for the
-    // full demo lifetime so the data survives across QueriesDs method calls.
+    // full demo lifetime so the data survives across Querier method calls.
     private const val SQLITE_URL = "jdbc:sqlite:file::memory:?cache=shared"
 
     fun run() {
@@ -19,7 +19,7 @@ object Demo {
         // Keep one connection open so the in-memory DB is not dropped between calls.
         ds.connection.use { keeper ->
             applyMigrations(keeper)
-            val q = QueriesDs(ds)
+            val q = Querier(ds)
             seed(q)
             query(q)
         }
@@ -43,7 +43,7 @@ object Demo {
         }
     }
 
-    private fun seed(q: QueriesDs) {
+    private fun seed(q: Querier) {
         q.createAuthor("Ursula K. Le Guin", "Science fiction and fantasy author", 1929)
         q.createAuthor("Frank Herbert",     "Author of the Dune series",           1920)
         q.createAuthor("Isaac Asimov",      null,                                  1920)
@@ -69,7 +69,7 @@ object Demo {
         println("[sqlite] inserted 2 sales with items")
     }
 
-    private fun query(q: QueriesDs) {
+    private fun query(q: Querier) {
         val authors = q.listAuthors()
         println("[sqlite] listAuthors: ${authors.size} row(s)")
 

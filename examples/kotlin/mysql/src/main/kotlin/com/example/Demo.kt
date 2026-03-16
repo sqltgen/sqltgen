@@ -1,6 +1,6 @@
 package com.example
 
-import com.example.db.QueriesDs
+import com.example.db.Querier
 import java.math.BigDecimal
 import com.mysql.cj.jdbc.MysqlDataSource
 
@@ -15,12 +15,12 @@ object Demo {
             setUser(MYSQL_USER)
             setPassword(MYSQL_PASS)
         }
-        val q = QueriesDs(ds)
+        val q = Querier(ds)
         seed(q)
         query(q)
     }
 
-    private fun seed(q: QueriesDs) {
+    private fun seed(q: Querier) {
         // MySQL has no RETURNING, so INSERT returns void and IDs are sequential
         // starting from 1 on a fresh database (which docker compose always provides).
         q.createAuthor("Ursula K. Le Guin", "Science fiction and fantasy author", 1929)
@@ -52,7 +52,7 @@ object Demo {
         q.createAuthor("Temp Author", null, null)
     }
 
-    private fun query(q: QueriesDs) {
+    private fun query(q: Querier) {
         val authors = q.listAuthors()
         println("[mysql] listAuthors: ${authors.size} row(s)")
 

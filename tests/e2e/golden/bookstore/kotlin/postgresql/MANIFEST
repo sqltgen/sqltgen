@@ -2,7 +2,7 @@ out/db/Author.kt
 out/db/Book.kt
 out/db/Customer.kt
 out/db/Product.kt
+out/db/Querier.kt
 out/db/Queries.kt
-out/db/QueriesDs.kt
 out/db/Sale.kt
 out/db/SaleItem.kt

@@ -531,10 +531,10 @@ public final class Queries {
 }
 ```
 
-One `QueriesDs.java` (or `UsersQueriesDs.java` etc.) — a DataSource-backed
+One `Querier.java` (or `UsersQuerier.java` etc.) — a DataSource-backed
 wrapper that opens and closes its own connection per call:
 ```java
-QueriesDs qds = new QueriesDs(dataSource);
+Querier qds = new Querier(dataSource);
 Optional<Author> a = qds.getAuthor(42L);
 ```
 
@@ -601,7 +601,7 @@ object Queries {
 }
 ```
 
-One `QueriesDs.kt` — DataSource-backed wrapper, same pattern as Java.
+One `Querier.kt` — DataSource-backed wrapper, same pattern as Java.
 
 **Wiring up:**
 ```kotlin
@@ -783,6 +783,9 @@ author = get_author(conn, 1)
   must match the dataclass field order.
 - JSON columns: psycopg3 automatically deserializes JSON to Python objects (`object`);
   sqlite3 and mysql-connector return the raw JSON string (`str`).
+- The generated `Querier` wrapper takes `connect: Callable[[], Connection]`
+  and acquires/closes a connection per method call (`contextlib.closing`), which
+  matches DataSource/pool-style lifecycle behavior.
 
 ---
 
@@ -833,6 +836,10 @@ export async function deleteBookById(
 ```
 
 One `index.ts` barrel export.
+
+Each queries module also includes a `Querier` class. It accepts
+`connect: () => Db | Promise<Db>`, acquires a connection per method call,
+then releases/closes it in a `finally` block.
 
 **Wiring up (PostgreSQL):**
 ```sh
@@ -915,6 +922,8 @@ export async function getAuthor(db, id) { … }
 ```
 
 Wiring up is identical to TypeScript — use the same drivers.
+JavaScript `Querier` also accepts a `connect` function and releases/closes
+connections per call.
 
 ---
 

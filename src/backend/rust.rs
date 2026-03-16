@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 use std::path::PathBuf;
 
-use crate::backend::common::{group_queries, has_inline_rows, infer_row_type_name, infer_table, queries_file_stem};
+use crate::backend::common::{group_queries, has_inline_rows, infer_row_type_name, infer_table, querier_class_name, queries_file_stem};
 use crate::backend::naming::{to_pascal_case, to_snake_case};
 use crate::backend::sql_rewrite::{positional_bind_names, rewrite_to_anon_params, split_at_in_clause};
 use crate::backend::{Codegen, GeneratedFile};
@@ -98,7 +98,7 @@ impl Codegen for RustCodegen {
             group_stems.push(stem.clone());
 
             let mut src = String::new();
-            writeln!(src, "use sqlx::{pool_type};")?;
+            writeln!(src, "use sqlx::{{{pool_type} as DbPool}};")?;
             writeln!(src)?;
 
             // Import only table structs that are actually used as return types
@@ -125,7 +125,12 @@ impl Codegen for RustCodegen {
                 if i > 0 {
                     writeln!(src)?;
                 }
-                emit_rust_query(&mut src, query, schema, pool_type, &self.target, &strategy, config)?;
+                emit_rust_query(&mut src, query, schema, "DbPool", &self.target, &strategy, config)?;
+            }
+
+            if !group_queries.is_empty() {
+                writeln!(src)?;
+                emit_rust_querier(&mut src, group, group_queries, schema, "DbPool", config)?;
             }
 
             let path = PathBuf::from(&config.out).join(format!("{stem}.rs"));
@@ -194,6 +199,49 @@ fn emit_rust_query(
     }
 
     writeln!(src, "}}")?;
+    Ok(())
+}
+
+fn emit_rust_querier(src: &mut String, group: &str, queries: &[Query], schema: &Schema, pool_type: &str, config: &OutputConfig) -> anyhow::Result<()> {
+    let struct_name = querier_class_name(group);
+    writeln!(src, "pub struct {struct_name}<'a> {{")?;
+    writeln!(src, "    pool: &'a {pool_type},")?;
+    writeln!(src, "}}")?;
+    writeln!(src)?;
+    writeln!(src, "impl<'a> {struct_name}<'a> {{")?;
+    writeln!(src, "    pub fn new(pool: &'a {pool_type}) -> Self {{")?;
+    writeln!(src, "        Self {{ pool }}")?;
+    writeln!(src, "    }}")?;
+
+    for query in queries {
+        writeln!(src)?;
+        emit_rust_querier_method(src, query, schema, config)?;
+    }
+
+    writeln!(src, "}}")?;
+    Ok(())
+}
+
+fn emit_rust_querier_method(src: &mut String, query: &Query, schema: &Schema, config: &OutputConfig) -> anyhow::Result<()> {
+    let fn_name = to_snake_case(&query.name);
+    let row_type = result_row_type(query, schema);
+    let return_type = match query.cmd {
+        QueryCmd::One => format!("Result<Option<{row_type}>, sqlx::Error>"),
+        QueryCmd::Many => format!("Result<Vec<{row_type}>, sqlx::Error>"),
+        QueryCmd::Exec => "Result<(), sqlx::Error>".to_string(),
+        QueryCmd::ExecRows => "Result<u64, sqlx::Error>".to_string(),
+    };
+    let params_sig = query.params.iter().map(|p| rust_param_sig(p, config)).collect::<Vec<_>>().join(", ");
+    let args = query.params.iter().map(|p| to_snake_case(&p.name)).collect::<Vec<_>>().join(", ");
+    let call_args = if args.is_empty() { "self.pool".to_string() } else { format!("self.pool, {args}") };
+
+    if params_sig.is_empty() {
+        writeln!(src, "    pub async fn {fn_name}(&self) -> {return_type} {{")?;
+    } else {
+        writeln!(src, "    pub async fn {fn_name}(&self, {params_sig}) -> {return_type} {{")?;
+    }
+    writeln!(src, "        {fn_name}({call_args}).await")?;
+    writeln!(src, "    }}")?;
     Ok(())
 }
 

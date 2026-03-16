@@ -6,10 +6,10 @@ import java.util.List;
 import java.util.Optional;
 import javax.sql.DataSource;
 
-public final class QueriesDs {
+public final class Querier {
     private final DataSource dataSource;
 
-    public QueriesDs(DataSource dataSource) {
+    public Querier(DataSource dataSource) {
         this.dataSource = dataSource;
     }
 
@@ -19,7 +19,7 @@ public final class QueriesDs {
         }
     }
 
-    public Optional<Author> getAuthor(int id) throws SQLException {
+    public Optional<Author> getAuthor(long id) throws SQLException {
         try (Connection conn = dataSource.getConnection()) {
             return Queries.getAuthor(conn, id);
         }
@@ -31,13 +31,25 @@ public final class QueriesDs {
         }
     }
 
-    public void createBook(int authorId, String title, String genre, double price, String publishedAt) throws SQLException {
+    public void updateAuthorBio(String bio, long id) throws SQLException {
+        try (Connection conn = dataSource.getConnection()) {
+            Queries.updateAuthorBio(conn, bio, id);
+        }
+    }
+
+    public void deleteAuthor(long id) throws SQLException {
+        try (Connection conn = dataSource.getConnection()) {
+            Queries.deleteAuthor(conn, id);
+        }
+    }
+
+    public void createBook(long authorId, String title, String genre, java.math.BigDecimal price, java.time.LocalDate publishedAt) throws SQLException {
         try (Connection conn = dataSource.getConnection()) {
             Queries.createBook(conn, authorId, title, genre, price, publishedAt);
         }
     }
 
-    public Optional<Book> getBook(int id) throws SQLException {
+    public Optional<Book> getBook(long id) throws SQLException {
         try (Connection conn = dataSource.getConnection()) {
             return Queries.getBook(conn, id);
         }
@@ -67,13 +79,13 @@ public final class QueriesDs {
         }
     }
 
-    public void createSale(int customerId) throws SQLException {
+    public void createSale(long customerId) throws SQLException {
         try (Connection conn = dataSource.getConnection()) {
             Queries.createSale(conn, customerId);
         }
     }
 
-    public void addSaleItem(int saleId, int bookId, int quantity, double unitPrice) throws SQLException {
+    public void addSaleItem(long saleId, long bookId, int quantity, java.math.BigDecimal unitPrice) throws SQLException {
         try (Connection conn = dataSource.getConnection()) {
             Queries.addSaleItem(conn, saleId, bookId, quantity, unitPrice);
         }

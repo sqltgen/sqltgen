@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import dataclasses
 import mysql.connector
+from collections.abc import Callable
+from contextlib import closing
 from ._sqltgen import execute, exec_stmt
 import decimal
 import datetime
+
+Connection = mysql.connector.MySQLConnection
 
 from .author import Author
 from .book import Book
@@ -113,11 +117,11 @@ ORDER BY cs.total_spent DESC
 """
 
 
-def create_author(conn: mysql.connector.MySQLConnection, name: str, bio: str | None, birth_year: int | None) -> None:
+def create_author(conn: Connection, name: str, bio: str | None, birth_year: int | None) -> None:
     exec_stmt(conn, SQL_CREATE_AUTHOR, (name, bio, birth_year))
 
 
-def get_author(conn: mysql.connector.MySQLConnection, id: int) -> Author | None:
+def get_author(conn: Connection, id: int) -> Author | None:
     with execute(conn, SQL_GET_AUTHOR, (id,)) as cur:
         row = cur.fetchone()
         if row is None:
@@ -125,24 +129,24 @@ def get_author(conn: mysql.connector.MySQLConnection, id: int) -> Author | None:
         return Author(*row)
 
 
-def list_authors(conn: mysql.connector.MySQLConnection) -> list[Author]:
+def list_authors(conn: Connection) -> list[Author]:
     with execute(conn, SQL_LIST_AUTHORS) as cur:
         return [Author(*row) for row in cur.fetchall()]
 
 
-def update_author_bio(conn: mysql.connector.MySQLConnection, bio: str | None, id: int) -> None:
+def update_author_bio(conn: Connection, bio: str | None, id: int) -> None:
     exec_stmt(conn, SQL_UPDATE_AUTHOR_BIO, (bio, id))
 
 
-def delete_author(conn: mysql.connector.MySQLConnection, id: int) -> None:
+def delete_author(conn: Connection, id: int) -> None:
     exec_stmt(conn, SQL_DELETE_AUTHOR, (id,))
 
 
-def create_book(conn: mysql.connector.MySQLConnection, author_id: int, title: str, genre: str, price: decimal.Decimal, published_at: datetime.date | None) -> None:
+def create_book(conn: Connection, author_id: int, title: str, genre: str, price: decimal.Decimal, published_at: datetime.date | None) -> None:
     exec_stmt(conn, SQL_CREATE_BOOK, (author_id, title, genre, price, published_at))
 
 
-def get_book(conn: mysql.connector.MySQLConnection, id: int) -> Book | None:
+def get_book(conn: Connection, id: int) -> Book | None:
     with execute(conn, SQL_GET_BOOK, (id,)) as cur:
         row = cur.fetchone()
         if row is None:
@@ -150,32 +154,32 @@ def get_book(conn: mysql.connector.MySQLConnection, id: int) -> Book | None:
         return Book(*row)
 
 
-def get_books_by_ids(conn: mysql.connector.MySQLConnection, ids: list[int]) -> list[Book]:
+def get_books_by_ids(conn: Connection, ids: list[int]) -> list[Book]:
     import json
     ids_json = json.dumps(ids)
     with execute(conn, SQL_GET_BOOKS_BY_IDS, (ids_json,)) as cur:
         return [Book(*row) for row in cur.fetchall()]
 
 
-def list_books_by_genre(conn: mysql.connector.MySQLConnection, genre: str) -> list[Book]:
+def list_books_by_genre(conn: Connection, genre: str) -> list[Book]:
     with execute(conn, SQL_LIST_BOOKS_BY_GENRE, (genre,)) as cur:
         return [Book(*row) for row in cur.fetchall()]
 
 
-def list_books_by_genre_or_all(conn: mysql.connector.MySQLConnection, genre: str) -> list[Book]:
+def list_books_by_genre_or_all(conn: Connection, genre: str) -> list[Book]:
     with execute(conn, SQL_LIST_BOOKS_BY_GENRE_OR_ALL, (genre, genre)) as cur:
         return [Book(*row) for row in cur.fetchall()]
 
 
-def create_customer(conn: mysql.connector.MySQLConnection, name: str, email: str) -> None:
+def create_customer(conn: Connection, name: str, email: str) -> None:
     exec_stmt(conn, SQL_CREATE_CUSTOMER, (name, email))
 
 
-def create_sale(conn: mysql.connector.MySQLConnection, customer_id: int) -> None:
+def create_sale(conn: Connection, customer_id: int) -> None:
     exec_stmt(conn, SQL_CREATE_SALE, (customer_id,))
 
 
-def add_sale_item(conn: mysql.connector.MySQLConnection, sale_id: int, book_id: int, quantity: int, unit_price: decimal.Decimal) -> None:
+def add_sale_item(conn: Connection, sale_id: int, book_id: int, quantity: int, unit_price: decimal.Decimal) -> None:
     exec_stmt(conn, SQL_ADD_SALE_ITEM, (sale_id, book_id, quantity, unit_price))
 
 
@@ -190,12 +194,12 @@ class ListBooksWithAuthorRow:
     author_bio: str | None
 
 
-def list_books_with_author(conn: mysql.connector.MySQLConnection) -> list[ListBooksWithAuthorRow]:
+def list_books_with_author(conn: Connection) -> list[ListBooksWithAuthorRow]:
     with execute(conn, SQL_LIST_BOOKS_WITH_AUTHOR) as cur:
         return [ListBooksWithAuthorRow(*row) for row in cur.fetchall()]
 
 
-def get_books_never_ordered(conn: mysql.connector.MySQLConnection) -> list[Book]:
+def get_books_never_ordered(conn: Connection) -> list[Book]:
     with execute(conn, SQL_GET_BOOKS_NEVER_ORDERED) as cur:
         return [Book(*row) for row in cur.fetchall()]
 
@@ -209,7 +213,7 @@ class GetTopSellingBooksRow:
     units_sold: decimal.Decimal | None
 
 
-def get_top_selling_books(conn: mysql.connector.MySQLConnection) -> list[GetTopSellingBooksRow]:
+def get_top_selling_books(conn: Connection) -> list[GetTopSellingBooksRow]:
     with execute(conn, SQL_GET_TOP_SELLING_BOOKS) as cur:
         return [GetTopSellingBooksRow(*row) for row in cur.fetchall()]
 
@@ -222,6 +226,79 @@ class GetBestCustomersRow:
     total_spent: decimal.Decimal | None
 
 
-def get_best_customers(conn: mysql.connector.MySQLConnection) -> list[GetBestCustomersRow]:
+def get_best_customers(conn: Connection) -> list[GetBestCustomersRow]:
     with execute(conn, SQL_GET_BEST_CUSTOMERS) as cur:
         return [GetBestCustomersRow(*row) for row in cur.fetchall()]
+
+
+class Querier:
+    def __init__(self, connect: Callable[[], Connection]) -> None:
+        self._connect = connect
+
+    def create_author(self, name: str, bio: str | None, birth_year: int | None) -> None:
+        with closing(self._connect()) as conn:
+            return create_author(conn, name, bio, birth_year)
+
+    def get_author(self, id: int) -> Author | None:
+        with closing(self._connect()) as conn:
+            return get_author(conn, id)
+
+    def list_authors(self) -> list[Author]:
+        with closing(self._connect()) as conn:
+            return list_authors(conn)
+
+    def update_author_bio(self, bio: str | None, id: int) -> None:
+        with closing(self._connect()) as conn:
+            return update_author_bio(conn, bio, id)
+
+    def delete_author(self, id: int) -> None:
+        with closing(self._connect()) as conn:
+            return delete_author(conn, id)
+
+    def create_book(self, author_id: int, title: str, genre: str, price: decimal.Decimal, published_at: datetime.date | None) -> None:
+        with closing(self._connect()) as conn:
+            return create_book(conn, author_id, title, genre, price, published_at)
+
+    def get_book(self, id: int) -> Book | None:
+        with closing(self._connect()) as conn:
+            return get_book(conn, id)
+
+    def get_books_by_ids(self, ids: list[int]) -> list[Book]:
+        with closing(self._connect()) as conn:
+            return get_books_by_ids(conn, ids)
+
+    def list_books_by_genre(self, genre: str) -> list[Book]:
+        with closing(self._connect()) as conn:
+            return list_books_by_genre(conn, genre)
+
+    def list_books_by_genre_or_all(self, genre: str) -> list[Book]:
+        with closing(self._connect()) as conn:
+            return list_books_by_genre_or_all(conn, genre)
+
+    def create_customer(self, name: str, email: str) -> None:
+        with closing(self._connect()) as conn:
+            return create_customer(conn, name, email)
+
+    def create_sale(self, customer_id: int) -> None:
+        with closing(self._connect()) as conn:
+            return create_sale(conn, customer_id)
+
+    def add_sale_item(self, sale_id: int, book_id: int, quantity: int, unit_price: decimal.Decimal) -> None:
+        with closing(self._connect()) as conn:
+            return add_sale_item(conn, sale_id, book_id, quantity, unit_price)
+
+    def list_books_with_author(self) -> list[ListBooksWithAuthorRow]:
+        with closing(self._connect()) as conn:
+            return list_books_with_author(conn)
+
+    def get_books_never_ordered(self) -> list[Book]:
+        with closing(self._connect()) as conn:
+            return get_books_never_ordered(conn)
+
+    def get_top_selling_books(self) -> list[GetTopSellingBooksRow]:
+        with closing(self._connect()) as conn:
+            return get_top_selling_books(conn)
+
+    def get_best_customers(self) -> list[GetBestCustomersRow]:
+        with closing(self._connect()) as conn:
+            return get_best_customers(conn)

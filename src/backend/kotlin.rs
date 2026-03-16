@@ -2,7 +2,9 @@ use std::collections::BTreeSet;
 use std::fmt::Write;
 use std::path::PathBuf;
 
-use crate::backend::common::{emit_package, group_queries, has_inline_rows, needs_null_safe_getter, pg_array_type_name, queries_class_name};
+use crate::backend::common::{
+    emit_package, group_queries, has_inline_rows, needs_null_safe_getter, pg_array_type_name, querier_class_name, queries_class_name,
+};
 use crate::backend::jdbc::{
     self, emit_dynamic_binds, emit_jdbc_binds, prepare_dynamic_sql_parts, prepare_sql_const, prepare_sql_const_from, uses_get_object, JdbcTarget, ListAction,
 };
@@ -197,7 +199,7 @@ impl Codegen for KotlinCodegen {
         let strategy = config.list_params.clone().unwrap_or_default();
         for (group, group_queries) in group_queries(queries) {
             let class_name = queries_class_name(&group);
-            let ds_class_name = format!("{class_name}Ds");
+            let querier_name = querier_class_name(&group);
 
             let (override_imports, extra_fields) = collect_kotlin_override_metadata(&group_queries, config);
 
@@ -232,8 +234,8 @@ impl Codegen for KotlinCodegen {
 
             let mut src = String::new();
             emit_package(&mut src, &config.package, "");
-            emit_kotlin_queries_ds(&mut src, &group_queries, schema, &class_name)?;
-            let path = source_path(&config.out, &config.package, &ds_class_name, "kt");
+            emit_kotlin_querier(&mut src, &group_queries, schema, &class_name, &querier_name)?;
+            let path = source_path(&config.out, &config.package, &querier_name, "kt");
             files.push(GeneratedFile { path, content: src });
         }
 
@@ -424,25 +426,24 @@ fn kotlin_param_type(p: &Parameter) -> String {
     }
 }
 
-/// Emits a `{class_name}Ds.kt` DataSource-backed class that acquires a connection
+/// Emits a DataSource-backed querier class that acquires a connection
 /// per call via `dataSource.connection.use { }` and delegates to `{class_name}`.
-fn emit_kotlin_queries_ds(src: &mut String, queries: &[Query], schema: &Schema, class_name: &str) -> anyhow::Result<()> {
-    let ds_class_name = format!("{class_name}Ds");
+fn emit_kotlin_querier(src: &mut String, queries: &[Query], schema: &Schema, class_name: &str, querier_name: &str) -> anyhow::Result<()> {
     writeln!(src, "import javax.sql.DataSource")?;
     writeln!(src)?;
-    writeln!(src, "class {ds_class_name}(private val dataSource: DataSource) {{")?;
+    writeln!(src, "class {querier_name}(private val dataSource: DataSource) {{")?;
 
     for query in queries {
         writeln!(src)?;
-        emit_kotlin_ds_method(src, query, schema, class_name)?;
+        emit_kotlin_querier_method(src, query, schema, class_name)?;
     }
 
     writeln!(src, "}}")?;
     Ok(())
 }
 
-/// Emits one method on the Ds class that wraps the corresponding method in `{class_name}`.
-fn emit_kotlin_ds_method(src: &mut String, query: &Query, schema: &Schema, class_name: &str) -> anyhow::Result<()> {
+/// Emits one method on the querier class that wraps the corresponding method in `{class_name}`.
+fn emit_kotlin_querier_method(src: &mut String, query: &Query, schema: &Schema, class_name: &str) -> anyhow::Result<()> {
     let row = jdbc::ds_result_row_type(query, schema, FALLBACK_TYPE, class_name);
     let return_type = match query.cmd {
         QueryCmd::One => format!("{row}?"),

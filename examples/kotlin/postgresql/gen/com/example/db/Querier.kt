@@ -2,7 +2,7 @@ package com.example.db
 
 import javax.sql.DataSource
 
-class QueriesDs(private val dataSource: DataSource) {
+class Querier(private val dataSource: DataSource) {
 
     fun createAuthor(name: String, bio: String?, birthYear: Int?): Author? =
         dataSource.connection.use { conn -> Queries.createAuthor(conn, name, bio, birthYear) }

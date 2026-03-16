@@ -4,6 +4,7 @@ COMPOSE := ../../../docker-compose.yml
 .PHONY: generate test clean db-up db-down
 
 generate:
+	rm -rf src/main/java/com/example/db
 	$(SQLTGEN) generate --config sqltgen.json
 
 test: generate

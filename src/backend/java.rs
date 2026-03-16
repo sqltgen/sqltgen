@@ -2,7 +2,9 @@ use std::collections::BTreeSet;
 use std::fmt::Write;
 use std::path::PathBuf;
 
-use crate::backend::common::{emit_package, group_queries, has_inline_rows, needs_null_safe_getter, pg_array_type_name, queries_class_name};
+use crate::backend::common::{
+    emit_package, group_queries, has_inline_rows, needs_null_safe_getter, pg_array_type_name, querier_class_name, queries_class_name,
+};
 use crate::backend::jdbc::{
     self, emit_dynamic_binds, emit_jdbc_binds, prepare_dynamic_sql_parts, prepare_sql_const, prepare_sql_const_from, uses_get_object, JdbcTarget, ListAction,
 };
@@ -211,7 +213,7 @@ impl Codegen for JavaCodegen {
         let strategy = config.list_params.clone().unwrap_or_default();
         for (group, group_queries) in group_queries(queries) {
             let class_name = queries_class_name(&group);
-            let ds_class_name = format!("{class_name}Ds");
+            let querier_name = querier_class_name(&group);
 
             let (override_imports, extra_fields) = collect_java_override_metadata(&group_queries, config);
 
@@ -259,8 +261,8 @@ impl Codegen for JavaCodegen {
 
             let mut src = String::new();
             emit_package(&mut src, &config.package, ";");
-            emit_java_queries_ds(&mut src, &group_queries, schema, &class_name)?;
-            let path = record_path(&config.out, &config.package, &ds_class_name);
+            emit_java_querier(&mut src, &group_queries, schema, &class_name, &querier_name)?;
+            let path = record_path(&config.out, &config.package, &querier_name);
             files.push(GeneratedFile { path, content: src });
         }
 
@@ -429,10 +431,9 @@ fn java_param_type(p: &Parameter) -> String {
     }
 }
 
-/// Emits a `{class_name}Ds.java` DataSource-backed wrapper that acquires a connection
+/// Emits a DataSource-backed querier wrapper that acquires a connection
 /// per call and delegates to the static methods in `{class_name}`.
-fn emit_java_queries_ds(src: &mut String, queries: &[Query], schema: &Schema, class_name: &str) -> anyhow::Result<()> {
-    let ds_class_name = format!("{class_name}Ds");
+fn emit_java_querier(src: &mut String, queries: &[Query], schema: &Schema, class_name: &str, querier_name: &str) -> anyhow::Result<()> {
     let has_one = queries.iter().any(|q| q.cmd == QueryCmd::One);
     let has_many = queries.iter().any(|q| q.cmd == QueryCmd::Many);
 
@@ -446,24 +447,24 @@ fn emit_java_queries_ds(src: &mut String, queries: &[Query], schema: &Schema, cl
     }
     writeln!(src, "import javax.sql.DataSource;")?;
     writeln!(src)?;
-    writeln!(src, "public final class {ds_class_name} {{")?;
+    writeln!(src, "public final class {querier_name} {{")?;
     writeln!(src, "    private final DataSource dataSource;")?;
     writeln!(src)?;
-    writeln!(src, "    public {ds_class_name}(DataSource dataSource) {{")?;
+    writeln!(src, "    public {querier_name}(DataSource dataSource) {{")?;
     writeln!(src, "        this.dataSource = dataSource;")?;
     writeln!(src, "    }}")?;
 
     for query in queries {
         writeln!(src)?;
-        emit_java_ds_method(src, query, schema, class_name)?;
+        emit_java_querier_method(src, query, schema, class_name)?;
     }
 
     writeln!(src, "}}")?;
     Ok(())
 }
 
-/// Emits one instance method on the Ds class that wraps the corresponding static method.
-fn emit_java_ds_method(src: &mut String, query: &Query, schema: &Schema, class_name: &str) -> anyhow::Result<()> {
+/// Emits one instance method on the querier class that wraps the corresponding static method.
+fn emit_java_querier_method(src: &mut String, query: &Query, schema: &Schema, class_name: &str) -> anyhow::Result<()> {
     let row = jdbc::ds_result_row_type(query, schema, FALLBACK_TYPE, class_name);
     let return_type = match query.cmd {
         QueryCmd::One => format!("Optional<{row}>"),

@@ -1,6 +1,6 @@
 package com.example;
 
-import com.example.db.QueriesDs;
+import com.example.db.Querier;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -16,12 +16,12 @@ public class Demo {
         ds.setURL(url);
         ds.setUser(MYSQL_USER);
         ds.setPassword(MYSQL_PASS);
-        var q = new QueriesDs(ds);
+        var q = new Querier(ds);
         seed(q);
         query(q);
     }
 
-    private static void seed(QueriesDs q) throws Exception {
+    private static void seed(Querier q) throws Exception {
         // MySQL has no RETURNING, so INSERT returns void and IDs are sequential
         // starting from 1 on a fresh database (which docker compose always provides).
         q.createAuthor("Ursula K. Le Guin", "Science fiction and fantasy author", 1929);
@@ -53,7 +53,7 @@ public class Demo {
         q.createAuthor("Temp Author", null, null);
     }
 
-    private static void query(QueriesDs q) throws Exception {
+    private static void query(Querier q) throws Exception {
         var authors = q.listAuthors();
         System.out.println("[mysql] listAuthors: " + authors.size() + " row(s)");
 

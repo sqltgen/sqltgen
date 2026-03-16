@@ -41,8 +41,8 @@ fn test_generate_postgres_uses_pg_pool() {
     let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.rs");
-    assert!(src.contains("use sqlx::PgPool;"));
-    assert!(src.contains("pool: &PgPool"));
+    assert!(src.contains("use sqlx::{PgPool as DbPool};"));
+    assert!(src.contains("pool: &DbPool"));
 }
 
 #[test]
@@ -51,8 +51,8 @@ fn test_generate_sqlite_uses_sqlite_pool() {
     let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = ?1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.rs");
-    assert!(src.contains("use sqlx::SqlitePool;"));
-    assert!(src.contains("pool: &SqlitePool"));
+    assert!(src.contains("use sqlx::{SqlitePool as DbPool};"));
+    assert!(src.contains("pool: &DbPool"));
 }
 
 // ─── generate: query commands ───────────────────────────────────────────
@@ -63,7 +63,7 @@ fn test_generate_exec_query() {
     let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.rs");
-    assert!(src.contains("pub async fn delete_user(pool: &PgPool, id: i64) -> Result<(), sqlx::Error>"));
+    assert!(src.contains("pub async fn delete_user(pool: &DbPool, id: i64) -> Result<(), sqlx::Error>"));
     assert!(src.contains(".execute(pool)"));
     assert!(src.contains(".map(|_| ())"));
 }
@@ -74,7 +74,7 @@ fn test_generate_execrows_query() {
     let query = Query::exec_rows("DeleteUsers", "DELETE FROM user WHERE active = $1", vec![Parameter::scalar(1, "active", SqlType::Boolean, false)]);
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.rs");
-    assert!(src.contains("pub async fn delete_users(pool: &PgPool, active: bool) -> Result<u64, sqlx::Error>"));
+    assert!(src.contains("pub async fn delete_users(pool: &DbPool, active: bool) -> Result<u64, sqlx::Error>"));
     assert!(src.contains(".map(|r| r.rows_affected())"));
 }
 
@@ -93,7 +93,7 @@ fn test_generate_one_query_infers_table_return_type() {
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.rs");
-    assert!(src.contains("pub async fn get_user(pool: &PgPool, id: i64) -> Result<Option<User>, sqlx::Error>"));
+    assert!(src.contains("pub async fn get_user(pool: &DbPool, id: i64) -> Result<Option<User>, sqlx::Error>"));
     assert!(src.contains(".fetch_optional(pool)"));
 }
 
@@ -112,7 +112,7 @@ fn test_generate_many_query_infers_table_return_type() {
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.rs");
-    assert!(src.contains("pub async fn list_users(pool: &PgPool) -> Result<Vec<User>, sqlx::Error>"));
+    assert!(src.contains("pub async fn list_users(pool: &DbPool) -> Result<Vec<User>, sqlx::Error>"));
     assert!(src.contains(".fetch_all(pool)"));
 }
 
@@ -184,6 +184,18 @@ fn test_generate_mysql_one_query_returns_option() {
     let src = get_file(&files, "queries.rs");
     assert!(src.contains("Result<Option<User>, sqlx::Error>"), "One returns Option");
     assert!(src.contains(".fetch_optional(pool)"));
+}
+
+#[test]
+fn test_generate_querier_wrapper_is_emitted() {
+    let schema = Schema::default();
+    let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
+    let files = pg().generate(&schema, &[query], &cfg()).unwrap();
+    let src = get_file(&files, "queries.rs");
+    assert!(src.contains("pub struct Querier<'a> {"));
+    assert!(src.contains("pub fn new(pool: &'a DbPool) -> Self"));
+    assert!(src.contains("pub async fn delete_user(&self, id: i64) -> Result<(), sqlx::Error>"));
+    assert!(src.contains("delete_user(self.pool, id).await"));
 }
 
 // ─── generate: SQL embedding ─────────────────────────────────────────────

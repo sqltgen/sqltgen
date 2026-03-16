@@ -2,7 +2,7 @@ package db
 
 import javax.sql.DataSource
 
-class QueriesDs(private val dataSource: DataSource) {
+class Querier(private val dataSource: DataSource) {
 
     fun getEvent(id: Long): Event? =
         dataSource.connection.use { conn -> Queries.getEvent(conn, id) }

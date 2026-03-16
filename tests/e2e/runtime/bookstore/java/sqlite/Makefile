@@ -3,6 +3,7 @@ SQLTGEN := ../../../../../../target/debug/sqltgen
 .PHONY: generate test clean
 
 generate:
+	rm -rf src/main/java/com/example/db
 	$(SQLTGEN) generate --config sqltgen.json
 
 test: generate

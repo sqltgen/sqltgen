@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 use std::fmt::Write;
 use std::path::PathBuf;
 
-use crate::backend::common::{group_queries, has_inline_rows, infer_row_type_name, infer_table, queries_file_stem, sql_const_name};
+use crate::backend::common::{group_queries, has_inline_rows, infer_row_type_name, infer_table, querier_class_name, queries_file_stem, sql_const_name};
 use crate::backend::naming::{to_pascal_case, to_snake_case};
 use crate::backend::sql_rewrite::{positional_bind_names, rewrite_to_anon_params, rewrite_to_percent_s, split_at_in_clause};
 use crate::backend::{Codegen, GeneratedFile};
@@ -106,7 +106,7 @@ impl Codegen for PythonCodegen {
         for (group, group_queries) in &groups {
             let stem = queries_file_stem(group).to_string();
             group_stems.push(stem.clone());
-            let src = build_queries_file(group_queries, schema, &self.target, config)?;
+            let src = build_queries_file(group, group_queries, schema, &self.target, config)?;
             let path = PathBuf::from(&config.out).join(format!("{stem}.py"));
             files.push(GeneratedFile { path, content: src });
         }
@@ -131,7 +131,7 @@ impl Codegen for PythonCodegen {
     }
 }
 
-fn build_queries_file(queries: &[Query], schema: &Schema, target: &PythonTarget, config: &OutputConfig) -> anyhow::Result<String> {
+fn build_queries_file(group: &str, queries: &[Query], schema: &Schema, target: &PythonTarget, config: &OutputConfig) -> anyhow::Result<String> {
     let strategy = config.list_params.clone().unwrap_or_default();
     let mut src = String::new();
 
@@ -165,8 +165,12 @@ fn build_queries_file(queries: &[Query], schema: &Schema, target: &PythonTarget,
         PythonTarget::Sqlite => writeln!(src, "import sqlite3")?,
         PythonTarget::Mysql => writeln!(src, "import mysql.connector")?,
     }
+    writeln!(src, "from collections.abc import Callable")?;
+    writeln!(src, "from contextlib import closing")?;
     writeln!(src, "from ._sqltgen import execute, exec_stmt")?;
     imports.write(&mut src)?;
+    writeln!(src)?;
+    writeln!(src, "Connection = {}", conn_type_str(target))?;
 
     // Table imports (sorted, only tables used as return types)
     let mut needed_tables: BTreeSet<&str> = BTreeSet::new();
@@ -218,7 +222,56 @@ fn build_queries_file(queries: &[Query], schema: &Schema, target: &PythonTarget,
         emit_python_query(&mut src, &ctx, &strategy)?;
     }
 
+    if !queries.is_empty() {
+        writeln!(src)?;
+        writeln!(src)?;
+        emit_python_querier(&mut src, group, queries, schema, target, config)?;
+    }
+
     Ok(src)
+}
+
+fn emit_python_querier(src: &mut String, group: &str, queries: &[Query], schema: &Schema, target: &PythonTarget, config: &OutputConfig) -> anyhow::Result<()> {
+    let class_name = querier_class_name(group);
+    let conn_type = "Connection";
+    writeln!(src, "class {class_name}:")?;
+    writeln!(src, "    def __init__(self, connect: Callable[[], {conn_type}]) -> None:")?;
+    writeln!(src, "        self._connect = connect")?;
+
+    for query in queries {
+        writeln!(src)?;
+        let fn_name = to_snake_case(&query.name);
+        let return_type = cursor_return_type(query, schema);
+        let params_sig = query
+            .params
+            .iter()
+            .map(|p| {
+                let ty = if p.is_list {
+                    format!("list[{}]", python_param_type_resolved(&p.sql_type, false, target, config))
+                } else {
+                    python_param_type_resolved(&p.sql_type, p.nullable, target, config)
+                };
+                format!("{}: {ty}", to_snake_case(&p.name))
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let args = query.params.iter().map(|p| to_snake_case(&p.name)).collect::<Vec<_>>().join(", ");
+
+        if params_sig.is_empty() {
+            writeln!(src, "    def {fn_name}(self) -> {return_type}:")?;
+        } else {
+            writeln!(src, "    def {fn_name}(self, {params_sig}) -> {return_type}:")?;
+        }
+
+        writeln!(src, "        with closing(self._connect()) as conn:")?;
+        if args.is_empty() {
+            writeln!(src, "            return {fn_name}(conn)")?;
+        } else {
+            writeln!(src, "            return {fn_name}(conn, {args})")?;
+        }
+    }
+
+    Ok(())
 }
 
 fn emit_row_dataclass(src: &mut String, ctx: &PythonQueryContext) -> anyhow::Result<()> {
@@ -254,7 +307,7 @@ fn emit_standard_query(src: &mut String, ctx: &PythonQueryContext) -> anyhow::Re
     let fn_name = to_snake_case(&ctx.query.name);
     let const_name = sql_const_name(&ctx.query.name);
     let return_type = cursor_return_type(ctx.query, ctx.schema);
-    let conn_type = conn_type_str(ctx.target);
+    let conn_type = "Connection";
 
     let params_sig: String = std::iter::once(format!("conn: {conn_type}"))
         .chain(
@@ -281,7 +334,7 @@ fn emit_standard_query(src: &mut String, ctx: &PythonQueryContext) -> anyhow::Re
 fn emit_python_list_query(src: &mut String, ctx: &PythonQueryContext, strategy: &ListParamStrategy, lp: &Parameter) -> anyhow::Result<()> {
     let fn_name = to_snake_case(&ctx.query.name);
     let const_name = sql_const_name(&ctx.query.name);
-    let conn_type = conn_type_str(ctx.target);
+    let conn_type = "Connection";
     let return_type = cursor_return_type(ctx.query, ctx.schema);
     let lp_name = to_snake_case(&lp.name);
     let scalar_params: Vec<&Parameter> = ctx.query.params.iter().filter(|p| !p.is_list).collect();

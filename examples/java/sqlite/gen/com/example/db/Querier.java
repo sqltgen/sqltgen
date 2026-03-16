@@ -6,20 +6,20 @@ import java.util.List;
 import java.util.Optional;
 import javax.sql.DataSource;
 
-public final class QueriesDs {
+public final class Querier {
     private final DataSource dataSource;
 
-    public QueriesDs(DataSource dataSource) {
+    public Querier(DataSource dataSource) {
         this.dataSource = dataSource;
     }
 
-    public Optional<Author> createAuthor(String name, String bio, Integer birthYear) throws SQLException {
+    public void createAuthor(String name, String bio, Integer birthYear) throws SQLException {
         try (Connection conn = dataSource.getConnection()) {
-            return Queries.createAuthor(conn, name, bio, birthYear);
+            Queries.createAuthor(conn, name, bio, birthYear);
         }
     }
 
-    public Optional<Author> getAuthor(long id) throws SQLException {
+    public Optional<Author> getAuthor(int id) throws SQLException {
         try (Connection conn = dataSource.getConnection()) {
             return Queries.getAuthor(conn, id);
         }
@@ -31,25 +31,13 @@ public final class QueriesDs {
         }
     }
 
-    public Optional<Author> updateAuthorBio(String bio, long id) throws SQLException {
+    public void createBook(int authorId, String title, String genre, double price, String publishedAt) throws SQLException {
         try (Connection conn = dataSource.getConnection()) {
-            return Queries.updateAuthorBio(conn, bio, id);
+            Queries.createBook(conn, authorId, title, genre, price, publishedAt);
         }
     }
 
-    public Optional<Queries.DeleteAuthorRow> deleteAuthor(long id) throws SQLException {
-        try (Connection conn = dataSource.getConnection()) {
-            return Queries.deleteAuthor(conn, id);
-        }
-    }
-
-    public Optional<Book> createBook(long authorId, String title, String genre, java.math.BigDecimal price, java.time.LocalDate publishedAt) throws SQLException {
-        try (Connection conn = dataSource.getConnection()) {
-            return Queries.createBook(conn, authorId, title, genre, price, publishedAt);
-        }
-    }
-
-    public Optional<Book> getBook(long id) throws SQLException {
+    public Optional<Book> getBook(int id) throws SQLException {
         try (Connection conn = dataSource.getConnection()) {
             return Queries.getBook(conn, id);
         }
@@ -73,19 +61,19 @@ public final class QueriesDs {
         }
     }
 
-    public Optional<Queries.CreateCustomerRow> createCustomer(String name, String email) throws SQLException {
+    public void createCustomer(String name, String email) throws SQLException {
         try (Connection conn = dataSource.getConnection()) {
-            return Queries.createCustomer(conn, name, email);
+            Queries.createCustomer(conn, name, email);
         }
     }
 
-    public Optional<Queries.CreateSaleRow> createSale(long customerId) throws SQLException {
+    public void createSale(int customerId) throws SQLException {
         try (Connection conn = dataSource.getConnection()) {
-            return Queries.createSale(conn, customerId);
+            Queries.createSale(conn, customerId);
         }
     }
 
-    public void addSaleItem(long saleId, long bookId, int quantity, java.math.BigDecimal unitPrice) throws SQLException {
+    public void addSaleItem(int saleId, int bookId, int quantity, double unitPrice) throws SQLException {
         try (Connection conn = dataSource.getConnection()) {
             Queries.addSaleItem(conn, saleId, bookId, quantity, unitPrice);
         }
