@@ -156,6 +156,7 @@ pub struct KotlinCodegen {
 struct QueryContext<'a> {
     query: &'a Query,
     schema: &'a Schema,
+    config: &'a OutputConfig,
     return_type: String,
     params_sig: String,
 }
@@ -244,6 +245,7 @@ fn emit_kotlin_query(src: &mut String, query: &Query, schema: &Schema, strategy:
     let ctx = QueryContext {
         query,
         schema,
+        config,
         return_type: jdbc::jdbc_return_type(query, schema, FALLBACK_TYPE, |r| format!("{r}?"), |r| format!("List<{r}>"), "Unit", "Long"),
         params_sig: std::iter::once("conn: Connection".to_string())
             .chain(query.params.iter().map(|p| format!("{}: {}", to_camel_case(&p.name), kotlin_param_type_resolved(p, config))))
@@ -253,29 +255,29 @@ fn emit_kotlin_query(src: &mut String, query: &Query, schema: &Schema, strategy:
 
     if let Some(lp) = query.params.iter().find(|p| p.is_list) {
         match jdbc::resolve_list_strategy(strategy, lp) {
-            ListAction::PgNative(sql) => emit_kotlin_list_pg_native(src, &ctx, lp, &sql, config),
-            ListAction::Dynamic => emit_kotlin_list_dynamic(src, &ctx, lp, config),
-            ListAction::JsonNative(sql) => emit_kotlin_list_json_native(src, &ctx, lp, &sql, config),
+            ListAction::PgNative(sql) => emit_kotlin_list_pg_native(src, &ctx, lp, &sql),
+            ListAction::Dynamic => emit_kotlin_list_dynamic(src, &ctx, lp),
+            ListAction::JsonNative(sql) => emit_kotlin_list_json_native(src, &ctx, lp, &sql),
         }
     } else {
-        emit_kotlin_scalar_query(src, &ctx, config)
+        emit_kotlin_scalar_query(src, &ctx)
     }
 }
 
-fn emit_kotlin_scalar_query(src: &mut String, ctx: &QueryContext, config: &OutputConfig) -> anyhow::Result<()> {
+fn emit_kotlin_scalar_query(src: &mut String, ctx: &QueryContext) -> anyhow::Result<()> {
     let (sql_const, escaped) = prepare_sql_const(ctx.query);
     writeln!(src, "    private const val {sql_const} = \"{escaped};\"")?;
     writeln!(src, "    fun {}({}): {} {{", to_camel_case(&ctx.query.name), ctx.params_sig, ctx.return_type)?;
     writeln!(src, "        conn.prepareStatement({sql_const}).use {{ ps ->")?;
-    emit_jdbc_binds(src, ctx.query, "", SE, "toTypedArray()", |p| kotlin_write_expr(p, config))?;
-    emit_kotlin_result_block(src, ctx.query, ctx.schema, config)?;
+    emit_jdbc_binds(src, ctx.query, "", SE, "toTypedArray()", |p| kotlin_write_expr(p, ctx.config))?;
+    emit_kotlin_result_block(src, ctx)?;
     writeln!(src, "        }}")?;
     writeln!(src, "    }}")?;
     Ok(())
 }
 
 /// Emit a PostgreSQL native list query using `= ANY(?)` with a JDBC array.
-fn emit_kotlin_list_pg_native(src: &mut String, ctx: &QueryContext, lp: &Parameter, rewritten_sql: &str, config: &OutputConfig) -> anyhow::Result<()> {
+fn emit_kotlin_list_pg_native(src: &mut String, ctx: &QueryContext, lp: &Parameter, rewritten_sql: &str) -> anyhow::Result<()> {
     let lp_name = to_camel_case(&lp.name);
     let method_name = to_camel_case(&ctx.query.name);
     let (sql_const, escaped) = prepare_sql_const_from(ctx.query, rewritten_sql);
@@ -284,15 +286,15 @@ fn emit_kotlin_list_pg_native(src: &mut String, ctx: &QueryContext, lp: &Paramet
     let type_name = pg_array_type_name(&lp.sql_type);
     writeln!(src, "        val arr = conn.createArrayOf(\"{type_name}\", {lp_name}.toTypedArray())")?;
     writeln!(src, "        conn.prepareStatement({sql_const}).use {{ ps ->")?;
-    emit_jdbc_binds(src, ctx.query, "arr", SE, "toTypedArray()", |p| kotlin_write_expr(p, config))?;
-    emit_kotlin_result_block(src, ctx.query, ctx.schema, config)?;
+    emit_jdbc_binds(src, ctx.query, "arr", SE, "toTypedArray()", |p| kotlin_write_expr(p, ctx.config))?;
+    emit_kotlin_result_block(src, ctx)?;
     writeln!(src, "        }}")?;
     writeln!(src, "    }}")?;
     Ok(())
 }
 
 /// Emit a dynamic list query that builds `IN (?,?,…,?)` at runtime.
-fn emit_kotlin_list_dynamic(src: &mut String, ctx: &QueryContext, lp: &Parameter, config: &OutputConfig) -> anyhow::Result<()> {
+fn emit_kotlin_list_dynamic(src: &mut String, ctx: &QueryContext, lp: &Parameter) -> anyhow::Result<()> {
     let lp_name = to_camel_case(&lp.name);
     let method_name = to_camel_case(&ctx.query.name);
     let (before_esc, after_esc) = prepare_dynamic_sql_parts(ctx.query, lp);
@@ -304,7 +306,7 @@ fn emit_kotlin_list_dynamic(src: &mut String, ctx: &QueryContext, lp: &Parameter
         writeln!(src, "            {lp_name}.forEachIndexed {{ i, v -> ps.{setter}({base} + i + 1, v) }}")?;
         Ok(())
     })?;
-    emit_kotlin_result_block(src, ctx.query, ctx.schema, config)?;
+    emit_kotlin_result_block(src, ctx)?;
     writeln!(src, "        }}")?;
     writeln!(src, "    }}")?;
     Ok(())
@@ -315,15 +317,15 @@ fn emit_kotlin_list_dynamic(src: &mut String, ctx: &QueryContext, lp: &Parameter
 /// Both engines use the same structure: build a JSON string from the list,
 /// then bind it as a regular string parameter. The caller provides the
 /// already-rewritten SQL (with `json_each` or `JSON_TABLE`).
-fn emit_kotlin_list_json_native(src: &mut String, ctx: &QueryContext, lp: &Parameter, rewritten_sql: &str, config: &OutputConfig) -> anyhow::Result<()> {
+fn emit_kotlin_list_json_native(src: &mut String, ctx: &QueryContext, lp: &Parameter, rewritten_sql: &str) -> anyhow::Result<()> {
     let method_name = to_camel_case(&ctx.query.name);
     let (sql_const, escaped) = prepare_sql_const_from(ctx.query, rewritten_sql);
     writeln!(src, "    private const val {sql_const} = \"{escaped};\"")?;
     writeln!(src, "    fun {method_name}({}): {} {{", ctx.params_sig, ctx.return_type)?;
     emit_kotlin_json_builder(src, lp)?;
     writeln!(src, "        conn.prepareStatement({sql_const}).use {{ ps ->")?;
-    emit_jdbc_binds(src, ctx.query, "json", SE, "toTypedArray()", |p| kotlin_write_expr(p, config))?;
-    emit_kotlin_result_block(src, ctx.query, ctx.schema, config)?;
+    emit_jdbc_binds(src, ctx.query, "json", SE, "toTypedArray()", |p| kotlin_write_expr(p, ctx.config))?;
+    emit_kotlin_result_block(src, ctx)?;
     writeln!(src, "        }}")?;
     writeln!(src, "    }}")?;
     Ok(())
@@ -347,21 +349,21 @@ fn emit_kotlin_json_builder(src: &mut String, lp: &Parameter) -> anyhow::Result<
 }
 
 /// Emit the result block inside `ps.use { ps -> ... }`.
-fn emit_kotlin_result_block(src: &mut String, query: &Query, schema: &Schema, config: &OutputConfig) -> anyhow::Result<()> {
-    match query.cmd {
+fn emit_kotlin_result_block(src: &mut String, ctx: &QueryContext) -> anyhow::Result<()> {
+    match ctx.query.cmd {
         QueryCmd::Exec => writeln!(src, "            ps.executeUpdate()")?,
         QueryCmd::ExecRows => writeln!(src, "            return ps.executeUpdate().toLong()")?,
         QueryCmd::One => {
             writeln!(src, "            ps.executeQuery().use {{ rs ->")?;
             writeln!(src, "                if (!rs.next()) return null")?;
-            writeln!(src, "                return {}", emit_row_constructor(query, schema, config))?;
+            writeln!(src, "                return {}", emit_row_constructor(ctx.query, ctx.schema, ctx.config))?;
             writeln!(src, "            }}")?;
         },
         QueryCmd::Many => {
-            let row_type = result_row_type(query, schema);
+            let row_type = result_row_type(ctx.query, ctx.schema);
             writeln!(src, "            val rows = mutableListOf<{row_type}>()")?;
             writeln!(src, "            ps.executeQuery().use {{ rs ->")?;
-            writeln!(src, "                while (rs.next()) rows.add({})", emit_row_constructor(query, schema, config))?;
+            writeln!(src, "                while (rs.next()) rows.add({})", emit_row_constructor(ctx.query, ctx.schema, ctx.config))?;
             writeln!(src, "            }}")?;
             writeln!(src, "            return rows")?;
         },
