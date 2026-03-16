@@ -6,23 +6,78 @@ import type { ClientBase } from 'pg';
 import type { Author } from './author';
 import type { Book } from './book';
 
-const SQL_CREATE_AUTHOR = "INSERT INTO author (name, bio, birth_year) VALUES ($1, $2, $3) RETURNING *";
-const SQL_GET_AUTHOR = "SELECT id, name, bio, birth_year FROM author WHERE id = $1";
-const SQL_LIST_AUTHORS = "SELECT id, name, bio, birth_year FROM author ORDER BY name";
-const SQL_UPDATE_AUTHOR_BIO = "UPDATE author SET bio = $1 WHERE id = $2 RETURNING *";
-const SQL_DELETE_AUTHOR = "DELETE FROM author WHERE id = $1 RETURNING id, name";
-const SQL_CREATE_BOOK = "INSERT INTO book (author_id, title, genre, price, published_at) VALUES ($1, $2, $3, $4, $5) RETURNING *";
-const SQL_GET_BOOK = "SELECT id, author_id, title, genre, price, published_at FROM book WHERE id = $1";
-const SQL_GET_BOOKS_BY_IDS = "SELECT id, author_id, title, genre, price, published_at FROM book WHERE id = ANY($1) ORDER BY title";
-const SQL_LIST_BOOKS_BY_GENRE = "SELECT id, author_id, title, genre, price, published_at FROM book WHERE genre = $1 ORDER BY title";
-const SQL_LIST_BOOKS_BY_GENRE_OR_ALL = "SELECT id, author_id, title, genre, price, published_at FROM book WHERE $1 = 'all' OR genre = $1 ORDER BY title";
-const SQL_CREATE_CUSTOMER = "INSERT INTO customer (name, email) VALUES ($1, $2) RETURNING id";
-const SQL_CREATE_SALE = "INSERT INTO sale (customer_id) VALUES ($1) RETURNING id";
-const SQL_ADD_SALE_ITEM = "INSERT INTO sale_item (sale_id, book_id, quantity, unit_price) VALUES ($1, $2, $3, $4)";
-const SQL_LIST_BOOKS_WITH_AUTHOR = "SELECT b.id, b.title, b.genre, b.price, b.published_at,        a.name AS author_name, a.bio AS author_bio FROM book b JOIN author a ON a.id = b.author_id ORDER BY b.title";
-const SQL_GET_BOOKS_NEVER_ORDERED = "SELECT b.id, b.author_id, b.title, b.genre, b.price, b.published_at FROM book b LEFT JOIN sale_item si ON si.book_id = b.id WHERE si.id IS NULL ORDER BY b.title";
-const SQL_GET_TOP_SELLING_BOOKS = "WITH book_sales AS (     SELECT book_id,            SUM(quantity) AS units_sold     FROM sale_item     GROUP BY book_id ) SELECT b.id, b.title, b.genre, b.price,        bs.units_sold FROM book b JOIN book_sales bs ON bs.book_id = b.id ORDER BY bs.units_sold DESC";
-const SQL_GET_BEST_CUSTOMERS = "WITH customer_spend AS (     SELECT s.customer_id,            SUM(si.quantity * si.unit_price) AS total_spent     FROM sale s     JOIN sale_item si ON si.sale_id = s.id     GROUP BY s.customer_id ) SELECT c.id, c.name, c.email,        cs.total_spent FROM customer c JOIN customer_spend cs ON cs.customer_id = c.id ORDER BY cs.total_spent DESC";
+const SQL_CREATE_AUTHOR = `INSERT INTO author (name, bio, birth_year)
+VALUES ($1, $2, $3)
+RETURNING *`;
+const SQL_GET_AUTHOR = `SELECT id, name, bio, birth_year
+FROM author
+WHERE id = $1`;
+const SQL_LIST_AUTHORS = `SELECT id, name, bio, birth_year
+FROM author
+ORDER BY name`;
+const SQL_UPDATE_AUTHOR_BIO = `UPDATE author SET bio = $1 WHERE id = $2
+RETURNING *`;
+const SQL_DELETE_AUTHOR = `DELETE FROM author WHERE id = $1
+RETURNING id, name`;
+const SQL_CREATE_BOOK = `INSERT INTO book (author_id, title, genre, price, published_at)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING *`;
+const SQL_GET_BOOK = `SELECT id, author_id, title, genre, price, published_at
+FROM book
+WHERE id = $1`;
+const SQL_GET_BOOKS_BY_IDS = `SELECT id, author_id, title, genre, price, published_at
+FROM book
+WHERE id = ANY($1)
+ORDER BY title`;
+const SQL_LIST_BOOKS_BY_GENRE = `SELECT id, author_id, title, genre, price, published_at
+FROM book
+WHERE genre = $1
+ORDER BY title`;
+const SQL_LIST_BOOKS_BY_GENRE_OR_ALL = `SELECT id, author_id, title, genre, price, published_at
+FROM book
+WHERE $1 = 'all' OR genre = $1
+ORDER BY title`;
+const SQL_CREATE_CUSTOMER = `INSERT INTO customer (name, email)
+VALUES ($1, $2)
+RETURNING id`;
+const SQL_CREATE_SALE = `INSERT INTO sale (customer_id)
+VALUES ($1)
+RETURNING id`;
+const SQL_ADD_SALE_ITEM = `INSERT INTO sale_item (sale_id, book_id, quantity, unit_price)
+VALUES ($1, $2, $3, $4)`;
+const SQL_LIST_BOOKS_WITH_AUTHOR = `SELECT b.id, b.title, b.genre, b.price, b.published_at,
+       a.name AS author_name, a.bio AS author_bio
+FROM book b
+JOIN author a ON a.id = b.author_id
+ORDER BY b.title`;
+const SQL_GET_BOOKS_NEVER_ORDERED = `SELECT b.id, b.author_id, b.title, b.genre, b.price, b.published_at
+FROM book b
+LEFT JOIN sale_item si ON si.book_id = b.id
+WHERE si.id IS NULL
+ORDER BY b.title`;
+const SQL_GET_TOP_SELLING_BOOKS = `WITH book_sales AS (
+    SELECT book_id,
+           SUM(quantity) AS units_sold
+    FROM sale_item
+    GROUP BY book_id
+)
+SELECT b.id, b.title, b.genre, b.price,
+       bs.units_sold
+FROM book b
+JOIN book_sales bs ON bs.book_id = b.id
+ORDER BY bs.units_sold DESC`;
+const SQL_GET_BEST_CUSTOMERS = `WITH customer_spend AS (
+    SELECT s.customer_id,
+           SUM(si.quantity * si.unit_price) AS total_spent
+    FROM sale s
+    JOIN sale_item si ON si.sale_id = s.id
+    GROUP BY s.customer_id
+)
+SELECT c.id, c.name, c.email,
+       cs.total_spent
+FROM customer c
+JOIN customer_spend cs ON cs.customer_id = c.id
+ORDER BY cs.total_spent DESC`;
 
 export async function createAuthor(db: ClientBase, name: string, bio: string | null, birthYear: number | null): Promise<Author | null> {
   const result = await db.query<Author>(SQL_CREATE_AUTHOR, [name, bio, birthYear]);

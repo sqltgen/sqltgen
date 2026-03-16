@@ -6,21 +6,70 @@ import type { Database } from 'better-sqlite3';
 import type { Author } from './author';
 import type { Book } from './book';
 
-const SQL_CREATE_AUTHOR = "INSERT INTO author (name, bio, birth_year) VALUES (?, ?, ?)";
-const SQL_GET_AUTHOR = "SELECT id, name, bio, birth_year FROM author WHERE id = ?";
-const SQL_LIST_AUTHORS = "SELECT id, name, bio, birth_year FROM author ORDER BY name";
-const SQL_CREATE_BOOK = "INSERT INTO book (author_id, title, genre, price, published_at) VALUES (?, ?, ?, ?, ?)";
-const SQL_GET_BOOK = "SELECT id, author_id, title, genre, price, published_at FROM book WHERE id = ?";
-const SQL_GET_BOOKS_BY_IDS = "SELECT id, author_id, title, genre, price, published_at FROM book WHERE id IN (SELECT value FROM json_each(?)) ORDER BY title";
-const SQL_LIST_BOOKS_BY_GENRE = "SELECT id, author_id, title, genre, price, published_at FROM book WHERE genre = ? ORDER BY title";
-const SQL_LIST_BOOKS_BY_GENRE_OR_ALL = "SELECT id, author_id, title, genre, price, published_at FROM book WHERE ? = 'all' OR genre = ? ORDER BY title";
-const SQL_CREATE_CUSTOMER = "INSERT INTO customer (name, email) VALUES (?, ?)";
-const SQL_CREATE_SALE = "INSERT INTO sale (customer_id) VALUES (?)";
-const SQL_ADD_SALE_ITEM = "INSERT INTO sale_item (sale_id, book_id, quantity, unit_price) VALUES (?, ?, ?, ?)";
-const SQL_LIST_BOOKS_WITH_AUTHOR = "SELECT b.id, b.title, b.genre, b.price, b.published_at,        a.name AS author_name, a.bio AS author_bio FROM book b JOIN author a ON a.id = b.author_id ORDER BY b.title";
-const SQL_GET_BOOKS_NEVER_ORDERED = "SELECT b.id, b.author_id, b.title, b.genre, b.price, b.published_at FROM book b LEFT JOIN sale_item si ON si.book_id = b.id WHERE si.id IS NULL ORDER BY b.title";
-const SQL_GET_TOP_SELLING_BOOKS = "WITH book_sales AS (     SELECT book_id,            SUM(quantity) AS units_sold     FROM sale_item     GROUP BY book_id ) SELECT b.id, b.title, b.genre, b.price,        bs.units_sold FROM book b JOIN book_sales bs ON bs.book_id = b.id ORDER BY bs.units_sold DESC";
-const SQL_GET_BEST_CUSTOMERS = "WITH customer_spend AS (     SELECT s.customer_id,            SUM(si.quantity * si.unit_price) AS total_spent     FROM sale s     JOIN sale_item si ON si.sale_id = s.id     GROUP BY s.customer_id ) SELECT c.id, c.name, c.email,        cs.total_spent FROM customer c JOIN customer_spend cs ON cs.customer_id = c.id ORDER BY cs.total_spent DESC";
+const SQL_CREATE_AUTHOR = `INSERT INTO author (name, bio, birth_year)
+VALUES (?, ?, ?)`;
+const SQL_GET_AUTHOR = `SELECT id, name, bio, birth_year
+FROM author
+WHERE id = ?`;
+const SQL_LIST_AUTHORS = `SELECT id, name, bio, birth_year
+FROM author
+ORDER BY name`;
+const SQL_CREATE_BOOK = `INSERT INTO book (author_id, title, genre, price, published_at)
+VALUES (?, ?, ?, ?, ?)`;
+const SQL_GET_BOOK = `SELECT id, author_id, title, genre, price, published_at
+FROM book
+WHERE id = ?`;
+const SQL_GET_BOOKS_BY_IDS = `SELECT id, author_id, title, genre, price, published_at
+FROM book
+WHERE id IN (SELECT value FROM json_each(?))
+ORDER BY title`;
+const SQL_LIST_BOOKS_BY_GENRE = `SELECT id, author_id, title, genre, price, published_at
+FROM book
+WHERE genre = ?
+ORDER BY title`;
+const SQL_LIST_BOOKS_BY_GENRE_OR_ALL = `SELECT id, author_id, title, genre, price, published_at
+FROM book
+WHERE ? = 'all' OR genre = ?
+ORDER BY title`;
+const SQL_CREATE_CUSTOMER = `INSERT INTO customer (name, email)
+VALUES (?, ?)`;
+const SQL_CREATE_SALE = `INSERT INTO sale (customer_id)
+VALUES (?)`;
+const SQL_ADD_SALE_ITEM = `INSERT INTO sale_item (sale_id, book_id, quantity, unit_price)
+VALUES (?, ?, ?, ?)`;
+const SQL_LIST_BOOKS_WITH_AUTHOR = `SELECT b.id, b.title, b.genre, b.price, b.published_at,
+       a.name AS author_name, a.bio AS author_bio
+FROM book b
+JOIN author a ON a.id = b.author_id
+ORDER BY b.title`;
+const SQL_GET_BOOKS_NEVER_ORDERED = `SELECT b.id, b.author_id, b.title, b.genre, b.price, b.published_at
+FROM book b
+LEFT JOIN sale_item si ON si.book_id = b.id
+WHERE si.id IS NULL
+ORDER BY b.title`;
+const SQL_GET_TOP_SELLING_BOOKS = `WITH book_sales AS (
+    SELECT book_id,
+           SUM(quantity) AS units_sold
+    FROM sale_item
+    GROUP BY book_id
+)
+SELECT b.id, b.title, b.genre, b.price,
+       bs.units_sold
+FROM book b
+JOIN book_sales bs ON bs.book_id = b.id
+ORDER BY bs.units_sold DESC`;
+const SQL_GET_BEST_CUSTOMERS = `WITH customer_spend AS (
+    SELECT s.customer_id,
+           SUM(si.quantity * si.unit_price) AS total_spent
+    FROM sale s
+    JOIN sale_item si ON si.sale_id = s.id
+    GROUP BY s.customer_id
+)
+SELECT c.id, c.name, c.email,
+       cs.total_spent
+FROM customer c
+JOIN customer_spend cs ON cs.customer_id = c.id
+ORDER BY cs.total_spent DESC`;
 
 export async function createAuthor(db: Database, name: string, bio: string | null, birthYear: number | null): Promise<void> {
   db.prepare(SQL_CREATE_AUTHOR).run(name, bio, birthYear);
