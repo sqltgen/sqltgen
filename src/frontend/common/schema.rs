@@ -1,4 +1,4 @@
-use sqlparser::ast::{ArgMode, DataType, ObjectType, Statement};
+use sqlparser::ast::{ArgMode, DataType, DropFunction, ObjectType, Statement};
 use sqlparser::dialect::Dialect;
 use sqlparser::parser::Parser;
 use sqlparser::tokenizer::{Token, Tokenizer};
@@ -63,6 +63,15 @@ fn process_statement(stmt: &Statement, schema: &mut Schema, map_type: fn(&DataTy
                 f.args.as_deref().unwrap_or(&[]).iter().filter(|a| matches!(a.mode, None | Some(ArgMode::In))).map(|a| map_type(&a.data_type)).collect();
             schema.functions.push(ScalarFunction { name, return_type, param_types });
         },
+        Statement::DropFunction(DropFunction { func_desc, .. }) => apply_drop_functions(func_desc, &mut schema.functions),
         _ => {},
+    }
+}
+
+/// Remove every function named in `func_desc` from the in-progress function list.
+fn apply_drop_functions(func_desc: &[sqlparser::ast::FunctionDesc], functions: &mut Vec<ScalarFunction>) {
+    for desc in func_desc {
+        let name = obj_name_to_str(&desc.name);
+        functions.retain(|f| f.name != name);
     }
 }

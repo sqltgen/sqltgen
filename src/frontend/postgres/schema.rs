@@ -477,6 +477,15 @@ mod tests {
     }
 
     #[test]
+    fn test_drop_function_removes_function_from_schema() {
+        let ddl = "\
+            CREATE FUNCTION fetch_name(resource_id bigint) RETURNS text LANGUAGE sql AS $$ SELECT '' $$;\
+            DROP FUNCTION fetch_name(bigint);";
+        let schema = parse_schema(ddl).unwrap();
+        assert_eq!(schema.functions.len(), 0, "DROP FUNCTION should remove the function");
+    }
+
+    #[test]
     fn test_create_function_table_returning_skipped() {
         let ddl = "CREATE FUNCTION get_users() RETURNS TABLE(id bigint, name text) LANGUAGE sql AS $$ SELECT id, name FROM users $$;";
         let schema = parse_schema(ddl).unwrap();
