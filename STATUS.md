@@ -198,13 +198,13 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | Frontend — common (query parser, CTEs, subqueries, named params, list params, source_table) | 204 |
 | Backend — Java | 63 |
 | Backend — Kotlin | 62 |
-| Backend — Rust | 39 |
+| Backend — Rust | 40 |
 | Backend — Python | 44 |
 | Backend — common (common + sql_rewrite + naming) | 48 |
 | Backend — JDBC | 13 |
 | Backend — TypeScript / JavaScript | 48 |
 | Integration (snapshots + resilience) | 25 |
-| **Total** | **718** |
+| **Total** | **719** |
 
 ---
 

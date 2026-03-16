@@ -44,6 +44,9 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
   uses ON CONFLICT DO UPDATE RETURNING)
 
 ### Fixed
+- Rust backend SQL embedding now has explicit regression coverage for quoted
+  identifiers and string literals to ensure generated SQL remains in raw string
+  form without escaped double quotes.
 - Literal and simple expression projection resolution now infers types for
   `NULL`, numeric, string, and boolean literals in `resolve_expr`, preventing
   unnamed literal select items from being dropped.

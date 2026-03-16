@@ -204,6 +204,22 @@ fn test_generate_sql_is_local_binding_not_constant() {
     assert!(!src.contains("GET_USER_BY_ID"), "Rust does not emit SQL constants");
 }
 
+#[test]
+fn test_generate_sql_raw_string_keeps_double_quotes_unescaped() {
+    let schema = Schema::default();
+    let query = Query::one(
+        "GetQuotedUser",
+        "SELECT \"name\" FROM \"user\" WHERE id = $1",
+        vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
+        vec![ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false }],
+    );
+    let files = pg().generate(&schema, &[query], &cfg()).unwrap();
+    let src = get_file(&files, "queries.rs");
+    assert!(src.contains("let sql = r##\""), "SQL should be emitted as a raw string");
+    assert!(src.contains("SELECT \"name\" FROM \"user\" WHERE id = $1"), "double quotes should remain unescaped in SQL");
+    assert!(!src.contains("SELECT \\\"name\\\" FROM \\\"user\\\" WHERE id = $1"), "raw SQL should not contain escaped double quotes");
+}
+
 // ─── generate: execrows ──────────────────────────────────────────────────
 
 #[test]
