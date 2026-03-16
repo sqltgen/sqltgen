@@ -7,50 +7,199 @@ import type { Author } from './author';
 import type { Book } from './book';
 import type { Product } from './product';
 
-const SQL_CREATE_AUTHOR = "INSERT INTO author (name, bio, birth_year) VALUES (?, ?, ?)";
-const SQL_GET_AUTHOR = "SELECT id, name, bio, birth_year FROM author WHERE id = ?";
-const SQL_LIST_AUTHORS = "SELECT id, name, bio, birth_year FROM author ORDER BY name";
-const SQL_CREATE_BOOK = "INSERT INTO book (author_id, title, genre, price, published_at) VALUES (?, ?, ?, ?, ?)";
-const SQL_GET_BOOK = "SELECT id, author_id, title, genre, price, published_at FROM book WHERE id = ?";
-const SQL_GET_BOOKS_BY_IDS = "SELECT id, author_id, title, genre, price, published_at FROM book WHERE id IN (SELECT value FROM json_each(?)) ORDER BY title";
-const SQL_LIST_BOOKS_BY_GENRE = "SELECT id, author_id, title, genre, price, published_at FROM book WHERE genre = ? ORDER BY title";
-const SQL_LIST_BOOKS_BY_GENRE_OR_ALL = "SELECT id, author_id, title, genre, price, published_at FROM book WHERE ? = 'all' OR genre = ? ORDER BY title";
-const SQL_CREATE_CUSTOMER = "INSERT INTO customer (name, email) VALUES (?, ?)";
-const SQL_CREATE_SALE = "INSERT INTO sale (customer_id) VALUES (?)";
-const SQL_ADD_SALE_ITEM = "INSERT INTO sale_item (sale_id, book_id, quantity, unit_price) VALUES (?, ?, ?, ?)";
-const SQL_LIST_BOOKS_WITH_AUTHOR = "SELECT b.id, b.title, b.genre, b.price, b.published_at,        a.name AS author_name, a.bio AS author_bio FROM book b JOIN author a ON a.id = b.author_id ORDER BY b.title";
-const SQL_GET_BOOKS_NEVER_ORDERED = "SELECT b.id, b.author_id, b.title, b.genre, b.price, b.published_at FROM book b LEFT JOIN sale_item si ON si.book_id = b.id WHERE si.id IS NULL ORDER BY b.title";
-const SQL_GET_TOP_SELLING_BOOKS = "WITH book_sales AS (     SELECT book_id,            SUM(quantity) AS units_sold     FROM sale_item     GROUP BY book_id ) SELECT b.id, b.title, b.genre, b.price,        bs.units_sold FROM book b JOIN book_sales bs ON bs.book_id = b.id ORDER BY bs.units_sold DESC";
-const SQL_GET_BEST_CUSTOMERS = "WITH customer_spend AS (     SELECT s.customer_id,            SUM(si.quantity * si.unit_price) AS total_spent     FROM sale s     JOIN sale_item si ON si.sale_id = s.id     GROUP BY s.customer_id ) SELECT c.id, c.name, c.email,        cs.total_spent FROM customer c JOIN customer_spend cs ON cs.customer_id = c.id ORDER BY cs.total_spent DESC";
-const SQL_COUNT_BOOKS_BY_GENRE = "SELECT genre, COUNT(*) AS book_count FROM book GROUP BY genre ORDER BY genre";
-const SQL_LIST_BOOKS_WITH_LIMIT = "SELECT id, title, genre, price FROM book ORDER BY title LIMIT ? OFFSET ?";
-const SQL_SEARCH_BOOKS_BY_TITLE = "SELECT id, title, genre, price FROM book WHERE title LIKE ? ORDER BY title";
-const SQL_GET_BOOKS_BY_PRICE_RANGE = "SELECT id, title, genre, price FROM book WHERE price BETWEEN ? AND ? ORDER BY price";
-const SQL_GET_BOOKS_IN_GENRES = "SELECT id, title, genre, price FROM book WHERE genre IN (?, ?, ?) ORDER BY title";
-const SQL_GET_BOOK_PRICE_LABEL = "SELECT id, title, price,        CASE WHEN price > ? THEN 'expensive' ELSE 'affordable' END AS price_label FROM book ORDER BY title";
-const SQL_GET_BOOK_PRICE_OR_DEFAULT = "SELECT id, title, COALESCE(price, ?) AS effective_price FROM book ORDER BY title";
-const SQL_DELETE_BOOK_BY_ID = "DELETE FROM book WHERE id = ?";
-const SQL_GET_GENRES_WITH_MANY_BOOKS = "SELECT genre, COUNT(*) AS book_count FROM book GROUP BY genre HAVING COUNT(*) > ? ORDER BY genre";
-const SQL_GET_BOOKS_BY_AUTHOR_PARAM = "SELECT b.id, b.title, b.price FROM book b JOIN author a ON a.id = b.author_id AND a.birth_year > ? ORDER BY b.title";
-const SQL_GET_ALL_BOOK_FIELDS = "SELECT b.* FROM book b ORDER BY b.id";
-const SQL_GET_BOOKS_NOT_BY_AUTHOR = "SELECT id, title, genre FROM book WHERE author_id NOT IN (SELECT id FROM author WHERE name = ?) ORDER BY title";
-const SQL_GET_BOOKS_WITH_RECENT_SALES = "SELECT id, title, genre FROM book WHERE EXISTS (     SELECT 1 FROM sale_item si     JOIN sale s ON s.id = si.sale_id     WHERE si.book_id = book.id AND s.ordered_at > ? ) ORDER BY title";
-const SQL_GET_BOOK_WITH_AUTHOR_NAME = "SELECT b.id, b.title,        (SELECT a.name FROM author a WHERE a.id = b.author_id) AS author_name FROM book b ORDER BY b.title";
-const SQL_GET_AUTHOR_STATS = "WITH book_counts AS (     SELECT author_id, COUNT(*) AS num_books     FROM book     GROUP BY author_id ), sale_counts AS (     SELECT b.author_id, SUM(si.quantity) AS total_sold     FROM sale_item si     JOIN book b ON b.id = si.book_id     GROUP BY b.author_id ) SELECT a.id, a.name,        COALESCE(bc.num_books, 0) AS num_books,        COALESCE(sc.total_sold, 0) AS total_sold FROM author a LEFT JOIN book_counts bc ON bc.author_id = a.id LEFT JOIN sale_counts sc ON sc.author_id = a.id ORDER BY a.name";
-const SQL_GET_PRODUCT = "SELECT id, sku, name, active, weight_kg, rating, metadata,        thumbnail, created_at, stock_count FROM product WHERE id = ?";
-const SQL_LIST_ACTIVE_PRODUCTS = "SELECT id, sku, name, active, weight_kg, rating, metadata,        created_at, stock_count FROM product WHERE active = ? ORDER BY name";
-const SQL_GET_AUTHORS_WITH_NULL_BIO = "SELECT id, name, birth_year FROM author WHERE bio IS NULL ORDER BY name";
-const SQL_GET_AUTHORS_WITH_BIO = "SELECT id, name, bio, birth_year FROM author WHERE bio IS NOT NULL ORDER BY name";
-const SQL_GET_BOOKS_PUBLISHED_BETWEEN = "SELECT id, title, genre, price, published_at FROM book WHERE published_at IS NOT NULL   AND published_at BETWEEN ? AND ? ORDER BY published_at";
-const SQL_GET_DISTINCT_GENRES = "SELECT DISTINCT genre FROM book ORDER BY genre";
-const SQL_GET_BOOKS_WITH_SALES_COUNT = "SELECT b.id, b.title, b.genre,        COALESCE(SUM(si.quantity), 0) AS total_quantity FROM book b LEFT JOIN sale_item si ON si.book_id = b.id GROUP BY b.id, b.title, b.genre ORDER BY total_quantity DESC, b.title";
-const SQL_COUNT_SALE_ITEMS = "SELECT COUNT(*) AS item_count FROM sale_item WHERE sale_id = ?";
-const SQL_UPDATE_AUTHOR_BIO = "UPDATE author SET bio = ? WHERE id = ?";
-const SQL_DELETE_AUTHOR = "DELETE FROM author WHERE id = ?";
-const SQL_INSERT_PRODUCT = "INSERT INTO product (id, sku, name, active, weight_kg, rating, metadata, thumbnail, stock_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
-const SQL_UPSERT_PRODUCT = "INSERT INTO product (id, sku, name, active, metadata, stock_count) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE     SET name        = EXCLUDED.name,         active      = EXCLUDED.active,         metadata    = EXCLUDED.metadata,         stock_count = EXCLUDED.stock_count";
-const SQL_GET_SALE_ITEM_QUANTITY_AGGREGATES = "SELECT MIN(quantity)  AS min_qty,        MAX(quantity)  AS max_qty,        SUM(quantity)  AS sum_qty,        AVG(quantity)  AS avg_qty FROM sale_item";
-const SQL_GET_BOOK_PRICE_AGGREGATES = "SELECT MIN(price)  AS min_price,        MAX(price)  AS max_price,        SUM(price)  AS sum_price,        AVG(price)  AS avg_price FROM book";
+const SQL_CREATE_AUTHOR = `INSERT INTO author (name, bio, birth_year)
+VALUES (?, ?, ?)`;
+const SQL_GET_AUTHOR = `SELECT id, name, bio, birth_year
+FROM author
+WHERE id = ?`;
+const SQL_LIST_AUTHORS = `SELECT id, name, bio, birth_year
+FROM author
+ORDER BY name`;
+const SQL_CREATE_BOOK = `INSERT INTO book (author_id, title, genre, price, published_at)
+VALUES (?, ?, ?, ?, ?)`;
+const SQL_GET_BOOK = `SELECT id, author_id, title, genre, price, published_at
+FROM book
+WHERE id = ?`;
+const SQL_GET_BOOKS_BY_IDS = `SELECT id, author_id, title, genre, price, published_at
+FROM book
+WHERE id IN (SELECT value FROM json_each(?))
+ORDER BY title`;
+const SQL_LIST_BOOKS_BY_GENRE = `SELECT id, author_id, title, genre, price, published_at
+FROM book
+WHERE genre = ?
+ORDER BY title`;
+const SQL_LIST_BOOKS_BY_GENRE_OR_ALL = `SELECT id, author_id, title, genre, price, published_at
+FROM book
+WHERE ? = 'all' OR genre = ?
+ORDER BY title`;
+const SQL_CREATE_CUSTOMER = `INSERT INTO customer (name, email)
+VALUES (?, ?)`;
+const SQL_CREATE_SALE = `INSERT INTO sale (customer_id)
+VALUES (?)`;
+const SQL_ADD_SALE_ITEM = `INSERT INTO sale_item (sale_id, book_id, quantity, unit_price)
+VALUES (?, ?, ?, ?)`;
+const SQL_LIST_BOOKS_WITH_AUTHOR = `SELECT b.id, b.title, b.genre, b.price, b.published_at,
+       a.name AS author_name, a.bio AS author_bio
+FROM book b
+JOIN author a ON a.id = b.author_id
+ORDER BY b.title`;
+const SQL_GET_BOOKS_NEVER_ORDERED = `SELECT b.id, b.author_id, b.title, b.genre, b.price, b.published_at
+FROM book b
+LEFT JOIN sale_item si ON si.book_id = b.id
+WHERE si.id IS NULL
+ORDER BY b.title`;
+const SQL_GET_TOP_SELLING_BOOKS = `WITH book_sales AS (
+    SELECT book_id,
+           SUM(quantity) AS units_sold
+    FROM sale_item
+    GROUP BY book_id
+)
+SELECT b.id, b.title, b.genre, b.price,
+       bs.units_sold
+FROM book b
+JOIN book_sales bs ON bs.book_id = b.id
+ORDER BY bs.units_sold DESC`;
+const SQL_GET_BEST_CUSTOMERS = `WITH customer_spend AS (
+    SELECT s.customer_id,
+           SUM(si.quantity * si.unit_price) AS total_spent
+    FROM sale s
+    JOIN sale_item si ON si.sale_id = s.id
+    GROUP BY s.customer_id
+)
+SELECT c.id, c.name, c.email,
+       cs.total_spent
+FROM customer c
+JOIN customer_spend cs ON cs.customer_id = c.id
+ORDER BY cs.total_spent DESC`;
+const SQL_COUNT_BOOKS_BY_GENRE = `SELECT genre, COUNT(*) AS book_count
+FROM book
+GROUP BY genre
+ORDER BY genre`;
+const SQL_LIST_BOOKS_WITH_LIMIT = `SELECT id, title, genre, price
+FROM book
+ORDER BY title
+LIMIT ? OFFSET ?`;
+const SQL_SEARCH_BOOKS_BY_TITLE = `SELECT id, title, genre, price
+FROM book
+WHERE title LIKE ?
+ORDER BY title`;
+const SQL_GET_BOOKS_BY_PRICE_RANGE = `SELECT id, title, genre, price
+FROM book
+WHERE price BETWEEN ? AND ?
+ORDER BY price`;
+const SQL_GET_BOOKS_IN_GENRES = `SELECT id, title, genre, price
+FROM book
+WHERE genre IN (?, ?, ?)
+ORDER BY title`;
+const SQL_GET_BOOK_PRICE_LABEL = `SELECT id, title, price,
+       CASE WHEN price > ? THEN 'expensive' ELSE 'affordable' END AS price_label
+FROM book
+ORDER BY title`;
+const SQL_GET_BOOK_PRICE_OR_DEFAULT = `SELECT id, title, COALESCE(price, ?) AS effective_price
+FROM book
+ORDER BY title`;
+const SQL_DELETE_BOOK_BY_ID = `DELETE FROM book WHERE id = ?`;
+const SQL_GET_GENRES_WITH_MANY_BOOKS = `SELECT genre, COUNT(*) AS book_count
+FROM book
+GROUP BY genre
+HAVING COUNT(*) > ?
+ORDER BY genre`;
+const SQL_GET_BOOKS_BY_AUTHOR_PARAM = `SELECT b.id, b.title, b.price
+FROM book b
+JOIN author a ON a.id = b.author_id AND a.birth_year > ?
+ORDER BY b.title`;
+const SQL_GET_ALL_BOOK_FIELDS = `SELECT b.*
+FROM book b
+ORDER BY b.id`;
+const SQL_GET_BOOKS_NOT_BY_AUTHOR = `SELECT id, title, genre
+FROM book
+WHERE author_id NOT IN (SELECT id FROM author WHERE name = ?)
+ORDER BY title`;
+const SQL_GET_BOOKS_WITH_RECENT_SALES = `SELECT id, title, genre
+FROM book
+WHERE EXISTS (
+    SELECT 1 FROM sale_item si
+    JOIN sale s ON s.id = si.sale_id
+    WHERE si.book_id = book.id AND s.ordered_at > ?
+)
+ORDER BY title`;
+const SQL_GET_BOOK_WITH_AUTHOR_NAME = `SELECT b.id, b.title,
+       (SELECT a.name FROM author a WHERE a.id = b.author_id) AS author_name
+FROM book b
+ORDER BY b.title`;
+const SQL_GET_AUTHOR_STATS = `WITH book_counts AS (
+    SELECT author_id, COUNT(*) AS num_books
+    FROM book
+    GROUP BY author_id
+),
+sale_counts AS (
+    SELECT b.author_id, SUM(si.quantity) AS total_sold
+    FROM sale_item si
+    JOIN book b ON b.id = si.book_id
+    GROUP BY b.author_id
+)
+SELECT a.id, a.name,
+       COALESCE(bc.num_books, 0) AS num_books,
+       COALESCE(sc.total_sold, 0) AS total_sold
+FROM author a
+LEFT JOIN book_counts bc ON bc.author_id = a.id
+LEFT JOIN sale_counts sc ON sc.author_id = a.id
+ORDER BY a.name`;
+const SQL_GET_PRODUCT = `SELECT id, sku, name, active, weight_kg, rating, metadata,
+       thumbnail, created_at, stock_count
+FROM product
+WHERE id = ?`;
+const SQL_LIST_ACTIVE_PRODUCTS = `SELECT id, sku, name, active, weight_kg, rating, metadata,
+       created_at, stock_count
+FROM product
+WHERE active = ?
+ORDER BY name`;
+const SQL_GET_AUTHORS_WITH_NULL_BIO = `SELECT id, name, birth_year
+FROM author
+WHERE bio IS NULL
+ORDER BY name`;
+const SQL_GET_AUTHORS_WITH_BIO = `SELECT id, name, bio, birth_year
+FROM author
+WHERE bio IS NOT NULL
+ORDER BY name`;
+const SQL_GET_BOOKS_PUBLISHED_BETWEEN = `SELECT id, title, genre, price, published_at
+FROM book
+WHERE published_at IS NOT NULL
+  AND published_at BETWEEN ? AND ?
+ORDER BY published_at`;
+const SQL_GET_DISTINCT_GENRES = `SELECT DISTINCT genre
+FROM book
+ORDER BY genre`;
+const SQL_GET_BOOKS_WITH_SALES_COUNT = `SELECT b.id, b.title, b.genre,
+       COALESCE(SUM(si.quantity), 0) AS total_quantity
+FROM book b
+LEFT JOIN sale_item si ON si.book_id = b.id
+GROUP BY b.id, b.title, b.genre
+ORDER BY total_quantity DESC, b.title`;
+const SQL_COUNT_SALE_ITEMS = `SELECT COUNT(*) AS item_count
+FROM sale_item
+WHERE sale_id = ?`;
+const SQL_UPDATE_AUTHOR_BIO = `UPDATE author SET bio = ? WHERE id = ?`;
+const SQL_DELETE_AUTHOR = `DELETE FROM author WHERE id = ?`;
+const SQL_INSERT_PRODUCT = `INSERT INTO product (id, sku, name, active, weight_kg, rating, metadata, thumbnail, stock_count)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+const SQL_UPSERT_PRODUCT = `INSERT INTO product (id, sku, name, active, metadata, stock_count)
+VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT (id) DO UPDATE
+    SET name        = EXCLUDED.name,
+        active      = EXCLUDED.active,
+        metadata    = EXCLUDED.metadata,
+        stock_count = EXCLUDED.stock_count`;
+const SQL_GET_SALE_ITEM_QUANTITY_AGGREGATES = `SELECT MIN(quantity)  AS min_qty,
+       MAX(quantity)  AS max_qty,
+       SUM(quantity)  AS sum_qty,
+       AVG(quantity)  AS avg_qty
+FROM sale_item`;
+const SQL_GET_BOOK_PRICE_AGGREGATES = `SELECT MIN(price)  AS min_price,
+       MAX(price)  AS max_price,
+       SUM(price)  AS sum_price,
+       AVG(price)  AS avg_price
+FROM book`;
 
 export async function createAuthor(db: Database, name: string, bio: string | null, birthYear: number | null): Promise<void> {
   db.prepare(SQL_CREATE_AUTHOR).run(name, bio, birthYear);

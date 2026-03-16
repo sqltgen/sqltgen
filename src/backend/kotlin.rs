@@ -264,9 +264,53 @@ fn emit_kotlin_query(src: &mut String, query: &Query, schema: &Schema, strategy:
     }
 }
 
+/// Emit a Kotlin triple-quoted SQL constant with `.trimIndent()`.
+///
+/// Strips the trailing `;` from `raw_sql`, re-appends it to the last content line,
+/// and uses `.trimIndent()` to strip the 8-space content indent at runtime.
+/// Uses `val` (not `const val`) because `.trimIndent()` is not a constant expression.
+fn emit_kotlin_sql_triple_quoted(src: &mut String, sql_const: &str, raw_sql: &str) -> anyhow::Result<()> {
+    let trimmed = raw_sql.trim_end().trim_end_matches(';');
+    let escaped = jdbc::escape_sql_triple_quoted(trimmed);
+    let escaped = escape_kotlin_dollar(&escaped);
+    writeln!(src, "    private val {sql_const} = \"\"\"")?;
+    let mut lines = escaped.lines().peekable();
+    while let Some(line) = lines.next() {
+        if lines.peek().is_none() {
+            writeln!(src, "        {line};")?;
+        } else {
+            writeln!(src, "        {line}")?;
+        }
+    }
+    writeln!(src, "    \"\"\".trimIndent()")?;
+    Ok(())
+}
+
+/// Escape `$` followed by an identifier character to prevent Kotlin string interpolation.
+///
+/// In Kotlin string templates (including raw `"""` strings), `$name` and `${expr}`
+/// trigger interpolation. After JDBC placeholder rewriting all `$N` become `?`,
+/// so this handles the rare case where SQL contains `$`-prefixed identifiers.
+fn escape_kotlin_dollar(sql: &str) -> String {
+    let mut result = String::with_capacity(sql.len());
+    let mut chars = sql.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '$' {
+            if let Some(&next) = chars.peek() {
+                if next.is_alphabetic() || next == '_' || next == '{' {
+                    result.push_str("${'$'}");
+                    continue;
+                }
+            }
+        }
+        result.push(c);
+    }
+    result
+}
+
 fn emit_kotlin_scalar_query(src: &mut String, ctx: &QueryContext) -> anyhow::Result<()> {
-    let (sql_const, escaped) = prepare_sql_const(ctx.query);
-    writeln!(src, "    private const val {sql_const} = \"{escaped};\"")?;
+    let (sql_const, raw_sql) = prepare_sql_const(ctx.query);
+    emit_kotlin_sql_triple_quoted(src, &sql_const, &raw_sql)?;
     writeln!(src, "    fun {}({}): {} {{", to_camel_case(&ctx.query.name), ctx.params_sig, ctx.return_type)?;
     writeln!(src, "        conn.prepareStatement({sql_const}).use {{ ps ->")?;
     emit_jdbc_binds(src, ctx.query, "", SE, "toTypedArray()", |p| kotlin_write_expr(p, ctx.config))?;
@@ -280,8 +324,8 @@ fn emit_kotlin_scalar_query(src: &mut String, ctx: &QueryContext) -> anyhow::Res
 fn emit_kotlin_list_pg_native(src: &mut String, ctx: &QueryContext, lp: &Parameter, rewritten_sql: &str) -> anyhow::Result<()> {
     let lp_name = to_camel_case(&lp.name);
     let method_name = to_camel_case(&ctx.query.name);
-    let (sql_const, escaped) = prepare_sql_const_from(ctx.query, rewritten_sql);
-    writeln!(src, "    private const val {sql_const} = \"{escaped};\"")?;
+    let (sql_const, raw_sql) = prepare_sql_const_from(ctx.query, rewritten_sql);
+    emit_kotlin_sql_triple_quoted(src, &sql_const, &raw_sql)?;
     writeln!(src, "    fun {method_name}({}): {} {{", ctx.params_sig, ctx.return_type)?;
     let type_name = pg_array_type_name(&lp.sql_type);
     writeln!(src, "        val arr = conn.createArrayOf(\"{type_name}\", {lp_name}.toTypedArray())")?;
@@ -319,8 +363,8 @@ fn emit_kotlin_list_dynamic(src: &mut String, ctx: &QueryContext, lp: &Parameter
 /// already-rewritten SQL (with `json_each` or `JSON_TABLE`).
 fn emit_kotlin_list_json_native(src: &mut String, ctx: &QueryContext, lp: &Parameter, rewritten_sql: &str) -> anyhow::Result<()> {
     let method_name = to_camel_case(&ctx.query.name);
-    let (sql_const, escaped) = prepare_sql_const_from(ctx.query, rewritten_sql);
-    writeln!(src, "    private const val {sql_const} = \"{escaped};\"")?;
+    let (sql_const, raw_sql) = prepare_sql_const_from(ctx.query, rewritten_sql);
+    emit_kotlin_sql_triple_quoted(src, &sql_const, &raw_sql)?;
     writeln!(src, "    fun {method_name}({}): {} {{", ctx.params_sig, ctx.return_type)?;
     emit_kotlin_json_builder(src, lp)?;
     writeln!(src, "        conn.prepareStatement({sql_const}).use {{ ps ->")?;

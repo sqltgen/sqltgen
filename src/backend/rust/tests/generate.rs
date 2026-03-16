@@ -142,8 +142,8 @@ fn test_generate_mysql_exec_query() {
     let files = mysql().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.rs");
     assert!(src.contains("MySqlPool"), "MySQL backend uses MySqlPool");
-    // MySQL rewrites $1 → ? (JDBC style)
-    assert!(src.contains("\"DELETE FROM user WHERE id = ?\""));
+    // MySQL rewrites $1 → ? (JDBC style); SQL is in a raw string binding
+    assert!(src.contains("DELETE FROM user WHERE id = ?"));
     assert!(src.contains("pub async fn delete_user"));
 }
 
@@ -189,15 +189,17 @@ fn test_generate_mysql_one_query_returns_option() {
 // ─── generate: SQL embedding ─────────────────────────────────────────────
 
 #[test]
-fn test_generate_sql_is_inlined_not_constant() {
-    // Rust backend inlines SQL directly into sqlx::query(). It does NOT emit
-    // a named SQL constant (that is a JDBC backend pattern).
+fn test_generate_sql_is_local_binding_not_constant() {
+    // Rust backend emits SQL as a local `let sql = r##"..."##` binding. It does NOT
+    // emit a named SQL constant (that is a JDBC backend pattern).
     let schema = Schema::default();
     let query = Query::exec("GetUserById", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.rs");
-    // SQL is inlined as a string literal in the sqlx call
-    assert!(src.contains("\"DELETE FROM user WHERE id = $1\""), "SQL should be inlined");
+    // SQL is in a raw-string local binding
+    assert!(src.contains("let sql = r##\""), "SQL should be in a raw string binding");
+    assert!(src.contains("DELETE FROM user WHERE id = $1"), "SQL text should be present");
+    assert!(src.contains("sqlx::query(sql)"), "sqlx call should reference the local binding");
     // No separate const for the SQL
     assert!(!src.contains("GET_USER_BY_ID"), "Rust does not emit SQL constants");
 }

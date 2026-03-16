@@ -191,21 +191,30 @@ pub fn emit_dynamic_binds(
     Ok(())
 }
 
-/// Build the SQL constant and escaped SQL for a query.
+/// Build the SQL constant and raw SQL for a query.
 ///
-/// Returns `(const_name, escaped_sql)` ready for embedding in a string literal.
+/// Returns `(const_name, raw_sql)` where `raw_sql` has placeholders rewritten for JDBC.
+/// Callers are responsible for any escaping needed by their string literal syntax.
 pub fn prepare_sql_const(query: &Query) -> (String, String) {
     let sql = rewrite_to_anon_params(&query.sql);
-    (sql_const_name(&query.name), escape_sql(&sql))
+    (sql_const_name(&query.name), sql)
 }
 
-/// Build the SQL constant and escaped SQL for a query with a pre-rewritten SQL.
+/// Build the SQL constant and raw SQL for a query with a pre-rewritten SQL.
 ///
 /// Same as [`prepare_sql_const`] but starts from an already-rewritten SQL string
 /// (used by list-param strategies that modify the SQL before rewriting placeholders).
 pub fn prepare_sql_const_from(query: &Query, rewritten_sql: &str) -> (String, String) {
     let sql = rewrite_to_anon_params(rewritten_sql);
-    (sql_const_name(&query.name), escape_sql(&sql))
+    (sql_const_name(&query.name), sql)
+}
+
+/// Escape a SQL string for embedding in a triple-quoted string literal.
+///
+/// Replaces `"""` with `\"""` to prevent premature termination of the text block.
+/// Used by the Java and Kotlin backends.
+pub(crate) fn escape_sql_triple_quoted(sql: &str) -> String {
+    sql.replace("\"\"\"", "\\\"\"\"")
 }
 
 /// Build the `(before_esc, after_esc)` pair for dynamic IN expansion.
@@ -366,6 +375,7 @@ mod tests {
         let q = make_query("GetUser", "SELECT * FROM users WHERE id = $1", vec![]);
         let (name, sql) = prepare_sql_const(&q);
         assert_eq!(name, "SQL_GET_USER");
+        // Returns raw SQL (placeholder rewritten, no string-literal escaping)
         assert_eq!(sql, "SELECT * FROM users WHERE id = ?");
     }
 

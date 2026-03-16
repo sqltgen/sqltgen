@@ -291,10 +291,29 @@ fn emit_java_query(src: &mut String, query: &Query, schema: &Schema, strategy: &
     }
 }
 
+/// Emit a Java text block SQL constant (Java 15+ `"""..."""` syntax).
+///
+/// Strips the trailing `;` from `raw_sql`, re-appends it to the last content line,
+/// and formats the block with 12-space content indent so `javac` strips leading
+/// whitespace, leaving the SQL with no indentation at runtime.
+fn emit_java_sql_text_block(src: &mut String, sql_const: &str, raw_sql: &str) -> anyhow::Result<()> {
+    let trimmed = jdbc::escape_sql_triple_quoted(raw_sql.trim_end().trim_end_matches(';'));
+    writeln!(src, "    private static final String {sql_const} = \"\"\"")?;
+    let mut lines = trimmed.lines().peekable();
+    while let Some(line) = lines.next() {
+        if lines.peek().is_none() {
+            writeln!(src, "            {line};")?;
+        } else {
+            writeln!(src, "            {line}")?;
+        }
+    }
+    writeln!(src, "            \"\"\";")?;
+    Ok(())
+}
+
 fn emit_java_scalar_query(src: &mut String, ctx: &QueryContext) -> anyhow::Result<()> {
-    let (sql_const, escaped) = prepare_sql_const(ctx.query);
-    writeln!(src, "    private static final String {sql_const} =")?;
-    writeln!(src, "        \"{escaped};\";",)?;
+    let (sql_const, raw_sql) = prepare_sql_const(ctx.query);
+    emit_java_sql_text_block(src, &sql_const, &raw_sql)?;
     writeln!(src, "    public static {} {}({}) throws SQLException {{", ctx.return_type, to_camel_case(&ctx.query.name), ctx.params_sig)?;
     writeln!(src, "        try (PreparedStatement ps = conn.prepareStatement({sql_const})) {{")?;
     emit_jdbc_binds(src, ctx.query, "", SE, "toArray()", |p| java_write_expr(p, ctx.config))?;
@@ -308,9 +327,8 @@ fn emit_java_scalar_query(src: &mut String, ctx: &QueryContext) -> anyhow::Resul
 fn emit_java_list_pg_native(src: &mut String, ctx: &QueryContext, lp: &Parameter, rewritten_sql: &str) -> anyhow::Result<()> {
     let lp_name = to_camel_case(&lp.name);
     let method_name = to_camel_case(&ctx.query.name);
-    let (sql_const, escaped) = prepare_sql_const_from(ctx.query, rewritten_sql);
-    writeln!(src, "    private static final String {sql_const} =")?;
-    writeln!(src, "        \"{escaped};\";",)?;
+    let (sql_const, raw_sql) = prepare_sql_const_from(ctx.query, rewritten_sql);
+    emit_java_sql_text_block(src, &sql_const, &raw_sql)?;
     writeln!(src, "    public static {} {method_name}({}) throws SQLException {{", ctx.return_type, ctx.params_sig)?;
     let type_name = pg_array_type_name(&lp.sql_type);
     writeln!(src, "        java.sql.Array arr = conn.createArrayOf(\"{type_name}\", {lp_name}.toArray());")?;
@@ -350,9 +368,8 @@ fn emit_java_list_dynamic(src: &mut String, ctx: &QueryContext, lp: &Parameter) 
 /// already-rewritten SQL (with `json_each` or `JSON_TABLE`).
 fn emit_java_list_json_native(src: &mut String, ctx: &QueryContext, lp: &Parameter, rewritten_sql: &str) -> anyhow::Result<()> {
     let method_name = to_camel_case(&ctx.query.name);
-    let (sql_const, escaped) = prepare_sql_const_from(ctx.query, rewritten_sql);
-    writeln!(src, "    private static final String {sql_const} =")?;
-    writeln!(src, "        \"{escaped};\";",)?;
+    let (sql_const, raw_sql) = prepare_sql_const_from(ctx.query, rewritten_sql);
+    emit_java_sql_text_block(src, &sql_const, &raw_sql)?;
     writeln!(src, "    public static {} {method_name}({}) throws SQLException {{", ctx.return_type, ctx.params_sig)?;
     emit_java_json_builder(src, lp)?;
     writeln!(src, "        try (PreparedStatement ps = conn.prepareStatement({sql_const})) {{")?;

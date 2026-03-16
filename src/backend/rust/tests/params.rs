@@ -40,8 +40,8 @@ fn test_generate_sqlite_rewrites_placeholders() {
     let query = Query::exec("GetUser", "DELETE FROM user WHERE id = ?1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.rs");
-    // ?1 should be rewritten to ? for sqlx sqlite
-    assert!(src.contains("\"DELETE FROM user WHERE id = ?\""));
+    // ?1 should be rewritten to ? for sqlx sqlite; SQL is in a raw string binding
+    assert!(src.contains("DELETE FROM user WHERE id = ?"));
 }
 
 // ─── generate: repeated param ────────────────────────────────────────────

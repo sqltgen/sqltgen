@@ -4,7 +4,11 @@ import java.sql.Connection
 
 object Queries {
 
-    private const val SQL_CREATE_AUTHOR = "INSERT INTO author (name, bio, birth_year) VALUES (?, ?, ?) RETURNING *;"
+    private val SQL_CREATE_AUTHOR = """
+        INSERT INTO author (name, bio, birth_year)
+        VALUES (?, ?, ?)
+        RETURNING *;
+    """.trimIndent()
     fun createAuthor(conn: Connection, name: String, bio: String?, birthYear: Int?): Author? {
         conn.prepareStatement(SQL_CREATE_AUTHOR).use { ps ->
             ps.setString(1, name)
@@ -17,7 +21,11 @@ object Queries {
         }
     }
 
-    private const val SQL_GET_AUTHOR = "SELECT id, name, bio, birth_year FROM author WHERE id = ?;"
+    private val SQL_GET_AUTHOR = """
+        SELECT id, name, bio, birth_year
+        FROM author
+        WHERE id = ?;
+    """.trimIndent()
     fun getAuthor(conn: Connection, id: Long): Author? {
         conn.prepareStatement(SQL_GET_AUTHOR).use { ps ->
             ps.setLong(1, id)
@@ -28,7 +36,11 @@ object Queries {
         }
     }
 
-    private const val SQL_LIST_AUTHORS = "SELECT id, name, bio, birth_year FROM author ORDER BY name;"
+    private val SQL_LIST_AUTHORS = """
+        SELECT id, name, bio, birth_year
+        FROM author
+        ORDER BY name;
+    """.trimIndent()
     fun listAuthors(conn: Connection): List<Author> {
         conn.prepareStatement(SQL_LIST_AUTHORS).use { ps ->
             val rows = mutableListOf<Author>()
@@ -39,7 +51,10 @@ object Queries {
         }
     }
 
-    private const val SQL_UPDATE_AUTHOR_BIO = "UPDATE author SET bio = ? WHERE id = ? RETURNING *;"
+    private val SQL_UPDATE_AUTHOR_BIO = """
+        UPDATE author SET bio = ? WHERE id = ?
+        RETURNING *;
+    """.trimIndent()
     fun updateAuthorBio(conn: Connection, bio: String?, id: Long): Author? {
         conn.prepareStatement(SQL_UPDATE_AUTHOR_BIO).use { ps ->
             ps.setObject(1, bio)
@@ -56,7 +71,10 @@ object Queries {
         val name: String
     )
 
-    private const val SQL_DELETE_AUTHOR = "DELETE FROM author WHERE id = ? RETURNING id, name;"
+    private val SQL_DELETE_AUTHOR = """
+        DELETE FROM author WHERE id = ?
+        RETURNING id, name;
+    """.trimIndent()
     fun deleteAuthor(conn: Connection, id: Long): DeleteAuthorRow? {
         conn.prepareStatement(SQL_DELETE_AUTHOR).use { ps ->
             ps.setLong(1, id)
@@ -67,7 +85,11 @@ object Queries {
         }
     }
 
-    private const val SQL_CREATE_BOOK = "INSERT INTO book (author_id, title, genre, price, published_at) VALUES (?, ?, ?, ?, ?) RETURNING *;"
+    private val SQL_CREATE_BOOK = """
+        INSERT INTO book (author_id, title, genre, price, published_at)
+        VALUES (?, ?, ?, ?, ?)
+        RETURNING *;
+    """.trimIndent()
     fun createBook(conn: Connection, authorId: Long, title: String, genre: String, price: java.math.BigDecimal, publishedAt: java.time.LocalDate?): Book? {
         conn.prepareStatement(SQL_CREATE_BOOK).use { ps ->
             ps.setLong(1, authorId)
@@ -82,7 +104,11 @@ object Queries {
         }
     }
 
-    private const val SQL_GET_BOOK = "SELECT id, author_id, title, genre, price, published_at FROM book WHERE id = ?;"
+    private val SQL_GET_BOOK = """
+        SELECT id, author_id, title, genre, price, published_at
+        FROM book
+        WHERE id = ?;
+    """.trimIndent()
     fun getBook(conn: Connection, id: Long): Book? {
         conn.prepareStatement(SQL_GET_BOOK).use { ps ->
             ps.setLong(1, id)
@@ -93,7 +119,12 @@ object Queries {
         }
     }
 
-    private const val SQL_GET_BOOKS_BY_IDS = "SELECT id, author_id, title, genre, price, published_at FROM book WHERE id = ANY(?) ORDER BY title;"
+    private val SQL_GET_BOOKS_BY_IDS = """
+        SELECT id, author_id, title, genre, price, published_at
+        FROM book
+        WHERE id = ANY(?)
+        ORDER BY title;
+    """.trimIndent()
     fun getBooksByIds(conn: Connection, ids: List<Long>): List<Book> {
         val arr = conn.createArrayOf("bigint", ids.toTypedArray())
         conn.prepareStatement(SQL_GET_BOOKS_BY_IDS).use { ps ->
@@ -106,7 +137,12 @@ object Queries {
         }
     }
 
-    private const val SQL_LIST_BOOKS_BY_GENRE = "SELECT id, author_id, title, genre, price, published_at FROM book WHERE genre = ? ORDER BY title;"
+    private val SQL_LIST_BOOKS_BY_GENRE = """
+        SELECT id, author_id, title, genre, price, published_at
+        FROM book
+        WHERE genre = ?
+        ORDER BY title;
+    """.trimIndent()
     fun listBooksByGenre(conn: Connection, genre: String): List<Book> {
         conn.prepareStatement(SQL_LIST_BOOKS_BY_GENRE).use { ps ->
             ps.setString(1, genre)
@@ -118,7 +154,12 @@ object Queries {
         }
     }
 
-    private const val SQL_LIST_BOOKS_BY_GENRE_OR_ALL = "SELECT id, author_id, title, genre, price, published_at FROM book WHERE ? = 'all' OR genre = ? ORDER BY title;"
+    private val SQL_LIST_BOOKS_BY_GENRE_OR_ALL = """
+        SELECT id, author_id, title, genre, price, published_at
+        FROM book
+        WHERE ? = 'all' OR genre = ?
+        ORDER BY title;
+    """.trimIndent()
     fun listBooksByGenreOrAll(conn: Connection, genre: String): List<Book> {
         conn.prepareStatement(SQL_LIST_BOOKS_BY_GENRE_OR_ALL).use { ps ->
             ps.setString(1, genre)
@@ -135,7 +176,11 @@ object Queries {
         val id: Long
     )
 
-    private const val SQL_CREATE_CUSTOMER = "INSERT INTO customer (name, email) VALUES (?, ?) RETURNING id;"
+    private val SQL_CREATE_CUSTOMER = """
+        INSERT INTO customer (name, email)
+        VALUES (?, ?)
+        RETURNING id;
+    """.trimIndent()
     fun createCustomer(conn: Connection, name: String, email: String): CreateCustomerRow? {
         conn.prepareStatement(SQL_CREATE_CUSTOMER).use { ps ->
             ps.setString(1, name)
@@ -151,7 +196,11 @@ object Queries {
         val id: Long
     )
 
-    private const val SQL_CREATE_SALE = "INSERT INTO sale (customer_id) VALUES (?) RETURNING id;"
+    private val SQL_CREATE_SALE = """
+        INSERT INTO sale (customer_id)
+        VALUES (?)
+        RETURNING id;
+    """.trimIndent()
     fun createSale(conn: Connection, customerId: Long): CreateSaleRow? {
         conn.prepareStatement(SQL_CREATE_SALE).use { ps ->
             ps.setLong(1, customerId)
@@ -162,7 +211,10 @@ object Queries {
         }
     }
 
-    private const val SQL_ADD_SALE_ITEM = "INSERT INTO sale_item (sale_id, book_id, quantity, unit_price) VALUES (?, ?, ?, ?);"
+    private val SQL_ADD_SALE_ITEM = """
+        INSERT INTO sale_item (sale_id, book_id, quantity, unit_price)
+        VALUES (?, ?, ?, ?);
+    """.trimIndent()
     fun addSaleItem(conn: Connection, saleId: Long, bookId: Long, quantity: Int, unitPrice: java.math.BigDecimal): Unit {
         conn.prepareStatement(SQL_ADD_SALE_ITEM).use { ps ->
             ps.setLong(1, saleId)
@@ -183,7 +235,13 @@ object Queries {
         val authorBio: String?
     )
 
-    private const val SQL_LIST_BOOKS_WITH_AUTHOR = "SELECT b.id, b.title, b.genre, b.price, b.published_at,        a.name AS author_name, a.bio AS author_bio FROM book b JOIN author a ON a.id = b.author_id ORDER BY b.title;"
+    private val SQL_LIST_BOOKS_WITH_AUTHOR = """
+        SELECT b.id, b.title, b.genre, b.price, b.published_at,
+               a.name AS author_name, a.bio AS author_bio
+        FROM book b
+        JOIN author a ON a.id = b.author_id
+        ORDER BY b.title;
+    """.trimIndent()
     fun listBooksWithAuthor(conn: Connection): List<ListBooksWithAuthorRow> {
         conn.prepareStatement(SQL_LIST_BOOKS_WITH_AUTHOR).use { ps ->
             val rows = mutableListOf<ListBooksWithAuthorRow>()
@@ -194,7 +252,13 @@ object Queries {
         }
     }
 
-    private const val SQL_GET_BOOKS_NEVER_ORDERED = "SELECT b.id, b.author_id, b.title, b.genre, b.price, b.published_at FROM book b LEFT JOIN sale_item si ON si.book_id = b.id WHERE si.id IS NULL ORDER BY b.title;"
+    private val SQL_GET_BOOKS_NEVER_ORDERED = """
+        SELECT b.id, b.author_id, b.title, b.genre, b.price, b.published_at
+        FROM book b
+        LEFT JOIN sale_item si ON si.book_id = b.id
+        WHERE si.id IS NULL
+        ORDER BY b.title;
+    """.trimIndent()
     fun getBooksNeverOrdered(conn: Connection): List<Book> {
         conn.prepareStatement(SQL_GET_BOOKS_NEVER_ORDERED).use { ps ->
             val rows = mutableListOf<Book>()
@@ -213,7 +277,19 @@ object Queries {
         val unitsSold: Long?
     )
 
-    private const val SQL_GET_TOP_SELLING_BOOKS = "WITH book_sales AS (     SELECT book_id,            SUM(quantity) AS units_sold     FROM sale_item     GROUP BY book_id ) SELECT b.id, b.title, b.genre, b.price,        bs.units_sold FROM book b JOIN book_sales bs ON bs.book_id = b.id ORDER BY bs.units_sold DESC;"
+    private val SQL_GET_TOP_SELLING_BOOKS = """
+        WITH book_sales AS (
+            SELECT book_id,
+                   SUM(quantity) AS units_sold
+            FROM sale_item
+            GROUP BY book_id
+        )
+        SELECT b.id, b.title, b.genre, b.price,
+               bs.units_sold
+        FROM book b
+        JOIN book_sales bs ON bs.book_id = b.id
+        ORDER BY bs.units_sold DESC;
+    """.trimIndent()
     fun getTopSellingBooks(conn: Connection): List<GetTopSellingBooksRow> {
         conn.prepareStatement(SQL_GET_TOP_SELLING_BOOKS).use { ps ->
             val rows = mutableListOf<GetTopSellingBooksRow>()
@@ -231,7 +307,20 @@ object Queries {
         val totalSpent: java.math.BigDecimal?
     )
 
-    private const val SQL_GET_BEST_CUSTOMERS = "WITH customer_spend AS (     SELECT s.customer_id,            SUM(si.quantity * si.unit_price) AS total_spent     FROM sale s     JOIN sale_item si ON si.sale_id = s.id     GROUP BY s.customer_id ) SELECT c.id, c.name, c.email,        cs.total_spent FROM customer c JOIN customer_spend cs ON cs.customer_id = c.id ORDER BY cs.total_spent DESC;"
+    private val SQL_GET_BEST_CUSTOMERS = """
+        WITH customer_spend AS (
+            SELECT s.customer_id,
+                   SUM(si.quantity * si.unit_price) AS total_spent
+            FROM sale s
+            JOIN sale_item si ON si.sale_id = s.id
+            GROUP BY s.customer_id
+        )
+        SELECT c.id, c.name, c.email,
+               cs.total_spent
+        FROM customer c
+        JOIN customer_spend cs ON cs.customer_id = c.id
+        ORDER BY cs.total_spent DESC;
+    """.trimIndent()
     fun getBestCustomers(conn: Connection): List<GetBestCustomersRow> {
         conn.prepareStatement(SQL_GET_BEST_CUSTOMERS).use { ps ->
             val rows = mutableListOf<GetBestCustomersRow>()
@@ -247,7 +336,12 @@ object Queries {
         val bookCount: Long
     )
 
-    private const val SQL_COUNT_BOOKS_BY_GENRE = "SELECT genre, COUNT(*) AS book_count FROM book GROUP BY genre ORDER BY genre;"
+    private val SQL_COUNT_BOOKS_BY_GENRE = """
+        SELECT genre, COUNT(*) AS book_count
+        FROM book
+        GROUP BY genre
+        ORDER BY genre;
+    """.trimIndent()
     fun countBooksByGenre(conn: Connection): List<CountBooksByGenreRow> {
         conn.prepareStatement(SQL_COUNT_BOOKS_BY_GENRE).use { ps ->
             val rows = mutableListOf<CountBooksByGenreRow>()
@@ -265,7 +359,12 @@ object Queries {
         val price: java.math.BigDecimal
     )
 
-    private const val SQL_LIST_BOOKS_WITH_LIMIT = "SELECT id, title, genre, price FROM book ORDER BY title LIMIT ? OFFSET ?;"
+    private val SQL_LIST_BOOKS_WITH_LIMIT = """
+        SELECT id, title, genre, price
+        FROM book
+        ORDER BY title
+        LIMIT ? OFFSET ?;
+    """.trimIndent()
     fun listBooksWithLimit(conn: Connection, limit: Long, offset: Long): List<ListBooksWithLimitRow> {
         conn.prepareStatement(SQL_LIST_BOOKS_WITH_LIMIT).use { ps ->
             ps.setLong(1, limit)
@@ -285,7 +384,12 @@ object Queries {
         val price: java.math.BigDecimal
     )
 
-    private const val SQL_SEARCH_BOOKS_BY_TITLE = "SELECT id, title, genre, price FROM book WHERE title LIKE ? ORDER BY title;"
+    private val SQL_SEARCH_BOOKS_BY_TITLE = """
+        SELECT id, title, genre, price
+        FROM book
+        WHERE title LIKE ?
+        ORDER BY title;
+    """.trimIndent()
     fun searchBooksByTitle(conn: Connection, title: String): List<SearchBooksByTitleRow> {
         conn.prepareStatement(SQL_SEARCH_BOOKS_BY_TITLE).use { ps ->
             ps.setString(1, title)
@@ -304,7 +408,12 @@ object Queries {
         val price: java.math.BigDecimal
     )
 
-    private const val SQL_GET_BOOKS_BY_PRICE_RANGE = "SELECT id, title, genre, price FROM book WHERE price BETWEEN ? AND ? ORDER BY price;"
+    private val SQL_GET_BOOKS_BY_PRICE_RANGE = """
+        SELECT id, title, genre, price
+        FROM book
+        WHERE price BETWEEN ? AND ?
+        ORDER BY price;
+    """.trimIndent()
     fun getBooksByPriceRange(conn: Connection, price: java.math.BigDecimal, price2: java.math.BigDecimal): List<GetBooksByPriceRangeRow> {
         conn.prepareStatement(SQL_GET_BOOKS_BY_PRICE_RANGE).use { ps ->
             ps.setBigDecimal(1, price)
@@ -324,7 +433,12 @@ object Queries {
         val price: java.math.BigDecimal
     )
 
-    private const val SQL_GET_BOOKS_IN_GENRES = "SELECT id, title, genre, price FROM book WHERE genre IN (?, ?, ?) ORDER BY title;"
+    private val SQL_GET_BOOKS_IN_GENRES = """
+        SELECT id, title, genre, price
+        FROM book
+        WHERE genre IN (?, ?, ?)
+        ORDER BY title;
+    """.trimIndent()
     fun getBooksInGenres(conn: Connection, genre: String, genre2: String, genre3: String): List<GetBooksInGenresRow> {
         conn.prepareStatement(SQL_GET_BOOKS_IN_GENRES).use { ps ->
             ps.setString(1, genre)
@@ -345,7 +459,12 @@ object Queries {
         val priceLabel: String
     )
 
-    private const val SQL_GET_BOOK_PRICE_LABEL = "SELECT id, title, price,        CASE WHEN price > ? THEN 'expensive' ELSE 'affordable' END AS price_label FROM book ORDER BY title;"
+    private val SQL_GET_BOOK_PRICE_LABEL = """
+        SELECT id, title, price,
+               CASE WHEN price > ? THEN 'expensive' ELSE 'affordable' END AS price_label
+        FROM book
+        ORDER BY title;
+    """.trimIndent()
     fun getBookPriceLabel(conn: Connection, price: java.math.BigDecimal): List<GetBookPriceLabelRow> {
         conn.prepareStatement(SQL_GET_BOOK_PRICE_LABEL).use { ps ->
             ps.setBigDecimal(1, price)
@@ -363,7 +482,11 @@ object Queries {
         val effectivePrice: java.math.BigDecimal
     )
 
-    private const val SQL_GET_BOOK_PRICE_OR_DEFAULT = "SELECT id, title, COALESCE(price, ?) AS effective_price FROM book ORDER BY title;"
+    private val SQL_GET_BOOK_PRICE_OR_DEFAULT = """
+        SELECT id, title, COALESCE(price, ?) AS effective_price
+        FROM book
+        ORDER BY title;
+    """.trimIndent()
     fun getBookPriceOrDefault(conn: Connection, price: java.math.BigDecimal?): List<GetBookPriceOrDefaultRow> {
         conn.prepareStatement(SQL_GET_BOOK_PRICE_OR_DEFAULT).use { ps ->
             ps.setObject(1, price)
@@ -375,7 +498,9 @@ object Queries {
         }
     }
 
-    private const val SQL_DELETE_BOOK_BY_ID = "DELETE FROM book WHERE id = ?;"
+    private val SQL_DELETE_BOOK_BY_ID = """
+        DELETE FROM book WHERE id = ?;
+    """.trimIndent()
     fun deleteBookById(conn: Connection, id: Long): Long {
         conn.prepareStatement(SQL_DELETE_BOOK_BY_ID).use { ps ->
             ps.setLong(1, id)
@@ -388,7 +513,13 @@ object Queries {
         val bookCount: Long
     )
 
-    private const val SQL_GET_GENRES_WITH_MANY_BOOKS = "SELECT genre, COUNT(*) AS book_count FROM book GROUP BY genre HAVING COUNT(*) > ? ORDER BY genre;"
+    private val SQL_GET_GENRES_WITH_MANY_BOOKS = """
+        SELECT genre, COUNT(*) AS book_count
+        FROM book
+        GROUP BY genre
+        HAVING COUNT(*) > ?
+        ORDER BY genre;
+    """.trimIndent()
     fun getGenresWithManyBooks(conn: Connection, count: Long): List<GetGenresWithManyBooksRow> {
         conn.prepareStatement(SQL_GET_GENRES_WITH_MANY_BOOKS).use { ps ->
             ps.setLong(1, count)
@@ -406,7 +537,12 @@ object Queries {
         val price: java.math.BigDecimal
     )
 
-    private const val SQL_GET_BOOKS_BY_AUTHOR_PARAM = "SELECT b.id, b.title, b.price FROM book b JOIN author a ON a.id = b.author_id AND a.birth_year > ? ORDER BY b.title;"
+    private val SQL_GET_BOOKS_BY_AUTHOR_PARAM = """
+        SELECT b.id, b.title, b.price
+        FROM book b
+        JOIN author a ON a.id = b.author_id AND a.birth_year > ?
+        ORDER BY b.title;
+    """.trimIndent()
     fun getBooksByAuthorParam(conn: Connection, birthYear: Int?): List<GetBooksByAuthorParamRow> {
         conn.prepareStatement(SQL_GET_BOOKS_BY_AUTHOR_PARAM).use { ps ->
             ps.setObject(1, birthYear)
@@ -418,7 +554,11 @@ object Queries {
         }
     }
 
-    private const val SQL_GET_ALL_BOOK_FIELDS = "SELECT b.* FROM book b ORDER BY b.id;"
+    private val SQL_GET_ALL_BOOK_FIELDS = """
+        SELECT b.*
+        FROM book b
+        ORDER BY b.id;
+    """.trimIndent()
     fun getAllBookFields(conn: Connection): List<Book> {
         conn.prepareStatement(SQL_GET_ALL_BOOK_FIELDS).use { ps ->
             val rows = mutableListOf<Book>()
@@ -435,7 +575,12 @@ object Queries {
         val genre: String
     )
 
-    private const val SQL_GET_BOOKS_NOT_BY_AUTHOR = "SELECT id, title, genre FROM book WHERE author_id NOT IN (SELECT id FROM author WHERE name = ?) ORDER BY title;"
+    private val SQL_GET_BOOKS_NOT_BY_AUTHOR = """
+        SELECT id, title, genre
+        FROM book
+        WHERE author_id NOT IN (SELECT id FROM author WHERE name = ?)
+        ORDER BY title;
+    """.trimIndent()
     fun getBooksNotByAuthor(conn: Connection, name: String): List<GetBooksNotByAuthorRow> {
         conn.prepareStatement(SQL_GET_BOOKS_NOT_BY_AUTHOR).use { ps ->
             ps.setString(1, name)
@@ -453,7 +598,16 @@ object Queries {
         val genre: String
     )
 
-    private const val SQL_GET_BOOKS_WITH_RECENT_SALES = "SELECT id, title, genre FROM book WHERE EXISTS (     SELECT 1 FROM sale_item si     JOIN sale s ON s.id = si.sale_id     WHERE si.book_id = book.id AND s.ordered_at > ? ) ORDER BY title;"
+    private val SQL_GET_BOOKS_WITH_RECENT_SALES = """
+        SELECT id, title, genre
+        FROM book
+        WHERE EXISTS (
+            SELECT 1 FROM sale_item si
+            JOIN sale s ON s.id = si.sale_id
+            WHERE si.book_id = book.id AND s.ordered_at > ?
+        )
+        ORDER BY title;
+    """.trimIndent()
     fun getBooksWithRecentSales(conn: Connection, orderedAt: java.time.LocalDateTime): List<GetBooksWithRecentSalesRow> {
         conn.prepareStatement(SQL_GET_BOOKS_WITH_RECENT_SALES).use { ps ->
             ps.setObject(1, orderedAt)
@@ -471,7 +625,12 @@ object Queries {
         val authorName: String?
     )
 
-    private const val SQL_GET_BOOK_WITH_AUTHOR_NAME = "SELECT b.id, b.title,        (SELECT a.name FROM author a WHERE a.id = b.author_id) AS author_name FROM book b ORDER BY b.title;"
+    private val SQL_GET_BOOK_WITH_AUTHOR_NAME = """
+        SELECT b.id, b.title,
+               (SELECT a.name FROM author a WHERE a.id = b.author_id) AS author_name
+        FROM book b
+        ORDER BY b.title;
+    """.trimIndent()
     fun getBookWithAuthorName(conn: Connection): List<GetBookWithAuthorNameRow> {
         conn.prepareStatement(SQL_GET_BOOK_WITH_AUTHOR_NAME).use { ps ->
             val rows = mutableListOf<GetBookWithAuthorNameRow>()
@@ -489,7 +648,26 @@ object Queries {
         val totalSold: Long
     )
 
-    private const val SQL_GET_AUTHOR_STATS = "WITH book_counts AS (     SELECT author_id, COUNT(*) AS num_books     FROM book     GROUP BY author_id ), sale_counts AS (     SELECT b.author_id, SUM(si.quantity) AS total_sold     FROM sale_item si     JOIN book b ON b.id = si.book_id     GROUP BY b.author_id ) SELECT a.id, a.name,        COALESCE(bc.num_books, 0) AS num_books,        COALESCE(sc.total_sold, 0) AS total_sold FROM author a LEFT JOIN book_counts bc ON bc.author_id = a.id LEFT JOIN sale_counts sc ON sc.author_id = a.id ORDER BY a.name;"
+    private val SQL_GET_AUTHOR_STATS = """
+        WITH book_counts AS (
+            SELECT author_id, COUNT(*) AS num_books
+            FROM book
+            GROUP BY author_id
+        ),
+        sale_counts AS (
+            SELECT b.author_id, SUM(si.quantity) AS total_sold
+            FROM sale_item si
+            JOIN book b ON b.id = si.book_id
+            GROUP BY b.author_id
+        )
+        SELECT a.id, a.name,
+               COALESCE(bc.num_books, 0) AS num_books,
+               COALESCE(sc.total_sold, 0) AS total_sold
+        FROM author a
+        LEFT JOIN book_counts bc ON bc.author_id = a.id
+        LEFT JOIN sale_counts sc ON sc.author_id = a.id
+        ORDER BY a.name;
+    """.trimIndent()
     fun getAuthorStats(conn: Connection): List<GetAuthorStatsRow> {
         conn.prepareStatement(SQL_GET_AUTHOR_STATS).use { ps ->
             val rows = mutableListOf<GetAuthorStatsRow>()
@@ -507,7 +685,14 @@ object Queries {
         val price: java.math.BigDecimal
     )
 
-    private const val SQL_ARCHIVE_AND_RETURN_BOOKS = "WITH archived AS (     DELETE FROM book     WHERE published_at < ?     RETURNING id, title, genre, price ) SELECT id, title, genre, price FROM archived ORDER BY title;"
+    private val SQL_ARCHIVE_AND_RETURN_BOOKS = """
+        WITH archived AS (
+            DELETE FROM book
+            WHERE published_at < ?
+            RETURNING id, title, genre, price
+        )
+        SELECT id, title, genre, price FROM archived ORDER BY title;
+    """.trimIndent()
     fun archiveAndReturnBooks(conn: Connection, publishedAt: java.time.LocalDate?): List<ArchiveAndReturnBooksRow> {
         conn.prepareStatement(SQL_ARCHIVE_AND_RETURN_BOOKS).use { ps ->
             ps.setObject(1, publishedAt)
@@ -519,7 +704,12 @@ object Queries {
         }
     }
 
-    private const val SQL_GET_PRODUCT = "SELECT id, sku, name, active, weight_kg, rating, tags, metadata,        thumbnail, created_at, stock_count FROM product WHERE id = ?;"
+    private val SQL_GET_PRODUCT = """
+        SELECT id, sku, name, active, weight_kg, rating, tags, metadata,
+               thumbnail, created_at, stock_count
+        FROM product
+        WHERE id = ?;
+    """.trimIndent()
     fun getProduct(conn: Connection, id: java.util.UUID): Product? {
         conn.prepareStatement(SQL_GET_PRODUCT).use { ps ->
             ps.setObject(1, id)
@@ -543,7 +733,13 @@ object Queries {
         val stockCount: Short
     )
 
-    private const val SQL_LIST_ACTIVE_PRODUCTS = "SELECT id, sku, name, active, weight_kg, rating, tags, metadata,        created_at, stock_count FROM product WHERE active = ? ORDER BY name;"
+    private val SQL_LIST_ACTIVE_PRODUCTS = """
+        SELECT id, sku, name, active, weight_kg, rating, tags, metadata,
+               created_at, stock_count
+        FROM product
+        WHERE active = ?
+        ORDER BY name;
+    """.trimIndent()
     fun listActiveProducts(conn: Connection, active: Boolean): List<ListActiveProductsRow> {
         conn.prepareStatement(SQL_LIST_ACTIVE_PRODUCTS).use { ps ->
             ps.setBoolean(1, active)
@@ -555,7 +751,11 @@ object Queries {
         }
     }
 
-    private const val SQL_INSERT_PRODUCT = "INSERT INTO product (id, sku, name, active, weight_kg, rating, tags, metadata, thumbnail, stock_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *;"
+    private val SQL_INSERT_PRODUCT = """
+        INSERT INTO product (id, sku, name, active, weight_kg, rating, tags, metadata, thumbnail, stock_count)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        RETURNING *;
+    """.trimIndent()
     fun insertProduct(conn: Connection, id: java.util.UUID, sku: String, name: String, active: Boolean, weightKg: Float?, rating: Double?, tags: List<String>, metadata: String?, thumbnail: ByteArray?, stockCount: Short): Product? {
         conn.prepareStatement(SQL_INSERT_PRODUCT).use { ps ->
             ps.setObject(1, id)
@@ -581,7 +781,12 @@ object Queries {
         val birthYear: Int?
     )
 
-    private const val SQL_GET_AUTHORS_WITH_NULL_BIO = "SELECT id, name, birth_year FROM author WHERE bio IS NULL ORDER BY name;"
+    private val SQL_GET_AUTHORS_WITH_NULL_BIO = """
+        SELECT id, name, birth_year
+        FROM author
+        WHERE bio IS NULL
+        ORDER BY name;
+    """.trimIndent()
     fun getAuthorsWithNullBio(conn: Connection): List<GetAuthorsWithNullBioRow> {
         conn.prepareStatement(SQL_GET_AUTHORS_WITH_NULL_BIO).use { ps ->
             val rows = mutableListOf<GetAuthorsWithNullBioRow>()
@@ -592,7 +797,12 @@ object Queries {
         }
     }
 
-    private const val SQL_GET_AUTHORS_WITH_BIO = "SELECT id, name, bio, birth_year FROM author WHERE bio IS NOT NULL ORDER BY name;"
+    private val SQL_GET_AUTHORS_WITH_BIO = """
+        SELECT id, name, bio, birth_year
+        FROM author
+        WHERE bio IS NOT NULL
+        ORDER BY name;
+    """.trimIndent()
     fun getAuthorsWithBio(conn: Connection): List<Author> {
         conn.prepareStatement(SQL_GET_AUTHORS_WITH_BIO).use { ps ->
             val rows = mutableListOf<Author>()
@@ -611,7 +821,13 @@ object Queries {
         val publishedAt: java.time.LocalDate?
     )
 
-    private const val SQL_GET_BOOKS_PUBLISHED_BETWEEN = "SELECT id, title, genre, price, published_at FROM book WHERE published_at IS NOT NULL   AND published_at BETWEEN ? AND ? ORDER BY published_at;"
+    private val SQL_GET_BOOKS_PUBLISHED_BETWEEN = """
+        SELECT id, title, genre, price, published_at
+        FROM book
+        WHERE published_at IS NOT NULL
+          AND published_at BETWEEN ? AND ?
+        ORDER BY published_at;
+    """.trimIndent()
     fun getBooksPublishedBetween(conn: Connection, publishedAt: java.time.LocalDate?, publishedAt2: java.time.LocalDate?): List<GetBooksPublishedBetweenRow> {
         conn.prepareStatement(SQL_GET_BOOKS_PUBLISHED_BETWEEN).use { ps ->
             ps.setObject(1, publishedAt)
@@ -628,7 +844,11 @@ object Queries {
         val genre: String
     )
 
-    private const val SQL_GET_DISTINCT_GENRES = "SELECT DISTINCT genre FROM book ORDER BY genre;"
+    private val SQL_GET_DISTINCT_GENRES = """
+        SELECT DISTINCT genre
+        FROM book
+        ORDER BY genre;
+    """.trimIndent()
     fun getDistinctGenres(conn: Connection): List<GetDistinctGenresRow> {
         conn.prepareStatement(SQL_GET_DISTINCT_GENRES).use { ps ->
             val rows = mutableListOf<GetDistinctGenresRow>()
@@ -646,7 +866,14 @@ object Queries {
         val totalQuantity: Long
     )
 
-    private const val SQL_GET_BOOKS_WITH_SALES_COUNT = "SELECT b.id, b.title, b.genre,        COALESCE(SUM(si.quantity), 0) AS total_quantity FROM book b LEFT JOIN sale_item si ON si.book_id = b.id GROUP BY b.id, b.title, b.genre ORDER BY total_quantity DESC, b.title;"
+    private val SQL_GET_BOOKS_WITH_SALES_COUNT = """
+        SELECT b.id, b.title, b.genre,
+               COALESCE(SUM(si.quantity), 0) AS total_quantity
+        FROM book b
+        LEFT JOIN sale_item si ON si.book_id = b.id
+        GROUP BY b.id, b.title, b.genre
+        ORDER BY total_quantity DESC, b.title;
+    """.trimIndent()
     fun getBooksWithSalesCount(conn: Connection): List<GetBooksWithSalesCountRow> {
         conn.prepareStatement(SQL_GET_BOOKS_WITH_SALES_COUNT).use { ps ->
             val rows = mutableListOf<GetBooksWithSalesCountRow>()
@@ -661,7 +888,11 @@ object Queries {
         val itemCount: Long
     )
 
-    private const val SQL_COUNT_SALE_ITEMS = "SELECT COUNT(*) AS item_count FROM sale_item WHERE sale_id = ?;"
+    private val SQL_COUNT_SALE_ITEMS = """
+        SELECT COUNT(*) AS item_count
+        FROM sale_item
+        WHERE sale_id = ?;
+    """.trimIndent()
     fun countSaleItems(conn: Connection, saleId: Long): CountSaleItemsRow? {
         conn.prepareStatement(SQL_COUNT_SALE_ITEMS).use { ps ->
             ps.setLong(1, saleId)
@@ -681,7 +912,16 @@ object Queries {
         val stockCount: Short
     )
 
-    private const val SQL_UPSERT_PRODUCT = "INSERT INTO product (id, sku, name, active, tags, stock_count) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE     SET name        = EXCLUDED.name,         active      = EXCLUDED.active,         tags        = EXCLUDED.tags,         stock_count = EXCLUDED.stock_count RETURNING id, sku, name, active, tags, stock_count;"
+    private val SQL_UPSERT_PRODUCT = """
+        INSERT INTO product (id, sku, name, active, tags, stock_count)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT (id) DO UPDATE
+            SET name        = EXCLUDED.name,
+                active      = EXCLUDED.active,
+                tags        = EXCLUDED.tags,
+                stock_count = EXCLUDED.stock_count
+        RETURNING id, sku, name, active, tags, stock_count;
+    """.trimIndent()
     fun upsertProduct(conn: Connection, id: java.util.UUID, sku: String, name: String, active: Boolean, tags: List<String>, stockCount: Short): UpsertProductRow? {
         conn.prepareStatement(SQL_UPSERT_PRODUCT).use { ps ->
             ps.setObject(1, id)
@@ -704,7 +944,13 @@ object Queries {
         val avgQty: java.math.BigDecimal?
     )
 
-    private const val SQL_GET_SALE_ITEM_QUANTITY_AGGREGATES = "SELECT MIN(quantity)  AS min_qty,        MAX(quantity)  AS max_qty,        SUM(quantity)  AS sum_qty,        AVG(quantity)  AS avg_qty FROM sale_item;"
+    private val SQL_GET_SALE_ITEM_QUANTITY_AGGREGATES = """
+        SELECT MIN(quantity)  AS min_qty,
+               MAX(quantity)  AS max_qty,
+               SUM(quantity)  AS sum_qty,
+               AVG(quantity)  AS avg_qty
+        FROM sale_item;
+    """.trimIndent()
     fun getSaleItemQuantityAggregates(conn: Connection): GetSaleItemQuantityAggregatesRow? {
         conn.prepareStatement(SQL_GET_SALE_ITEM_QUANTITY_AGGREGATES).use { ps ->
             ps.executeQuery().use { rs ->
@@ -721,7 +967,13 @@ object Queries {
         val avgPrice: java.math.BigDecimal?
     )
 
-    private const val SQL_GET_BOOK_PRICE_AGGREGATES = "SELECT MIN(price)  AS min_price,        MAX(price)  AS max_price,        SUM(price)  AS sum_price,        AVG(price)  AS avg_price FROM book;"
+    private val SQL_GET_BOOK_PRICE_AGGREGATES = """
+        SELECT MIN(price)  AS min_price,
+               MAX(price)  AS max_price,
+               SUM(price)  AS sum_price,
+               AVG(price)  AS avg_price
+        FROM book;
+    """.trimIndent()
     fun getBookPriceAggregates(conn: Connection): GetBookPriceAggregatesRow? {
         conn.prepareStatement(SQL_GET_BOOK_PRICE_AGGREGATES).use { ps ->
             ps.executeQuery().use { rs ->

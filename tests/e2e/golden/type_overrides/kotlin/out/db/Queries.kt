@@ -12,7 +12,11 @@ import java.util.UUID
 object Queries {
     private val objectMapper = ObjectMapper()
 
-    private const val SQL_GET_EVENT = "SELECT id, name, payload, meta, doc_id, created_at, scheduled_at, event_date, event_time FROM event WHERE id = ?;"
+    private val SQL_GET_EVENT = """
+        SELECT id, name, payload, meta, doc_id, created_at, scheduled_at, event_date, event_time
+        FROM event
+        WHERE id = ?;
+    """.trimIndent()
     fun getEvent(conn: Connection, id: Long): Event? {
         conn.prepareStatement(SQL_GET_EVENT).use { ps ->
             ps.setLong(1, id)
@@ -23,7 +27,11 @@ object Queries {
         }
     }
 
-    private const val SQL_LIST_EVENTS = "SELECT id, name, payload, meta, doc_id, created_at, scheduled_at, event_date, event_time FROM event ORDER BY id;"
+    private val SQL_LIST_EVENTS = """
+        SELECT id, name, payload, meta, doc_id, created_at, scheduled_at, event_date, event_time
+        FROM event
+        ORDER BY id;
+    """.trimIndent()
     fun listEvents(conn: Connection): List<Event> {
         conn.prepareStatement(SQL_LIST_EVENTS).use { ps ->
             val rows = mutableListOf<Event>()
@@ -34,7 +42,10 @@ object Queries {
         }
     }
 
-    private const val SQL_INSERT_EVENT = "INSERT INTO event (name, payload, meta, doc_id, created_at, scheduled_at, event_date, event_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?);"
+    private val SQL_INSERT_EVENT = """
+        INSERT INTO event (name, payload, meta, doc_id, created_at, scheduled_at, event_date, event_time)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+    """.trimIndent()
     fun insertEvent(conn: Connection, name: String, payload: JsonNode, meta: JsonNode?, docId: UUID, createdAt: LocalDateTime, scheduledAt: OffsetDateTime?, eventDate: LocalDate?, eventTime: LocalTime?): Unit {
         conn.prepareStatement(SQL_INSERT_EVENT).use { ps ->
             ps.setString(1, name)
@@ -49,7 +60,9 @@ object Queries {
         }
     }
 
-    private const val SQL_UPDATE_PAYLOAD = "UPDATE event SET payload = ?, meta = ? WHERE id = ?;"
+    private val SQL_UPDATE_PAYLOAD = """
+        UPDATE event SET payload = ?, meta = ? WHERE id = ?;
+    """.trimIndent()
     fun updatePayload(conn: Connection, payload: JsonNode, meta: JsonNode?, id: Long): Unit {
         conn.prepareStatement(SQL_UPDATE_PAYLOAD).use { ps ->
             ps.setObject(1, objectMapper.writeValueAsString(payload), java.sql.Types.OTHER)
@@ -64,7 +77,9 @@ object Queries {
         val name: String
     )
 
-    private const val SQL_FIND_BY_DATE = "SELECT id, name FROM event WHERE event_date = ?;"
+    private val SQL_FIND_BY_DATE = """
+        SELECT id, name FROM event WHERE event_date = ?;
+    """.trimIndent()
     fun findByDate(conn: Connection, eventDate: LocalDate?): FindByDateRow? {
         conn.prepareStatement(SQL_FIND_BY_DATE).use { ps ->
             ps.setObject(1, eventDate)
@@ -80,7 +95,9 @@ object Queries {
         val name: String
     )
 
-    private const val SQL_FIND_BY_UUID = "SELECT id, name FROM event WHERE doc_id = ?;"
+    private val SQL_FIND_BY_UUID = """
+        SELECT id, name FROM event WHERE doc_id = ?;
+    """.trimIndent()
     fun findByUuid(conn: Connection, docId: UUID): FindByUuidRow? {
         conn.prepareStatement(SQL_FIND_BY_UUID).use { ps ->
             ps.setObject(1, docId)

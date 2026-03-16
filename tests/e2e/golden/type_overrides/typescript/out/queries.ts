@@ -5,12 +5,17 @@ import type { ClientBase } from 'pg';
 
 import type { Event } from './event';
 
-const SQL_GET_EVENT = "SELECT id, name, payload, meta, doc_id, created_at, scheduled_at, event_date, event_time FROM event WHERE id = $1";
-const SQL_LIST_EVENTS = "SELECT id, name, payload, meta, doc_id, created_at, scheduled_at, event_date, event_time FROM event ORDER BY id";
-const SQL_INSERT_EVENT = "INSERT INTO event (name, payload, meta, doc_id, created_at, scheduled_at, event_date, event_time) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)";
-const SQL_UPDATE_PAYLOAD = "UPDATE event SET payload = $1, meta = $2 WHERE id = $3";
-const SQL_FIND_BY_DATE = "SELECT id, name FROM event WHERE event_date = $1";
-const SQL_FIND_BY_UUID = "SELECT id, name FROM event WHERE doc_id = $1";
+const SQL_GET_EVENT = `SELECT id, name, payload, meta, doc_id, created_at, scheduled_at, event_date, event_time
+FROM event
+WHERE id = $1`;
+const SQL_LIST_EVENTS = `SELECT id, name, payload, meta, doc_id, created_at, scheduled_at, event_date, event_time
+FROM event
+ORDER BY id`;
+const SQL_INSERT_EVENT = `INSERT INTO event (name, payload, meta, doc_id, created_at, scheduled_at, event_date, event_time)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`;
+const SQL_UPDATE_PAYLOAD = `UPDATE event SET payload = $1, meta = $2 WHERE id = $3`;
+const SQL_FIND_BY_DATE = `SELECT id, name FROM event WHERE event_date = $1`;
+const SQL_FIND_BY_UUID = `SELECT id, name FROM event WHERE doc_id = $1`;
 
 export async function getEvent(db: ClientBase, id: number): Promise<Event | null> {
   const result = await db.query<Event>(SQL_GET_EVENT, [id]);

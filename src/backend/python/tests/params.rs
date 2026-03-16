@@ -24,7 +24,8 @@ fn test_generate_postgres_rewrites_placeholders_to_percent_s() {
     let query = Query::exec("GetUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.py");
-    assert!(src.contains("\"DELETE FROM user WHERE id = %s\""));
+    // SQL is in a triple-quoted string; check for the content without surrounding quotes
+    assert!(src.contains("DELETE FROM user WHERE id = %s"));
 }
 
 #[test]
@@ -33,7 +34,8 @@ fn test_generate_sqlite_rewrites_placeholders_to_question_mark() {
     let query = Query::exec("GetUser", "DELETE FROM user WHERE id = ?1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = sq().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.py");
-    assert!(src.contains("\"DELETE FROM user WHERE id = ?\""));
+    // SQL is in a triple-quoted string; check for the content without surrounding quotes
+    assert!(src.contains("DELETE FROM user WHERE id = ?"));
 }
 
 // ─── generate: nullable params ───────────────────────────────────────────

@@ -11,8 +11,11 @@ import java.util.Optional;
 public final class Queries {
     private Queries() {}
 
-    private static final String SQL_CREATE_AUTHOR =
-        "INSERT INTO author (name, bio, birth_year) VALUES (?, ?, ?) RETURNING *;";
+    private static final String SQL_CREATE_AUTHOR = """
+            INSERT INTO author (name, bio, birth_year)
+            VALUES (?, ?, ?)
+            RETURNING *;
+            """;
     public static Optional<Author> createAuthor(Connection conn, String name, String bio, Integer birthYear) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_CREATE_AUTHOR)) {
             ps.setString(1, name);
@@ -25,8 +28,11 @@ public final class Queries {
         }
     }
 
-    private static final String SQL_GET_AUTHOR =
-        "SELECT id, name, bio, birth_year FROM author WHERE id = ?;";
+    private static final String SQL_GET_AUTHOR = """
+            SELECT id, name, bio, birth_year
+            FROM author
+            WHERE id = ?;
+            """;
     public static Optional<Author> getAuthor(Connection conn, long id) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_GET_AUTHOR)) {
             ps.setLong(1, id);
@@ -37,8 +43,11 @@ public final class Queries {
         }
     }
 
-    private static final String SQL_LIST_AUTHORS =
-        "SELECT id, name, bio, birth_year FROM author ORDER BY name;";
+    private static final String SQL_LIST_AUTHORS = """
+            SELECT id, name, bio, birth_year
+            FROM author
+            ORDER BY name;
+            """;
     public static List<Author> listAuthors(Connection conn) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_LIST_AUTHORS)) {
             List<Author> rows = new ArrayList<>();
@@ -49,8 +58,10 @@ public final class Queries {
         }
     }
 
-    private static final String SQL_UPDATE_AUTHOR_BIO =
-        "UPDATE author SET bio = ? WHERE id = ? RETURNING *;";
+    private static final String SQL_UPDATE_AUTHOR_BIO = """
+            UPDATE author SET bio = ? WHERE id = ?
+            RETURNING *;
+            """;
     public static Optional<Author> updateAuthorBio(Connection conn, String bio, long id) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_UPDATE_AUTHOR_BIO)) {
             ps.setObject(1, bio);
@@ -67,8 +78,10 @@ public final class Queries {
         String name
     ) {}
 
-    private static final String SQL_DELETE_AUTHOR =
-        "DELETE FROM author WHERE id = ? RETURNING id, name;";
+    private static final String SQL_DELETE_AUTHOR = """
+            DELETE FROM author WHERE id = ?
+            RETURNING id, name;
+            """;
     public static Optional<DeleteAuthorRow> deleteAuthor(Connection conn, long id) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_DELETE_AUTHOR)) {
             ps.setLong(1, id);
@@ -79,8 +92,11 @@ public final class Queries {
         }
     }
 
-    private static final String SQL_CREATE_BOOK =
-        "INSERT INTO book (author_id, title, genre, price, published_at) VALUES (?, ?, ?, ?, ?) RETURNING *;";
+    private static final String SQL_CREATE_BOOK = """
+            INSERT INTO book (author_id, title, genre, price, published_at)
+            VALUES (?, ?, ?, ?, ?)
+            RETURNING *;
+            """;
     public static Optional<Book> createBook(Connection conn, long authorId, String title, String genre, java.math.BigDecimal price, java.time.LocalDate publishedAt) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_CREATE_BOOK)) {
             ps.setLong(1, authorId);
@@ -95,8 +111,11 @@ public final class Queries {
         }
     }
 
-    private static final String SQL_GET_BOOK =
-        "SELECT id, author_id, title, genre, price, published_at FROM book WHERE id = ?;";
+    private static final String SQL_GET_BOOK = """
+            SELECT id, author_id, title, genre, price, published_at
+            FROM book
+            WHERE id = ?;
+            """;
     public static Optional<Book> getBook(Connection conn, long id) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_GET_BOOK)) {
             ps.setLong(1, id);
@@ -107,8 +126,12 @@ public final class Queries {
         }
     }
 
-    private static final String SQL_GET_BOOKS_BY_IDS =
-        "SELECT id, author_id, title, genre, price, published_at FROM book WHERE id = ANY(?) ORDER BY title;";
+    private static final String SQL_GET_BOOKS_BY_IDS = """
+            SELECT id, author_id, title, genre, price, published_at
+            FROM book
+            WHERE id = ANY(?)
+            ORDER BY title;
+            """;
     public static List<Book> getBooksByIds(Connection conn, List<Long> ids) throws SQLException {
         java.sql.Array arr = conn.createArrayOf("bigint", ids.toArray());
         try (PreparedStatement ps = conn.prepareStatement(SQL_GET_BOOKS_BY_IDS)) {
@@ -121,8 +144,12 @@ public final class Queries {
         }
     }
 
-    private static final String SQL_LIST_BOOKS_BY_GENRE =
-        "SELECT id, author_id, title, genre, price, published_at FROM book WHERE genre = ? ORDER BY title;";
+    private static final String SQL_LIST_BOOKS_BY_GENRE = """
+            SELECT id, author_id, title, genre, price, published_at
+            FROM book
+            WHERE genre = ?
+            ORDER BY title;
+            """;
     public static List<Book> listBooksByGenre(Connection conn, String genre) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_LIST_BOOKS_BY_GENRE)) {
             ps.setString(1, genre);
@@ -134,8 +161,12 @@ public final class Queries {
         }
     }
 
-    private static final String SQL_LIST_BOOKS_BY_GENRE_OR_ALL =
-        "SELECT id, author_id, title, genre, price, published_at FROM book WHERE ? = 'all' OR genre = ? ORDER BY title;";
+    private static final String SQL_LIST_BOOKS_BY_GENRE_OR_ALL = """
+            SELECT id, author_id, title, genre, price, published_at
+            FROM book
+            WHERE ? = 'all' OR genre = ?
+            ORDER BY title;
+            """;
     public static List<Book> listBooksByGenreOrAll(Connection conn, String genre) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_LIST_BOOKS_BY_GENRE_OR_ALL)) {
             ps.setString(1, genre);
@@ -152,8 +183,11 @@ public final class Queries {
         long id
     ) {}
 
-    private static final String SQL_CREATE_CUSTOMER =
-        "INSERT INTO customer (name, email) VALUES (?, ?) RETURNING id;";
+    private static final String SQL_CREATE_CUSTOMER = """
+            INSERT INTO customer (name, email)
+            VALUES (?, ?)
+            RETURNING id;
+            """;
     public static Optional<CreateCustomerRow> createCustomer(Connection conn, String name, String email) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_CREATE_CUSTOMER)) {
             ps.setString(1, name);
@@ -169,8 +203,11 @@ public final class Queries {
         long id
     ) {}
 
-    private static final String SQL_CREATE_SALE =
-        "INSERT INTO sale (customer_id) VALUES (?) RETURNING id;";
+    private static final String SQL_CREATE_SALE = """
+            INSERT INTO sale (customer_id)
+            VALUES (?)
+            RETURNING id;
+            """;
     public static Optional<CreateSaleRow> createSale(Connection conn, long customerId) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_CREATE_SALE)) {
             ps.setLong(1, customerId);
@@ -181,8 +218,10 @@ public final class Queries {
         }
     }
 
-    private static final String SQL_ADD_SALE_ITEM =
-        "INSERT INTO sale_item (sale_id, book_id, quantity, unit_price) VALUES (?, ?, ?, ?);";
+    private static final String SQL_ADD_SALE_ITEM = """
+            INSERT INTO sale_item (sale_id, book_id, quantity, unit_price)
+            VALUES (?, ?, ?, ?);
+            """;
     public static void addSaleItem(Connection conn, long saleId, long bookId, int quantity, java.math.BigDecimal unitPrice) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_ADD_SALE_ITEM)) {
             ps.setLong(1, saleId);
@@ -203,8 +242,13 @@ public final class Queries {
         String authorBio
     ) {}
 
-    private static final String SQL_LIST_BOOKS_WITH_AUTHOR =
-        "SELECT b.id, b.title, b.genre, b.price, b.published_at,        a.name AS author_name, a.bio AS author_bio FROM book b JOIN author a ON a.id = b.author_id ORDER BY b.title;";
+    private static final String SQL_LIST_BOOKS_WITH_AUTHOR = """
+            SELECT b.id, b.title, b.genre, b.price, b.published_at,
+                   a.name AS author_name, a.bio AS author_bio
+            FROM book b
+            JOIN author a ON a.id = b.author_id
+            ORDER BY b.title;
+            """;
     public static List<ListBooksWithAuthorRow> listBooksWithAuthor(Connection conn) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_LIST_BOOKS_WITH_AUTHOR)) {
             List<ListBooksWithAuthorRow> rows = new ArrayList<>();
@@ -215,8 +259,13 @@ public final class Queries {
         }
     }
 
-    private static final String SQL_GET_BOOKS_NEVER_ORDERED =
-        "SELECT b.id, b.author_id, b.title, b.genre, b.price, b.published_at FROM book b LEFT JOIN sale_item si ON si.book_id = b.id WHERE si.id IS NULL ORDER BY b.title;";
+    private static final String SQL_GET_BOOKS_NEVER_ORDERED = """
+            SELECT b.id, b.author_id, b.title, b.genre, b.price, b.published_at
+            FROM book b
+            LEFT JOIN sale_item si ON si.book_id = b.id
+            WHERE si.id IS NULL
+            ORDER BY b.title;
+            """;
     public static List<Book> getBooksNeverOrdered(Connection conn) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_GET_BOOKS_NEVER_ORDERED)) {
             List<Book> rows = new ArrayList<>();
@@ -235,8 +284,19 @@ public final class Queries {
         Long unitsSold
     ) {}
 
-    private static final String SQL_GET_TOP_SELLING_BOOKS =
-        "WITH book_sales AS (     SELECT book_id,            SUM(quantity) AS units_sold     FROM sale_item     GROUP BY book_id ) SELECT b.id, b.title, b.genre, b.price,        bs.units_sold FROM book b JOIN book_sales bs ON bs.book_id = b.id ORDER BY bs.units_sold DESC;";
+    private static final String SQL_GET_TOP_SELLING_BOOKS = """
+            WITH book_sales AS (
+                SELECT book_id,
+                       SUM(quantity) AS units_sold
+                FROM sale_item
+                GROUP BY book_id
+            )
+            SELECT b.id, b.title, b.genre, b.price,
+                   bs.units_sold
+            FROM book b
+            JOIN book_sales bs ON bs.book_id = b.id
+            ORDER BY bs.units_sold DESC;
+            """;
     public static List<GetTopSellingBooksRow> getTopSellingBooks(Connection conn) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_GET_TOP_SELLING_BOOKS)) {
             List<GetTopSellingBooksRow> rows = new ArrayList<>();
@@ -254,8 +314,20 @@ public final class Queries {
         java.math.BigDecimal totalSpent
     ) {}
 
-    private static final String SQL_GET_BEST_CUSTOMERS =
-        "WITH customer_spend AS (     SELECT s.customer_id,            SUM(si.quantity * si.unit_price) AS total_spent     FROM sale s     JOIN sale_item si ON si.sale_id = s.id     GROUP BY s.customer_id ) SELECT c.id, c.name, c.email,        cs.total_spent FROM customer c JOIN customer_spend cs ON cs.customer_id = c.id ORDER BY cs.total_spent DESC;";
+    private static final String SQL_GET_BEST_CUSTOMERS = """
+            WITH customer_spend AS (
+                SELECT s.customer_id,
+                       SUM(si.quantity * si.unit_price) AS total_spent
+                FROM sale s
+                JOIN sale_item si ON si.sale_id = s.id
+                GROUP BY s.customer_id
+            )
+            SELECT c.id, c.name, c.email,
+                   cs.total_spent
+            FROM customer c
+            JOIN customer_spend cs ON cs.customer_id = c.id
+            ORDER BY cs.total_spent DESC;
+            """;
     public static List<GetBestCustomersRow> getBestCustomers(Connection conn) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_GET_BEST_CUSTOMERS)) {
             List<GetBestCustomersRow> rows = new ArrayList<>();
@@ -271,8 +343,12 @@ public final class Queries {
         long bookCount
     ) {}
 
-    private static final String SQL_COUNT_BOOKS_BY_GENRE =
-        "SELECT genre, COUNT(*) AS book_count FROM book GROUP BY genre ORDER BY genre;";
+    private static final String SQL_COUNT_BOOKS_BY_GENRE = """
+            SELECT genre, COUNT(*) AS book_count
+            FROM book
+            GROUP BY genre
+            ORDER BY genre;
+            """;
     public static List<CountBooksByGenreRow> countBooksByGenre(Connection conn) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_COUNT_BOOKS_BY_GENRE)) {
             List<CountBooksByGenreRow> rows = new ArrayList<>();
@@ -290,8 +366,12 @@ public final class Queries {
         java.math.BigDecimal price
     ) {}
 
-    private static final String SQL_LIST_BOOKS_WITH_LIMIT =
-        "SELECT id, title, genre, price FROM book ORDER BY title LIMIT ? OFFSET ?;";
+    private static final String SQL_LIST_BOOKS_WITH_LIMIT = """
+            SELECT id, title, genre, price
+            FROM book
+            ORDER BY title
+            LIMIT ? OFFSET ?;
+            """;
     public static List<ListBooksWithLimitRow> listBooksWithLimit(Connection conn, long limit, long offset) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_LIST_BOOKS_WITH_LIMIT)) {
             ps.setLong(1, limit);
@@ -311,8 +391,12 @@ public final class Queries {
         java.math.BigDecimal price
     ) {}
 
-    private static final String SQL_SEARCH_BOOKS_BY_TITLE =
-        "SELECT id, title, genre, price FROM book WHERE title LIKE ? ORDER BY title;";
+    private static final String SQL_SEARCH_BOOKS_BY_TITLE = """
+            SELECT id, title, genre, price
+            FROM book
+            WHERE title LIKE ?
+            ORDER BY title;
+            """;
     public static List<SearchBooksByTitleRow> searchBooksByTitle(Connection conn, String title) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_SEARCH_BOOKS_BY_TITLE)) {
             ps.setString(1, title);
@@ -331,8 +415,12 @@ public final class Queries {
         java.math.BigDecimal price
     ) {}
 
-    private static final String SQL_GET_BOOKS_BY_PRICE_RANGE =
-        "SELECT id, title, genre, price FROM book WHERE price BETWEEN ? AND ? ORDER BY price;";
+    private static final String SQL_GET_BOOKS_BY_PRICE_RANGE = """
+            SELECT id, title, genre, price
+            FROM book
+            WHERE price BETWEEN ? AND ?
+            ORDER BY price;
+            """;
     public static List<GetBooksByPriceRangeRow> getBooksByPriceRange(Connection conn, java.math.BigDecimal price, java.math.BigDecimal price2) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_GET_BOOKS_BY_PRICE_RANGE)) {
             ps.setBigDecimal(1, price);
@@ -352,8 +440,12 @@ public final class Queries {
         java.math.BigDecimal price
     ) {}
 
-    private static final String SQL_GET_BOOKS_IN_GENRES =
-        "SELECT id, title, genre, price FROM book WHERE genre IN (?, ?, ?) ORDER BY title;";
+    private static final String SQL_GET_BOOKS_IN_GENRES = """
+            SELECT id, title, genre, price
+            FROM book
+            WHERE genre IN (?, ?, ?)
+            ORDER BY title;
+            """;
     public static List<GetBooksInGenresRow> getBooksInGenres(Connection conn, String genre, String genre2, String genre3) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_GET_BOOKS_IN_GENRES)) {
             ps.setString(1, genre);
@@ -374,8 +466,12 @@ public final class Queries {
         String priceLabel
     ) {}
 
-    private static final String SQL_GET_BOOK_PRICE_LABEL =
-        "SELECT id, title, price,        CASE WHEN price > ? THEN 'expensive' ELSE 'affordable' END AS price_label FROM book ORDER BY title;";
+    private static final String SQL_GET_BOOK_PRICE_LABEL = """
+            SELECT id, title, price,
+                   CASE WHEN price > ? THEN 'expensive' ELSE 'affordable' END AS price_label
+            FROM book
+            ORDER BY title;
+            """;
     public static List<GetBookPriceLabelRow> getBookPriceLabel(Connection conn, java.math.BigDecimal price) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_GET_BOOK_PRICE_LABEL)) {
             ps.setBigDecimal(1, price);
@@ -393,8 +489,11 @@ public final class Queries {
         java.math.BigDecimal effectivePrice
     ) {}
 
-    private static final String SQL_GET_BOOK_PRICE_OR_DEFAULT =
-        "SELECT id, title, COALESCE(price, ?) AS effective_price FROM book ORDER BY title;";
+    private static final String SQL_GET_BOOK_PRICE_OR_DEFAULT = """
+            SELECT id, title, COALESCE(price, ?) AS effective_price
+            FROM book
+            ORDER BY title;
+            """;
     public static List<GetBookPriceOrDefaultRow> getBookPriceOrDefault(Connection conn, java.math.BigDecimal price) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_GET_BOOK_PRICE_OR_DEFAULT)) {
             ps.setObject(1, price);
@@ -406,8 +505,9 @@ public final class Queries {
         }
     }
 
-    private static final String SQL_DELETE_BOOK_BY_ID =
-        "DELETE FROM book WHERE id = ?;";
+    private static final String SQL_DELETE_BOOK_BY_ID = """
+            DELETE FROM book WHERE id = ?;
+            """;
     public static long deleteBookById(Connection conn, long id) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_DELETE_BOOK_BY_ID)) {
             ps.setLong(1, id);
@@ -420,8 +520,13 @@ public final class Queries {
         long bookCount
     ) {}
 
-    private static final String SQL_GET_GENRES_WITH_MANY_BOOKS =
-        "SELECT genre, COUNT(*) AS book_count FROM book GROUP BY genre HAVING COUNT(*) > ? ORDER BY genre;";
+    private static final String SQL_GET_GENRES_WITH_MANY_BOOKS = """
+            SELECT genre, COUNT(*) AS book_count
+            FROM book
+            GROUP BY genre
+            HAVING COUNT(*) > ?
+            ORDER BY genre;
+            """;
     public static List<GetGenresWithManyBooksRow> getGenresWithManyBooks(Connection conn, long count) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_GET_GENRES_WITH_MANY_BOOKS)) {
             ps.setLong(1, count);
@@ -439,8 +544,12 @@ public final class Queries {
         java.math.BigDecimal price
     ) {}
 
-    private static final String SQL_GET_BOOKS_BY_AUTHOR_PARAM =
-        "SELECT b.id, b.title, b.price FROM book b JOIN author a ON a.id = b.author_id AND a.birth_year > ? ORDER BY b.title;";
+    private static final String SQL_GET_BOOKS_BY_AUTHOR_PARAM = """
+            SELECT b.id, b.title, b.price
+            FROM book b
+            JOIN author a ON a.id = b.author_id AND a.birth_year > ?
+            ORDER BY b.title;
+            """;
     public static List<GetBooksByAuthorParamRow> getBooksByAuthorParam(Connection conn, Integer birthYear) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_GET_BOOKS_BY_AUTHOR_PARAM)) {
             ps.setObject(1, birthYear);
@@ -452,8 +561,11 @@ public final class Queries {
         }
     }
 
-    private static final String SQL_GET_ALL_BOOK_FIELDS =
-        "SELECT b.* FROM book b ORDER BY b.id;";
+    private static final String SQL_GET_ALL_BOOK_FIELDS = """
+            SELECT b.*
+            FROM book b
+            ORDER BY b.id;
+            """;
     public static List<Book> getAllBookFields(Connection conn) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_GET_ALL_BOOK_FIELDS)) {
             List<Book> rows = new ArrayList<>();
@@ -470,8 +582,12 @@ public final class Queries {
         String genre
     ) {}
 
-    private static final String SQL_GET_BOOKS_NOT_BY_AUTHOR =
-        "SELECT id, title, genre FROM book WHERE author_id NOT IN (SELECT id FROM author WHERE name = ?) ORDER BY title;";
+    private static final String SQL_GET_BOOKS_NOT_BY_AUTHOR = """
+            SELECT id, title, genre
+            FROM book
+            WHERE author_id NOT IN (SELECT id FROM author WHERE name = ?)
+            ORDER BY title;
+            """;
     public static List<GetBooksNotByAuthorRow> getBooksNotByAuthor(Connection conn, String name) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_GET_BOOKS_NOT_BY_AUTHOR)) {
             ps.setString(1, name);
@@ -489,8 +605,16 @@ public final class Queries {
         String genre
     ) {}
 
-    private static final String SQL_GET_BOOKS_WITH_RECENT_SALES =
-        "SELECT id, title, genre FROM book WHERE EXISTS (     SELECT 1 FROM sale_item si     JOIN sale s ON s.id = si.sale_id     WHERE si.book_id = book.id AND s.ordered_at > ? ) ORDER BY title;";
+    private static final String SQL_GET_BOOKS_WITH_RECENT_SALES = """
+            SELECT id, title, genre
+            FROM book
+            WHERE EXISTS (
+                SELECT 1 FROM sale_item si
+                JOIN sale s ON s.id = si.sale_id
+                WHERE si.book_id = book.id AND s.ordered_at > ?
+            )
+            ORDER BY title;
+            """;
     public static List<GetBooksWithRecentSalesRow> getBooksWithRecentSales(Connection conn, java.time.LocalDateTime orderedAt) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_GET_BOOKS_WITH_RECENT_SALES)) {
             ps.setObject(1, orderedAt);
@@ -508,8 +632,12 @@ public final class Queries {
         String authorName
     ) {}
 
-    private static final String SQL_GET_BOOK_WITH_AUTHOR_NAME =
-        "SELECT b.id, b.title,        (SELECT a.name FROM author a WHERE a.id = b.author_id) AS author_name FROM book b ORDER BY b.title;";
+    private static final String SQL_GET_BOOK_WITH_AUTHOR_NAME = """
+            SELECT b.id, b.title,
+                   (SELECT a.name FROM author a WHERE a.id = b.author_id) AS author_name
+            FROM book b
+            ORDER BY b.title;
+            """;
     public static List<GetBookWithAuthorNameRow> getBookWithAuthorName(Connection conn) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_GET_BOOK_WITH_AUTHOR_NAME)) {
             List<GetBookWithAuthorNameRow> rows = new ArrayList<>();
@@ -527,8 +655,26 @@ public final class Queries {
         long totalSold
     ) {}
 
-    private static final String SQL_GET_AUTHOR_STATS =
-        "WITH book_counts AS (     SELECT author_id, COUNT(*) AS num_books     FROM book     GROUP BY author_id ), sale_counts AS (     SELECT b.author_id, SUM(si.quantity) AS total_sold     FROM sale_item si     JOIN book b ON b.id = si.book_id     GROUP BY b.author_id ) SELECT a.id, a.name,        COALESCE(bc.num_books, 0) AS num_books,        COALESCE(sc.total_sold, 0) AS total_sold FROM author a LEFT JOIN book_counts bc ON bc.author_id = a.id LEFT JOIN sale_counts sc ON sc.author_id = a.id ORDER BY a.name;";
+    private static final String SQL_GET_AUTHOR_STATS = """
+            WITH book_counts AS (
+                SELECT author_id, COUNT(*) AS num_books
+                FROM book
+                GROUP BY author_id
+            ),
+            sale_counts AS (
+                SELECT b.author_id, SUM(si.quantity) AS total_sold
+                FROM sale_item si
+                JOIN book b ON b.id = si.book_id
+                GROUP BY b.author_id
+            )
+            SELECT a.id, a.name,
+                   COALESCE(bc.num_books, 0) AS num_books,
+                   COALESCE(sc.total_sold, 0) AS total_sold
+            FROM author a
+            LEFT JOIN book_counts bc ON bc.author_id = a.id
+            LEFT JOIN sale_counts sc ON sc.author_id = a.id
+            ORDER BY a.name;
+            """;
     public static List<GetAuthorStatsRow> getAuthorStats(Connection conn) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_GET_AUTHOR_STATS)) {
             List<GetAuthorStatsRow> rows = new ArrayList<>();
@@ -546,8 +692,14 @@ public final class Queries {
         java.math.BigDecimal price
     ) {}
 
-    private static final String SQL_ARCHIVE_AND_RETURN_BOOKS =
-        "WITH archived AS (     DELETE FROM book     WHERE published_at < ?     RETURNING id, title, genre, price ) SELECT id, title, genre, price FROM archived ORDER BY title;";
+    private static final String SQL_ARCHIVE_AND_RETURN_BOOKS = """
+            WITH archived AS (
+                DELETE FROM book
+                WHERE published_at < ?
+                RETURNING id, title, genre, price
+            )
+            SELECT id, title, genre, price FROM archived ORDER BY title;
+            """;
     public static List<ArchiveAndReturnBooksRow> archiveAndReturnBooks(Connection conn, java.time.LocalDate publishedAt) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_ARCHIVE_AND_RETURN_BOOKS)) {
             ps.setObject(1, publishedAt);
@@ -559,8 +711,12 @@ public final class Queries {
         }
     }
 
-    private static final String SQL_GET_PRODUCT =
-        "SELECT id, sku, name, active, weight_kg, rating, tags, metadata,        thumbnail, created_at, stock_count FROM product WHERE id = ?;";
+    private static final String SQL_GET_PRODUCT = """
+            SELECT id, sku, name, active, weight_kg, rating, tags, metadata,
+                   thumbnail, created_at, stock_count
+            FROM product
+            WHERE id = ?;
+            """;
     public static Optional<Product> getProduct(Connection conn, java.util.UUID id) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_GET_PRODUCT)) {
             ps.setObject(1, id);
@@ -584,8 +740,13 @@ public final class Queries {
         short stockCount
     ) {}
 
-    private static final String SQL_LIST_ACTIVE_PRODUCTS =
-        "SELECT id, sku, name, active, weight_kg, rating, tags, metadata,        created_at, stock_count FROM product WHERE active = ? ORDER BY name;";
+    private static final String SQL_LIST_ACTIVE_PRODUCTS = """
+            SELECT id, sku, name, active, weight_kg, rating, tags, metadata,
+                   created_at, stock_count
+            FROM product
+            WHERE active = ?
+            ORDER BY name;
+            """;
     public static List<ListActiveProductsRow> listActiveProducts(Connection conn, boolean active) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_LIST_ACTIVE_PRODUCTS)) {
             ps.setBoolean(1, active);
@@ -597,8 +758,11 @@ public final class Queries {
         }
     }
 
-    private static final String SQL_INSERT_PRODUCT =
-        "INSERT INTO product (id, sku, name, active, weight_kg, rating, tags, metadata, thumbnail, stock_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *;";
+    private static final String SQL_INSERT_PRODUCT = """
+            INSERT INTO product (id, sku, name, active, weight_kg, rating, tags, metadata, thumbnail, stock_count)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            RETURNING *;
+            """;
     public static Optional<Product> insertProduct(Connection conn, java.util.UUID id, String sku, String name, boolean active, Float weightKg, Double rating, java.util.List<String> tags, String metadata, byte[] thumbnail, short stockCount) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_INSERT_PRODUCT)) {
             ps.setObject(1, id);
@@ -624,8 +788,12 @@ public final class Queries {
         Integer birthYear
     ) {}
 
-    private static final String SQL_GET_AUTHORS_WITH_NULL_BIO =
-        "SELECT id, name, birth_year FROM author WHERE bio IS NULL ORDER BY name;";
+    private static final String SQL_GET_AUTHORS_WITH_NULL_BIO = """
+            SELECT id, name, birth_year
+            FROM author
+            WHERE bio IS NULL
+            ORDER BY name;
+            """;
     public static List<GetAuthorsWithNullBioRow> getAuthorsWithNullBio(Connection conn) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_GET_AUTHORS_WITH_NULL_BIO)) {
             List<GetAuthorsWithNullBioRow> rows = new ArrayList<>();
@@ -636,8 +804,12 @@ public final class Queries {
         }
     }
 
-    private static final String SQL_GET_AUTHORS_WITH_BIO =
-        "SELECT id, name, bio, birth_year FROM author WHERE bio IS NOT NULL ORDER BY name;";
+    private static final String SQL_GET_AUTHORS_WITH_BIO = """
+            SELECT id, name, bio, birth_year
+            FROM author
+            WHERE bio IS NOT NULL
+            ORDER BY name;
+            """;
     public static List<Author> getAuthorsWithBio(Connection conn) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_GET_AUTHORS_WITH_BIO)) {
             List<Author> rows = new ArrayList<>();
@@ -656,8 +828,13 @@ public final class Queries {
         java.time.LocalDate publishedAt
     ) {}
 
-    private static final String SQL_GET_BOOKS_PUBLISHED_BETWEEN =
-        "SELECT id, title, genre, price, published_at FROM book WHERE published_at IS NOT NULL   AND published_at BETWEEN ? AND ? ORDER BY published_at;";
+    private static final String SQL_GET_BOOKS_PUBLISHED_BETWEEN = """
+            SELECT id, title, genre, price, published_at
+            FROM book
+            WHERE published_at IS NOT NULL
+              AND published_at BETWEEN ? AND ?
+            ORDER BY published_at;
+            """;
     public static List<GetBooksPublishedBetweenRow> getBooksPublishedBetween(Connection conn, java.time.LocalDate publishedAt, java.time.LocalDate publishedAt2) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_GET_BOOKS_PUBLISHED_BETWEEN)) {
             ps.setObject(1, publishedAt);
@@ -674,8 +851,11 @@ public final class Queries {
         String genre
     ) {}
 
-    private static final String SQL_GET_DISTINCT_GENRES =
-        "SELECT DISTINCT genre FROM book ORDER BY genre;";
+    private static final String SQL_GET_DISTINCT_GENRES = """
+            SELECT DISTINCT genre
+            FROM book
+            ORDER BY genre;
+            """;
     public static List<GetDistinctGenresRow> getDistinctGenres(Connection conn) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_GET_DISTINCT_GENRES)) {
             List<GetDistinctGenresRow> rows = new ArrayList<>();
@@ -693,8 +873,14 @@ public final class Queries {
         long totalQuantity
     ) {}
 
-    private static final String SQL_GET_BOOKS_WITH_SALES_COUNT =
-        "SELECT b.id, b.title, b.genre,        COALESCE(SUM(si.quantity), 0) AS total_quantity FROM book b LEFT JOIN sale_item si ON si.book_id = b.id GROUP BY b.id, b.title, b.genre ORDER BY total_quantity DESC, b.title;";
+    private static final String SQL_GET_BOOKS_WITH_SALES_COUNT = """
+            SELECT b.id, b.title, b.genre,
+                   COALESCE(SUM(si.quantity), 0) AS total_quantity
+            FROM book b
+            LEFT JOIN sale_item si ON si.book_id = b.id
+            GROUP BY b.id, b.title, b.genre
+            ORDER BY total_quantity DESC, b.title;
+            """;
     public static List<GetBooksWithSalesCountRow> getBooksWithSalesCount(Connection conn) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_GET_BOOKS_WITH_SALES_COUNT)) {
             List<GetBooksWithSalesCountRow> rows = new ArrayList<>();
@@ -709,8 +895,11 @@ public final class Queries {
         long itemCount
     ) {}
 
-    private static final String SQL_COUNT_SALE_ITEMS =
-        "SELECT COUNT(*) AS item_count FROM sale_item WHERE sale_id = ?;";
+    private static final String SQL_COUNT_SALE_ITEMS = """
+            SELECT COUNT(*) AS item_count
+            FROM sale_item
+            WHERE sale_id = ?;
+            """;
     public static Optional<CountSaleItemsRow> countSaleItems(Connection conn, long saleId) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_COUNT_SALE_ITEMS)) {
             ps.setLong(1, saleId);
@@ -730,8 +919,16 @@ public final class Queries {
         short stockCount
     ) {}
 
-    private static final String SQL_UPSERT_PRODUCT =
-        "INSERT INTO product (id, sku, name, active, tags, stock_count) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE     SET name        = EXCLUDED.name,         active      = EXCLUDED.active,         tags        = EXCLUDED.tags,         stock_count = EXCLUDED.stock_count RETURNING id, sku, name, active, tags, stock_count;";
+    private static final String SQL_UPSERT_PRODUCT = """
+            INSERT INTO product (id, sku, name, active, tags, stock_count)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT (id) DO UPDATE
+                SET name        = EXCLUDED.name,
+                    active      = EXCLUDED.active,
+                    tags        = EXCLUDED.tags,
+                    stock_count = EXCLUDED.stock_count
+            RETURNING id, sku, name, active, tags, stock_count;
+            """;
     public static Optional<UpsertProductRow> upsertProduct(Connection conn, java.util.UUID id, String sku, String name, boolean active, java.util.List<String> tags, short stockCount) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_UPSERT_PRODUCT)) {
             ps.setObject(1, id);
@@ -754,8 +951,13 @@ public final class Queries {
         java.math.BigDecimal avgQty
     ) {}
 
-    private static final String SQL_GET_SALE_ITEM_QUANTITY_AGGREGATES =
-        "SELECT MIN(quantity)  AS min_qty,        MAX(quantity)  AS max_qty,        SUM(quantity)  AS sum_qty,        AVG(quantity)  AS avg_qty FROM sale_item;";
+    private static final String SQL_GET_SALE_ITEM_QUANTITY_AGGREGATES = """
+            SELECT MIN(quantity)  AS min_qty,
+                   MAX(quantity)  AS max_qty,
+                   SUM(quantity)  AS sum_qty,
+                   AVG(quantity)  AS avg_qty
+            FROM sale_item;
+            """;
     public static Optional<GetSaleItemQuantityAggregatesRow> getSaleItemQuantityAggregates(Connection conn) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_GET_SALE_ITEM_QUANTITY_AGGREGATES)) {
             try (ResultSet rs = ps.executeQuery()) {
@@ -772,8 +974,13 @@ public final class Queries {
         java.math.BigDecimal avgPrice
     ) {}
 
-    private static final String SQL_GET_BOOK_PRICE_AGGREGATES =
-        "SELECT MIN(price)  AS min_price,        MAX(price)  AS max_price,        SUM(price)  AS sum_price,        AVG(price)  AS avg_price FROM book;";
+    private static final String SQL_GET_BOOK_PRICE_AGGREGATES = """
+            SELECT MIN(price)  AS min_price,
+                   MAX(price)  AS max_price,
+                   SUM(price)  AS sum_price,
+                   AVG(price)  AS avg_price
+            FROM book;
+            """;
     public static Optional<GetBookPriceAggregatesRow> getBookPriceAggregates(Connection conn) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_GET_BOOK_PRICE_AGGREGATES)) {
             try (ResultSet rs = ps.executeQuery()) {

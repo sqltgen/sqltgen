@@ -195,9 +195,14 @@ fn build_queries_file(queries: &[Query], schema: &Schema, target: &PythonTarget,
         } else {
             query.sql.clone()
         };
-        let sql = normalize_sql(&base_sql, target).replace('"', "\\\"").replace('\n', " ");
+        let sql = normalize_sql(&base_sql, target);
         let sql = sql.trim_end().trim_end_matches(';');
-        writeln!(src, r#"{const_name} = "{sql}""#)?;
+        let sql = sql.replace("\"\"\"", "\\\"\\\"\\\"");
+        writeln!(src, "{const_name} = \"\"\"\\")?;
+        for line in sql.lines() {
+            writeln!(src, "{line}")?;
+        }
+        writeln!(src, "\"\"\"")?;
     }
 
     // Query functions

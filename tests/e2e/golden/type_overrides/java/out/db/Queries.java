@@ -19,8 +19,11 @@ public final class Queries {
     private Queries() {}
     private static final ObjectMapper objectMapper = new ObjectMapper();
 
-    private static final String SQL_GET_EVENT =
-        "SELECT id, name, payload, meta, doc_id, created_at, scheduled_at, event_date, event_time FROM event WHERE id = ?;";
+    private static final String SQL_GET_EVENT = """
+            SELECT id, name, payload, meta, doc_id, created_at, scheduled_at, event_date, event_time
+            FROM event
+            WHERE id = ?;
+            """;
     public static Optional<Event> getEvent(Connection conn, long id) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_GET_EVENT)) {
             ps.setLong(1, id);
@@ -31,8 +34,11 @@ public final class Queries {
         }
     }
 
-    private static final String SQL_LIST_EVENTS =
-        "SELECT id, name, payload, meta, doc_id, created_at, scheduled_at, event_date, event_time FROM event ORDER BY id;";
+    private static final String SQL_LIST_EVENTS = """
+            SELECT id, name, payload, meta, doc_id, created_at, scheduled_at, event_date, event_time
+            FROM event
+            ORDER BY id;
+            """;
     public static List<Event> listEvents(Connection conn) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_LIST_EVENTS)) {
             List<Event> rows = new ArrayList<>();
@@ -43,8 +49,10 @@ public final class Queries {
         }
     }
 
-    private static final String SQL_INSERT_EVENT =
-        "INSERT INTO event (name, payload, meta, doc_id, created_at, scheduled_at, event_date, event_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?);";
+    private static final String SQL_INSERT_EVENT = """
+            INSERT INTO event (name, payload, meta, doc_id, created_at, scheduled_at, event_date, event_time)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+            """;
     public static void insertEvent(Connection conn, String name, JsonNode payload, JsonNode meta, UUID docId, LocalDateTime createdAt, OffsetDateTime scheduledAt, LocalDate eventDate, LocalTime eventTime) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_INSERT_EVENT)) {
             ps.setString(1, name);
@@ -59,8 +67,9 @@ public final class Queries {
         }
     }
 
-    private static final String SQL_UPDATE_PAYLOAD =
-        "UPDATE event SET payload = ?, meta = ? WHERE id = ?;";
+    private static final String SQL_UPDATE_PAYLOAD = """
+            UPDATE event SET payload = ?, meta = ? WHERE id = ?;
+            """;
     public static void updatePayload(Connection conn, JsonNode payload, JsonNode meta, long id) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_UPDATE_PAYLOAD)) {
             ps.setObject(1, objectMapper.writeValueAsString(payload), java.sql.Types.OTHER);
@@ -75,8 +84,9 @@ public final class Queries {
         String name
     ) {}
 
-    private static final String SQL_FIND_BY_DATE =
-        "SELECT id, name FROM event WHERE event_date = ?;";
+    private static final String SQL_FIND_BY_DATE = """
+            SELECT id, name FROM event WHERE event_date = ?;
+            """;
     public static Optional<FindByDateRow> findByDate(Connection conn, LocalDate eventDate) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_FIND_BY_DATE)) {
             ps.setObject(1, eventDate);
@@ -92,8 +102,9 @@ public final class Queries {
         String name
     ) {}
 
-    private static final String SQL_FIND_BY_UUID =
-        "SELECT id, name FROM event WHERE doc_id = ?;";
+    private static final String SQL_FIND_BY_UUID = """
+            SELECT id, name FROM event WHERE doc_id = ?;
+            """;
     public static Optional<FindByUuidRow> findByUuid(Connection conn, UUID docId) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_FIND_BY_UUID)) {
             ps.setObject(1, docId);

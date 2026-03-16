@@ -197,16 +197,31 @@ fn emit_rust_query(
     Ok(())
 }
 
+/// Emit `let sql = r##"..."##;` for the given SQL text.
+///
+/// Uses double-`#` raw strings (`r##"..."##`) so any `"#` sequence in SQL is handled
+/// without escaping. Callers pass `sql_expr = "sql"` to [`emit_rust_sqlx_call`].
+fn emit_rust_sql_let(src: &mut String, sql: &str) -> anyhow::Result<()> {
+    writeln!(src, "    let sql = r##\"")?;
+    for line in sql.lines() {
+        writeln!(src, "        {line}")?;
+    }
+    writeln!(src, "    \"##;")?;
+    Ok(())
+}
+
 /// Emit the body for a query with no list parameters.
 fn emit_rust_scalar_query(src: &mut String, query: &Query, row_type: String, target: &RustTarget) -> anyhow::Result<()> {
-    let sql = normalize_sql_for_sqlx(&query.sql, target).replace('"', "\\\"").replace('\n', " ");
+    let raw_sql = normalize_sql_for_sqlx(&query.sql, target);
+    let raw_sql = raw_sql.trim_end().trim_end_matches(';');
+    emit_rust_sql_let(src, raw_sql)?;
     // Postgres $N is reference-by-number — one .bind() per unique param suffices.
     // SQLite/MySQL normalize to ? (positional sequential) — bind once per occurrence.
     let bind_names: Vec<&str> = match target {
         RustTarget::Postgres => query.params.iter().map(|p| p.name.as_str()).collect(),
         RustTarget::Sqlite | RustTarget::Mysql => positional_bind_names(query),
     };
-    emit_rust_sqlx_call(src, query, &sql, &bind_names, &row_type)
+    emit_rust_sqlx_call(src, query, "sql", &bind_names, &row_type)
 }
 
 /// Emit the body for a query that contains a list parameter.
@@ -255,20 +270,22 @@ fn emit_rust_native_list_query(
     native_sql: &str,
     target: &RustTarget,
 ) -> anyhow::Result<()> {
-    let sql = normalize_sql_for_sqlx(native_sql, target).replace('"', "\\\"").replace('\n', " ");
+    let raw_sql = normalize_sql_for_sqlx(native_sql, target);
+    let raw_sql = raw_sql.trim_end().trim_end_matches(';');
+    emit_rust_sql_let(src, raw_sql)?;
     let lp_name = to_snake_case(&list_param.name);
     match list_param.native_list_bind {
         Some(NativeListBind::Array) => {
             // sqlx-postgres: bind the list directly (sqlx handles Vec<T> → ANY($1))
             let bind_names: Vec<&str> = query.params.iter().map(|p| p.name.as_str()).collect();
-            emit_rust_sqlx_call(src, query, &sql, &bind_names, row_type)
+            emit_rust_sqlx_call(src, query, "sql", &bind_names, row_type)
         },
         Some(NativeListBind::Json) | None => {
             // SQLite/MySQL: list param is bound as a JSON array string
             writeln!(src, "    let {lp_name}_json = {};", json_list_expr(&lp_name, &list_param.sql_type))?;
             let bind_names: Vec<String> = query.params.iter().map(|p| if p.is_list { format!("{lp_name}_json") } else { to_snake_case(&p.name) }).collect();
             let bind_refs: Vec<&str> = bind_names.iter().map(|s| s.as_str()).collect();
-            emit_rust_sqlx_call(src, query, &sql, &bind_refs, row_type)
+            emit_rust_sqlx_call(src, query, "sql", &bind_refs, row_type)
         },
     }
 }
@@ -325,12 +342,13 @@ fn rust_param_sig(p: &Parameter, config: &OutputConfig) -> String {
     }
 }
 
-/// Emit the sqlx query/query_as call with static SQL and a list of bind names.
+/// Emit the sqlx query/query_as call given a Rust expression that evaluates to the SQL.
 ///
-/// When the same name appears multiple times (positional dialects like MySQL/SQLite
-/// that repeat binds for repeated params), all occurrences except the last are
-/// emitted with `.clone()` to avoid a move-before-use compile error.
-fn emit_rust_sqlx_call(src: &mut String, query: &Query, sql: &str, bind_names: &[&str], row_type: &str) -> anyhow::Result<()> {
+/// `sql_expr` is the Rust expression passed to `sqlx::query`/`sqlx::query_as` —
+/// typically the local variable `"sql"` (defined just before by the caller).
+/// When the same bind name appears multiple times (positional dialects like MySQL/SQLite),
+/// all occurrences except the last are emitted with `.clone()`.
+fn emit_rust_sqlx_call(src: &mut String, query: &Query, sql_expr: &str, bind_names: &[&str], row_type: &str) -> anyhow::Result<()> {
     // Count remaining occurrences so we know when to clone vs. move.
     let mut remaining: HashMap<&str, usize> = HashMap::new();
     for &name in bind_names {
@@ -350,7 +368,7 @@ fn emit_rust_sqlx_call(src: &mut String, query: &Query, sql: &str, bind_names: &
 
     match query.cmd {
         QueryCmd::Exec | QueryCmd::ExecRows => {
-            writeln!(src, "    sqlx::query(\"{sql}\")")?;
+            writeln!(src, "    sqlx::query({sql_expr})")?;
             for &name in bind_names {
                 writeln!(src, "        .bind({})", bind_expr(name, &mut remaining))?;
             }
@@ -363,7 +381,7 @@ fn emit_rust_sqlx_call(src: &mut String, query: &Query, sql: &str, bind_names: &
             }
         },
         QueryCmd::One | QueryCmd::Many => {
-            writeln!(src, "    sqlx::query_as::<_, {row_type}>(\"{sql}\")")?;
+            writeln!(src, "    sqlx::query_as::<_, {row_type}>({sql_expr})")?;
             for &name in bind_names {
                 writeln!(src, "        .bind({})", bind_expr(name, &mut remaining))?;
             }

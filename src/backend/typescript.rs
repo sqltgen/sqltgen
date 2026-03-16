@@ -378,9 +378,10 @@ fn emit_sql_constants(src: &mut String, queries: &[Query], target: &JsTarget, st
             Some(lp) => lp.native_list_sql.clone().unwrap_or_else(|| query.sql.clone()),
             None => query.sql.clone(),
         };
-        let sql = normalize_sql(&base_sql, target).replace('"', "\\\"").replace('\n', " ");
+        let sql = normalize_sql(&base_sql, target);
         let sql = sql.trim_end().trim_end_matches(';');
-        writeln!(src, r#"const {const_name} = "{sql}";"#)?;
+        let sql = sql.replace('`', "\\`").replace("${", "\\${");
+        writeln!(src, "const {const_name} = `{sql}`;")?;
     }
     Ok(())
 }
