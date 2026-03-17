@@ -8,7 +8,7 @@ generate:
 	$(SQLTGEN) generate --config sqltgen.json
 
 test: generate
-	mvn -q test
+	mvn test
 
 clean:
 	mvn -q clean
