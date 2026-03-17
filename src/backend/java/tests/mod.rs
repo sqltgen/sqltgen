@@ -11,6 +11,7 @@ pub fn pg() -> JavaCodegen {
     JavaCodegen { target: JdbcTarget::Postgres }
 }
 
+mod architecture;
 mod generate;
 mod grouping;
 mod list_params;

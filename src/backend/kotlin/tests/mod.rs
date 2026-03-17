@@ -11,6 +11,7 @@ pub fn pg() -> KotlinCodegen {
     KotlinCodegen { target: JdbcTarget::Postgres }
 }
 
+mod architecture;
 mod generate;
 mod grouping;
 mod list_params;

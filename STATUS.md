@@ -171,7 +171,7 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | | Java | Kotlin | Rust | Go | Python | TypeScript | JavaScript |
 |---|---|---|---|---|---|---|---|
 | Current target | JDBC | JDBC | sqlx | — | psycopg3 / sqlite3 / mysql-connector | pg / better-sqlite3 / mysql2 | pg / better-sqlite3 / mysql2 |
-| Two-layer adapter/core architecture | ⚠️ | ⚠️ | ✅ | 🚧 | ✅ | ✅ | ✅ |
+| Two-layer adapter/core architecture | ✅ | ✅ | ✅ | 🚧 | ✅ | ✅ | ✅ |
 | Planned target | JDBC | JDBC | sqlx | database/sql | psycopg3 / sqlite3 / mysql-connector | pg / better-sqlite3 / mysql2 | pg / better-sqlite3 / mysql2 |
 
 ---
@@ -197,15 +197,15 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | Frontend — SQLite (typemap + schema + query) | 39 |
 | Frontend — MySQL (typemap + schema + query) | 34 |
 | Frontend — common (query parser, CTEs, subqueries, named params, list params, source_table) | 204 |
-| Backend — Java | 63 |
-| Backend — Kotlin | 62 |
+| Backend — Java | 65 |
+| Backend — Kotlin | 64 |
 | Backend — Rust | 43 |
 | Backend — Python | 49 |
 | Backend — common (common + sql_rewrite + naming) | 48 |
 | Backend — JDBC | 13 |
 | Backend — TypeScript / JavaScript | 49 |
 | Integration (snapshots + resilience) | 25 |
-| **Total** | **730** |
+| **Total** | **734** |
 
 ---
 

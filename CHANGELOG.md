@@ -62,6 +62,13 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
 ### Changed
 - Added shared backend scaffolding (`generate_two_layer_backend`) for the
   adapter/core generation flow.
+- **Java backend internals:** migrated to the two-layer pattern. Language-specific
+  constants (`SE`, `FALLBACK_TYPE`) are now resolved from a compile-time
+  `JvmCoreContract` instead of being hard-coded, and the backend was split into
+  `java/mod.rs`, `java/adapter.rs`, and `java/core.rs`.
+- **Kotlin backend internals:** same restructuring as Java — split into
+  `kotlin/mod.rs`, `kotlin/adapter.rs`, and `kotlin/core.rs` with a
+  `JvmCoreContract` driving language-constant selection.
 - **Rust backend internals:** migrated to the two-layer pattern. Engine-specific
   sqlx pool selection now emits into `_sqltgen.rs`, while table/query/module
   generation runs through a contract-driven core layer without engine-target
