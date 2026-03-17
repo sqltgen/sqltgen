@@ -202,12 +202,13 @@ def strip_test_prefix(name: str) -> str:
 
     - Rust / Python: ``test_get_author`` → ``get_author``
     - Java / Kotlin:  ``testGetAuthor``  → ``GetAuthor``
+    - Go:             ``TestGetAuthor``  → ``GetAuthor``
     - TypeScript:     free-form string   → returned as-is (already starts
                       with the camelCase function name by convention)
     """
     if name.startswith("test_"):
         return name[5:]
-    if re.match(r"test[A-Z]", name):
+    if re.match(r"[Tt]est[A-Z]", name):
         return name[4:]
     return name
 
