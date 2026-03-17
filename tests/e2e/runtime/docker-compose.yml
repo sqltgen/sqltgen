@@ -19,6 +19,8 @@ services:
     image: mysql:8
     tmpfs:
       - /var/lib/mysql
+    volumes:
+      - ./mysql-init:/docker-entrypoint-initdb.d:ro
     environment:
       MYSQL_ROOT_PASSWORD: sqltgen
       MYSQL_DATABASE: sqltgen_e2e

@@ -180,6 +180,20 @@ fn test_generate_mysql_rewrites_placeholders() {
     assert!(src.contains("DELETE FROM user WHERE id = ?"));
 }
 
+#[test]
+fn test_generate_postgres_scans_array_columns_with_pq_array() {
+    let schema = Schema::default();
+    let query = Query::one(
+        "GetProductTags",
+        "SELECT tags FROM product WHERE id = $1",
+        vec![Parameter::scalar(1, "id", SqlType::Uuid, false)],
+        vec![ResultColumn { name: "tags".to_string(), sql_type: SqlType::Array(Box::new(SqlType::Text)), nullable: false }],
+    );
+    let files = pg().generate(&schema, &[query], &cfg()).unwrap();
+    let src = get_file(&files, "queries.go");
+    assert!(src.contains("row.Scan(scanArray(&r.Tags))"));
+}
+
 // ─── generate: package name from out path ───────────────────────────────────
 
 #[test]

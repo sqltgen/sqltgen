@@ -29,3 +29,8 @@ func buildInClause(prefix, suffix string, startIdx int, count int) string {
 	}
 	return prefix + "IN (" + strings.Join(placeholders, ", ") + ")" + suffix
 }
+
+// scanArray returns a scan destination for SQL ARRAY columns.
+func scanArray(dest any) any {
+	return dest
+}

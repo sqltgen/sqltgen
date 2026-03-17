@@ -524,7 +524,7 @@ fn emit_standard_query_func(src: &mut String, query: &Query, schema: &Schema, co
             } else {
                 writeln!(src, "\trow := db.QueryRowContext(ctx, {const_name}, {args})")?;
             }
-            emit_scan_one(src, query, schema)?;
+            emit_scan_one(src, query, schema, contract)?;
         },
         QueryCmd::Many => {
             if args.is_empty() {
@@ -536,7 +536,7 @@ fn emit_standard_query_func(src: &mut String, query: &Query, schema: &Schema, co
             writeln!(src, "\t\treturn nil, err")?;
             writeln!(src, "\t}}")?;
             writeln!(src, "\tdefer rows.Close()")?;
-            emit_scan_many(src, query, schema)?;
+            emit_scan_many(src, query, schema, contract)?;
         },
     }
 
@@ -557,31 +557,43 @@ fn build_bind_args(query: &Query, contract: &GoCoreContract) -> String {
 }
 
 /// Emit the Scan + return block for a `:one` query.
-fn emit_scan_one(src: &mut String, query: &Query, schema: &Schema) -> anyhow::Result<()> {
+fn emit_scan_one(src: &mut String, query: &Query, schema: &Schema, contract: &GoCoreContract) -> anyhow::Result<()> {
     let row_type = result_row_type(query, schema);
-    let scan_args = scan_dest_args(&query.result_columns, &row_type);
+    let plan = scan_plan(&query.result_columns, contract.json_mode);
     writeln!(src, "\tvar r {row_type}")?;
-    writeln!(src, "\terr := row.Scan({scan_args})")?;
+    for line in &plan.pre_lines {
+        writeln!(src, "\t{line}")?;
+    }
+    writeln!(src, "\terr := row.Scan({})", plan.scan_args.join(", "))?;
     writeln!(src, "\tif err == sql.ErrNoRows {{")?;
     writeln!(src, "\t\treturn nil, nil")?;
     writeln!(src, "\t}}")?;
     writeln!(src, "\tif err != nil {{")?;
     writeln!(src, "\t\treturn nil, err")?;
     writeln!(src, "\t}}")?;
+    for line in &plan.post_lines {
+        writeln!(src, "\t{line}")?;
+    }
     writeln!(src, "\treturn &r, nil")?;
     Ok(())
 }
 
 /// Emit the rows.Next() loop for a `:many` query.
-fn emit_scan_many(src: &mut String, query: &Query, schema: &Schema) -> anyhow::Result<()> {
+fn emit_scan_many(src: &mut String, query: &Query, schema: &Schema, contract: &GoCoreContract) -> anyhow::Result<()> {
     let row_type = result_row_type(query, schema);
-    let scan_args = scan_dest_args(&query.result_columns, &row_type);
+    let plan = scan_plan(&query.result_columns, contract.json_mode);
     writeln!(src, "\tvar results []{row_type}")?;
     writeln!(src, "\tfor rows.Next() {{")?;
     writeln!(src, "\t\tvar r {row_type}")?;
-    writeln!(src, "\t\tif err := rows.Scan({scan_args}); err != nil {{")?;
+    for line in &plan.pre_lines {
+        writeln!(src, "\t\t{line}")?;
+    }
+    writeln!(src, "\t\tif err := rows.Scan({}); err != nil {{", plan.scan_args.join(", "))?;
     writeln!(src, "\t\t\treturn nil, err")?;
     writeln!(src, "\t\t}}")?;
+    for line in &plan.post_lines {
+        writeln!(src, "\t\t{line}")?;
+    }
     writeln!(src, "\t\tresults = append(results, r)")?;
     writeln!(src, "\t}}")?;
     writeln!(src, "\tif err := rows.Err(); err != nil {{")?;
@@ -591,12 +603,38 @@ fn emit_scan_many(src: &mut String, query: &Query, schema: &Schema) -> anyhow::R
     Ok(())
 }
 
-/// Build the `&r.Field1, &r.Field2, ...` scan destination argument list.
-fn scan_dest_args(cols: &[ResultColumn], _row_type: &str) -> String {
-    if cols.is_empty() {
-        return String::new();
+struct ScanPlan {
+    pre_lines: Vec<String>,
+    scan_args: Vec<String>,
+    post_lines: Vec<String>,
+}
+
+fn scan_plan(cols: &[ResultColumn], json_mode: GoJsonMode) -> ScanPlan {
+    let mut pre_lines = Vec::new();
+    let mut scan_args = Vec::new();
+    let mut post_lines = Vec::new();
+
+    for (i, col) in cols.iter().enumerate() {
+        let field = field_name(&col.name);
+        match &col.sql_type {
+            SqlType::Array(inner) => {
+                if col.nullable {
+                    let inner_ty = go_type(inner, false, json_mode);
+                    let tmp = format!("arr{}", i + 1);
+                    pre_lines.push(format!("var {tmp} []{inner_ty}"));
+                    scan_args.push(format!("scanArray(&{tmp})"));
+                    post_lines.push(format!("if {tmp} != nil {{"));
+                    post_lines.push(format!("\tr.{field} = &{tmp}"));
+                    post_lines.push("}".to_string());
+                } else {
+                    scan_args.push(format!("scanArray(&r.{field})"));
+                }
+            },
+            _ => scan_args.push(format!("&r.{field}")),
+        }
     }
-    cols.iter().map(|c| format!("&r.{}", field_name(&c.name))).collect::<Vec<_>>().join(", ")
+
+    ScanPlan { pre_lines, scan_args, post_lines }
 }
 
 // ─── List query function ──────────────────────────────────────────────────────
@@ -752,7 +790,7 @@ fn emit_dynamic_list_body(
         },
         QueryCmd::One => {
             writeln!(src, "\trow := db.QueryRowContext(ctx, {query_sql_var}, args...)")?;
-            emit_scan_one(src, query, schema)?;
+            emit_scan_one(src, query, schema, contract)?;
         },
         QueryCmd::Many => {
             writeln!(src, "\trows, err := db.QueryContext(ctx, {query_sql_var}, args...)")?;
@@ -760,7 +798,7 @@ fn emit_dynamic_list_body(
             writeln!(src, "\t\treturn nil, err")?;
             writeln!(src, "\t}}")?;
             writeln!(src, "\tdefer rows.Close()")?;
-            emit_scan_many(src, query, schema)?;
+            emit_scan_many(src, query, schema, contract)?;
         },
     }
 
@@ -789,7 +827,7 @@ fn emit_list_exec(
         },
         QueryCmd::One => {
             writeln!(src, "\trow := db.QueryRowContext(ctx, {const_name}, {args})")?;
-            emit_scan_one(src, query, schema)?;
+            emit_scan_one(src, query, schema, contract)?;
         },
         QueryCmd::Many => {
             writeln!(src, "\trows, err := db.QueryContext(ctx, {const_name}, {args})")?;
@@ -797,7 +835,7 @@ fn emit_list_exec(
             writeln!(src, "\t\treturn nil, err")?;
             writeln!(src, "\t}}")?;
             writeln!(src, "\tdefer rows.Close()")?;
-            emit_scan_many(src, query, schema)?;
+            emit_scan_many(src, query, schema, contract)?;
         },
     }
     Ok(())

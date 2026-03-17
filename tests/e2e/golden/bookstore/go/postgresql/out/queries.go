@@ -1138,7 +1138,7 @@ func ArchiveAndReturnBooks(ctx context.Context, db *sql.DB, published_at sql.Nul
 func GetProduct(ctx context.Context, db *sql.DB, id string) (*Product, error) {
 	row := db.QueryRowContext(ctx, SQL_GET_PRODUCT, id)
 	var r Product
-	err := row.Scan(&r.Id, &r.Sku, &r.Name, &r.Active, &r.WeightKg, &r.Rating, &r.Tags, &r.Metadata, &r.Thumbnail, &r.CreatedAt, &r.StockCount)
+	err := row.Scan(&r.Id, &r.Sku, &r.Name, &r.Active, &r.WeightKg, &r.Rating, scanArray(&r.Tags), &r.Metadata, &r.Thumbnail, &r.CreatedAt, &r.StockCount)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -1158,7 +1158,7 @@ func ListActiveProducts(ctx context.Context, db *sql.DB, active bool) ([]ListAct
 	var results []ListActiveProductsRow
 	for rows.Next() {
 		var r ListActiveProductsRow
-		if err := rows.Scan(&r.Id, &r.Sku, &r.Name, &r.Active, &r.WeightKg, &r.Rating, &r.Tags, &r.Metadata, &r.CreatedAt, &r.StockCount); err != nil {
+		if err := rows.Scan(&r.Id, &r.Sku, &r.Name, &r.Active, &r.WeightKg, &r.Rating, scanArray(&r.Tags), &r.Metadata, &r.CreatedAt, &r.StockCount); err != nil {
 			return nil, err
 		}
 		results = append(results, r)
@@ -1173,7 +1173,7 @@ func ListActiveProducts(ctx context.Context, db *sql.DB, active bool) ([]ListAct
 func InsertProduct(ctx context.Context, db *sql.DB, id string, sku string, name string, active bool, weight_kg *float32, rating sql.NullFloat64, tags []string, metadata *[]byte, thumbnail []byte, stock_count int16) (*Product, error) {
 	row := db.QueryRowContext(ctx, SQL_INSERT_PRODUCT, id, sku, name, active, weight_kg, rating, tags, metadata, thumbnail, stock_count)
 	var r Product
-	err := row.Scan(&r.Id, &r.Sku, &r.Name, &r.Active, &r.WeightKg, &r.Rating, &r.Tags, &r.Metadata, &r.Thumbnail, &r.CreatedAt, &r.StockCount)
+	err := row.Scan(&r.Id, &r.Sku, &r.Name, &r.Active, &r.WeightKg, &r.Rating, scanArray(&r.Tags), &r.Metadata, &r.Thumbnail, &r.CreatedAt, &r.StockCount)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -1306,7 +1306,7 @@ func CountSaleItems(ctx context.Context, db *sql.DB, sale_id int64) (*CountSaleI
 func UpsertProduct(ctx context.Context, db *sql.DB, id string, sku string, name string, active bool, tags []string, stock_count int16) (*UpsertProductRow, error) {
 	row := db.QueryRowContext(ctx, SQL_UPSERT_PRODUCT, id, sku, name, active, tags, stock_count)
 	var r UpsertProductRow
-	err := row.Scan(&r.Id, &r.Sku, &r.Name, &r.Active, &r.Tags, &r.StockCount)
+	err := row.Scan(&r.Id, &r.Sku, &r.Name, &r.Active, scanArray(&r.Tags), &r.StockCount)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"github.com/lib/pq"
 )
 
 // execRows runs a statement and returns the number of affected rows.
@@ -27,4 +28,9 @@ func buildInClause(prefix, suffix string, startIdx int, count int) string {
 		placeholders[i] = fmt.Sprintf("$%d", startIdx+i)
 	}
 	return prefix + "IN (" + strings.Join(placeholders, ", ") + ")" + suffix
+}
+
+// scanArray returns a scan destination for SQL ARRAY columns.
+func scanArray(dest any) any {
+	return pq.Array(dest)
 }
