@@ -6,7 +6,9 @@ use crate::backend::common::{group_queries, has_inline_rows, infer_row_type_name
 use crate::backend::naming::{to_pascal_case, to_snake_case};
 use crate::backend::sql_rewrite::{positional_bind_names, rewrite_to_anon_params, split_at_in_clause};
 use crate::backend::{Codegen, GeneratedFile};
-use crate::config::{resolve_type_ref, Engine, ListParamStrategy, OutputConfig, ResolvedType, TypeVariant};
+use crate::config::{
+    is_known_type_preset, resolve_type_ref, warn_unsupported_type_preset, Engine, Language, ListParamStrategy, OutputConfig, ResolvedType, TypeVariant,
+};
 use crate::ir::{NativeListBind, Parameter, Query, QueryCmd, Schema, SqlType};
 
 pub enum RustTarget {
@@ -40,6 +42,10 @@ fn get_type_override_rust(sql_type: &SqlType, variant: TypeVariant, config: &Out
     if let crate::config::TypeRef::String(s) = type_ref {
         if let Some(r) = try_preset_rust(s) {
             return Some(r);
+        }
+        if is_known_type_preset(s) {
+            warn_unsupported_type_preset(Language::Rust, s, sql_type, variant);
+            return None;
         }
     }
     resolve_type_ref(type_ref)

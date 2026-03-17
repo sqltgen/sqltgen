@@ -1,5 +1,6 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 
 use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
@@ -120,6 +121,55 @@ pub struct ExtraField {
     pub import: Option<String>,
 }
 
+const KNOWN_PRESETS: &[&str] = &["jackson", "gson", "serde_json", "object"];
+
+/// Returns true when `name` is one of the built-in named type presets.
+pub fn is_known_type_preset(name: &str) -> bool {
+    KNOWN_PRESETS.contains(&name)
+}
+
+/// Returns true when a named preset is supported by the target language.
+pub fn is_preset_supported_by_language(language: Language, preset: &str) -> bool {
+    match language {
+        Language::Java | Language::Kotlin => matches!(preset, "jackson" | "gson"),
+        Language::Rust => preset == "serde_json",
+        Language::TypeScript | Language::JavaScript => preset == "object",
+        Language::Python | Language::Go => false,
+    }
+}
+
+fn warned_unsupported_preset_keys() -> &'static Mutex<HashSet<String>> {
+    static WARNED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    WARNED.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+/// Emits a one-time warning for unsupported language preset usage.
+pub fn warn_unsupported_type_preset(language: Language, preset: &str, sql_type: &SqlType, variant: TypeVariant) {
+    let variant_name = match variant {
+        TypeVariant::Field => "field",
+        TypeVariant::Param => "param",
+    };
+    let language_name = match language {
+        Language::Java => "java",
+        Language::Kotlin => "kotlin",
+        Language::Rust => "rust",
+        Language::Go => "go",
+        Language::Python => "python",
+        Language::TypeScript => "typescript",
+        Language::JavaScript => "javascript",
+    };
+    let key = format!("{language_name}:{preset}:{}:{variant_name}", sql_type_key(sql_type));
+
+    let warned = warned_unsupported_preset_keys();
+    let mut guard = warned.lock().expect("unsupported preset warning mutex poisoned");
+    if guard.insert(key) {
+        eprintln!(
+            "warning: unsupported preset {preset:?} for target {language_name} on SQL type {} ({variant_name}); ignoring override",
+            sql_type_key(sql_type)
+        );
+    }
+}
+
 /// Maps a [`SqlType`] variant to its lowercase string key used in `type_overrides` config.
 pub fn sql_type_key(sql_type: &SqlType) -> &'static str {
     match sql_type {
@@ -154,7 +204,6 @@ pub fn sql_type_key(sql_type: &SqlType) -> &'static str {
 /// segment becomes the type name and the full string the import. For plain names (no `.`),
 /// the name is used as-is with no import.
 pub fn resolve_type_ref(type_ref: &TypeRef) -> Option<ResolvedType> {
-    const KNOWN_PRESETS: &[&str] = &["jackson", "gson", "serde_json", "object"];
     match type_ref {
         TypeRef::Explicit { name, import, read_expr, write_expr } => Some(ResolvedType {
             name: name.clone(),
@@ -164,7 +213,7 @@ pub fn resolve_type_ref(type_ref: &TypeRef) -> Option<ResolvedType> {
             extra_fields: vec![],
         }),
         TypeRef::String(s) => {
-            if KNOWN_PRESETS.contains(&s.as_str()) {
+            if is_known_type_preset(s) {
                 return None;
             }
             if s.contains('.') {
@@ -624,6 +673,29 @@ mod tests {
             let tr = TypeRef::String(preset.to_string());
             assert!(resolve_type_ref(&tr).is_none(), "preset {preset} should return None");
         }
+    }
+
+    #[test]
+    fn test_is_known_type_preset_matches_expected_values() {
+        assert!(is_known_type_preset("jackson"));
+        assert!(is_known_type_preset("gson"));
+        assert!(is_known_type_preset("serde_json"));
+        assert!(is_known_type_preset("object"));
+        assert!(!is_known_type_preset("java.time.LocalDate"));
+    }
+
+    #[test]
+    fn test_is_preset_supported_by_language_matrix() {
+        assert!(is_preset_supported_by_language(Language::Java, "jackson"));
+        assert!(is_preset_supported_by_language(Language::Kotlin, "gson"));
+        assert!(is_preset_supported_by_language(Language::Rust, "serde_json"));
+        assert!(is_preset_supported_by_language(Language::TypeScript, "object"));
+        assert!(is_preset_supported_by_language(Language::JavaScript, "object"));
+
+        assert!(!is_preset_supported_by_language(Language::Python, "jackson"));
+        assert!(!is_preset_supported_by_language(Language::Go, "serde_json"));
+        assert!(!is_preset_supported_by_language(Language::Rust, "jackson"));
+        assert!(!is_preset_supported_by_language(Language::Java, "object"));
     }
 
     #[test]

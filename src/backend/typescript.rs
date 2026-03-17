@@ -6,7 +6,9 @@ use crate::backend::common::{group_queries, has_inline_rows, infer_row_type_name
 use crate::backend::naming::{to_camel_case, to_pascal_case};
 use crate::backend::sql_rewrite::{positional_bind_names, rewrite_to_anon_params, split_at_in_clause};
 use crate::backend::{Codegen, GeneratedFile};
-use crate::config::{resolve_type_ref, Engine, ListParamStrategy, OutputConfig, ResolvedType, TypeVariant};
+use crate::config::{
+    is_known_type_preset, resolve_type_ref, warn_unsupported_type_preset, Engine, Language, ListParamStrategy, OutputConfig, ResolvedType, TypeVariant,
+};
 use crate::ir::{Parameter, Query, QueryCmd, Schema, SqlType, Table};
 
 /// Database engine and npm driver to target for JS/TS output.
@@ -60,6 +62,14 @@ fn get_type_override_ts(sql_type: &SqlType, variant: TypeVariant, config: &Outpu
     if let crate::config::TypeRef::String(s) = type_ref {
         if let Some(r) = try_preset_ts(s, output) {
             return Some(r);
+        }
+        if is_known_type_preset(s) {
+            let language = match output {
+                JsOutput::TypeScript => Language::TypeScript,
+                JsOutput::JavaScript => Language::JavaScript,
+            };
+            warn_unsupported_type_preset(language, s, sql_type, variant);
+            return None;
         }
     }
     resolve_type_ref(type_ref)
