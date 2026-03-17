@@ -1,4 +1,4 @@
-use sqlx::{SqlitePool as DbPool};
+use super::_sqltgen::DbPool;
 
 use super::author::Author;
 use super::book::Book;

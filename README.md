@@ -211,9 +211,9 @@ PascalCased and suffixed with `Queries` (`UsersQueries.java`) plus a matching
 `UsersQuerier.java` / `.kt` wrapper. In Rust, Python, TypeScript, and JavaScript
 the group name is used directly (`users.rs`, `users.py`, `users.ts`, `users.js`) and
 each queries module also emits a `UsersQuerier` (or default `Querier`) wrapper.
-Python and TypeScript/JavaScript also emit a generated runtime helper module
-(`_sqltgen.py`, `_sqltgen.ts`, `_sqltgen.js`) that centralizes driver-specific
-connection/release behavior.
+Rust, Python, and TypeScript/JavaScript also emit a generated runtime/helper module
+(`_sqltgen.rs`, `_sqltgen.py`, `_sqltgen.ts`, `_sqltgen.js`) that centralizes
+engine/driver-specific wiring.
 The single-file form always uses `Queries` + `Querier` (JVM) and `queries` +
 `Querier` (Rust/Python/TS/JS).
 

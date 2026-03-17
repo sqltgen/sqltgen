@@ -1,3 +1,4 @@
+out/_sqltgen.rs
 out/mod.rs
 out/queries.rs
 out/users.rs

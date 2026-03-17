@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+pub mod _sqltgen;
 pub mod author;
 pub mod book;
 pub mod customer;

@@ -13,6 +13,7 @@ pub fn mysql() -> RustCodegen {
     RustCodegen { target: RustTarget::Mysql }
 }
 
+mod architecture;
 mod generate;
 mod grouping;
 mod list_params;

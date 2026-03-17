@@ -163,7 +163,7 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 
 ## Backend — runtime / library
 
-> **TypeScript and JavaScript** share one backend implementation (`typescript.rs`).
+> **TypeScript and JavaScript** share one backend implementation (`typescript/`).
 > They are separate `gen` keys in the config (`"typescript"` / `"javascript"`), each
 > routing to `TypeScriptCodegen` with a `JsOutput::TypeScript` / `JsOutput::JavaScript`
 > flag. JS output uses JSDoc annotations instead of inline TypeScript types.
@@ -171,7 +171,7 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | | Java | Kotlin | Rust | Go | Python | TypeScript | JavaScript |
 |---|---|---|---|---|---|---|---|
 | Current target | JDBC | JDBC | sqlx | — | psycopg3 / sqlite3 / mysql-connector | pg / better-sqlite3 / mysql2 | pg / better-sqlite3 / mysql2 |
-| Two-layer adapter/core architecture | ⚠️ | ⚠️ | ⚠️ | 🚧 | ✅ | ✅ | ✅ |
+| Two-layer adapter/core architecture | ⚠️ | ⚠️ | ✅ | 🚧 | ✅ | ✅ | ✅ |
 | Planned target | JDBC | JDBC | sqlx | database/sql | psycopg3 / sqlite3 / mysql-connector | pg / better-sqlite3 / mysql2 | pg / better-sqlite3 / mysql2 |
 
 ---
@@ -199,13 +199,13 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | Frontend — common (query parser, CTEs, subqueries, named params, list params, source_table) | 204 |
 | Backend — Java | 63 |
 | Backend — Kotlin | 62 |
-| Backend — Rust | 41 |
+| Backend — Rust | 43 |
 | Backend — Python | 49 |
 | Backend — common (common + sql_rewrite + naming) | 48 |
 | Backend — JDBC | 13 |
 | Backend — TypeScript / JavaScript | 49 |
 | Integration (snapshots + resilience) | 25 |
-| **Total** | **728** |
+| **Total** | **730** |
 
 ---
 

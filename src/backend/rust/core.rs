@@ -5,27 +5,13 @@ use std::path::PathBuf;
 use crate::backend::common::{group_queries, has_inline_rows, infer_row_type_name, infer_table, querier_class_name, queries_file_stem};
 use crate::backend::naming::{to_pascal_case, to_snake_case};
 use crate::backend::sql_rewrite::{positional_bind_names, rewrite_to_anon_params, split_at_in_clause};
-use crate::backend::{Codegen, GeneratedFile};
+use crate::backend::GeneratedFile;
 use crate::config::{
-    is_known_type_preset, resolve_type_ref, warn_unsupported_type_preset, Engine, Language, ListParamStrategy, OutputConfig, ResolvedType, TypeVariant,
+    is_known_type_preset, resolve_type_ref, warn_unsupported_type_preset, Language, ListParamStrategy, OutputConfig, ResolvedType, TypeVariant,
 };
 use crate::ir::{NativeListBind, Parameter, Query, QueryCmd, Schema, SqlType};
 
-pub enum RustTarget {
-    Postgres,
-    Sqlite,
-    Mysql,
-}
-
-impl From<Engine> for RustTarget {
-    fn from(engine: Engine) -> Self {
-        match engine {
-            Engine::Postgresql => RustTarget::Postgres,
-            Engine::Sqlite => RustTarget::Sqlite,
-            Engine::Mysql => RustTarget::Mysql,
-        }
-    }
-}
+use super::adapter::{RustBindMode, RustCoreContract, RustPlaceholderMode, RustSqlNormMode};
 
 /// Resolve a known Rust preset name to a [`ResolvedType`].
 fn try_preset_rust(name: &str) -> Option<ResolvedType> {
@@ -67,99 +53,94 @@ fn rust_param_type_resolved(sql_type: &SqlType, nullable: bool, config: &OutputC
     rust_type(sql_type, nullable)
 }
 
-pub struct RustCodegen {
-    pub target: RustTarget,
-}
+pub(super) fn generate_core_files(
+    schema: &Schema,
+    queries: &[Query],
+    contract: &RustCoreContract,
+    config: &OutputConfig,
+) -> anyhow::Result<Vec<GeneratedFile>> {
+    let mut files = Vec::new();
 
-impl Codegen for RustCodegen {
-    fn generate(&self, schema: &Schema, queries: &[Query], config: &OutputConfig) -> anyhow::Result<Vec<GeneratedFile>> {
-        let mut files = Vec::new();
-
-        // One struct file per table
-        for table in &schema.tables {
-            let struct_name = to_pascal_case(&table.name);
-            let mut src = String::new();
-            writeln!(src, "#[derive(Debug, sqlx::FromRow)]")?;
-            writeln!(src, "pub struct {struct_name} {{")?;
-            for col in &table.columns {
-                writeln!(src, "    pub {}: {},", col.name, rust_field_type(&col.sql_type, col.nullable, config))?;
-            }
-            writeln!(src, "}}")?;
-
-            let path = PathBuf::from(&config.out).join(format!("{}.rs", table.name));
-            files.push(GeneratedFile { path, content: src });
+    // One struct file per table
+    for table in &schema.tables {
+        let struct_name = to_pascal_case(&table.name);
+        let mut src = String::new();
+        writeln!(src, "#[derive(Debug, sqlx::FromRow)]")?;
+        writeln!(src, "pub struct {struct_name} {{")?;
+        for col in &table.columns {
+            writeln!(src, "    pub {}: {},", col.name, rust_field_type(&col.sql_type, col.nullable, config))?;
         }
+        writeln!(src, "}}")?;
 
-        // One .rs file per query group
-        let pool_type = match self.target {
-            RustTarget::Postgres => "PgPool",
-            RustTarget::Sqlite => "SqlitePool",
-            RustTarget::Mysql => "MySqlPool",
-        };
-        let strategy = config.list_params.clone().unwrap_or_default();
-        let groups = group_queries(queries);
-        let mut group_stems: Vec<String> = Vec::new();
-        for (group, group_queries) in &groups {
-            let stem = queries_file_stem(group).to_string();
-            group_stems.push(stem.clone());
-
-            let mut src = String::new();
-            writeln!(src, "use sqlx::{{{pool_type} as DbPool}};")?;
-            writeln!(src)?;
-
-            // Import only table structs that are actually used as return types
-            let needed: HashSet<&str> = group_queries.iter().filter_map(|q| infer_table(q, schema)).collect();
-            let mut needed_sorted: Vec<&str> = needed.iter().copied().collect();
-            needed_sorted.sort();
-            for name in &needed_sorted {
-                writeln!(src, "use super::{}::{};", name, to_pascal_case(name))?;
-            }
-            if !needed.is_empty() {
-                writeln!(src)?;
-            }
-
-            // Custom row structs for queries that don't return a whole table
-            for query in group_queries {
-                if has_inline_rows(query, schema) {
-                    emit_row_struct(&mut src, query, config)?;
-                    writeln!(src)?;
-                }
-            }
-
-            // Query functions
-            for (i, query) in group_queries.iter().enumerate() {
-                if i > 0 {
-                    writeln!(src)?;
-                }
-                emit_rust_query(&mut src, query, schema, "DbPool", &self.target, &strategy, config)?;
-            }
-
-            if !group_queries.is_empty() {
-                writeln!(src)?;
-                emit_rust_querier(&mut src, group, group_queries, schema, "DbPool", config)?;
-            }
-
-            let path = PathBuf::from(&config.out).join(format!("{stem}.rs"));
-            files.push(GeneratedFile { path, content: src });
-        }
-
-        // mod.rs
-        {
-            let mut src = String::new();
-            writeln!(src, "#![allow(dead_code)]")?;
-            writeln!(src)?;
-            for table in &schema.tables {
-                writeln!(src, "pub mod {};", table.name)?;
-            }
-            for stem in &group_stems {
-                writeln!(src, "pub mod {stem};")?;
-            }
-            let path = PathBuf::from(&config.out).join("mod.rs");
-            files.push(GeneratedFile { path, content: src });
-        }
-
-        Ok(files)
+        let path = PathBuf::from(&config.out).join(format!("{}.rs", table.name));
+        files.push(GeneratedFile { path, content: src });
     }
+
+    // One .rs file per query group
+    let strategy = config.list_params.clone().unwrap_or_default();
+    let groups = group_queries(queries);
+    let mut group_stems: Vec<String> = Vec::new();
+    for (group, group_queries) in &groups {
+        let stem = queries_file_stem(group).to_string();
+        group_stems.push(stem.clone());
+
+        let mut src = String::new();
+        writeln!(src, "use super::_sqltgen::DbPool;")?;
+        writeln!(src)?;
+
+        // Import only table structs that are actually used as return types
+        let needed: HashSet<&str> = group_queries.iter().filter_map(|q| infer_table(q, schema)).collect();
+        let mut needed_sorted: Vec<&str> = needed.iter().copied().collect();
+        needed_sorted.sort();
+        for name in &needed_sorted {
+            writeln!(src, "use super::{}::{};", name, to_pascal_case(name))?;
+        }
+        if !needed.is_empty() {
+            writeln!(src)?;
+        }
+
+        // Custom row structs for queries that don't return a whole table
+        for query in group_queries {
+            if has_inline_rows(query, schema) {
+                emit_row_struct(&mut src, query, config)?;
+                writeln!(src)?;
+            }
+        }
+
+        // Query functions
+        for (i, query) in group_queries.iter().enumerate() {
+            if i > 0 {
+                writeln!(src)?;
+            }
+            emit_rust_query(&mut src, query, schema, "DbPool", contract, &strategy, config)?;
+        }
+
+        if !group_queries.is_empty() {
+            writeln!(src)?;
+            emit_rust_querier(&mut src, group, group_queries, schema, "DbPool", config)?;
+        }
+
+        let path = PathBuf::from(&config.out).join(format!("{stem}.rs"));
+        files.push(GeneratedFile { path, content: src });
+    }
+
+    // mod.rs
+    {
+        let mut src = String::new();
+        writeln!(src, "#![allow(dead_code)]")?;
+        writeln!(src)?;
+        writeln!(src, "pub mod _sqltgen;")?;
+        for table in &schema.tables {
+            writeln!(src, "pub mod {};", table.name)?;
+        }
+        for stem in &group_stems {
+            writeln!(src, "pub mod {stem};")?;
+        }
+        let path = PathBuf::from(&config.out).join("mod.rs");
+        files.push(GeneratedFile { path, content: src });
+    }
+
+    Ok(files)
 }
 
 fn emit_row_struct(src: &mut String, query: &Query, config: &OutputConfig) -> anyhow::Result<()> {
@@ -178,7 +159,7 @@ fn emit_rust_query(
     query: &Query,
     schema: &Schema,
     pool_type: &str,
-    target: &RustTarget,
+    contract: &RustCoreContract,
     strategy: &ListParamStrategy,
     config: &OutputConfig,
 ) -> anyhow::Result<()> {
@@ -199,9 +180,9 @@ fn emit_rust_query(
 
     let list_param = query.params.iter().find(|p| p.is_list);
     if let Some(lp) = list_param {
-        emit_rust_list_query(src, query, row_type, target, strategy, lp)?;
+        emit_rust_list_query(src, query, row_type, contract, strategy, lp)?;
     } else {
-        emit_rust_scalar_query(src, query, row_type, target)?;
+        emit_rust_scalar_query(src, query, row_type, contract)?;
     }
 
     writeln!(src, "}}")?;
@@ -265,15 +246,15 @@ fn emit_rust_sql_let(src: &mut String, sql: &str) -> anyhow::Result<()> {
 }
 
 /// Emit the body for a query with no list parameters.
-fn emit_rust_scalar_query(src: &mut String, query: &Query, row_type: String, target: &RustTarget) -> anyhow::Result<()> {
-    let raw_sql = normalize_sql_for_sqlx(&query.sql, target);
+fn emit_rust_scalar_query(src: &mut String, query: &Query, row_type: String, contract: &RustCoreContract) -> anyhow::Result<()> {
+    let raw_sql = normalize_sql_for_sqlx(&query.sql, contract.sql_norm_mode);
     let raw_sql = raw_sql.trim_end().trim_end_matches(';');
     emit_rust_sql_let(src, raw_sql)?;
     // Postgres $N is reference-by-number — one .bind() per unique param suffices.
     // SQLite/MySQL normalize to ? (positional sequential) — bind once per occurrence.
-    let bind_names: Vec<&str> = match target {
-        RustTarget::Postgres => query.params.iter().map(|p| p.name.as_str()).collect(),
-        RustTarget::Sqlite | RustTarget::Mysql => positional_bind_names(query),
+    let bind_names: Vec<&str> = match contract.bind_mode {
+        RustBindMode::UniqueParams => query.params.iter().map(|p| p.name.as_str()).collect(),
+        RustBindMode::Positional => positional_bind_names(query),
     };
     emit_rust_sqlx_call(src, query, "sql", &bind_names, &row_type)
 }
@@ -283,7 +264,7 @@ fn emit_rust_list_query(
     src: &mut String,
     query: &Query,
     row_type: String,
-    target: &RustTarget,
+    contract: &RustCoreContract,
     strategy: &ListParamStrategy,
     list_param: &Parameter,
 ) -> anyhow::Result<()> {
@@ -292,23 +273,23 @@ fn emit_rust_list_query(
     // applies its own standard placeholder rewriting (a general rule, not dialect logic).
     if *strategy == ListParamStrategy::Native {
         if let Some(native_sql) = &list_param.native_list_sql {
-            return emit_rust_native_list_query(src, query, &row_type, list_param, native_sql, target);
+            return emit_rust_native_list_query(src, query, &row_type, list_param, native_sql, contract);
         }
     }
     // Dynamic expansion: language-specific, not dialect-specific.
     let lp_name = to_snake_case(&list_param.name);
-    match target {
-        RustTarget::Postgres => {
+    match contract.placeholder_mode {
+        RustPlaceholderMode::NumberedDollar => {
             let base = list_param.index;
             writeln!(src, "    let placeholders: String = ({lp_name}).iter().enumerate()")?;
             writeln!(src, "        .map(|(i, _)| format!(\"${{}}\", {base} + i))")?;
             writeln!(src, "        .collect::<Vec<_>>().join(\", \");")?;
         },
-        RustTarget::Sqlite | RustTarget::Mysql => {
+        RustPlaceholderMode::QuestionMark => {
             writeln!(src, "    let placeholders = ({lp_name}).iter().map(|_| \"?\").collect::<Vec<_>>().join(\", \");")?;
         },
     }
-    emit_rust_dynamic_query(src, query, &row_type, list_param, target)
+    emit_rust_dynamic_query(src, query, &row_type, list_param, contract)
 }
 
 /// Emit a native list query using the pre-computed `native_sql` from the IR.
@@ -322,9 +303,9 @@ fn emit_rust_native_list_query(
     row_type: &str,
     list_param: &Parameter,
     native_sql: &str,
-    target: &RustTarget,
+    contract: &RustCoreContract,
 ) -> anyhow::Result<()> {
-    let raw_sql = normalize_sql_for_sqlx(native_sql, target);
+    let raw_sql = normalize_sql_for_sqlx(native_sql, contract.sql_norm_mode);
     let raw_sql = raw_sql.trim_end().trim_end_matches(';');
     emit_rust_sql_let(src, raw_sql)?;
     let lp_name = to_snake_case(&list_param.name);
@@ -345,12 +326,12 @@ fn emit_rust_native_list_query(
 }
 
 /// Emit the shared tail of a dynamic list query: build SQL, bind scalars, bind list.
-fn emit_rust_dynamic_query(src: &mut String, query: &Query, row_type: &str, list_param: &Parameter, target: &RustTarget) -> anyhow::Result<()> {
+fn emit_rust_dynamic_query(src: &mut String, query: &Query, row_type: &str, list_param: &Parameter, contract: &RustCoreContract) -> anyhow::Result<()> {
     let scalar_params: Vec<&Parameter> = query.params.iter().filter(|p| !p.is_list).collect();
     let lp_name = to_snake_case(&list_param.name);
     let (before, after) = split_at_in_clause(&query.sql, list_param.index).unwrap_or_else(|| (query.sql.clone(), String::new()));
-    let before_esc = normalize_sql_for_sqlx(&before, target).replace('"', "\\\"").replace('\n', " ");
-    let after_esc = normalize_sql_for_sqlx(&after, target).replace('"', "\\\"").replace('\n', " ");
+    let before_esc = normalize_sql_for_sqlx(&before, contract.sql_norm_mode).replace('"', "\\\"").replace('\n', " ");
+    let after_esc = normalize_sql_for_sqlx(&after, contract.sql_norm_mode).replace('"', "\\\"").replace('\n', " ");
     writeln!(src, "    let sql = format!(\"{before_esc}IN ({{placeholders}}){after_esc}\");")?;
     writeln!(src, "    let mut q = sqlx::query_as::<_, {row_type}>(&sql);")?;
     for sp in &scalar_params {
@@ -464,16 +445,16 @@ fn row_struct_name(query_name: &str) -> String {
 /// - SQLite `?N`/`$N` → `?` (sqlx sqlite uses anonymous `?`)
 /// - MySQL `$N`/`?N` → `?` (sqlx mysql uses anonymous `?`)
 /// - PostgreSQL `$N` → unchanged (sqlx postgres uses `$N`)
-fn normalize_sql_for_sqlx(sql: &str, target: &RustTarget) -> String {
-    match target {
-        RustTarget::Sqlite | RustTarget::Mysql => rewrite_to_anon_params(sql),
-        RustTarget::Postgres => sql.to_string(),
+fn normalize_sql_for_sqlx(sql: &str, mode: RustSqlNormMode) -> String {
+    match mode {
+        RustSqlNormMode::AnonParams => rewrite_to_anon_params(sql),
+        RustSqlNormMode::Preserve => sql.to_string(),
     }
 }
 
 // ─── Type mapping ─────────────────────────────────────────────────────────────
 
-fn rust_type(sql_type: &SqlType, nullable: bool) -> String {
+pub(super) fn rust_type(sql_type: &SqlType, nullable: bool) -> String {
     let base = match sql_type {
         SqlType::Boolean => "bool".to_string(),
         SqlType::SmallInt => "i16".to_string(),
@@ -504,6 +485,3 @@ fn rust_type(sql_type: &SqlType, nullable: bool) -> String {
         base
     }
 }
-
-#[cfg(test)]
-mod tests;

@@ -29,6 +29,7 @@ fn test_generate_mod_file() {
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "mod.rs");
+    assert!(src.contains("pub mod _sqltgen;"));
     assert!(src.contains("pub mod user;"));
     assert!(src.contains("pub mod queries;"));
 }
@@ -40,8 +41,10 @@ fn test_generate_postgres_uses_pg_pool() {
     let schema = Schema::default();
     let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
+    let helper = get_file(&files, "_sqltgen.rs");
     let src = get_file(&files, "queries.rs");
-    assert!(src.contains("use sqlx::{PgPool as DbPool};"));
+    assert!(src.contains("use super::_sqltgen::DbPool;"));
+    assert!(helper.contains("pub type DbPool = sqlx::PgPool;"));
     assert!(src.contains("pool: &DbPool"));
 }
 
@@ -50,8 +53,10 @@ fn test_generate_sqlite_uses_sqlite_pool() {
     let schema = Schema::default();
     let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = ?1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
+    let helper = get_file(&files, "_sqltgen.rs");
     let src = get_file(&files, "queries.rs");
-    assert!(src.contains("use sqlx::{SqlitePool as DbPool};"));
+    assert!(src.contains("use super::_sqltgen::DbPool;"));
+    assert!(helper.contains("pub type DbPool = sqlx::SqlitePool;"));
     assert!(src.contains("pool: &DbPool"));
 }
 
@@ -140,8 +145,10 @@ fn test_generate_mysql_exec_query() {
     let schema = Schema::default();
     let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = mysql().generate(&schema, &[query], &cfg()).unwrap();
+    let helper = get_file(&files, "_sqltgen.rs");
     let src = get_file(&files, "queries.rs");
-    assert!(src.contains("MySqlPool"), "MySQL backend uses MySqlPool");
+    assert!(src.contains("use super::_sqltgen::DbPool;"));
+    assert!(helper.contains("pub type DbPool = sqlx::MySqlPool;"));
     // MySQL rewrites $1 → ? (JDBC style); SQL is in a raw string binding
     assert!(src.contains("DELETE FROM user WHERE id = ?"));
     assert!(src.contains("pub async fn delete_user"));
@@ -161,8 +168,10 @@ fn test_generate_sqlite_one_query() {
         ],
     );
     let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
+    let helper = get_file(&files, "_sqltgen.rs");
     let src = get_file(&files, "queries.rs");
-    assert!(src.contains("SqlitePool"), "SQLite backend uses SqlitePool");
+    assert!(src.contains("use super::_sqltgen::DbPool;"));
+    assert!(helper.contains("pub type DbPool = sqlx::SqlitePool;"), "SQLite helper aliases SqlitePool");
     assert!(src.contains("Result<Option<User>, sqlx::Error>"), "One returns Option");
     assert!(src.contains(".fetch_optional(pool)"));
 }

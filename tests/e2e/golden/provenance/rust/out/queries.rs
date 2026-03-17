@@ -1,4 +1,4 @@
-use sqlx::{PgPool as DbPool};
+use super::_sqltgen::DbPool;
 
 use super::users::Users;
 

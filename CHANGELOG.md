@@ -62,6 +62,10 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
 ### Changed
 - Added shared backend scaffolding (`generate_two_layer_backend`) for the
   adapter/core generation flow.
+- **Rust backend internals:** migrated to the two-layer pattern. Engine-specific
+  sqlx pool selection now emits into `_sqltgen.rs`, while table/query/module
+  generation runs through a contract-driven core layer without engine-target
+  branching.
 - **TypeScript/JavaScript backend internals:** migrated to the two-layer pattern.
   Engine-specific runtime details now generate into `_sqltgen.ts`/`_sqltgen.js`,
   while query/module emission runs through a contract-driven core layer.
