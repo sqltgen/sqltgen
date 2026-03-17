@@ -2,6 +2,8 @@ use crate::backend::{Codegen, GeneratedFile};
 use crate::config::{Engine, OutputConfig};
 use crate::ir::{Query, Schema, SqlType};
 
+mod core;
+
 pub enum CppTarget {
     Postgres,
     Sqlite,
@@ -23,11 +25,14 @@ pub struct CppCodegen {
 }
 
 impl Codegen for CppCodegen {
-    fn generate(&self, schema: &Schema, queries: &[Query], config: &OutputConfig) -> anyhow::Result<Vec<GeneratedFile>> {
-        Ok(Vec::new()) // placeholder
+    fn generate(&self, schema: &Schema, _queries: &[Query], config: &OutputConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+        core::generate_table_files(schema, config)
     }
 }
 
-fn cpp_type(sql_type: &SqlType, nullable: bool, target: &CppTarget) -> String {
-    return "int".to_string(); //placeholder
+fn cpp_type(sql_type: &SqlType, nullable: bool, _target: &CppTarget) -> String {
+    core::cpp_type(sql_type, nullable)
 }
+
+#[cfg(test)]
+mod tests;
