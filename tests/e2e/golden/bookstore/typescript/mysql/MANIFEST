@@ -1,3 +1,4 @@
+out/_sqltgen.ts
 out/author.ts
 out/book.ts
 out/customer.ts

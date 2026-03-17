@@ -60,6 +60,11 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
   conditional branching markers.
 
 ### Changed
+- Added shared backend scaffolding (`generate_two_layer_backend`) for the
+  adapter/core generation flow.
+- **TypeScript/JavaScript backend internals:** migrated to the two-layer pattern.
+  Engine-specific runtime details now generate into `_sqltgen.ts`/`_sqltgen.js`,
+  while query/module emission runs through a contract-driven core layer.
 - **Python backend internals:** refactored to a two-layer shape where engine/driver
   differences are resolved once at codegen time into a `PythonCoreContract` split
   into runtime and SQL sub-contracts. Query/model emitters now consume these

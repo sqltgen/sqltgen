@@ -171,7 +171,7 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | | Java | Kotlin | Rust | Go | Python | TypeScript | JavaScript |
 |---|---|---|---|---|---|---|---|
 | Current target | JDBC | JDBC | sqlx | — | psycopg3 / sqlite3 / mysql-connector | pg / better-sqlite3 / mysql2 | pg / better-sqlite3 / mysql2 |
-| Two-layer adapter/core architecture | ⚠️ | ⚠️ | ⚠️ | 🚧 | ✅ | ⚠️ | ⚠️ |
+| Two-layer adapter/core architecture | ⚠️ | ⚠️ | ⚠️ | 🚧 | ✅ | ✅ | ✅ |
 | Planned target | JDBC | JDBC | sqlx | database/sql | psycopg3 / sqlite3 / mysql-connector | pg / better-sqlite3 / mysql2 | pg / better-sqlite3 / mysql2 |
 
 ---

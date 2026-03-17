@@ -1,3 +1,4 @@
+out/_sqltgen.ts
 out/event.ts
 out/index.ts
 out/queries.ts
