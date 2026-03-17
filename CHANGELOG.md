@@ -66,6 +66,9 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
   pre-resolved contracts without branching on engine target.
 
 ### Fixed
+- Type override named presets now emit one-time warnings when used on
+  unsupported backends (for example, `jackson` in Python or `serde_json`
+  in JVM backends) instead of being silently ignored.
 - Rust backend SQL embedding now has explicit regression coverage for quoted
   identifiers and string literals to ensure generated SQL remains in raw string
   form without escaped double quotes.

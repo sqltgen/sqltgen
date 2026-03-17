@@ -192,7 +192,7 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 
 | Module | Tests |
 |---|---|
-| Config | 24 |
+| Config | 26 |
 | Frontend — PostgreSQL (typemap + schema + query) | 75 |
 | Frontend — SQLite (typemap + schema + query) | 39 |
 | Frontend — MySQL (typemap + schema + query) | 34 |
@@ -205,7 +205,7 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | Backend — JDBC | 13 |
 | Backend — TypeScript / JavaScript | 49 |
 | Integration (snapshots + resilience) | 25 |
-| **Total** | **726** |
+| **Total** | **728** |
 
 ---
 
