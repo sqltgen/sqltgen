@@ -86,7 +86,7 @@ fn run_generate(config_path: &Path) -> anyhow::Result<()> {
             Language::Java => Box::new(backend::java::JavaCodegen { target: cfg.engine.into() }),
             Language::Kotlin => Box::new(backend::kotlin::KotlinCodegen { target: cfg.engine.into() }),
             Language::Rust => Box::new(backend::rust::RustCodegen { target: cfg.engine.into() }),
-            Language::Go => Box::new(backend::go::GoCodegen),
+            Language::Go => Box::new(backend::go::GoCodegen { target: cfg.engine.into() }),
             Language::Python => Box::new(backend::python::PythonCodegen { target: cfg.engine.into() }),
             Language::TypeScript => {
                 Box::new(backend::typescript::TypeScriptCodegen { target: cfg.engine.into(), output: backend::typescript::JsOutput::TypeScript })

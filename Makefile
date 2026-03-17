@@ -1,6 +1,6 @@
 SQLTGEN := ./target/debug/sqltgen
 
-.PHONY: all build test generate java kotlin rust python run-all \
+.PHONY: all build test generate java kotlin rust python go run-all \
        db-up db-down db-up-mysql db-down-mysql \
        e2e e2e-snapshot e2e-runtime e2e-check-suite \
        e2e-runtime-rust-sqlite e2e-runtime-rust-postgresql e2e-runtime-rust-mysql \
@@ -8,6 +8,7 @@ SQLTGEN := ./target/debug/sqltgen
        e2e-runtime-kotlin-postgresql e2e-runtime-kotlin-sqlite e2e-runtime-kotlin-mysql \
        e2e-runtime-python-sqlite e2e-runtime-python-postgresql e2e-runtime-python-mysql \
        e2e-runtime-typescript-sqlite e2e-runtime-typescript-postgresql e2e-runtime-typescript-mysql \
+       e2e-runtime-go-sqlite e2e-runtime-go-postgresql e2e-runtime-go-mysql \
        e2e-db-up e2e-db-down \
        ci-fmt ci-clippy ci-test ci-check-suite ci-examples-drift ci-runtime-sqlite ci-runtime-db
 
@@ -31,6 +32,7 @@ generate: $(SQLTGEN)
 	$(MAKE) -C examples/kotlin  generate
 	$(MAKE) -C examples/rust    generate
 	$(MAKE) -C examples/python  generate
+	$(MAKE) -C examples/go      generate
 
 # ── Examples ──────────────────────────────────────────────────────────────────
 
@@ -46,6 +48,9 @@ rust: $(SQLTGEN)
 python: $(SQLTGEN)
 	$(MAKE) -C examples/python run
 
+go: $(SQLTGEN)
+	$(MAKE) -C examples/go run
+
 run-all: $(SQLTGEN)
 	# PostgreSQL: one shared container, all four PG examples, then tear down
 	$(MAKE) -C examples/common/postgresql    db-up
@@ -55,6 +60,7 @@ run-all: $(SQLTGEN)
 	$(MAKE) -C examples/python/postgresql        run-shared
 	$(MAKE) -C examples/typescript/postgresql    run-shared
 	$(MAKE) -C examples/javascript/postgresql    run-shared
+	$(MAKE) -C examples/go/postgresql            run-shared
 	$(MAKE) -C examples/common/postgresql        db-down
 	# MySQL: one shared container, all four MySQL examples, then tear down
 	$(MAKE) -C examples/common/mysql         db-up
@@ -72,6 +78,7 @@ run-all: $(SQLTGEN)
 	$(MAKE) -C examples/python/sqlite        run
 	$(MAKE) -C examples/typescript/sqlite    run
 	$(MAKE) -C examples/javascript/sqlite    run
+	$(MAKE) -C examples/go/sqlite            run
 
 # ── E2E tests ────────────────────────────────────────────────────────────────
 
@@ -97,6 +104,7 @@ e2e-runtime: \
 	e2e-runtime-rust-sqlite \
 	e2e-runtime-java-sqlite \
 	e2e-runtime-kotlin-sqlite \
+	e2e-runtime-go-sqlite \
 	e2e-runtime-rust-postgresql \
 	e2e-runtime-rust-mysql \
 	e2e-runtime-java-postgresql \
@@ -106,7 +114,9 @@ e2e-runtime: \
 	e2e-runtime-python-postgresql \
 	e2e-runtime-python-mysql \
 	e2e-runtime-typescript-postgresql \
-	e2e-runtime-typescript-mysql
+	e2e-runtime-typescript-mysql \
+	e2e-runtime-go-postgresql \
+	e2e-runtime-go-mysql
 
 # ── No-Docker runtime tests (SQLite) ─────────────────────────────────────────
 
@@ -125,6 +135,9 @@ e2e-runtime-java-sqlite: $(SQLTGEN)
 
 e2e-runtime-kotlin-sqlite: $(SQLTGEN)
 	$(MAKE) -C $(E2E_RUNTIME)/kotlin/sqlite test
+
+e2e-runtime-go-sqlite: $(SQLTGEN)
+	$(MAKE) -C $(E2E_RUNTIME)/go/sqlite test
 
 # ── Docker-based runtime tests (PostgreSQL + MySQL) ───────────────────────────
 
@@ -160,6 +173,12 @@ e2e-runtime-typescript-postgresql: $(SQLTGEN) e2e-db-up
 e2e-runtime-typescript-mysql: $(SQLTGEN) e2e-db-up
 	$(MAKE) -C $(E2E_RUNTIME)/typescript/mysql install test
 
+e2e-runtime-go-postgresql: $(SQLTGEN) e2e-db-up
+	$(MAKE) -C $(E2E_RUNTIME)/go/postgresql test
+
+e2e-runtime-go-mysql: $(SQLTGEN) e2e-db-up
+	$(MAKE) -C $(E2E_RUNTIME)/go/mysql test
+
 # ── E2E Docker lifecycle ────────────────────────────────────────────────────
 
 e2e-db-up:
@@ -193,6 +212,7 @@ ci-runtime-sqlite: build
 	$(MAKE) e2e-runtime-typescript-sqlite
 	$(MAKE) e2e-runtime-java-sqlite
 	$(MAKE) e2e-runtime-kotlin-sqlite
+	$(MAKE) e2e-runtime-go-sqlite
 
 ci-runtime-db: build
 	pip install --quiet pytest "psycopg[binary]" mysql-connector-python
@@ -206,6 +226,8 @@ ci-runtime-db: build
 	$(MAKE) e2e-runtime-python-mysql
 	$(MAKE) e2e-runtime-typescript-postgresql
 	$(MAKE) e2e-runtime-typescript-mysql
+	$(MAKE) e2e-runtime-go-postgresql
+	$(MAKE) e2e-runtime-go-mysql
 
 # ── PostgreSQL database ───────────────────────────────────────────────────────
 

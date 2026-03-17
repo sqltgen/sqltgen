@@ -8,6 +8,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use sqltgen::backend::go::{GoCodegen, GoTarget};
 use sqltgen::backend::java::JavaCodegen;
 use sqltgen::backend::jdbc::JdbcTarget;
 use sqltgen::backend::kotlin::KotlinCodegen;
@@ -239,6 +240,23 @@ fn snapshot_javascript_mysql() {
     snapshot_test("bookstore/mysql", &MysqlParser, "javascript", &TypeScriptCodegen { target: JsTarget::Mysql, output: JsOutput::JavaScript });
 }
 
+// ─── Go backend ───────────────────────────────────────────────────────────
+
+#[test]
+fn snapshot_go_postgresql() {
+    snapshot_test("bookstore/postgresql", &PostgresParser, "go", &GoCodegen { target: GoTarget::Postgres });
+}
+
+#[test]
+fn snapshot_go_sqlite() {
+    snapshot_test("bookstore/sqlite", &SqliteParser, "go", &GoCodegen { target: GoTarget::Sqlite });
+}
+
+#[test]
+fn snapshot_go_mysql() {
+    snapshot_test("bookstore/mysql", &MysqlParser, "go", &GoCodegen { target: GoTarget::Mysql });
+}
+
 // ─── Provenance snapshot tests ────────────────────────────────────────────
 //
 // Verify that source_table is correctly resolved through CTEs and derived
@@ -375,6 +393,7 @@ fn resilience_all_backends_empty_queries() {
         Box::new(PythonCodegen { target: PythonTarget::Postgres }),
         Box::new(JavaCodegen { target: JdbcTarget::Postgres }),
         Box::new(KotlinCodegen { target: JdbcTarget::Postgres }),
+        Box::new(GoCodegen { target: GoTarget::Postgres }),
         Box::new(TypeScriptCodegen { target: JsTarget::Postgres, output: JsOutput::TypeScript }),
         Box::new(TypeScriptCodegen { target: JsTarget::Postgres, output: JsOutput::JavaScript }),
     ];

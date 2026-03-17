@@ -1,0 +1,60 @@
+use crate::backend::{Codegen, GeneratedFile};
+use crate::config::{Engine, OutputConfig};
+use crate::ir::{Query, Schema};
+
+#[cfg(test)]
+use crate::ir::SqlType;
+
+mod adapter;
+mod core;
+
+/// Database engine target for Go output.
+pub enum GoTarget {
+    /// PostgreSQL via pgx registered as database/sql driver.
+    Postgres,
+    /// SQLite via modernc.org/sqlite.
+    Sqlite,
+    /// MySQL via go-sql-driver/mysql.
+    Mysql,
+}
+
+impl From<Engine> for GoTarget {
+    fn from(engine: Engine) -> Self {
+        match engine {
+            Engine::Postgresql => GoTarget::Postgres,
+            Engine::Sqlite => GoTarget::Sqlite,
+            Engine::Mysql => GoTarget::Mysql,
+        }
+    }
+}
+
+/// Code generator for Go using `database/sql`.
+pub struct GoCodegen {
+    /// Database driver target.
+    pub target: GoTarget,
+}
+
+impl Codegen for GoCodegen {
+    fn generate(&self, schema: &Schema, queries: &[Query], config: &OutputConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+        let contract = adapter::resolve_go_contract(&self.target);
+        let pkg = core::package_name(config);
+
+        let mut files = Vec::new();
+        files.push(adapter::emit_helper_file(&contract, &pkg, config));
+        files.extend(core::generate_core_files(schema, queries, &contract, config)?);
+
+        Ok(files)
+    }
+}
+
+#[cfg(test)]
+fn go_type(sql_type: &SqlType, nullable: bool, target: &GoTarget) -> String {
+    let json_mode = match target {
+        GoTarget::Postgres => adapter::GoJsonMode::Bytes,
+        GoTarget::Sqlite | GoTarget::Mysql => adapter::GoJsonMode::String,
+    };
+    core::go_type(sql_type, nullable, json_mode)
+}
+
+#[cfg(test)]
+mod tests;

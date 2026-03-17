@@ -38,8 +38,8 @@ FIXTURES = E2E / "fixtures"
 
 FIXTURE_FILES: dict[str, Path] = {
     "postgresql": FIXTURES / "bookstore" / "postgresql" / "queries.sql",
-    "sqlite":     FIXTURES / "bookstore" / "sqlite"     / "queries.sql",
-    "mysql":      FIXTURES / "bookstore" / "mysql"      / "queries.sql",
+    "sqlite": FIXTURES / "bookstore" / "sqlite" / "queries.sql",
+    "mysql": FIXTURES / "bookstore" / "mysql" / "queries.sql",
 }
 
 # ── Runtime test suites ────────────────────────────────────────────────────────
@@ -51,65 +51,113 @@ FIXTURE_FILES: dict[str, Path] = {
 # handles stripping language prefixes and lowercasing.
 
 SUITES: list[tuple[str, str, Path, str]] = [
-    ("postgresql", "rust",
-     RUNTIME / "bookstore/rust/postgresql/tests/runtime.rs",
-     r"async fn (test_\w+)"),
-
-    ("sqlite", "rust",
-     RUNTIME / "bookstore/rust/sqlite/tests/runtime.rs",
-     r"async fn (test_\w+)"),
-
-    ("mysql", "rust",
-     RUNTIME / "bookstore/rust/mysql/tests/runtime.rs",
-     r"async fn (test_\w+)"),
-
-    ("postgresql", "java",
-     RUNTIME / "bookstore/java/postgresql/src/test/java/com/example/db/RuntimeTest.java",
-     r"void (test\w+)"),
-
-    ("postgresql", "kotlin",
-     RUNTIME / "bookstore/kotlin/postgresql/src/test/kotlin/com/example/db/RuntimeTest.kt",
-     r"fun (test\w+)"),
-
-    ("postgresql", "python",
-     RUNTIME / "bookstore/python/postgresql/test_runtime.py",
-     r"def (test_\w+)"),
-
-    ("sqlite", "python",
-     RUNTIME / "bookstore/python/sqlite/test_runtime.py",
-     r"def (test_\w+)"),
-
-    ("postgresql", "typescript",
-     RUNTIME / "bookstore/typescript/postgresql/runtime.test.ts",
-     r"it\(['\"]([^'\"]+)['\"]"),
-
-    ("sqlite", "typescript",
-     RUNTIME / "bookstore/typescript/sqlite/runtime.test.ts",
-     r"it\(['\"]([^'\"]+)['\"]"),
-
-    ("mysql", "typescript",
-     RUNTIME / "bookstore/typescript/mysql/runtime.test.ts",
-     r"it\(['\"]([^'\"]+)['\"]"),
-
-    ("sqlite", "java",
-     RUNTIME / "bookstore/java/sqlite/src/test/java/com/example/db/RuntimeTest.java",
-     r"void (test\w+)"),
-
-    ("mysql", "java",
-     RUNTIME / "bookstore/java/mysql/src/test/java/com/example/db/RuntimeTest.java",
-     r"void (test\w+)"),
-
-    ("sqlite", "kotlin",
-     RUNTIME / "bookstore/kotlin/sqlite/src/test/kotlin/com/example/db/RuntimeTest.kt",
-     r"fun (test\w+)"),
-
-    ("mysql", "kotlin",
-     RUNTIME / "bookstore/kotlin/mysql/src/test/kotlin/com/example/db/RuntimeTest.kt",
-     r"fun (test\w+)"),
-
-    ("mysql", "python",
-     RUNTIME / "bookstore/python/mysql/test_runtime.py",
-     r"def (test_\w+)"),
+    (
+        "postgresql",
+        "rust",
+        RUNTIME / "bookstore/rust/postgresql/tests/runtime.rs",
+        r"async fn (test_\w+)",
+    ),
+    (
+        "sqlite",
+        "rust",
+        RUNTIME / "bookstore/rust/sqlite/tests/runtime.rs",
+        r"async fn (test_\w+)",
+    ),
+    (
+        "mysql",
+        "rust",
+        RUNTIME / "bookstore/rust/mysql/tests/runtime.rs",
+        r"async fn (test_\w+)",
+    ),
+    (
+        "postgresql",
+        "java",
+        RUNTIME
+        / "bookstore/java/postgresql/src/test/java/com/example/db/RuntimeTest.java",
+        r"void (test\w+)",
+    ),
+    (
+        "postgresql",
+        "kotlin",
+        RUNTIME
+        / "bookstore/kotlin/postgresql/src/test/kotlin/com/example/db/RuntimeTest.kt",
+        r"fun (test\w+)",
+    ),
+    (
+        "postgresql",
+        "python",
+        RUNTIME / "bookstore/python/postgresql/test_runtime.py",
+        r"def (test_\w+)",
+    ),
+    (
+        "sqlite",
+        "python",
+        RUNTIME / "bookstore/python/sqlite/test_runtime.py",
+        r"def (test_\w+)",
+    ),
+    (
+        "postgresql",
+        "typescript",
+        RUNTIME / "bookstore/typescript/postgresql/runtime.test.ts",
+        r"it\(['\"]([^'\"]+)['\"]",
+    ),
+    (
+        "sqlite",
+        "typescript",
+        RUNTIME / "bookstore/typescript/sqlite/runtime.test.ts",
+        r"it\(['\"]([^'\"]+)['\"]",
+    ),
+    (
+        "mysql",
+        "typescript",
+        RUNTIME / "bookstore/typescript/mysql/runtime.test.ts",
+        r"it\(['\"]([^'\"]+)['\"]",
+    ),
+    (
+        "sqlite",
+        "java",
+        RUNTIME / "bookstore/java/sqlite/src/test/java/com/example/db/RuntimeTest.java",
+        r"void (test\w+)",
+    ),
+    (
+        "mysql",
+        "java",
+        RUNTIME / "bookstore/java/mysql/src/test/java/com/example/db/RuntimeTest.java",
+        r"void (test\w+)",
+    ),
+    (
+        "sqlite",
+        "kotlin",
+        RUNTIME
+        / "bookstore/kotlin/sqlite/src/test/kotlin/com/example/db/RuntimeTest.kt",
+        r"fun (test\w+)",
+    ),
+    (
+        "mysql",
+        "kotlin",
+        RUNTIME
+        / "bookstore/kotlin/mysql/src/test/kotlin/com/example/db/RuntimeTest.kt",
+        r"fun (test\w+)",
+    ),
+    (
+        "mysql",
+        "python",
+        RUNTIME / "bookstore/python/mysql/test_runtime.py",
+        r"def (test_\w+)",
+    ),
+    (
+        "postgresql",
+        "go",
+        RUNTIME / "bookstore/go/postgresql/runtime_test.go",
+        r"func (Test\w+)",
+    ),
+    (
+        "sqlite",
+        "go",
+        RUNTIME / "bookstore/go/sqlite/runtime_test.go",
+        r"func (Test\w+)",
+    ),
+    ("mysql", "go", RUNTIME / "bookstore/go/mysql/runtime_test.go", r"func (Test\w+)"),
 ]
 
 # ── Known dialect gaps ────────────────────────────────────────────────────────
@@ -122,9 +170,9 @@ KNOWN_DIALECT_GAPS: dict[str, set[str]] = {
     # Data-modifying CTEs (WITH … DELETE … RETURNING) — PostgreSQL only.
     "ArchiveAndReturnBooks": {"sqlite", "mysql"},
     # INSERT … RETURNING — not supported by MySQL.
-    "InsertProduct":         {"mysql"},
+    "InsertProduct": {"mysql"},
     # ON CONFLICT … DO UPDATE SET — not supported by MySQL.
-    "UpsertProduct":         {"mysql"},
+    "UpsertProduct": {"mysql"},
 }
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -254,8 +302,7 @@ def print_coverage_section(
 
         # Pre-compute normalized test name lists for each suite.
         suite_test_norms: dict[str, list[str]] = {
-            lang: normalized_test_names(path, pattern)
-            for lang, path, pattern in suites
+            lang: normalized_test_names(path, pattern) for lang, path, pattern in suites
         }
         langs = [lang for lang, _, _ in suites]
         col_w = max(len(q) for q in queries)

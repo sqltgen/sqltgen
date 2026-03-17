@@ -81,7 +81,7 @@ SQL files
 | `kotlin/` | ✅ | Data classes + `Queries` object with JDBC methods + `Querier` DataSource wrapper; compile-time adapter contract drives language-constant selection |
 | `rust/` | ✅ | `sqlx` async functions + `#[derive(FromRow)]` structs + `Querier` pool wrapper; compile-time adapter contract emits `_sqltgen.rs` helper + engine-agnostic core query modules |
 | `python.rs` | ✅ | `@dataclass` models + `Querier`; engine differences resolved via compile-time adapter contract + generated helper module |
-| `go.rs` | 🚧 | Stub — `unimplemented!()` |
+| `go.rs` | ✅ | `database/sql` structs + query functions + `Querier` wrapper; two-layer adapter/core architecture; `pq.Array` + dynamic expansion for list params |
 | `typescript.rs` | ✅ | TypeScript (interfaces) + JavaScript (JSDoc) output; pg / better-sqlite3 / mysql2 drivers; emits `_sqltgen` runtime helper + `Querier` wrapper |
 
 ## CLI (`src/main.rs`)
@@ -121,7 +121,7 @@ sqltgen aims for excellent JSON support across all backends. Current state and g
 
 ### High priority
 
-1. **Go backend** — generate structs + `database/sql` functions
+1. ~~**Go backend** — generate structs + `database/sql` functions~~ ✅
 2. ~~**Two-layer backend architecture rollout** — all non-stub backends (Java, Kotlin, Rust, Python, TypeScript/JavaScript) now follow the compile-time adapter + engine-agnostic core pattern~~ ✅
 
 ### Medium priority

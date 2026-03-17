@@ -79,11 +79,11 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 
 | Feature | Java | Kotlin | Rust | Go | Python | TypeScript | JavaScript |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| Row model generated | ✅ record | ✅ data class | ✅ `#[derive(FromRow)]` struct | 🚧 | ✅ `@dataclass` | ✅ `interface` | ✅ `@typedef` |
-| One file per table | ✅ | ✅ | ✅ | 🚧 | ✅ | ✅ | ✅ |
-| Nullable fields | ✅ | ✅ | ✅ `Option<T>` | 🚧 | ✅ `T \| None` | ✅ `T \| null` | ✅ `T \| null` |
-| Array fields | ✅ `List<T>` | ✅ `List<T>` | ✅ `Vec<T>` | 🚧 | ✅ `list[T]` | ✅ `T[]` | ✅ `T[]` |
-| Package / namespace / module | ✅ | ✅ | ✅ `mod.rs` generated | 🚧 | ✅ `__init__.py` generated | ✅ `index.ts` barrel | ✅ `index.js` barrel |
+| Row model generated | ✅ record | ✅ data class | ✅ `#[derive(FromRow)]` struct | ✅ struct | ✅ `@dataclass` | ✅ `interface` | ✅ `@typedef` |
+| One file per table | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Nullable fields | ✅ | ✅ | ✅ `Option<T>` | ✅ `*T` / `sql.NullX` | ✅ `T \| None` | ✅ `T \| null` | ✅ `T \| null` |
+| Array fields | ✅ `List<T>` | ✅ `List<T>` | ✅ `Vec<T>` | ✅ `pq.Array` / `[]T` | ✅ `list[T]` | ✅ `T[]` | ✅ `T[]` |
+| Package / namespace / module | ✅ | ✅ | ✅ `mod.rs` generated | ✅ `mod.go` generated | ✅ `__init__.py` generated | ✅ `index.ts` barrel | ✅ `index.js` barrel |
 | Enum types (aliased string / sealed class) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | JSON serialization tags / annotations | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Struct embedding (nested row types) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
@@ -94,23 +94,23 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 
 | Feature | Java | Kotlin | Rust | Go | Python | TypeScript | JavaScript |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `:one` | ✅ `Optional<T>` | ✅ `T?` | ✅ `Option<T>` | 🚧 | ✅ `T \| None` | ✅ `Promise<T \| null>` | ✅ `Promise<T \| null>` |
-| `:many` | ✅ `List<T>` | ✅ `List<T>` | ✅ `Vec<T>` | 🚧 | ✅ `list[T]` | ✅ `Promise<T[]>` | ✅ `Promise<T[]>` |
-| `:exec` | ✅ `void` | ✅ `Unit` | ✅ `()` | 🚧 | ✅ `None` | ✅ `Promise<void>` | ✅ `Promise<void>` |
-| `:execrows` | ✅ `long` | ✅ `Long` | ✅ `u64` | 🚧 | ✅ `int` | ✅ `Promise<number>` | ✅ `Promise<number>` |
-| List params (`IN (@ids)`) native + dynamic | ✅ | ✅ | ✅ | 🚧 | ✅ | ✅ | ✅ |
+| `:one` | ✅ `Optional<T>` | ✅ `T?` | ✅ `Option<T>` | ✅ `(*T, error)` | ✅ `T \| None` | ✅ `Promise<T \| null>` | ✅ `Promise<T \| null>` |
+| `:many` | ✅ `List<T>` | ✅ `List<T>` | ✅ `Vec<T>` | ✅ `([]T, error)` | ✅ `list[T]` | ✅ `Promise<T[]>` | ✅ `Promise<T[]>` |
+| `:exec` | ✅ `void` | ✅ `Unit` | ✅ `()` | ✅ `error` | ✅ `None` | ✅ `Promise<void>` | ✅ `Promise<void>` |
+| `:execrows` | ✅ `long` | ✅ `Long` | ✅ `u64` | ✅ `(int64, error)` | ✅ `int` | ✅ `Promise<number>` | ✅ `Promise<number>` |
+| List params (`IN (@ids)`) native + dynamic | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `:execresult` (driver result object) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | `:execlastid` (last insert ID) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | `:batchexec` / `:batchmany` / `:batchone` | — | — | ❌ | ❌ | — | — | — |
 | `:copyfrom` (bulk insert) | ❌ | — | ❌ | ❌ | ❌ | — | — |
-| `$N` / `?N` → `?` placeholder rewrite | ✅ | ✅ | ✅ | 🚧 | ✅ `→ %s` | ✅ MySQL only | ✅ MySQL only |
+| `$N` / `?N` → `?` placeholder rewrite | ✅ | ✅ | ✅ | ✅ | ✅ `→ %s` | ✅ MySQL only | ✅ MySQL only |
 | Named params struct (`{Query}Params`) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Table row-type inference | ✅ | ✅ | ✅ | 🚧 | ✅ | ✅ | ✅ |
-| Join / CTE / RETURNING row type | ✅ `{Query}Row` record | ✅ `{Query}Row` data class | ✅ `{Query}Row` struct | 🚧 | ✅ `{Query}Row` dataclass | ✅ `{Query}Row` interface | ✅ `{Query}Row` typedef |
-| Nullable params | ✅ `setObject` | ✅ `setObject` | — | 🚧 | — | ✅ pass `null` | ✅ pass `null` |
-| Typed result getters (Date, UUID…) | ✅ `getObject(n, T.class)` | ✅ `getObject(n, T::class.java)` | ✅ | 🚧 | — positional unpacking | ✅ driver handles | ✅ driver handles |
+| Table row-type inference | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Join / CTE / RETURNING row type | ✅ `{Query}Row` record | ✅ `{Query}Row` data class | ✅ `{Query}Row` struct | ✅ `{Query}Row` struct | ✅ `{Query}Row` dataclass | ✅ `{Query}Row` interface | ✅ `{Query}Row` typedef |
+| Nullable params | ✅ `setObject` | ✅ `setObject` | — | ✅ `sql.NullX` | — | ✅ pass `null` | ✅ pass `null` |
+| Typed result getters (Date, UUID…) | ✅ `getObject(n, T.class)` | ✅ `getObject(n, T::class.java)` | ✅ | ✅ `rows.Scan` | — positional unpacking | ✅ driver handles | ✅ driver handles |
 | Transaction support (`with_tx`) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Querier object / class wrapper | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ |
+| Querier object / class wrapper | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 ---
 
@@ -118,24 +118,24 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 
 | `SqlType` | Java | Kotlin | Rust | Go | Python | TypeScript | JavaScript |
 |---|---|---|---|---|---|---|---|
-| `Boolean` | ✅ `boolean`/`Boolean` | ✅ `Boolean` | ✅ `bool` | 🚧 | ✅ `bool` | ✅ `boolean` | ✅ `boolean` |
-| `SmallInt` | ✅ `short`/`Short` | ✅ `Short` | ✅ `i16` | 🚧 | ✅ `int` | ✅ `number` | ✅ `number` |
-| `Integer` | ✅ `int`/`Integer` | ✅ `Int` | ✅ `i32` | 🚧 | ✅ `int` | ✅ `number` | ✅ `number` |
-| `BigInt` | ✅ `long`/`Long` | ✅ `Long` | ✅ `i64` | 🚧 | ✅ `int` | ✅ `number` ⚠️ lossy | ✅ `number` ⚠️ lossy |
-| `Real` | ✅ `float`/`Float` | ✅ `Float` | ✅ `f32` | 🚧 | ✅ `float` | ✅ `number` | ✅ `number` |
-| `Double` | ✅ `double`/`Double` | ✅ `Double` | ✅ `f64` | 🚧 | ✅ `float` | ✅ `number` | ✅ `number` |
-| `Decimal` | ✅ `BigDecimal` | ✅ `BigDecimal` | ✅ `f64` | 🚧 | ✅ `decimal.Decimal` | ✅ `number` | ✅ `number` |
-| `Text`/`Char`/`VarChar` | ✅ `String` | ✅ `String` | ✅ `String` | 🚧 | ✅ `str` | ✅ `string` | ✅ `string` |
-| `Bytes` | ✅ `byte[]` | ✅ `ByteArray` | ✅ `Vec<u8>` | 🚧 | ✅ `bytes` | ✅ `Buffer` | ✅ `Buffer` |
-| `Date` | ✅ `LocalDate` | ✅ `LocalDate` | ✅ `time::Date` | 🚧 | ✅ `datetime.date` | ✅ `Date` | ✅ `Date` |
-| `Time` | ✅ `LocalTime` | ✅ `LocalTime` | ✅ `time::Time` | 🚧 | ✅ `datetime.time` | ✅ `Date` | ✅ `Date` |
-| `Timestamp` | ✅ `LocalDateTime` | ✅ `LocalDateTime` | ✅ `time::PrimitiveDateTime` | 🚧 | ✅ `datetime.datetime` | ✅ `Date` | ✅ `Date` |
-| `TimestampTz` | ✅ `OffsetDateTime` | ✅ `OffsetDateTime` | ✅ `time::OffsetDateTime` | 🚧 | ✅ `datetime.datetime` | ✅ `Date` | ✅ `Date` |
-| `Interval` | ✅ `String` | ✅ `String` | ✅ `String` | 🚧 | ✅ `datetime.timedelta` | ✅ `string` | ✅ `string` |
-| `Uuid` | ✅ `UUID` | ✅ `UUID` | ✅ `uuid::Uuid` | 🚧 | ✅ `uuid.UUID` | ✅ `string` | ✅ `string` |
-| `Json`/`Jsonb` | ✅ `String` | ✅ `String` | ✅ `serde_json::Value` | 🚧 | ✅ `Any` | ✅ `unknown` | ✅ `unknown` |
-| `Array(T)` | ✅ `List<T>` | ✅ `List<T>` | ✅ `Vec<T>` | 🚧 | ✅ `list[T]` | ✅ `T[]` | ✅ `T[]` |
-| `Custom` | ✅ `Object` | ✅ `Any` | ✅ `serde_json::Value` | 🚧 | ✅ `Any` | ✅ `unknown` | ✅ `unknown` |
+| `Boolean` | ✅ `boolean`/`Boolean` | ✅ `Boolean` | ✅ `bool` | ✅ `bool` | ✅ `bool` | ✅ `boolean` | ✅ `boolean` |
+| `SmallInt` | ✅ `short`/`Short` | ✅ `Short` | ✅ `i16` | ✅ `int16` | ✅ `int` | ✅ `number` | ✅ `number` |
+| `Integer` | ✅ `int`/`Integer` | ✅ `Int` | ✅ `i32` | ✅ `int32` | ✅ `int` | ✅ `number` | ✅ `number` |
+| `BigInt` | ✅ `long`/`Long` | ✅ `Long` | ✅ `i64` | ✅ `int64` | ✅ `int` | ✅ `number` ⚠️ lossy | ✅ `number` ⚠️ lossy |
+| `Real` | ✅ `float`/`Float` | ✅ `Float` | ✅ `f32` | ✅ `float32` | ✅ `float` | ✅ `number` | ✅ `number` |
+| `Double` | ✅ `double`/`Double` | ✅ `Double` | ✅ `f64` | ✅ `float64` | ✅ `float` | ✅ `number` | ✅ `number` |
+| `Decimal` | ✅ `BigDecimal` | ✅ `BigDecimal` | ✅ `f64` | ✅ `string` | ✅ `decimal.Decimal` | ✅ `number` | ✅ `number` |
+| `Text`/`Char`/`VarChar` | ✅ `String` | ✅ `String` | ✅ `String` | ✅ `string` | ✅ `str` | ✅ `string` | ✅ `string` |
+| `Bytes` | ✅ `byte[]` | ✅ `ByteArray` | ✅ `Vec<u8>` | ✅ `[]byte` | ✅ `bytes` | ✅ `Buffer` | ✅ `Buffer` |
+| `Date` | ✅ `LocalDate` | ✅ `LocalDate` | ✅ `time::Date` | ✅ `time.Time` | ✅ `datetime.date` | ✅ `Date` | ✅ `Date` |
+| `Time` | ✅ `LocalTime` | ✅ `LocalTime` | ✅ `time::Time` | ✅ `time.Time` | ✅ `datetime.time` | ✅ `Date` | ✅ `Date` |
+| `Timestamp` | ✅ `LocalDateTime` | ✅ `LocalDateTime` | ✅ `time::PrimitiveDateTime` | ✅ `time.Time` | ✅ `datetime.datetime` | ✅ `Date` | ✅ `Date` |
+| `TimestampTz` | ✅ `OffsetDateTime` | ✅ `OffsetDateTime` | ✅ `time::OffsetDateTime` | ✅ `time.Time` | ✅ `datetime.datetime` | ✅ `Date` | ✅ `Date` |
+| `Interval` | ✅ `String` | ✅ `String` | ✅ `String` | ✅ `string` | ✅ `datetime.timedelta` | ✅ `string` | ✅ `string` |
+| `Uuid` | ✅ `UUID` | ✅ `UUID` | ✅ `uuid::Uuid` | ✅ `string` | ✅ `uuid.UUID` | ✅ `string` | ✅ `string` |
+| `Json`/`Jsonb` | ✅ `String` | ✅ `String` | ✅ `serde_json::Value` | ✅ `json.RawMessage` | ✅ `Any` | ✅ `unknown` | ✅ `unknown` |
+| `Array(T)` | ✅ `List<T>` | ✅ `List<T>` | ✅ `Vec<T>` | ✅ `pq.Array` / `[]T` | ✅ `list[T]` | ✅ `T[]` | ✅ `T[]` |
+| `Custom` | ✅ `Object` | ✅ `Any` | ✅ `serde_json::Value` | ✅ `interface{}` | ✅ `Any` | ✅ `unknown` | ✅ `unknown` |
 | `Enum(name)` (aliased string / sealed class) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 
 ---
@@ -170,8 +170,8 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 
 | | Java | Kotlin | Rust | Go | Python | TypeScript | JavaScript |
 |---|---|---|---|---|---|---|---|
-| Current target | JDBC | JDBC | sqlx | — | psycopg3 / sqlite3 / mysql-connector | pg / better-sqlite3 / mysql2 | pg / better-sqlite3 / mysql2 |
-| Two-layer adapter/core architecture | ✅ | ✅ | ✅ | 🚧 | ✅ | ✅ | ✅ |
+| Current target | JDBC | JDBC | sqlx | database/sql | psycopg3 / sqlite3 / mysql-connector | pg / better-sqlite3 / mysql2 | pg / better-sqlite3 / mysql2 |
+| Two-layer adapter/core architecture | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Planned target | JDBC | JDBC | sqlx | database/sql | psycopg3 / sqlite3 / mysql-connector | pg / better-sqlite3 / mysql2 | pg / better-sqlite3 / mysql2 |
 
 ---
@@ -180,11 +180,11 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 
 | | Java | Kotlin | Rust | Go | Python | TypeScript | JavaScript |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| Example project | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ |
-| PostgreSQL (real DB) | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ |
-| SQLite (in-memory) | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ |
+| Example project | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| PostgreSQL (real DB) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| SQLite (in-memory) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | MySQL (real DB) | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ |
-| Makefile (`make run`) | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ |
+| Makefile (`make run`) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 ---
 
@@ -201,11 +201,12 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | Backend — Kotlin | 64 |
 | Backend — Rust | 43 |
 | Backend — Python | 49 |
+| Backend — Go | 39 |
 | Backend — common (common + sql_rewrite + naming) | 48 |
 | Backend — JDBC | 13 |
 | Backend — TypeScript / JavaScript | 49 |
 | Integration (snapshots + resilience) | 25 |
-| **Total** | **734** |
+| **Total** | **773** |
 
 ---
 

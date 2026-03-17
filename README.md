@@ -1,7 +1,7 @@
 # sqltgen
 
 A multi-language SQL-to-code generator. Annotate your SQL queries; sqltgen emits
-idiomatic, type-safe database access code in Java, Kotlin, Rust, Python,
+idiomatic, type-safe database access code in Java, Kotlin, Rust, Go, Python,
 TypeScript, and JavaScript.
 
 Inspired by [sqlc](https://sqlc.dev). Written in Rust.
@@ -65,6 +65,7 @@ RETURNING *;
     "java":       { "out": "gen", "package": "com.example.db" },
     "kotlin":     { "out": "gen", "package": "com.example.db" },
     "rust":       { "out": "src/db", "package": "" },
+    "go":         { "out": "db",    "package": "db" },
     "python":     { "out": "gen",   "package": "" },
     "typescript": { "out": "src/db", "package": "" },
     "javascript": { "out": "src/db", "package": "" }
@@ -89,8 +90,9 @@ var q = new Querier(dataSource);
 q.getAuthor(1L);
 ```
 
-And equivalently in Kotlin, Rust (sqlx async functions), Python (psycopg3),
-TypeScript (pg / better-sqlite3 / mysql2), and JavaScript (with JSDoc types).
+And equivalently in Kotlin, Rust (sqlx async functions), Go (database/sql),
+Python (psycopg3), TypeScript (pg / better-sqlite3 / mysql2), and JavaScript
+(with JSDoc types).
 
 ---
 
@@ -146,10 +148,10 @@ SELECT * FROM book WHERE id IN (@ids);
 | Java | JDBC | ✅ |
 | Kotlin | JDBC | ✅ |
 | Rust | sqlx (async) | ✅ |
+| Go | database/sql | ✅ |
 | Python | psycopg3 / sqlite3 / mysql-connector | ✅ |
 | TypeScript | pg / better-sqlite3 / mysql2 | ✅ |
 | JavaScript | pg / better-sqlite3 / mysql2 | ✅ |
-| Go | database/sql | 🚧 planned |
 
 ---
 
@@ -184,6 +186,7 @@ cargo install sqltgen
   "queries": "queries.sql", // path, list of paths, or glob pattern
   "gen": {
     "rust":       { "out": "src/db",  "package": "" },
+    "go":         { "out": "db",      "package": "db" },
     "java":       { "out": "gen",     "package": "com.example.db" },
     "kotlin":     { "out": "gen",     "package": "com.example.db" },
     "python":     { "out": "gen",     "package": "" },
@@ -208,20 +211,21 @@ a **grouped map** that names each group explicitly:
 
 Each group produces its own output file. In Java/Kotlin the group name is
 PascalCased and suffixed with `Queries` (`UsersQueries.java`) plus a matching
-`UsersQuerier.java` / `.kt` wrapper. In Rust, Python, TypeScript, and JavaScript
-the group name is used directly (`users.rs`, `users.py`, `users.ts`, `users.js`) and
-each queries module also emits a `UsersQuerier` (or default `Querier`) wrapper.
-Rust, Python, and TypeScript/JavaScript also emit a generated runtime/helper module
-(`_sqltgen.rs`, `_sqltgen.py`, `_sqltgen.ts`, `_sqltgen.js`) that centralizes
-engine/driver-specific wiring.
+`UsersQuerier.java` / `.kt` wrapper. In Rust, Go, Python, TypeScript, and
+JavaScript the group name is used directly (`users.rs`, `users.go`, `users.py`,
+`users.ts`, `users.js`) and each queries module also emits a `UsersQuerier`
+(or default `Querier`) wrapper. Rust, Go, Python, and TypeScript/JavaScript also
+emit a generated runtime/helper module (`_sqltgen.rs`, `_sqltgen.go`,
+`_sqltgen.py`, `_sqltgen.ts`, `_sqltgen.js`) that centralizes engine/driver-specific
+wiring.
 The single-file form always uses `Queries` + `Querier` (JVM) and `queries` +
-`Querier` (Rust/Python/TS/JS).
+`Querier` (Rust/Go/Python/TS/JS).
 
 ---
 
 ## Examples
 
-Runnable examples for all six backends × three dialects live in `examples/`.
+Runnable examples for all seven backends × three dialects live in `examples/`.
 Each is a self-contained project with a `Makefile`:
 
 ```sh

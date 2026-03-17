@@ -11,6 +11,16 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
 ## [Unreleased]
 
 ### Added
+- **Go backend** — full `database/sql` code generation targeting PostgreSQL,
+  SQLite, and MySQL. Generates Go structs for row models, query functions with
+  idiomatic `(T, error)` returns, and a `Querier` struct wrapper around `*sql.DB`.
+  Features: all four query commands (`:one`, `:many`, `:exec`, `:execrows`), list
+  parameter support via `pq.Array` (native PostgreSQL) and dynamic `?` expansion,
+  `$N`/`?N` → `?` placeholder rewriting, two-layer adapter/core architecture,
+  nullable fields via `sql.NullX` types, table row-type inference,
+  join/CTE/RETURNING row types, and `mod.go` package file generation.
+  Includes example projects for PostgreSQL and SQLite, e2e snapshot tests, and
+  39 unit tests.
 - **Cross-language `Querier` wrappers** — all generated backends now emit a
   `Querier` object/class as the primary instance API for query execution:
   Java/Kotlin (DataSource-backed), Rust (`DbPool`-backed), Python
