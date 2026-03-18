@@ -96,6 +96,15 @@ pub enum TypeVariant {
     Param,
 }
 
+impl std::fmt::Display for TypeVariant {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            TypeVariant::Field => "field",
+            TypeVariant::Param => "param",
+        })
+    }
+}
+
 /// A fully resolved type reference, ready to emit into generated code.
 #[derive(Debug, Clone)]
 pub struct ResolvedType {
@@ -157,28 +166,12 @@ fn warned_unsupported_preset_keys() -> &'static Mutex<HashSet<String>> {
 
 /// Emits a one-time warning for unsupported language preset usage.
 pub fn warn_unsupported_type_preset(language: Language, preset: &str, sql_type: &SqlType, variant: TypeVariant) {
-    let variant_name = match variant {
-        TypeVariant::Field => "field",
-        TypeVariant::Param => "param",
-    };
-    let language_name = match language {
-        Language::Java => "java",
-        Language::Kotlin => "kotlin",
-        Language::Rust => "rust",
-        Language::Go => "go",
-        Language::Python => "python",
-        Language::TypeScript => "typescript",
-        Language::JavaScript => "javascript",
-    };
-    let key = format!("{language_name}:{preset}:{}:{variant_name}", sql_type_key(sql_type));
+    let key = format!("{language}:{preset}:{}:{variant}", sql_type_key(sql_type));
 
     let warned = warned_unsupported_preset_keys();
     let mut guard = warned.lock().expect("unsupported preset warning mutex poisoned");
     if guard.insert(key) {
-        eprintln!(
-            "warning: unsupported preset {preset:?} for target {language_name} on SQL type {} ({variant_name}); ignoring override",
-            sql_type_key(sql_type)
-        );
+        eprintln!("warning: unsupported preset {preset:?} for target {language} on SQL type {} ({variant}); ignoring override", sql_type_key(sql_type));
     }
 }
 
@@ -259,6 +252,21 @@ pub enum Language {
     Python,
     TypeScript,
     JavaScript,
+}
+
+impl std::fmt::Display for Language {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            Language::Java => "java",
+            Language::Kotlin => "kotlin",
+            Language::Rust => "rust",
+            Language::Go => "go",
+            Language::Python => "python",
+            Language::TypeScript => "typescript",
+            Language::JavaScript => "javascript",
+        };
+        f.write_str(s)
+    }
 }
 
 /// How variable-length list parameters (`-- @ids bigint[] not null`) are transmitted
