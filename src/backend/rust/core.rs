@@ -256,7 +256,7 @@ fn emit_rust_scalar_query(src: &mut String, query: &Query, row_type: &str, contr
         RustBindMode::UniqueParams => query.params.iter().map(|p| p.name.as_str()).collect(),
         RustBindMode::Positional => positional_bind_names(query),
     };
-    emit_rust_sqlx_call(src, query, "sql", &bind_names, &row_type)
+    emit_rust_sqlx_call(src, query, "sql", &bind_names, row_type)
 }
 
 /// Emit the body for a query that contains a list parameter.
@@ -273,7 +273,7 @@ fn emit_rust_list_query(
     // applies its own standard placeholder rewriting (a general rule, not dialect logic).
     if *strategy == ListParamStrategy::Native {
         if let Some(native_sql) = &list_param.native_list_sql {
-            return emit_rust_native_list_query(src, query, &row_type, list_param, native_sql, contract);
+            return emit_rust_native_list_query(src, query, row_type, list_param, native_sql, contract);
         }
     }
     // Dynamic expansion: language-specific, not dialect-specific.
@@ -289,7 +289,7 @@ fn emit_rust_list_query(
             writeln!(src, "    let placeholders = ({lp_name}).iter().map(|_| \"?\").collect::<Vec<_>>().join(\", \");")?;
         },
     }
-    emit_rust_dynamic_query(src, query, &row_type, list_param, contract)
+    emit_rust_dynamic_query(src, query, row_type, list_param, contract)
 }
 
 /// Emit a native list query using the pre-computed `native_sql` from the IR.
