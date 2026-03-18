@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 use std::fmt::Write;
 use std::path::PathBuf;
 
-use crate::backend::common::{group_queries, has_inline_rows, infer_row_type_name, infer_table, queries_file_stem, sql_const_name};
+use crate::backend::common::{group_queries, has_inline_rows, infer_row_type_name, infer_table, querier_class_name, queries_file_stem, sql_const_name};
 use crate::backend::naming::{to_pascal_case, to_snake_case};
 use crate::backend::sql_rewrite::rewrite_to_anon_params;
 use crate::backend::GeneratedFile;
@@ -262,6 +262,43 @@ fn emit_function_decl(src: &mut String, query: &Query, schema: &Schema, conn_typ
     Ok(())
 }
 
+/// Emit a Querier class declaration that wraps a connection and delegates to free functions.
+fn emit_querier_decl(src: &mut String, group: &str, queries: &[Query], schema: &Schema, conn_type: &str) -> anyhow::Result<()> {
+    let class_name = querier_class_name(group);
+    writeln!(src, "class {class_name} {{")?;
+    writeln!(src, "    {conn_type} db_;")?;
+    writeln!(src, "public:")?;
+    writeln!(src, "    explicit {class_name}({conn_type} db) : db_(db) {{}}")?;
+
+    for query in queries {
+        writeln!(src)?;
+        let fn_name = to_snake_case(&query.name);
+        let ret = query_return_type(query, schema);
+        let params_no_db = querier_method_params(query);
+        if params_no_db.is_empty() {
+            writeln!(src, "    {ret} {fn_name}();")?;
+        } else {
+            writeln!(src, "    {ret} {fn_name}({params_no_db});")?;
+        }
+    }
+
+    writeln!(src, "}};")?;
+    Ok(())
+}
+
+/// Build the parameter list for a Querier method (same as free function, minus the db param).
+fn querier_method_params(query: &Query) -> String {
+    let parts: Vec<String> = query.params.iter().map(|p| {
+        let ty = if p.is_list {
+            format!("std::vector<{}>", cpp_type(&p.sql_type, false))
+        } else {
+            cpp_type(&p.sql_type, p.nullable)
+        };
+        format!("const {ty}& {}", to_snake_case(&p.name))
+    }).collect();
+    parts.join(", ")
+}
+
 /// Generate query header files (one `.hpp` per query group).
 pub(super) fn generate_query_files(
     schema: &Schema,
@@ -274,7 +311,7 @@ pub(super) fn generate_query_files(
 
     for (group, group_queries) in &groups {
         let stem = queries_file_stem(group);
-        let src = emit_queries_header(group_queries, schema, contract, config)?;
+        let src = emit_queries_header(group, group_queries, schema, contract, config)?;
         files.push(GeneratedFile {
             path: PathBuf::from(&config.out).join(format!("{stem}.hpp")),
             content: src,
@@ -286,6 +323,7 @@ pub(super) fn generate_query_files(
 
 /// Emit the full content of a queries header file.
 fn emit_queries_header(
+    group: &str,
     queries: &[Query],
     schema: &Schema,
     contract: &CppEngineContract,
@@ -352,6 +390,12 @@ fn emit_queries_header(
             writeln!(src)?;
         }
         emit_function_decl(&mut src, query, schema, contract.conn_type)?;
+    }
+
+    // Querier class.
+    if !queries.is_empty() {
+        writeln!(src)?;
+        emit_querier_decl(&mut src, group, queries, schema, contract.conn_type)?;
     }
 
     // Close namespace.
