@@ -11,6 +11,11 @@ pub fn cfg() -> OutputConfig {
     OutputConfig { out: "out".to_string(), package: String::new(), list_params: None, ..Default::default() }
 }
 
+/// Output config with a Java/Kotlin package set (`com.example.db`).
+pub fn cfg_pkg() -> OutputConfig {
+    OutputConfig { out: "out".to_string(), package: "com.example.db".to_string(), list_params: None, ..Default::default() }
+}
+
 /// Find a generated file by filename and return its content.
 ///
 /// Panics if no file with the given name exists in the output.

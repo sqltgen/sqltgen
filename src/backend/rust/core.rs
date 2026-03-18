@@ -210,11 +210,8 @@ fn emit_rust_querier_method(src: &mut String, query: &Query, schema: &Schema, co
     let args = query.params.iter().map(|p| to_snake_case(&p.name)).collect::<Vec<_>>().join(", ");
     let call_args = if args.is_empty() { "self.pool".to_string() } else { format!("self.pool, {args}") };
 
-    if params_sig.is_empty() {
-        writeln!(src, "    pub async fn {fn_name}(&self) -> {return_type} {{")?;
-    } else {
-        writeln!(src, "    pub async fn {fn_name}(&self, {params_sig}) -> {return_type} {{")?;
-    }
+    let params_part = if params_sig.is_empty() { String::new() } else { format!(", {params_sig}") };
+    writeln!(src, "    pub async fn {fn_name}(&self{params_part}) -> {return_type} {{")?;
     writeln!(src, "        {fn_name}({call_args}).await")?;
     writeln!(src, "    }}")?;
     Ok(())

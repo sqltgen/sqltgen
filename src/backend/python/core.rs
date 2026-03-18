@@ -229,11 +229,8 @@ fn emit_python_querier(
             .join(", ");
         let args = query.params.iter().map(|p| to_snake_case(&p.name)).collect::<Vec<_>>().join(", ");
 
-        if params_sig.is_empty() {
-            writeln!(src, "    def {fn_name}(self) -> {return_type}:")?;
-        } else {
-            writeln!(src, "    def {fn_name}(self, {params_sig}) -> {return_type}:")?;
-        }
+        let params_part = if params_sig.is_empty() { String::new() } else { format!(", {params_sig}") };
+        writeln!(src, "    def {fn_name}(self{params_part}) -> {return_type}:")?;
 
         writeln!(src, "        with closing(self._connect()) as conn:")?;
         if args.is_empty() {
