@@ -180,9 +180,9 @@ fn emit_rust_query(
 
     let list_param = query.params.iter().find(|p| p.is_list);
     if let Some(lp) = list_param {
-        emit_rust_list_query(src, query, row_type, contract, strategy, lp)?;
+        emit_rust_list_query(src, query, &row_type, contract, strategy, lp)?;
     } else {
-        emit_rust_scalar_query(src, query, row_type, contract)?;
+        emit_rust_scalar_query(src, query, &row_type, contract)?;
     }
 
     writeln!(src, "}}")?;
@@ -246,7 +246,7 @@ fn emit_rust_sql_let(src: &mut String, sql: &str) -> anyhow::Result<()> {
 }
 
 /// Emit the body for a query with no list parameters.
-fn emit_rust_scalar_query(src: &mut String, query: &Query, row_type: String, contract: &RustCoreContract) -> anyhow::Result<()> {
+fn emit_rust_scalar_query(src: &mut String, query: &Query, row_type: &str, contract: &RustCoreContract) -> anyhow::Result<()> {
     let raw_sql = normalize_sql_for_sqlx(&query.sql, contract.sql_norm_mode);
     let raw_sql = raw_sql.trim_end().trim_end_matches(';');
     emit_rust_sql_let(src, raw_sql)?;
@@ -263,7 +263,7 @@ fn emit_rust_scalar_query(src: &mut String, query: &Query, row_type: String, con
 fn emit_rust_list_query(
     src: &mut String,
     query: &Query,
-    row_type: String,
+    row_type: &str,
     contract: &RustCoreContract,
     strategy: &ListParamStrategy,
     list_param: &Parameter,

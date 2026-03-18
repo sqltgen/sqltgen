@@ -146,7 +146,7 @@ pub(super) fn resolve_expr(
         } => resolve_binary_arithmetic(left, right, alias_map, all_tables, config),
 
         // ── String concatenation (||) ────────────────────────────────────
-        Expr::BinaryOp { op: BinaryOperator::StringConcat, .. } => Some(ResultColumn { name: "concat".into(), sql_type: SqlType::Text, nullable: true }),
+        Expr::BinaryOp { op: BinaryOperator::StringConcat, .. } => Some(ResultColumn::nullable("concat", SqlType::Text)),
 
         // ── Comparison operators → Boolean ───────────────────────────────
         Expr::BinaryOp {
@@ -164,15 +164,13 @@ pub(super) fn resolve_expr(
         | Expr::Between { .. }
         | Expr::Like { .. }
         | Expr::ILike { .. }
-        | Expr::Exists { .. } => Some(ResultColumn { name: "bool".into(), sql_type: SqlType::Boolean, nullable: false }),
+        | Expr::Exists { .. } => Some(ResultColumn::not_nullable("bool", SqlType::Boolean)),
 
         // ── Logical operators → Boolean ──────────────────────────────────
-        Expr::BinaryOp { op: BinaryOperator::And | BinaryOperator::Or | BinaryOperator::Xor, .. } => {
-            Some(ResultColumn { name: "bool".into(), sql_type: SqlType::Boolean, nullable: false })
-        },
+        Expr::BinaryOp { op: BinaryOperator::And | BinaryOperator::Or | BinaryOperator::Xor, .. } => Some(ResultColumn::not_nullable("bool", SqlType::Boolean)),
 
         // ── Unary operators ──────────────────────────────────────────────
-        Expr::UnaryOp { op: UnaryOperator::Not, .. } => Some(ResultColumn { name: "not".into(), sql_type: SqlType::Boolean, nullable: false }),
+        Expr::UnaryOp { op: UnaryOperator::Not, .. } => Some(ResultColumn::not_nullable("not", SqlType::Boolean)),
         Expr::UnaryOp { op: UnaryOperator::Minus, expr } => {
             resolve_expr(expr, alias_map, all_tables, config).map(|rc| ResultColumn { name: rc.name, sql_type: rc.sql_type, nullable: rc.nullable })
         },
@@ -208,13 +206,13 @@ fn resolve_literal(value: &Value) -> Option<ResultColumn> {
             } else {
                 SqlType::BigInt
             };
-            Some(ResultColumn { name: "literal".into(), sql_type, nullable: false })
+            Some(ResultColumn::not_nullable("literal", sql_type))
         },
         Value::SingleQuotedString(_) | Value::DoubleQuotedString(_) | Value::DollarQuotedString(_) => {
-            Some(ResultColumn { name: "literal".into(), sql_type: SqlType::Text, nullable: false })
+            Some(ResultColumn::not_nullable("literal", SqlType::Text))
         },
-        Value::Boolean(_) => Some(ResultColumn { name: "literal".into(), sql_type: SqlType::Boolean, nullable: false }),
-        Value::Null => Some(ResultColumn { name: "literal".into(), sql_type: SqlType::Text, nullable: true }),
+        Value::Boolean(_) => Some(ResultColumn::not_nullable("literal", SqlType::Boolean)),
+        Value::Null => Some(ResultColumn::nullable("literal", SqlType::Text)),
         _ => None,
     }
 }
@@ -286,7 +284,7 @@ fn resolve_function(
 
     match fname.as_str() {
         // ── Aggregates ───────────────────────────────────────────────
-        "COUNT" => Some(ResultColumn { name: "count".into(), sql_type: SqlType::BigInt, nullable: false }),
+        "COUNT" => Some(ResultColumn::not_nullable("count", SqlType::BigInt)),
         "SUM" => resolve_func_first_arg(func, alias_map, all_tables, config).map(|rc| {
             // Integer inputs are widened to avoid overflow; other types are preserved.
             let promoted = match rc.sql_type {
@@ -324,14 +322,14 @@ fn resolve_function(
         },
         "SQRT" | "CBRT" | "EXP" | "LN" | "LOG" | "LOG2" | "LOG10" | "POWER" | "POW" | "RANDOM" | "PI" | "DEGREES" | "RADIANS" | "SIN" | "COS" | "TAN"
         | "ASIN" | "ACOS" | "ATAN" | "ATAN2" => Some(ResultColumn { name: fname.to_lowercase(), sql_type: SqlType::Double, nullable: true }),
-        "MOD" => Some(ResultColumn { name: "mod".into(), sql_type: SqlType::Integer, nullable: true }),
+        "MOD" => Some(ResultColumn::nullable("mod", SqlType::Integer)),
 
         // ── Date/time functions ──────────────────────────────────────
         "NOW" | "CURRENT_TIMESTAMP" | "LOCALTIMESTAMP" | "STATEMENT_TIMESTAMP" | "TRANSACTION_TIMESTAMP" | "CLOCK_TIMESTAMP" => {
             Some(ResultColumn { name: fname.to_lowercase(), sql_type: SqlType::TimestampTz, nullable: false })
         },
-        "CURRENT_DATE" | "DATE" => Some(ResultColumn { name: "date".into(), sql_type: SqlType::Date, nullable: false }),
-        "CURRENT_TIME" | "LOCALTIME" => Some(ResultColumn { name: "time".into(), sql_type: SqlType::Time, nullable: false }),
+        "CURRENT_DATE" | "DATE" => Some(ResultColumn::not_nullable("date", SqlType::Date)),
+        "CURRENT_TIME" | "LOCALTIME" => Some(ResultColumn::not_nullable("time", SqlType::Time)),
 
         // ── Conditional / null-handling ───────────────────────────────
         "COALESCE" => resolve_coalesce(func, alias_map, all_tables, config),
@@ -340,7 +338,7 @@ fn resolve_function(
         "GREATEST" | "LEAST" => resolve_func_first_arg(func, alias_map, all_tables, config).map(|rc| ResultColumn { nullable: true, ..rc }),
 
         // ── Type-probing functions ───────────────────────────────────
-        "TYPEOF" => Some(ResultColumn { name: "typeof".into(), sql_type: SqlType::Text, nullable: false }),
+        "TYPEOF" => Some(ResultColumn::not_nullable("typeof", SqlType::Text)),
 
         // ── JSON functions ───────────────────────────────────────────
         "JSON_EXTRACT" | "JSON_EXTRACT_PATH_TEXT" | "JSONB_EXTRACT_PATH_TEXT" | "JSON_VALUE" => {
