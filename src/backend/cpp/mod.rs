@@ -2,6 +2,7 @@ use crate::backend::{Codegen, GeneratedFile};
 use crate::config::{Engine, OutputConfig};
 use crate::ir::{Query, Schema, SqlType};
 
+mod adapter;
 mod core;
 
 pub enum CppTarget {
@@ -25,8 +26,11 @@ pub struct CppCodegen {
 }
 
 impl Codegen for CppCodegen {
-    fn generate(&self, schema: &Schema, _queries: &[Query], config: &OutputConfig) -> anyhow::Result<Vec<GeneratedFile>> {
-        core::generate_table_files(schema, config)
+    fn generate(&self, schema: &Schema, queries: &[Query], config: &OutputConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+        let contract = adapter::resolve_contract(&self.target);
+        let mut files = core::generate_table_files(schema, config)?;
+        files.extend(core::generate_query_files(schema, queries, &contract, config)?);
+        Ok(files)
     }
 }
 

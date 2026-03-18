@@ -7,5 +7,14 @@ pub fn pg() -> CppCodegen {
     CppCodegen { target: CppTarget::Postgres }
 }
 
+pub fn sqlite() -> CppCodegen {
+    CppCodegen { target: CppTarget::Sqlite }
+}
+
+pub fn mysql() -> CppCodegen {
+    CppCodegen { target: CppTarget::Mysql }
+}
+
 mod generate;
+mod queries;
 mod types;
