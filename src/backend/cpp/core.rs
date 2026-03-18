@@ -96,7 +96,12 @@ fn scan_query_includes(queries: &[Query], schema: &Schema) -> CppIncludes {
     for query in queries {
         // Scan parameter types.
         for p in &query.params {
-            includes.scan(&p.sql_type, p.nullable);
+            if p.is_list {
+                includes.set.insert("<vector>");
+                includes.scan(&p.sql_type, false);
+            } else {
+                includes.scan(&p.sql_type, p.nullable);
+            }
         }
         // Scan return type.
         match query.cmd {
@@ -212,7 +217,11 @@ fn result_row_type(query: &Query, schema: &Schema) -> String {
 fn params_signature(query: &Query, conn_type: &str) -> String {
     let mut parts = vec![format!("{conn_type} db")];
     for p in &query.params {
-        let ty = cpp_type(&p.sql_type, p.nullable);
+        let ty = if p.is_list {
+            format!("std::vector<{}>", cpp_type(&p.sql_type, false))
+        } else {
+            cpp_type(&p.sql_type, p.nullable)
+        };
         parts.push(format!("const {ty}& {}", to_snake_case(&p.name)));
     }
     parts.join(", ")
@@ -233,7 +242,11 @@ fn emit_inline_row_struct(src: &mut String, query: &Query) -> anyhow::Result<()>
 /// Emit a SQL string constant: `inline constexpr const char* SQL_GET_USER = "...";`
 fn emit_sql_constant(src: &mut String, query: &Query, param_style: CppParamStyle) -> anyhow::Result<()> {
     let const_name = sql_const_name(&query.name);
-    let sql = normalize_sql(&query.sql, param_style);
+    let raw_sql = query.params.iter()
+        .find(|p| p.is_list)
+        .and_then(|p| p.native_list_sql.as_deref())
+        .unwrap_or(&query.sql);
+    let sql = normalize_sql(raw_sql, param_style);
     let sql = sql.trim_end().trim_end_matches(';');
     // Use raw string literal R"sql(...)sql" to avoid escaping issues.
     writeln!(src, "inline const std::string {const_name} = R\"sql({sql})sql\";")?;
