@@ -43,8 +43,7 @@ fn test_generate_exec_query() {
 #[test]
 fn test_generate_execrows_query() {
     let schema = Schema::default();
-    let query =
-        Query::exec_rows("DeleteUsers", "DELETE FROM user WHERE active = $1", vec![Parameter::scalar(1, "active", SqlType::Boolean, false)]);
+    let query = Query::exec_rows("DeleteUsers", "DELETE FROM user WHERE active = $1", vec![Parameter::scalar(1, "active", SqlType::Boolean, false)]);
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "Queries.java");
     assert!(src.contains("public static long deleteUsers("));
