@@ -149,3 +149,15 @@ pub struct ResultColumn {
     pub sql_type: SqlType,
     pub nullable: bool,
 }
+
+impl ResultColumn {
+    /// Construct a non-nullable result column.
+    pub fn not_nullable(name: impl Into<String>, sql_type: SqlType) -> Self {
+        Self { name: name.into(), sql_type, nullable: false }
+    }
+
+    /// Construct a nullable result column.
+    pub fn nullable(name: impl Into<String>, sql_type: SqlType) -> Self {
+        Self { name: name.into(), sql_type, nullable: true }
+    }
+}

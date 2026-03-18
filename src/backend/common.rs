@@ -247,7 +247,7 @@ mod tests {
     fn make_schema_with_table(table_name: &str, col_names: &[&str]) -> Schema {
         Schema {
             tables: vec![Table::new(
-                table_name.to_string(),
+                table_name,
                 col_names.iter().map(|n| Column { name: n.to_string(), sql_type: SqlType::Text, nullable: false, is_primary_key: false }).collect(),
             )],
             ..Default::default()
@@ -259,10 +259,7 @@ mod tests {
     }
 
     fn make_typed_table(name: &str, cols: &[(&str, SqlType, bool)]) -> Table {
-        Table::new(
-            name.to_string(),
-            cols.iter().map(|(n, t, null)| Column { name: n.to_string(), sql_type: t.clone(), nullable: *null, is_primary_key: false }).collect(),
-        )
+        Table::new(name, cols.iter().map(|(n, t, null)| Column { name: n.to_string(), sql_type: t.clone(), nullable: *null, is_primary_key: false }).collect())
     }
 
     fn rc(name: &str, sql_type: SqlType, nullable: bool) -> ResultColumn {

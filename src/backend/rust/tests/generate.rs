@@ -22,9 +22,9 @@ fn test_generate_mod_file() {
         "SELECT id, name, bio FROM user WHERE id = $1",
         vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
         vec![
-            ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false },
-            ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
-            ResultColumn { name: "bio".to_string(), sql_type: SqlType::Text, nullable: true },
+            ResultColumn::not_nullable("id", SqlType::BigInt),
+            ResultColumn::not_nullable("name", SqlType::Text),
+            ResultColumn::nullable("bio", SqlType::Text),
         ],
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
@@ -91,9 +91,9 @@ fn test_generate_one_query_infers_table_return_type() {
         "SELECT id, name, bio FROM user WHERE id = $1",
         vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
         vec![
-            ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false },
-            ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
-            ResultColumn { name: "bio".to_string(), sql_type: SqlType::Text, nullable: true },
+            ResultColumn::not_nullable("id", SqlType::BigInt),
+            ResultColumn::not_nullable("name", SqlType::Text),
+            ResultColumn::nullable("bio", SqlType::Text),
         ],
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
@@ -110,9 +110,9 @@ fn test_generate_many_query_infers_table_return_type() {
         "SELECT id, name, bio FROM user",
         vec![],
         vec![
-            ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false },
-            ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
-            ResultColumn { name: "bio".to_string(), sql_type: SqlType::Text, nullable: true },
+            ResultColumn::not_nullable("id", SqlType::BigInt),
+            ResultColumn::not_nullable("name", SqlType::Text),
+            ResultColumn::nullable("bio", SqlType::Text),
         ],
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
@@ -130,7 +130,7 @@ fn test_generate_inline_row_struct_for_partial_result() {
         "GetUserName",
         "SELECT name FROM user WHERE id = $1",
         vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
-        vec![ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false }],
+        vec![ResultColumn::not_nullable("name", SqlType::Text)],
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.rs");
@@ -162,9 +162,9 @@ fn test_generate_sqlite_one_query() {
         "SELECT id, name, bio FROM user WHERE id = ?1",
         vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
         vec![
-            ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false },
-            ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
-            ResultColumn { name: "bio".to_string(), sql_type: SqlType::Text, nullable: true },
+            ResultColumn::not_nullable("id", SqlType::BigInt),
+            ResultColumn::not_nullable("name", SqlType::Text),
+            ResultColumn::nullable("bio", SqlType::Text),
         ],
     );
     let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
@@ -184,9 +184,9 @@ fn test_generate_mysql_one_query_returns_option() {
         "SELECT id, name, bio FROM user WHERE id = $1",
         vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
         vec![
-            ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false },
-            ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
-            ResultColumn { name: "bio".to_string(), sql_type: SqlType::Text, nullable: true },
+            ResultColumn::not_nullable("id", SqlType::BigInt),
+            ResultColumn::not_nullable("name", SqlType::Text),
+            ResultColumn::nullable("bio", SqlType::Text),
         ],
     );
     let files = mysql().generate(&schema, &[query], &cfg()).unwrap();
@@ -232,7 +232,7 @@ fn test_generate_sql_raw_string_keeps_double_quotes_unescaped() {
         "GetQuotedUser",
         "SELECT \"name\" FROM \"user\" WHERE id = $1",
         vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
-        vec![ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false }],
+        vec![ResultColumn::not_nullable("name", SqlType::Text)],
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.rs");

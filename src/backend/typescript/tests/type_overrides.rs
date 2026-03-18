@@ -97,7 +97,7 @@ fn test_pg_read_expr_applied_to_one_query() {
         "GetDoc",
         "SELECT data FROM docs WHERE id = $1",
         vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
-        vec![ResultColumn { name: "data".to_string(), sql_type: SqlType::Json, nullable: false }],
+        vec![ResultColumn::not_nullable("data", SqlType::Json)],
     );
     let cfg = cfg_with_overrides(vec![(
         "json",
@@ -120,8 +120,7 @@ fn test_pg_read_expr_applied_to_one_query() {
 fn test_pg_read_expr_applied_to_many_query() {
     // For :many, the transform must map over the rows array.
     let schema = Schema::default();
-    let query =
-        Query::many("ListDocs", "SELECT data FROM docs", vec![], vec![ResultColumn { name: "data".to_string(), sql_type: SqlType::Json, nullable: false }]);
+    let query = Query::many("ListDocs", "SELECT data FROM docs", vec![], vec![ResultColumn::not_nullable("data", SqlType::Json)]);
     let cfg = cfg_with_overrides(vec![(
         "json",
         TypeOverride::Same(TypeRef::Explicit {
@@ -146,7 +145,7 @@ fn test_sqlite_read_expr_applied_to_one_query() {
         "GetDoc",
         "SELECT data FROM docs WHERE id = ?1",
         vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
-        vec![ResultColumn { name: "data".to_string(), sql_type: SqlType::Json, nullable: false }],
+        vec![ResultColumn::not_nullable("data", SqlType::Json)],
     );
     let cfg = cfg_with_overrides(vec![(
         "json",
@@ -170,8 +169,7 @@ fn test_sqlite_read_expr_applied_to_one_query() {
 #[test]
 fn test_sqlite_read_expr_applied_to_many_query() {
     let schema = Schema::default();
-    let query =
-        Query::many("ListDocs", "SELECT data FROM docs", vec![], vec![ResultColumn { name: "data".to_string(), sql_type: SqlType::Json, nullable: false }]);
+    let query = Query::many("ListDocs", "SELECT data FROM docs", vec![], vec![ResultColumn::not_nullable("data", SqlType::Json)]);
     let cfg = cfg_with_overrides(vec![(
         "json",
         TypeOverride::Same(TypeRef::Explicit {
@@ -196,7 +194,7 @@ fn test_mysql_read_expr_applied_to_one_query() {
         "GetDoc",
         "SELECT data FROM docs WHERE id = $1",
         vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
-        vec![ResultColumn { name: "data".to_string(), sql_type: SqlType::Json, nullable: false }],
+        vec![ResultColumn::not_nullable("data", SqlType::Json)],
     );
     let cfg = cfg_with_overrides(vec![(
         "json",
@@ -223,7 +221,7 @@ fn test_no_read_expr_no_row_transform() {
         "GetDoc",
         "SELECT data FROM docs WHERE id = $1",
         vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
-        vec![ResultColumn { name: "data".to_string(), sql_type: SqlType::Json, nullable: false }],
+        vec![ResultColumn::not_nullable("data", SqlType::Json)],
     );
     let gen = TypeScriptCodegen { target: JsTarget::Postgres, output: JsOutput::TypeScript };
     let files = gen.generate(&schema, &[query], &config()).unwrap();
@@ -243,7 +241,7 @@ fn test_object_preset_sqlite_one_applies_both_exprs() {
         "RoundtripDoc",
         "SELECT data FROM docs WHERE id = ?1",
         vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
-        vec![ResultColumn { name: "data".to_string(), sql_type: SqlType::Json, nullable: false }],
+        vec![ResultColumn::not_nullable("data", SqlType::Json)],
     );
     let cfg = cfg_with_overrides(vec![("json", TypeOverride::Same(TypeRef::String("object".to_string())))]);
     let gen = TypeScriptCodegen { target: JsTarget::Sqlite, output: JsOutput::TypeScript };

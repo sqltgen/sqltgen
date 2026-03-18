@@ -6,11 +6,11 @@ use crate::ir::{Column, NativeListBind, Parameter, Query, ResultColumn, Schema, 
 pub fn schema_with_users() -> Schema {
     Schema {
         tables: vec![Table::new(
-            "users".to_string(),
+            "users",
             vec![
-                Column { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
-                Column { name: "name".to_string(), sql_type: SqlType::Text, nullable: false, is_primary_key: false },
-                Column { name: "email".to_string(), sql_type: SqlType::VarChar(Some(255)), nullable: true, is_primary_key: false },
+                Column::new_primary_key("id", SqlType::BigInt),
+                Column::new_not_nullable("name", SqlType::Text),
+                Column::new("email", SqlType::VarChar(Some(255))),
             ],
         )],
         ..Default::default()
@@ -23,9 +23,9 @@ pub fn get_user_query() -> Query {
         "SELECT id, name, email FROM users WHERE id = $1",
         vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
         vec![
-            ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false },
-            ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
-            ResultColumn { name: "email".to_string(), sql_type: SqlType::VarChar(Some(255)), nullable: true },
+            ResultColumn::not_nullable("id", SqlType::BigInt),
+            ResultColumn::not_nullable("name", SqlType::Text),
+            ResultColumn::nullable("email", SqlType::VarChar(Some(255))),
         ],
     )
 }
@@ -36,9 +36,9 @@ pub fn list_users_query() -> Query {
         "SELECT id, name, email FROM users",
         vec![],
         vec![
-            ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false },
-            ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
-            ResultColumn { name: "email".to_string(), sql_type: SqlType::VarChar(Some(255)), nullable: true },
+            ResultColumn::not_nullable("id", SqlType::BigInt),
+            ResultColumn::not_nullable("name", SqlType::Text),
+            ResultColumn::nullable("email", SqlType::VarChar(Some(255))),
         ],
     )
 }

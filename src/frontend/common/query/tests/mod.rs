@@ -9,12 +9,12 @@ pub fn parse_queries(sql: &str, schema: &Schema) -> anyhow::Result<Vec<Query>> {
 pub fn make_schema() -> Schema {
     Schema {
         tables: vec![Table::new(
-            "users".into(),
+            "users",
             vec![
-                Column { name: "id".into(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
-                Column { name: "name".into(), sql_type: SqlType::Text, nullable: false, is_primary_key: false },
-                Column { name: "email".into(), sql_type: SqlType::Text, nullable: false, is_primary_key: false },
-                Column { name: "bio".into(), sql_type: SqlType::Text, nullable: true, is_primary_key: false },
+                Column::new_primary_key("id", SqlType::BigInt),
+                Column::new_not_nullable("name", SqlType::Text),
+                Column::new_not_nullable("email", SqlType::Text),
+                Column::new("bio", SqlType::Text),
             ],
         )],
         ..Default::default()
@@ -24,19 +24,13 @@ pub fn make_schema() -> Schema {
 pub fn make_join_schema() -> Schema {
     Schema {
         tables: vec![
+            Table::new("users", vec![Column::new_primary_key("id", SqlType::BigInt), Column::new_not_nullable("name", SqlType::Text)]),
             Table::new(
-                "users".into(),
+                "posts",
                 vec![
-                    Column { name: "id".into(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
-                    Column { name: "name".into(), sql_type: SqlType::Text, nullable: false, is_primary_key: false },
-                ],
-            ),
-            Table::new(
-                "posts".into(),
-                vec![
-                    Column { name: "id".into(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
-                    Column { name: "user_id".into(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: false },
-                    Column { name: "title".into(), sql_type: SqlType::Text, nullable: false, is_primary_key: false },
+                    Column::new_primary_key("id", SqlType::BigInt),
+                    Column::new_not_nullable("user_id", SqlType::BigInt),
+                    Column::new_not_nullable("title", SqlType::Text),
                 ],
             ),
         ],
@@ -46,26 +40,14 @@ pub fn make_join_schema() -> Schema {
 
 pub fn make_inventory_schema() -> Schema {
     Schema {
-        tables: vec![Table::new(
-            "inventory".into(),
-            vec![
-                Column { name: "sku".into(), sql_type: SqlType::Text, nullable: false, is_primary_key: true },
-                Column { name: "qty".into(), sql_type: SqlType::Integer, nullable: false, is_primary_key: false },
-            ],
-        )],
+        tables: vec![Table::new("inventory", vec![Column::new_primary_key("sku", SqlType::Text), Column::new_not_nullable("qty", SqlType::Integer)])],
         ..Default::default()
     }
 }
 
 pub fn make_upsert_schema() -> Schema {
     Schema {
-        tables: vec![Table::new(
-            "item".into(),
-            vec![
-                Column { name: "id".into(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
-                Column { name: "count".into(), sql_type: SqlType::Integer, nullable: false, is_primary_key: false },
-            ],
-        )],
+        tables: vec![Table::new("item", vec![Column::new_primary_key("id", SqlType::BigInt), Column::new_not_nullable("count", SqlType::Integer)])],
         ..Default::default()
     }
 }
@@ -73,15 +55,15 @@ pub fn make_upsert_schema() -> Schema {
 pub fn make_numeric_schema() -> Schema {
     Schema {
         tables: vec![Table::new(
-            "metrics".into(),
+            "metrics",
             vec![
-                Column { name: "id".into(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
-                Column { name: "small_val".into(), sql_type: SqlType::SmallInt, nullable: false, is_primary_key: false },
-                Column { name: "int_val".into(), sql_type: SqlType::Integer, nullable: false, is_primary_key: false },
-                Column { name: "big_val".into(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: false },
-                Column { name: "dec_val".into(), sql_type: SqlType::Decimal, nullable: false, is_primary_key: false },
-                Column { name: "dbl_val".into(), sql_type: SqlType::Double, nullable: false, is_primary_key: false },
-                Column { name: "label".into(), sql_type: SqlType::Text, nullable: false, is_primary_key: false },
+                Column::new_primary_key("id", SqlType::BigInt),
+                Column::new_not_nullable("small_val", SqlType::SmallInt),
+                Column::new_not_nullable("int_val", SqlType::Integer),
+                Column::new_not_nullable("big_val", SqlType::BigInt),
+                Column::new_not_nullable("dec_val", SqlType::Decimal),
+                Column::new_not_nullable("dbl_val", SqlType::Double),
+                Column::new_not_nullable("label", SqlType::Text),
             ],
         )],
         ..Default::default()

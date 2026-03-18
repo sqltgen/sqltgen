@@ -60,9 +60,9 @@ fn test_generate_one_query_infers_table_return_type() {
         "SELECT id, name, bio FROM user WHERE id = $1",
         vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
         vec![
-            ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false },
-            ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
-            ResultColumn { name: "bio".to_string(), sql_type: SqlType::Text, nullable: true },
+            ResultColumn::not_nullable("id", SqlType::BigInt),
+            ResultColumn::not_nullable("name", SqlType::Text),
+            ResultColumn::nullable("bio", SqlType::Text),
         ],
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
@@ -81,9 +81,9 @@ fn test_generate_many_query_infers_table_return_type() {
         "SELECT id, name, bio FROM user",
         vec![],
         vec![
-            ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false },
-            ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
-            ResultColumn { name: "bio".to_string(), sql_type: SqlType::Text, nullable: true },
+            ResultColumn::not_nullable("id", SqlType::BigInt),
+            ResultColumn::not_nullable("name", SqlType::Text),
+            ResultColumn::nullable("bio", SqlType::Text),
         ],
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
@@ -113,7 +113,7 @@ fn test_generate_inline_row_class_for_partial_result() {
         "GetUserName",
         "SELECT name FROM user WHERE id = $1",
         vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
-        vec![ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false }],
+        vec![ResultColumn::not_nullable("name", SqlType::Text)],
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "Queries.kt");
@@ -132,7 +132,7 @@ fn test_generate_nullable_long_result_uses_get_object() {
         "GetCount",
         "SELECT count FROM stats WHERE id = $1",
         vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
-        vec![ResultColumn { name: "count".to_string(), sql_type: SqlType::BigInt, nullable: true }],
+        vec![ResultColumn::nullable("count", SqlType::BigInt)],
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "Queries.kt");
@@ -147,7 +147,7 @@ fn test_generate_non_nullable_long_result_uses_get_long() {
         "GetCount",
         "SELECT count FROM stats WHERE id = $1",
         vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
-        vec![ResultColumn { name: "count".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        vec![ResultColumn::not_nullable("count", SqlType::BigInt)],
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "Queries.kt");
@@ -192,9 +192,9 @@ fn test_generate_queries_ds_one_method_returns_nullable() {
         "SELECT id, name, bio FROM user WHERE id = $1",
         vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
         vec![
-            ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false },
-            ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
-            ResultColumn { name: "bio".to_string(), sql_type: SqlType::Text, nullable: true },
+            ResultColumn::not_nullable("id", SqlType::BigInt),
+            ResultColumn::not_nullable("name", SqlType::Text),
+            ResultColumn::nullable("bio", SqlType::Text),
         ],
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
@@ -211,9 +211,9 @@ fn test_generate_queries_ds_many_method_returns_list() {
         "SELECT id, name, bio FROM user",
         vec![],
         vec![
-            ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false },
-            ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
-            ResultColumn { name: "bio".to_string(), sql_type: SqlType::Text, nullable: true },
+            ResultColumn::not_nullable("id", SqlType::BigInt),
+            ResultColumn::not_nullable("name", SqlType::Text),
+            ResultColumn::nullable("bio", SqlType::Text),
         ],
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();

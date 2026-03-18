@@ -9,7 +9,7 @@ fn test_generate_pg_native_list_param() {
         "GetByIds",
         "SELECT id FROM t WHERE id IN ($1)",
         vec![Parameter::list(1, "ids", SqlType::BigInt, false).with_native_list("SELECT id FROM t WHERE id = ANY($1)", NativeListBind::Array)],
-        vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        vec![ResultColumn::not_nullable("id", SqlType::BigInt)],
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "Queries.kt");
@@ -26,7 +26,7 @@ fn test_generate_pg_dynamic_list_param() {
         "GetByIds",
         "SELECT id FROM t WHERE id IN ($1)",
         vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
-        vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        vec![ResultColumn::not_nullable("id", SqlType::BigInt)],
     );
     let cfg =
         OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic), ..Default::default() };
@@ -45,7 +45,7 @@ fn test_generate_sqlite_native_list_param() {
         "SELECT id FROM t WHERE id IN ($1)",
         vec![Parameter::list(1, "ids", SqlType::BigInt, false)
             .with_native_list("SELECT id FROM t WHERE id IN (SELECT value FROM json_each($1))", NativeListBind::Json)],
-        vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        vec![ResultColumn::not_nullable("id", SqlType::BigInt)],
     );
     let files = KotlinCodegen { target: JdbcTarget::Sqlite }.generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "Queries.kt");
@@ -66,7 +66,7 @@ fn test_generate_array_result_column_uses_get_array() {
         "GetTags",
         "SELECT tags FROM t WHERE id = $1",
         vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
-        vec![ResultColumn { name: "tags".to_string(), sql_type: SqlType::Array(Box::new(SqlType::Text)), nullable: false }],
+        vec![ResultColumn::not_nullable("tags", SqlType::Array(Box::new(SqlType::Text)))],
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "Queries.kt");
@@ -119,7 +119,7 @@ fn test_bug_a_sqlite_native_text_list_json_escaping() {
         "SELECT id FROM t WHERE tag IN ($1)",
         vec![Parameter::list(1, "tags", SqlType::Text, false)
             .with_native_list("SELECT id FROM t WHERE tag IN (SELECT value FROM json_each($1))", NativeListBind::Json)],
-        vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        vec![ResultColumn::not_nullable("id", SqlType::BigInt)],
     );
     let files = KotlinCodegen { target: JdbcTarget::Sqlite }.generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "Queries.kt");
@@ -141,7 +141,7 @@ fn test_bug_a_numeric_list_no_quoting_needed() {
         "SELECT id FROM t WHERE id IN ($1)",
         vec![Parameter::list(1, "ids", SqlType::BigInt, false)
             .with_native_list("SELECT id FROM t WHERE id IN (SELECT value FROM json_each($1))", NativeListBind::Json)],
-        vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        vec![ResultColumn::not_nullable("id", SqlType::BigInt)],
     );
     let files = KotlinCodegen { target: JdbcTarget::Sqlite }.generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "Queries.kt");
@@ -162,7 +162,7 @@ fn test_bug_b_dynamic_scalar_after_in_binding_order() {
         "GetActiveByIds",
         "SELECT id FROM t WHERE id IN ($1) AND active = $2",
         vec![Parameter::list(1, "ids", SqlType::BigInt, false), Parameter::scalar(2, "active", SqlType::Boolean, false)],
-        vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        vec![ResultColumn::not_nullable("id", SqlType::BigInt)],
     );
     let cfg =
         OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic), ..Default::default() };
@@ -187,7 +187,7 @@ fn test_bug_b_dynamic_scalar_before_in_no_regression() {
         "GetActiveByIds",
         "SELECT id FROM t WHERE active = $1 AND id IN ($2)",
         vec![Parameter::scalar(1, "active", SqlType::Boolean, false), Parameter::list(2, "ids", SqlType::BigInt, false)],
-        vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        vec![ResultColumn::not_nullable("id", SqlType::BigInt)],
     );
     let cfg =
         OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic), ..Default::default() };
@@ -215,7 +215,7 @@ fn test_bug_c_any_syntax_pg_native_should_rewrite_to_any_placeholder() {
         "GetByIds",
         "SELECT id FROM t WHERE id = ANY($1::bigint[])",
         vec![Parameter::list(1, "ids", SqlType::BigInt, false).with_native_list("SELECT id FROM t WHERE id = ANY($1)", NativeListBind::Array)],
-        vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        vec![ResultColumn::not_nullable("id", SqlType::BigInt)],
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "Queries.kt");
@@ -237,7 +237,7 @@ fn test_bug_c_in_clause_annotation_works_correctly() {
         "GetByIds",
         "SELECT id FROM t WHERE id IN ($1)",
         vec![Parameter::list(1, "ids", SqlType::BigInt, false).with_native_list("SELECT id FROM t WHERE id = ANY($1)", NativeListBind::Array)],
-        vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        vec![ResultColumn::not_nullable("id", SqlType::BigInt)],
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "Queries.kt");

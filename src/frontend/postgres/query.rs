@@ -37,12 +37,12 @@ mod tests {
     fn make_schema() -> Schema {
         Schema {
             tables: vec![Table::new(
-                "users".into(),
+                "users",
                 vec![
-                    Column { name: "id".into(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
-                    Column { name: "name".into(), sql_type: SqlType::Text, nullable: false, is_primary_key: false },
-                    Column { name: "email".into(), sql_type: SqlType::Text, nullable: false, is_primary_key: false },
-                    Column { name: "bio".into(), sql_type: SqlType::Text, nullable: true, is_primary_key: false },
+                    Column::new_primary_key("id", SqlType::BigInt),
+                    Column::new_not_nullable("name", SqlType::Text),
+                    Column::new_not_nullable("email", SqlType::Text),
+                    Column::new("bio", SqlType::Text),
                 ],
             )],
             ..Default::default()
@@ -194,20 +194,14 @@ mod tests {
         Schema {
             tables: vec![
                 Table::new(
-                    "resource".into(),
+                    "resource",
                     vec![
-                        Column { name: "id".into(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
-                        Column { name: "owner_id".into(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: false },
-                        Column { name: "name".into(), sql_type: SqlType::Text, nullable: false, is_primary_key: false },
+                        Column::new_primary_key("id", SqlType::BigInt),
+                        Column::new_not_nullable("owner_id", SqlType::BigInt),
+                        Column::new_not_nullable("name", SqlType::Text),
                     ],
                 ),
-                Table::new(
-                    "owner".into(),
-                    vec![
-                        Column { name: "id".into(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
-                        Column { name: "account_id".into(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: false },
-                    ],
-                ),
+                Table::new("owner", vec![Column::new_primary_key("id", SqlType::BigInt), Column::new_not_nullable("account_id", SqlType::BigInt)]),
             ],
             ..Default::default()
         }

@@ -49,13 +49,13 @@ pub struct Table {
 
 impl Table {
     /// Construct a base table (from `CREATE TABLE`).
-    pub fn new(name: String, columns: Vec<Column>) -> Self {
-        Self { name, columns, kind: TableKind::Table }
+    pub fn new(name: impl Into<String>, columns: Vec<Column>) -> Self {
+        Self { name: name.into(), columns, kind: TableKind::Table }
     }
 
     /// Construct a view (from `CREATE VIEW`).
-    pub fn view(name: String, columns: Vec<Column>) -> Self {
-        Self { name, columns, kind: TableKind::View }
+    pub fn view(name: impl Into<String>, columns: Vec<Column>) -> Self {
+        Self { name: name.into(), columns, kind: TableKind::View }
     }
 
     /// Returns `true` if this entry is a view rather than a base table.
@@ -70,4 +70,21 @@ pub struct Column {
     pub sql_type: SqlType,
     pub nullable: bool,
     pub is_primary_key: bool,
+}
+
+impl Column {
+    /// Construct a nullable, non-primary-key column.
+    pub fn new(name: impl Into<String>, sql_type: SqlType) -> Self {
+        Self { name: name.into(), sql_type, nullable: true, is_primary_key: false }
+    }
+
+    /// Construct a non-nullable, non-primary-key column.
+    pub fn new_not_nullable(name: impl Into<String>, sql_type: SqlType) -> Self {
+        Self { name: name.into(), sql_type, nullable: false, is_primary_key: false }
+    }
+
+    /// Construct a non-nullable primary key column.
+    pub fn new_primary_key(name: impl Into<String>, sql_type: SqlType) -> Self {
+        Self { name: name.into(), sql_type, nullable: false, is_primary_key: true }
+    }
 }

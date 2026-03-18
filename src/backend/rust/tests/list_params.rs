@@ -9,7 +9,7 @@ fn test_generate_pg_native_list_param() {
         "GetByIds",
         "SELECT id FROM t WHERE id IN ($1)",
         vec![Parameter::list(1, "ids", SqlType::BigInt, false).with_native_list("SELECT id FROM t WHERE id = ANY($1)", NativeListBind::Array)],
-        vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        vec![ResultColumn::not_nullable("id", SqlType::BigInt)],
     );
     let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: None, ..Default::default() };
     let files = pg().generate(&schema, &[query], &cfg).unwrap();
@@ -26,7 +26,7 @@ fn test_generate_pg_dynamic_list_param() {
         "GetByIds",
         "SELECT id FROM t WHERE id IN ($1)",
         vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
-        vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        vec![ResultColumn::not_nullable("id", SqlType::BigInt)],
     );
     let cfg =
         OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic), ..Default::default() };
@@ -45,7 +45,7 @@ fn test_generate_sqlite_native_list_param() {
         "SELECT id FROM t WHERE id IN ($1)",
         vec![Parameter::list(1, "ids", SqlType::BigInt, false)
             .with_native_list("SELECT id FROM t WHERE id IN (SELECT value FROM json_each($1))", NativeListBind::Json)],
-        vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        vec![ResultColumn::not_nullable("id", SqlType::BigInt)],
     );
     let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: None, ..Default::default() };
     let files = sqlite().generate(&schema, &[query], &cfg).unwrap();
@@ -64,7 +64,7 @@ fn test_generate_mysql_native_list_param() {
         "SELECT id FROM t WHERE id IN ($1)",
         vec![Parameter::list(1, "ids", SqlType::BigInt, false)
             .with_native_list("SELECT id FROM t WHERE id IN (SELECT value FROM JSON_TABLE($1,'$[*]' COLUMNS(value BIGINT PATH '$')) t)", NativeListBind::Json)],
-        vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        vec![ResultColumn::not_nullable("id", SqlType::BigInt)],
     );
     let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: None, ..Default::default() };
     let files = mysql().generate(&schema, &[query], &cfg).unwrap();
@@ -82,7 +82,7 @@ fn test_generate_mysql_dynamic_list_param() {
         "GetByIds",
         "SELECT id FROM t WHERE id IN ($1)",
         vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
-        vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        vec![ResultColumn::not_nullable("id", SqlType::BigInt)],
     );
     let cfg = OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(ListParamStrategy::Dynamic), ..Default::default() };
     let files = mysql().generate(&schema, &[query], &cfg).unwrap();

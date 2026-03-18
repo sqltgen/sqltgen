@@ -122,20 +122,14 @@ fn execrows_cte_with_params_keeps_method_params_when_type_inference_fails() {
     let schema = Schema {
         tables: vec![
             Table::new(
-                "sessions".into(),
+                "sessions",
                 vec![
-                    Column { name: "id".into(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
-                    Column { name: "tenant_id".into(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: false },
-                    Column { name: "created_at".into(), sql_type: SqlType::Timestamp, nullable: false, is_primary_key: false },
+                    Column::new_primary_key("id", SqlType::BigInt),
+                    Column::new_not_nullable("tenant_id", SqlType::BigInt),
+                    Column::new_not_nullable("created_at", SqlType::Timestamp),
                 ],
             ),
-            Table::new(
-                "tenants".into(),
-                vec![
-                    Column { name: "id".into(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
-                    Column { name: "active_sessions".into(), sql_type: SqlType::Integer, nullable: false, is_primary_key: false },
-                ],
-            ),
+            Table::new("tenants", vec![Column::new_primary_key("id", SqlType::BigInt), Column::new_not_nullable("active_sessions", SqlType::Integer)]),
         ],
         ..Default::default()
     };

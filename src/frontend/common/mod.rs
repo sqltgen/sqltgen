@@ -339,7 +339,7 @@ mod tests {
 
     #[test]
     fn test_apply_drop_tables_removes_matching() {
-        let mut tables = vec![Table::new("a".into(), vec![]), Table::new("b".into(), vec![]), Table::new("c".into(), vec![])];
+        let mut tables = vec![Table::new("a", vec![]), Table::new("b", vec![]), Table::new("c", vec![])];
         let names = vec![ObjectName::from(vec![Ident::new("a")]), ObjectName::from(vec![Ident::new("c")])];
         apply_drop_tables(&names, &mut tables);
         assert_eq!(tables.len(), 1);
@@ -348,7 +348,7 @@ mod tests {
 
     #[test]
     fn test_apply_drop_tables_ignores_nonexistent() {
-        let mut tables = vec![Table::new("a".into(), vec![])];
+        let mut tables = vec![Table::new("a", vec![])];
         let names = vec![ObjectName::from(vec![Ident::new("ghost")])];
         apply_drop_tables(&names, &mut tables);
         assert_eq!(tables.len(), 1);
@@ -358,8 +358,7 @@ mod tests {
 
     #[test]
     fn test_apply_alter_table_unknown_table_is_noop() {
-        let mut tables =
-            vec![Table::new("users".into(), vec![Column { name: "id".into(), sql_type: SqlType::Integer, nullable: false, is_primary_key: true }])];
+        let mut tables = vec![Table::new("users", vec![Column::new_primary_key("id", SqlType::Integer)])];
         let stmts = Parser::parse_sql(&GenericDialect {}, "ALTER TABLE ghost ADD COLUMN x TEXT;").unwrap();
         if let sqlparser::ast::Statement::AlterTable(a) = &stmts[0] {
             apply_alter_table(&a.name, &a.operations, &mut tables, DdlDialect { map_type: test_map, alter_caps: AlterCaps::ALL });
@@ -369,13 +368,7 @@ mod tests {
 
     #[test]
     fn test_apply_alter_table_sqlite_caps_ignore_drop_column() {
-        let mut tables = vec![Table::new(
-            "users".into(),
-            vec![
-                Column { name: "id".into(), sql_type: SqlType::Integer, nullable: false, is_primary_key: true },
-                Column { name: "bio".into(), sql_type: SqlType::Text, nullable: true, is_primary_key: false },
-            ],
-        )];
+        let mut tables = vec![Table::new("users", vec![Column::new_primary_key("id", SqlType::Integer), Column::new("bio", SqlType::Text)])];
         let stmts = Parser::parse_sql(&GenericDialect {}, "ALTER TABLE users DROP COLUMN bio;").unwrap();
         if let sqlparser::ast::Statement::AlterTable(a) = &stmts[0] {
             apply_alter_table(&a.name, &a.operations, &mut tables, DdlDialect { map_type: test_map, alter_caps: AlterCaps::SQLITE });
@@ -386,13 +379,7 @@ mod tests {
 
     #[test]
     fn test_apply_alter_table_all_caps_apply_drop_column() {
-        let mut tables = vec![Table::new(
-            "users".into(),
-            vec![
-                Column { name: "id".into(), sql_type: SqlType::Integer, nullable: false, is_primary_key: true },
-                Column { name: "bio".into(), sql_type: SqlType::Text, nullable: true, is_primary_key: false },
-            ],
-        )];
+        let mut tables = vec![Table::new("users", vec![Column::new_primary_key("id", SqlType::Integer), Column::new("bio", SqlType::Text)])];
         let stmts = Parser::parse_sql(&GenericDialect {}, "ALTER TABLE users DROP COLUMN bio;").unwrap();
         if let sqlparser::ast::Statement::AlterTable(a) = &stmts[0] {
             apply_alter_table(&a.name, &a.operations, &mut tables, DdlDialect { map_type: test_map, alter_caps: AlterCaps::ALL });
@@ -403,8 +390,7 @@ mod tests {
 
     #[test]
     fn test_apply_alter_table_sqlite_caps_allow_add_and_rename() {
-        let mut tables =
-            vec![Table::new("users".into(), vec![Column { name: "id".into(), sql_type: SqlType::Integer, nullable: false, is_primary_key: true }])];
+        let mut tables = vec![Table::new("users", vec![Column::new_primary_key("id", SqlType::Integer)])];
         // ADD COLUMN — should work
         let stmts = Parser::parse_sql(&GenericDialect {}, "ALTER TABLE users ADD COLUMN name TEXT NOT NULL;").unwrap();
         if let sqlparser::ast::Statement::AlterTable(a) = &stmts[0] {

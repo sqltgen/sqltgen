@@ -72,9 +72,9 @@ fn test_generate_one_query_infers_table_return_type() {
         "SELECT id, name, bio FROM user WHERE id = $1",
         vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
         vec![
-            ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false },
-            ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
-            ResultColumn { name: "bio".to_string(), sql_type: SqlType::Text, nullable: true },
+            ResultColumn::not_nullable("id", SqlType::BigInt),
+            ResultColumn::not_nullable("name", SqlType::Text),
+            ResultColumn::nullable("bio", SqlType::Text),
         ],
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
@@ -95,9 +95,9 @@ fn test_generate_many_query_infers_table_return_type() {
         "SELECT id, name, bio FROM user",
         vec![],
         vec![
-            ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false },
-            ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
-            ResultColumn { name: "bio".to_string(), sql_type: SqlType::Text, nullable: true },
+            ResultColumn::not_nullable("id", SqlType::BigInt),
+            ResultColumn::not_nullable("name", SqlType::Text),
+            ResultColumn::nullable("bio", SqlType::Text),
         ],
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
@@ -129,7 +129,7 @@ fn test_generate_inline_row_struct_for_partial_result() {
         "GetUserName",
         "SELECT name FROM user WHERE id = $1",
         vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
-        vec![ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false }],
+        vec![ResultColumn::not_nullable("name", SqlType::Text)],
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.go");
@@ -187,7 +187,7 @@ fn test_generate_postgres_scans_array_columns_with_pq_array() {
         "GetProductTags",
         "SELECT tags FROM product WHERE id = $1",
         vec![Parameter::scalar(1, "id", SqlType::Uuid, false)],
-        vec![ResultColumn { name: "tags".to_string(), sql_type: SqlType::Array(Box::new(SqlType::Text)), nullable: false }],
+        vec![ResultColumn::not_nullable("tags", SqlType::Array(Box::new(SqlType::Text)))],
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.go");
@@ -222,9 +222,9 @@ fn test_generate_no_param_query() {
         "SELECT id, name, bio FROM user",
         vec![],
         vec![
-            ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false },
-            ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
-            ResultColumn { name: "bio".to_string(), sql_type: SqlType::Text, nullable: true },
+            ResultColumn::not_nullable("id", SqlType::BigInt),
+            ResultColumn::not_nullable("name", SqlType::Text),
+            ResultColumn::nullable("bio", SqlType::Text),
         ],
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();

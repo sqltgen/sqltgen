@@ -30,12 +30,12 @@ mod tests {
     fn make_schema() -> Schema {
         Schema {
             tables: vec![Table::new(
-                "users".into(),
+                "users",
                 vec![
-                    Column { name: "id".into(), sql_type: SqlType::Integer, nullable: false, is_primary_key: true },
-                    Column { name: "name".into(), sql_type: SqlType::Text, nullable: false, is_primary_key: false },
-                    Column { name: "email".into(), sql_type: SqlType::Text, nullable: false, is_primary_key: false },
-                    Column { name: "bio".into(), sql_type: SqlType::Text, nullable: true, is_primary_key: false },
+                    Column::new_primary_key("id", SqlType::Integer),
+                    Column::new_not_nullable("name", SqlType::Text),
+                    Column::new_not_nullable("email", SqlType::Text),
+                    Column::new("bio", SqlType::Text),
                 ],
             )],
             ..Default::default()

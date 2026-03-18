@@ -259,11 +259,8 @@ mod tests {
     fn make_schema() -> Schema {
         Schema {
             tables: vec![Table::new(
-                "users".to_string(),
-                vec![
-                    crate::ir::Column { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
-                    crate::ir::Column { name: "name".to_string(), sql_type: SqlType::Text, nullable: false, is_primary_key: false },
-                ],
+                "users",
+                vec![crate::ir::Column::new_primary_key("id", SqlType::BigInt), crate::ir::Column::new_not_nullable("name", SqlType::Text)],
             )],
             ..Default::default()
         }
@@ -288,22 +285,14 @@ mod tests {
             "GetUser",
             "SELECT id, name FROM users WHERE id = $1",
             vec![],
-            vec![
-                ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false },
-                ResultColumn { name: "name".to_string(), sql_type: SqlType::Text, nullable: false },
-            ],
+            vec![ResultColumn::not_nullable("id", SqlType::BigInt), ResultColumn::not_nullable("name", SqlType::Text)],
         );
         assert_eq!(result_row_type(&q, &make_schema(), "Object[]"), "Users");
     }
 
     #[test]
     fn test_ds_result_row_type_qualifies_inline_rows() {
-        let q = Query::one(
-            "GetSummary",
-            "SELECT count(*) as cnt FROM users",
-            vec![],
-            vec![ResultColumn { name: "cnt".to_string(), sql_type: SqlType::BigInt, nullable: false }],
-        );
+        let q = Query::one("GetSummary", "SELECT count(*) as cnt FROM users", vec![], vec![ResultColumn::not_nullable("cnt", SqlType::BigInt)]);
         let schema = Schema::default();
         assert_eq!(ds_result_row_type(&q, &schema, "Object[]", "Queries"), "Queries.GetSummaryRow");
     }

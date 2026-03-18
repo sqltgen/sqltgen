@@ -93,7 +93,7 @@ fn test_bug_b_sqlite_dynamic_scalar_after_in_binding_order() {
         "GetActiveByIds",
         "SELECT id FROM t WHERE id IN ($1) AND active = $2",
         vec![Parameter::list(1, "ids", SqlType::BigInt, false), Parameter::scalar(2, "active", SqlType::Boolean, false)],
-        vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        vec![ResultColumn::not_nullable("id", SqlType::BigInt)],
     );
     let cfg =
         OutputConfig { out: "out".to_string(), package: String::new(), list_params: Some(crate::config::ListParamStrategy::Dynamic), ..Default::default() };

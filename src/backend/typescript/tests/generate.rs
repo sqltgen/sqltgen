@@ -176,12 +176,7 @@ fn test_ts_querier_wrapper_is_emitted() {
 
 #[test]
 fn test_inline_row_type_ts() {
-    let query = Query::one(
-        "GetStats",
-        "SELECT count(*) AS total FROM users",
-        vec![],
-        vec![ResultColumn { name: "total".to_string(), sql_type: SqlType::BigInt, nullable: true }],
-    );
+    let query = Query::one("GetStats", "SELECT count(*) AS total FROM users", vec![], vec![ResultColumn::nullable("total", SqlType::BigInt)]);
     let mut src = String::new();
     emit_inline_row_type(&mut src, &query, &JsOutput::TypeScript, &JsTarget::Postgres, &cfg()).unwrap();
     assert!(src.contains("export interface GetStatsRow {"));
@@ -190,12 +185,7 @@ fn test_inline_row_type_ts() {
 
 #[test]
 fn test_inline_row_type_js() {
-    let query = Query::one(
-        "GetStats",
-        "SELECT count(*) AS total FROM users",
-        vec![],
-        vec![ResultColumn { name: "total".to_string(), sql_type: SqlType::BigInt, nullable: true }],
-    );
+    let query = Query::one("GetStats", "SELECT count(*) AS total FROM users", vec![], vec![ResultColumn::nullable("total", SqlType::BigInt)]);
     let mut src = String::new();
     emit_inline_row_type(&mut src, &query, &JsOutput::JavaScript, &JsTarget::Postgres, &cfg()).unwrap();
     assert!(src.contains("@typedef {Object} GetStatsRow"));

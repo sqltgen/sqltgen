@@ -5,7 +5,7 @@ fn list_by_ids_query() -> Query {
         "GetByIds",
         "SELECT id FROM t WHERE id IN ($1)",
         vec![Parameter::list(1, "ids", SqlType::BigInt, false)],
-        vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        vec![ResultColumn::not_nullable("id", SqlType::BigInt)],
     )
 }
 
@@ -14,7 +14,7 @@ fn pg_list_by_ids_query() -> Query {
         "GetByIds",
         "SELECT id FROM t WHERE id IN ($1)",
         vec![Parameter::list(1, "ids", SqlType::BigInt, false).with_native_list("SELECT id FROM t WHERE id = ANY($1)", NativeListBind::Array)],
-        vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        vec![ResultColumn::not_nullable("id", SqlType::BigInt)],
     )
 }
 
@@ -24,7 +24,7 @@ fn sqlite_list_by_ids_query() -> Query {
         "SELECT id FROM t WHERE id IN ($1)",
         vec![Parameter::list(1, "ids", SqlType::BigInt, false)
             .with_native_list("SELECT id FROM t WHERE id IN (SELECT value FROM json_each($1))", NativeListBind::Json)],
-        vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        vec![ResultColumn::not_nullable("id", SqlType::BigInt)],
     )
 }
 
@@ -34,7 +34,7 @@ fn mysql_list_by_ids_query() -> Query {
         "SELECT id FROM t WHERE id IN ($1)",
         vec![Parameter::list(1, "ids", SqlType::BigInt, false)
             .with_native_list("SELECT id FROM t WHERE id IN (SELECT value FROM JSON_TABLE($1,'$[*]' COLUMNS(value BIGINT PATH '$')) t)", NativeListBind::Json)],
-        vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        vec![ResultColumn::not_nullable("id", SqlType::BigInt)],
     )
 }
 
@@ -92,7 +92,7 @@ fn test_pg_dynamic_list_param_with_scalar_before() {
         "GetByIds",
         "SELECT id FROM t WHERE active = $1 AND id IN ($2)",
         vec![Parameter::scalar(1, "active", SqlType::Boolean, false), Parameter::list(2, "ids", SqlType::BigInt, false)],
-        vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        vec![ResultColumn::not_nullable("id", SqlType::BigInt)],
     );
     let content = build_queries_file("", &[query], &schema, &JsTarget::Postgres, &JsOutput::TypeScript, &dynamic_cfg()).unwrap();
     assert!(content.contains("active, ...ids"), "scalar before IN must come first in args");
@@ -106,7 +106,7 @@ fn test_pg_dynamic_list_param_with_scalar_after() {
         "GetByIds",
         "SELECT id FROM t WHERE id IN ($1) AND active = $2",
         vec![Parameter::list(1, "ids", SqlType::BigInt, false), Parameter::scalar(2, "active", SqlType::Boolean, false)],
-        vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        vec![ResultColumn::not_nullable("id", SqlType::BigInt)],
     );
     let content = build_queries_file("", &[query], &schema, &JsTarget::Postgres, &JsOutput::TypeScript, &dynamic_cfg()).unwrap();
     assert!(content.contains("...ids, active"), "scalar after IN must follow list in args");
@@ -145,7 +145,7 @@ fn test_sqlite_dynamic_list_param_with_scalar_after() {
         "GetByIds",
         "SELECT id FROM t WHERE id IN ($1) AND active = $2",
         vec![Parameter::list(1, "ids", SqlType::BigInt, false), Parameter::scalar(2, "active", SqlType::Boolean, false)],
-        vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        vec![ResultColumn::not_nullable("id", SqlType::BigInt)],
     );
     let content = build_queries_file("", &[query], &schema, &JsTarget::Sqlite, &JsOutput::TypeScript, &dynamic_cfg()).unwrap();
     assert!(content.contains("...ids, active"), "scalar after IN must follow list in args");
@@ -181,7 +181,7 @@ fn test_list_param_text_type_ts() {
         "GetByTags",
         "SELECT id FROM t WHERE tag IN ($1)",
         vec![Parameter::list(1, "tags", SqlType::Text, false)],
-        vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        vec![ResultColumn::not_nullable("id", SqlType::BigInt)],
     );
     let content = build_queries_file("", &[query], &schema, &JsTarget::Postgres, &JsOutput::TypeScript, &config()).unwrap();
     assert!(content.contains("tags: string[]"), "Text list param should use string[] type");

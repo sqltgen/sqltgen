@@ -55,7 +55,7 @@ fn test_generate_repeated_param_pg_binds_once_per_unique_param() {
         "ListByGenreOrAll",
         "SELECT id FROM t WHERE $1 = 'all' OR genre = $1",
         vec![Parameter::scalar(1, "genre", SqlType::Text, false)],
-        vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        vec![ResultColumn::not_nullable("id", SqlType::BigInt)],
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.rs");
@@ -72,7 +72,7 @@ fn test_generate_repeated_param_mysql_binds_per_occurrence() {
         "ListByGenreOrAll",
         "SELECT id FROM t WHERE $1 = 'all' OR genre = $1",
         vec![Parameter::scalar(1, "genre", SqlType::Text, false)],
-        vec![ResultColumn { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false }],
+        vec![ResultColumn::not_nullable("id", SqlType::BigInt)],
     );
     let files = mysql().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.rs");
