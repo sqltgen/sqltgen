@@ -11,9 +11,7 @@ use crate::backend::jdbc::{
 };
 use crate::backend::naming::{to_camel_case, to_pascal_case};
 use crate::backend::GeneratedFile;
-use crate::config::{
-    is_known_type_preset, resolve_type_ref, warn_unsupported_type_preset, Language, ListParamStrategy, OutputConfig, ResolvedType, TypeVariant,
-};
+use crate::config::{resolve_type_override, Language, ListParamStrategy, OutputConfig, ResolvedType, TypeVariant};
 use crate::ir::{Parameter, Query, QueryCmd, Schema, SqlType};
 
 use super::adapter::JvmCoreContract;
@@ -32,17 +30,7 @@ fn try_preset_java(name: &str) -> Option<ResolvedType> {
 /// Resolve a type override for the given SQL type and variant, combining preset lookup
 /// with the generic [`resolve_type_ref`] fallback.
 fn get_type_override_java(sql_type: &SqlType, variant: TypeVariant, config: &OutputConfig) -> Option<ResolvedType> {
-    let type_ref = config.get_type_ref(sql_type, variant)?;
-    if let crate::config::TypeRef::String(s) = type_ref {
-        if let Some(r) = try_preset_java(s) {
-            return Some(r);
-        }
-        if is_known_type_preset(s) {
-            warn_unsupported_type_preset(Language::Java, s, sql_type, variant);
-            return None;
-        }
-    }
-    resolve_type_ref(type_ref)
+    resolve_type_override(sql_type, variant, config, Language::Java, try_preset_java)
 }
 
 /// Return the Java field type for a SQL type, applying any configured type override first.

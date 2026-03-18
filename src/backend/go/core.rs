@@ -8,9 +8,7 @@ use crate::backend::common::{
 use crate::backend::naming::to_pascal_case;
 use crate::backend::sql_rewrite::{parse_placeholder_indices, positional_bind_names, rewrite_to_anon_params, split_at_in_clause};
 use crate::backend::GeneratedFile;
-use crate::config::{
-    is_known_type_preset, resolve_type_ref, warn_unsupported_type_preset, Language, ListParamStrategy, OutputConfig, ResolvedType, TypeVariant,
-};
+use crate::config::{resolve_type_override, Language, ListParamStrategy, OutputConfig, ResolvedType, TypeVariant};
 use crate::ir::{NativeListBind, Parameter, Query, QueryCmd, ResultColumn, Schema, SqlType};
 
 use super::adapter::{GoBindMode, GoCoreContract, GoJsonMode, GoPlaceholderMode};
@@ -19,14 +17,7 @@ use super::adapter::{GoBindMode, GoCoreContract, GoJsonMode, GoPlaceholderMode};
 
 /// Resolve any configured type override for Go (field or param side).
 fn get_type_override_go(sql_type: &SqlType, variant: TypeVariant, config: &OutputConfig) -> Option<ResolvedType> {
-    let type_ref = config.get_type_ref(sql_type, variant)?;
-    if let crate::config::TypeRef::String(s) = type_ref {
-        if is_known_type_preset(s) {
-            warn_unsupported_type_preset(Language::Go, s, sql_type, variant);
-            return None;
-        }
-    }
-    resolve_type_ref(type_ref)
+    resolve_type_override(sql_type, variant, config, Language::Go, |_| None)
 }
 
 /// Map a SQL type to its Go type string, applying any configured override.

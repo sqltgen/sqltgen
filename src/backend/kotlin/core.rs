@@ -10,9 +10,7 @@ use crate::backend::jdbc::{
 };
 use crate::backend::naming::{to_camel_case, to_pascal_case};
 use crate::backend::GeneratedFile;
-use crate::config::{
-    is_known_type_preset, resolve_type_ref, warn_unsupported_type_preset, Language, ListParamStrategy, OutputConfig, ResolvedType, TypeVariant,
-};
+use crate::config::{resolve_type_override, Language, ListParamStrategy, OutputConfig, ResolvedType, TypeVariant};
 use crate::ir::{Parameter, Query, QueryCmd, Schema, SqlType};
 
 use super::adapter::JvmCoreContract;
@@ -27,17 +25,7 @@ fn try_preset_kotlin(name: &str) -> Option<ResolvedType> {
 }
 
 fn get_type_override_kotlin(sql_type: &SqlType, variant: TypeVariant, config: &OutputConfig) -> Option<ResolvedType> {
-    let type_ref = config.get_type_ref(sql_type, variant)?;
-    if let crate::config::TypeRef::String(s) = type_ref {
-        if let Some(r) = try_preset_kotlin(s) {
-            return Some(r);
-        }
-        if is_known_type_preset(s) {
-            warn_unsupported_type_preset(Language::Kotlin, s, sql_type, variant);
-            return None;
-        }
-    }
-    resolve_type_ref(type_ref)
+    resolve_type_override(sql_type, variant, config, Language::Kotlin, try_preset_kotlin)
 }
 
 fn kotlin_field_type(sql_type: &SqlType, nullable: bool, config: &OutputConfig) -> String {

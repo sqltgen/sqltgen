@@ -8,9 +8,7 @@ use crate::backend::common::{
 use crate::backend::naming::{to_pascal_case, to_snake_case};
 use crate::backend::sql_rewrite::{positional_bind_names, rewrite_to_anon_params, rewrite_to_percent_s, split_at_in_clause};
 use crate::backend::GeneratedFile;
-use crate::config::{
-    is_known_type_preset, resolve_type_ref, warn_unsupported_type_preset, Language, ListParamStrategy, OutputConfig, ResolvedType, TypeVariant,
-};
+use crate::config::{resolve_type_override, Language, ListParamStrategy, OutputConfig, ResolvedType, TypeVariant};
 use crate::ir::{NativeListBind, Parameter, Query, QueryCmd, Schema, SqlType};
 
 use super::adapter::{PythonCoreContract, PythonJsonMode, PythonSqlNormMode};
@@ -20,16 +18,9 @@ use super::PythonTarget;
 
 /// Resolve any configured type override for the given SQL type and variant.
 ///
-/// Python has no preset names in the first pass — only explicit and FQN string forms.
+/// Python has no preset names — only explicit and FQN string forms.
 fn get_type_override_python(sql_type: &SqlType, variant: TypeVariant, config: &OutputConfig) -> Option<ResolvedType> {
-    let type_ref = config.get_type_ref(sql_type, variant)?;
-    if let crate::config::TypeRef::String(s) = type_ref {
-        if is_known_type_preset(s) {
-            warn_unsupported_type_preset(Language::Python, s, sql_type, variant);
-            return None;
-        }
-    }
-    resolve_type_ref(type_ref)
+    resolve_type_override(sql_type, variant, config, Language::Python, |_| None)
 }
 
 /// Map a SQL column type to its Python type string, applying any configured field override.

@@ -231,6 +231,32 @@ pub fn resolve_type_ref(type_ref: &TypeRef) -> Option<ResolvedType> {
     }
 }
 
+/// Resolve a type override for a given SQL type and variant, combining preset lookup
+/// with the generic [`resolve_type_ref`] fallback.
+///
+/// `try_preset` is the backend's own preset resolver. If the configured [`TypeRef`] is
+/// a known preset name that the backend doesn't support, a one-time warning is emitted
+/// and `None` is returned.
+pub fn resolve_type_override(
+    sql_type: &SqlType,
+    variant: TypeVariant,
+    config: &OutputConfig,
+    language: Language,
+    try_preset: impl Fn(&str) -> Option<ResolvedType>,
+) -> Option<ResolvedType> {
+    let type_ref = config.get_type_ref(sql_type, variant)?;
+    if let TypeRef::String(s) = type_ref {
+        if let Some(r) = try_preset(s) {
+            return Some(r);
+        }
+        if is_known_type_preset(s) {
+            warn_unsupported_type_preset(language, s, sql_type, variant);
+            return None;
+        }
+    }
+    resolve_type_ref(type_ref)
+}
+
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum Engine {
