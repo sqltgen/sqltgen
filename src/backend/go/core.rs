@@ -2,7 +2,9 @@ use std::collections::BTreeSet;
 use std::fmt::Write;
 use std::path::PathBuf;
 
-use crate::backend::common::{group_queries, has_inline_rows, infer_row_type_name, infer_table, querier_class_name, queries_file_stem, sql_const_name};
+use crate::backend::common::{
+    group_queries, has_inline_rows, infer_row_type_name, infer_table, querier_class_name, queries_file_stem, row_type_name, sql_const_name,
+};
 use crate::backend::naming::to_pascal_case;
 use crate::backend::sql_rewrite::{parse_placeholder_indices, positional_bind_names, rewrite_to_anon_params, split_at_in_clause};
 use crate::backend::GeneratedFile;
@@ -427,7 +429,7 @@ fn collect_query_imports(queries: &[Query], schema: &Schema, contract: &GoCoreCo
 
 /// Emit a `type {Query}Row struct { ... }` for queries with custom result shapes.
 fn emit_row_struct(src: &mut String, query: &Query, contract: &GoCoreContract, config: &OutputConfig) -> anyhow::Result<()> {
-    let name = format!("{}Row", to_pascal_case(&query.name));
+    let name = row_type_name(&query.name);
     writeln!(src, "// {name} is the result row type for {query_name}.", query_name = query.name)?;
     writeln!(src, "type {name} struct {{")?;
     for col in &query.result_columns {

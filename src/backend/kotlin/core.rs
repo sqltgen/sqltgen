@@ -1,17 +1,17 @@
-use std::collections::BTreeSet;
 use std::fmt::Write;
 use std::path::PathBuf;
 
 use crate::backend::common::{
-    emit_package, group_queries, has_inline_rows, needs_null_safe_getter, pg_array_type_name, querier_class_name, queries_class_name,
+    emit_package, group_queries, has_inline_rows, needs_null_safe_getter, pg_array_type_name, querier_class_name, queries_class_name, row_type_name,
 };
 use crate::backend::jdbc::{
-    self, emit_dynamic_binds, emit_jdbc_binds, prepare_dynamic_sql_parts, prepare_sql_const, prepare_sql_const_from, uses_get_object, ListAction,
+    self, collect_override_metadata, collect_table_imports, emit_dynamic_binds, emit_jdbc_binds, prepare_dynamic_sql_parts, prepare_sql_const,
+    prepare_sql_const_from, preset_gson, preset_jackson, uses_get_object, ListAction,
 };
 use crate::backend::naming::{to_camel_case, to_pascal_case};
 use crate::backend::GeneratedFile;
 use crate::config::{
-    is_known_type_preset, resolve_type_ref, warn_unsupported_type_preset, ExtraField, Language, ListParamStrategy, OutputConfig, ResolvedType, TypeVariant,
+    is_known_type_preset, resolve_type_ref, warn_unsupported_type_preset, Language, ListParamStrategy, OutputConfig, ResolvedType, TypeVariant,
 };
 use crate::ir::{Parameter, Query, QueryCmd, Schema, SqlType};
 
@@ -20,23 +20,8 @@ use super::adapter::JvmCoreContract;
 /// Resolve a known Kotlin/Java preset name to a [`ResolvedType`].
 fn try_preset_kotlin(name: &str) -> Option<ResolvedType> {
     match name {
-        "jackson" => Some(ResolvedType {
-            name: "JsonNode".to_string(),
-            import: Some("com.fasterxml.jackson.databind.JsonNode".to_string()),
-            read_expr: Some("objectMapper.readValue({raw}, JsonNode::class.java)".to_string()),
-            write_expr: Some("objectMapper.writeValueAsString({value})".to_string()),
-            extra_fields: vec![ExtraField {
-                declaration: "private val objectMapper = ObjectMapper()".to_string(),
-                import: Some("com.fasterxml.jackson.databind.ObjectMapper".to_string()),
-            }],
-        }),
-        "gson" => Some(ResolvedType {
-            name: "JsonElement".to_string(),
-            import: Some("com.google.gson.JsonElement".to_string()),
-            read_expr: Some("gson.fromJson({raw}, JsonElement::class.java)".to_string()),
-            write_expr: Some("gson.toJson({value})".to_string()),
-            extra_fields: vec![ExtraField { declaration: "private val gson = Gson()".to_string(), import: Some("com.google.gson.Gson".to_string()) }],
-        }),
+        "jackson" => Some(preset_jackson("JsonNode::class.java", "private val objectMapper = ObjectMapper()")),
+        "gson" => Some(preset_gson("JsonElement::class.java", "private val gson = Gson()")),
         _ => None,
     }
 }
@@ -110,49 +95,6 @@ fn kotlin_write_expr(p: &Parameter, config: &OutputConfig) -> String {
     name
 }
 
-/// Collect override imports needed by a table's columns for its data class file.
-fn collect_table_kotlin_imports(table: &crate::ir::Table, config: &OutputConfig) -> BTreeSet<String> {
-    let mut imports: BTreeSet<String> = BTreeSet::new();
-    for col in &table.columns {
-        if let Some(resolved) = get_type_override_kotlin(&col.sql_type, TypeVariant::Field, config) {
-            if let Some(imp) = resolved.import {
-                imports.insert(imp);
-            }
-        }
-    }
-    imports
-}
-
-fn collect_kotlin_override_metadata(queries: &[Query], config: &OutputConfig) -> (BTreeSet<String>, Vec<ExtraField>) {
-    let mut imports: BTreeSet<String> = BTreeSet::new();
-    let mut extra_fields: Vec<ExtraField> = Vec::new();
-    for query in queries {
-        for col in &query.result_columns {
-            if let Some(resolved) = get_type_override_kotlin(&col.sql_type, TypeVariant::Field, config) {
-                if let Some(imp) = resolved.import {
-                    imports.insert(imp);
-                }
-                for ef in resolved.extra_fields {
-                    if let Some(imp) = &ef.import {
-                        imports.insert(imp.clone());
-                    }
-                    if !extra_fields.iter().any(|e| e.declaration == ef.declaration) {
-                        extra_fields.push(ef);
-                    }
-                }
-            }
-        }
-        for p in &query.params {
-            if let Some(resolved) = get_type_override_kotlin(&p.sql_type, TypeVariant::Param, config) {
-                if let Some(imp) = resolved.import {
-                    imports.insert(imp);
-                }
-            }
-        }
-    }
-    (imports, extra_fields)
-}
-
 /// Per-query context computed once in the dispatcher and forwarded to all emitters.
 struct QueryContext<'a> {
     query: &'a Query,
@@ -171,7 +113,7 @@ pub(super) fn generate_core_files(schema: &Schema, queries: &[Query], contract: 
         let class_name = to_pascal_case(&table.name);
         let mut src = String::new();
         emit_package(&mut src, &config.package, "");
-        let table_imports = collect_table_kotlin_imports(table, config);
+        let table_imports = collect_table_imports(table, config, get_type_override_kotlin);
         for imp in &table_imports {
             writeln!(src, "import {imp}")?;
         }
@@ -200,7 +142,7 @@ pub(super) fn generate_core_files(schema: &Schema, queries: &[Query], contract: 
         let class_name = queries_class_name(&group);
         let querier_name = querier_class_name(&group);
 
-        let (override_imports, extra_fields) = collect_kotlin_override_metadata(&group_queries, config);
+        let (override_imports, extra_fields) = collect_override_metadata(&group_queries, config, get_type_override_kotlin);
 
         let mut src = String::new();
         emit_package(&mut src, &config.package, "");
@@ -353,7 +295,7 @@ fn emit_kotlin_list_dynamic(src: &mut String, ctx: &QueryContext, lp: &Parameter
     writeln!(src, "        val marks = {lp_name}.joinToString(\", \") {{ \"?\" }}")?;
     writeln!(src, "        val sql = \"{before_esc}\" + \"IN (${{marks}}){after_esc};\"")?;
     writeln!(src, "        conn.prepareStatement(sql).use {{ ps ->")?;
-    emit_dynamic_binds(src, ctx.query, lp, contract.statement_end, &|src, lp_name, base, setter| {
+    emit_dynamic_binds(src, ctx.query, lp, contract.statement_end, contract.size_access, &|src, lp_name, base, setter| {
         writeln!(src, "            {lp_name}.forEachIndexed {{ i, v -> ps.{setter}({base} + i + 1, v) }}")?;
         Ok(())
     })?;
@@ -479,12 +421,8 @@ fn result_row_type(query: &Query, schema: &Schema, contract: &JvmCoreContract) -
     jdbc::result_row_type(query, schema, contract.fallback_type)
 }
 
-fn row_class_name(query_name: &str) -> String {
-    format!("{}Row", to_pascal_case(query_name))
-}
-
 fn emit_row_class(src: &mut String, query: &Query, config: &OutputConfig) -> anyhow::Result<()> {
-    let name = row_class_name(&query.name);
+    let name = row_type_name(&query.name);
     writeln!(src, "    data class {name}(")?;
     let fields: Vec<String> = query
         .result_columns

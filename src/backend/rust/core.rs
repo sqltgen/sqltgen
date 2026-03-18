@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 use std::path::PathBuf;
 
-use crate::backend::common::{group_queries, has_inline_rows, infer_row_type_name, infer_table, querier_class_name, queries_file_stem};
+use crate::backend::common::{group_queries, has_inline_rows, infer_row_type_name, infer_table, querier_class_name, queries_file_stem, row_type_name};
 use crate::backend::naming::{to_pascal_case, to_snake_case};
 use crate::backend::sql_rewrite::{positional_bind_names, rewrite_to_anon_params, split_at_in_clause};
 use crate::backend::GeneratedFile;
@@ -144,7 +144,7 @@ pub(super) fn generate_core_files(
 }
 
 fn emit_row_struct(src: &mut String, query: &Query, config: &OutputConfig) -> anyhow::Result<()> {
-    let name = row_struct_name(&query.name);
+    let name = row_type_name(&query.name);
     writeln!(src, "#[derive(Debug, sqlx::FromRow)]")?;
     writeln!(src, "pub struct {name} {{")?;
     for col in &query.result_columns {
@@ -433,10 +433,6 @@ fn emit_rust_sqlx_call(src: &mut String, query: &Query, sql_expr: &str, bind_nam
 
 fn result_row_type(query: &Query, schema: &Schema) -> String {
     infer_row_type_name(query, schema).unwrap_or_else(|| "serde_json::Value".to_string())
-}
-
-fn row_struct_name(query_name: &str) -> String {
-    format!("{}Row", to_pascal_case(query_name))
 }
 
 // ─── SQL helpers ──────────────────────────────────────────────────────────────

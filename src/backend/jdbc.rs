@@ -3,8 +3,21 @@ use std::fmt::Write;
 use crate::backend::common::{infer_row_type_name, infer_table, jdbc_bind_sequence, jdbc_setter, pg_array_type_name, sql_const_name};
 use crate::backend::naming::{to_camel_case, to_pascal_case};
 use crate::backend::sql_rewrite::{rewrite_to_anon_params, split_at_in_clause};
-use crate::config::{Engine, ListParamStrategy};
-use crate::ir::{NativeListBind, Parameter, Query, QueryCmd, Schema, SqlType};
+use crate::config::{Engine, ExtraField, ListParamStrategy, OutputConfig, ResolvedType, TypeVariant};
+use crate::ir::{NativeListBind, Parameter, Query, QueryCmd, Schema, SqlType, Table};
+
+/// Compile-time adapter contract consumed by the JVM core emitters.
+///
+/// Holds the small set of language-level constants that differ between Java and
+/// Kotlin. Defined once here to avoid duplication across the two backend adapters.
+pub struct JvmCoreContract {
+    /// Statement-end token appended after JDBC calls (`";"` for Java, `""` for Kotlin).
+    pub statement_end: &'static str,
+    /// Fallback row type when a query has no result columns (`"Object[]"` / `"Any"`).
+    pub fallback_type: &'static str,
+    /// How to access a `List` size (`".size()"` for Java, `".size"` for Kotlin).
+    pub size_access: &'static str,
+}
 
 /// Database engine target shared by all JDBC backends (Java, Kotlin).
 ///
@@ -51,7 +64,7 @@ pub fn ds_result_row_type(query: &Query, schema: &Schema, fallback: &str, class_
         return to_pascal_case(table_name);
     }
     if !query.result_columns.is_empty() {
-        return format!("{class_name}.{}Row", to_pascal_case(&query.name));
+        return format!("{class_name}.{}", crate::backend::common::row_type_name(&query.name));
     }
     fallback.to_string()
 }
@@ -148,12 +161,15 @@ pub fn resolve_list_strategy(strategy: &ListParamStrategy, lp: &Parameter) -> Li
 /// Shared logic for emitting dynamic `IN (?,?,…,?)` list-param bind calls.
 ///
 /// Splits scalar parameters into before/after the list param by index order and
-/// emits the appropriate JDBC bind calls. `se` is the statement-end string.
+/// emits the appropriate JDBC bind calls. `se` is the statement-end string and
+/// `size_access` is the language-specific accessor for `List.size` (e.g. `".size()"` for
+/// Java, `".size"` for Kotlin).
 pub fn emit_dynamic_binds(
     src: &mut String,
     query: &Query,
     lp: &Parameter,
     se: &str,
+    size_access: &str,
     emit_foreach: &dyn Fn(&mut String, &str, usize, &str) -> anyhow::Result<()>,
 ) -> anyhow::Result<()> {
     let scalar_params: Vec<&Parameter> = query.params.iter().filter(|p| !p.is_list).collect();
@@ -176,16 +192,9 @@ pub fn emit_dynamic_binds(
     for (i, sp) in after_scalars.iter().enumerate() {
         let name = to_camel_case(&sp.name);
         if sp.nullable {
-            writeln!(src, "            ps.setObject({} + {lp_name}.size{} + {}, {name}){se}", base, if se == ";" { "()" } else { "" }, i + 1)?;
+            writeln!(src, "            ps.setObject({base} + {lp_name}{size_access} + {}, {name}){se}", i + 1)?;
         } else {
-            writeln!(
-                src,
-                "            ps.{}({} + {lp_name}.size{} + {}, {name}){se}",
-                jdbc_setter(&sp.sql_type),
-                base,
-                if se == ";" { "()" } else { "" },
-                i + 1
-            )?;
+            writeln!(src, "            ps.{}({base} + {lp_name}{size_access} + {}, {name}){se}", jdbc_setter(&sp.sql_type), i + 1)?;
         }
     }
     Ok(())
@@ -245,6 +254,92 @@ where
     let class = result_row_type(query, schema, fallback);
     let args: Vec<String> = query.result_columns.iter().enumerate().map(|(i, col)| read_expr(&col.sql_type, col.nullable, i + 1)).collect();
     format!("{prefix}{class}({})", args.join(", "))
+}
+
+/// Build the Jackson `ResolvedType` preset for a JVM backend.
+///
+/// `class_syntax` is the reflection syntax for the target language
+/// (e.g. `"JsonNode.class"` for Java, `"JsonNode::class.java"` for Kotlin).
+/// `mapper_decl` is the field declaration for the ObjectMapper instance.
+pub fn preset_jackson(class_syntax: &str, mapper_decl: &str) -> ResolvedType {
+    ResolvedType {
+        name: "JsonNode".to_string(),
+        import: Some("com.fasterxml.jackson.databind.JsonNode".to_string()),
+        read_expr: Some(format!("objectMapper.readValue({{raw}}, {class_syntax})")),
+        write_expr: Some("objectMapper.writeValueAsString({value})".to_string()),
+        extra_fields: vec![ExtraField { declaration: mapper_decl.to_string(), import: Some("com.fasterxml.jackson.databind.ObjectMapper".to_string()) }],
+    }
+}
+
+/// Build the Gson `ResolvedType` preset for a JVM backend.
+///
+/// `class_syntax` is the reflection syntax for the target language
+/// (e.g. `"JsonElement.class"` for Java, `"JsonElement::class.java"` for Kotlin).
+/// `gson_decl` is the field declaration for the Gson instance.
+pub fn preset_gson(class_syntax: &str, gson_decl: &str) -> ResolvedType {
+    ResolvedType {
+        name: "JsonElement".to_string(),
+        import: Some("com.google.gson.JsonElement".to_string()),
+        read_expr: Some(format!("gson.fromJson({{raw}}, {class_syntax})")),
+        write_expr: Some("gson.toJson({value})".to_string()),
+        extra_fields: vec![ExtraField { declaration: gson_decl.to_string(), import: Some("com.google.gson.Gson".to_string()) }],
+    }
+}
+
+/// Collect override imports needed by a table's columns for its record/data-class file.
+///
+/// `get_override` is the backend's type-override resolver (e.g. `get_type_override_java`).
+pub fn collect_table_imports(
+    table: &Table,
+    config: &OutputConfig,
+    get_override: impl Fn(&SqlType, TypeVariant, &OutputConfig) -> Option<ResolvedType>,
+) -> std::collections::BTreeSet<String> {
+    let mut imports = std::collections::BTreeSet::new();
+    for col in &table.columns {
+        if let Some(resolved) = get_override(&col.sql_type, TypeVariant::Field, config) {
+            if let Some(imp) = resolved.import {
+                imports.insert(imp);
+            }
+        }
+    }
+    imports
+}
+
+/// Collect override-specific imports and extra fields across all queries in a group.
+///
+/// `get_override` is the backend's type-override resolver (e.g. `get_type_override_java`).
+pub fn collect_override_metadata(
+    queries: &[Query],
+    config: &OutputConfig,
+    get_override: impl Fn(&SqlType, TypeVariant, &OutputConfig) -> Option<ResolvedType>,
+) -> (std::collections::BTreeSet<String>, Vec<ExtraField>) {
+    let mut imports = std::collections::BTreeSet::new();
+    let mut extra_fields: Vec<ExtraField> = Vec::new();
+    for query in queries {
+        for col in &query.result_columns {
+            if let Some(resolved) = get_override(&col.sql_type, TypeVariant::Field, config) {
+                if let Some(imp) = resolved.import {
+                    imports.insert(imp);
+                }
+                for ef in resolved.extra_fields {
+                    if let Some(imp) = &ef.import {
+                        imports.insert(imp.clone());
+                    }
+                    if !extra_fields.iter().any(|e| e.declaration == ef.declaration) {
+                        extra_fields.push(ef);
+                    }
+                }
+            }
+        }
+        for p in &query.params {
+            if let Some(resolved) = get_override(&p.sql_type, TypeVariant::Param, config) {
+                if let Some(imp) = resolved.import {
+                    imports.insert(imp);
+                }
+            }
+        }
+    }
+    (imports, extra_fields)
 }
 
 #[cfg(test)]

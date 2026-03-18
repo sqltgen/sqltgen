@@ -2,7 +2,10 @@ use std::collections::BTreeSet;
 use std::fmt::Write;
 use std::path::PathBuf;
 
-use crate::backend::common::{group_queries, has_inline_rows, infer_row_type_name, infer_table, querier_class_name, queries_file_stem, sql_const_name};
+use crate::backend::common::{
+    group_queries, has_inline_rows, infer_row_type_name, infer_table, querier_class_name, queries_file_stem, row_type_name as inline_row_type_name,
+    sql_const_name,
+};
 use crate::backend::naming::{to_camel_case, to_pascal_case};
 use crate::backend::sql_rewrite::{positional_bind_names, rewrite_to_anon_params, split_at_in_clause};
 use crate::backend::GeneratedFile;
@@ -214,7 +217,7 @@ fn emit_js_typedef(src: &mut String, name: &str, fields: &[(&str, &SqlType, bool
 
 /// Emit the inline row type for a query whose result doesn't match any schema table.
 fn emit_inline_row_type_with_contract(src: &mut String, query: &Query, contract: &TsCoreContract, config: &OutputConfig) -> anyhow::Result<()> {
-    let name = format!("{}Row", to_pascal_case(&query.name));
+    let name = inline_row_type_name(&query.name);
     let fields: Vec<(&str, &SqlType, bool)> = query.result_columns.iter().map(|c| (c.name.as_str(), &c.sql_type, c.nullable)).collect();
     match contract.output {
         JsOutput::TypeScript => emit_ts_interface(src, &name, &fields, contract, config),
@@ -535,7 +538,7 @@ fn emit_fn_open(src: &mut String, ctx: &QueryContext, params: &[&Parameter]) -> 
 
 /// Compute the JS/TS return type string for a query.
 fn return_type(query: &Query, schema: &Schema) -> String {
-    let row = row_type_name(query, schema);
+    let row = ts_row_type(query, schema);
     match query.cmd {
         QueryCmd::One => format!("{row} | null"),
         QueryCmd::Many => format!("{row}[]"),
@@ -545,8 +548,8 @@ fn return_type(query: &Query, schema: &Schema) -> String {
 }
 
 /// Compute the row type name for a query result (table name or `{Query}Row`).
-fn row_type_name(query: &Query, schema: &Schema) -> String {
-    infer_row_type_name(query, schema).unwrap_or_else(|| format!("{}Row", to_pascal_case(&query.name)))
+fn ts_row_type(query: &Query, schema: &Schema) -> String {
+    infer_row_type_name(query, schema).unwrap_or_else(|| inline_row_type_name(&query.name))
 }
 
 // ─── PostgreSQL (pg) ─────────────────────────────────────────────────────────
@@ -577,7 +580,7 @@ fn emit_pg_body(src: &mut String, ctx: &QueryContext, sql_expr: &str, args: &str
             writeln!(src, "  return result.rowCount ?? 0;")?;
         },
         QueryCmd::One => {
-            let row = row_type_name(ctx.query, ctx.schema);
+            let row = ts_row_type(ctx.query, ctx.schema);
             let call = pg_query_call(sql_expr, &row, args, &ctx.contract.output);
             writeln!(src, "  const result = await {call};")?;
             if let Some(transform) = row_transform_expr(ctx.query, ctx.config, &ctx.contract.output, "raw") {
@@ -589,7 +592,7 @@ fn emit_pg_body(src: &mut String, ctx: &QueryContext, sql_expr: &str, args: &str
             }
         },
         QueryCmd::Many => {
-            let row = row_type_name(ctx.query, ctx.schema);
+            let row = ts_row_type(ctx.query, ctx.schema);
             let call = pg_query_call(sql_expr, &row, args, &ctx.contract.output);
             writeln!(src, "  const result = await {call};")?;
             if let Some(transform) = row_transform_expr(ctx.query, ctx.config, &ctx.contract.output, "raw") {
@@ -760,7 +763,7 @@ fn emit_sqlite_body(src: &mut String, ctx: &QueryContext, sql_expr: &str, args: 
             writeln!(src, "  return result.changes;")?;
         },
         QueryCmd::One => {
-            let row = row_type_name(ctx.query, ctx.schema);
+            let row = ts_row_type(ctx.query, ctx.schema);
             let cast = ts_cast(&format!("{row} | undefined"), &ctx.contract.output);
             if let Some(transform) = row_transform_expr(ctx.query, ctx.config, &ctx.contract.output, "raw") {
                 writeln!(src, "  const raw = db.prepare({sql_expr}).get({args}){cast};")?;
@@ -772,7 +775,7 @@ fn emit_sqlite_body(src: &mut String, ctx: &QueryContext, sql_expr: &str, args: 
             }
         },
         QueryCmd::Many => {
-            let row = row_type_name(ctx.query, ctx.schema);
+            let row = ts_row_type(ctx.query, ctx.schema);
             let cast = ts_cast(&format!("{row}[]"), &ctx.contract.output);
             if let Some(transform) = row_transform_expr(ctx.query, ctx.config, &ctx.contract.output, "raw") {
                 writeln!(src, "  return (db.prepare({sql_expr}).all({args}){cast}).map(raw => ({transform}));")?;
@@ -825,7 +828,7 @@ fn emit_mysql_body(src: &mut String, ctx: &QueryContext, sql_expr: &str, args: &
             writeln!(src, "  return result.affectedRows;")?;
         },
         QueryCmd::One => {
-            let row = row_type_name(ctx.query, ctx.schema);
+            let row = ts_row_type(ctx.query, ctx.schema);
             let rdp = mysql_type_param(&ctx.contract.output, "RowDataPacket[]");
             let cast = ts_cast(&format!("{row} | undefined"), &ctx.contract.output);
             writeln!(src, "  const [rows] = await db.query{rdp}({sql_expr}, {args});")?;
@@ -838,7 +841,7 @@ fn emit_mysql_body(src: &mut String, ctx: &QueryContext, sql_expr: &str, args: &
             }
         },
         QueryCmd::Many => {
-            let row = row_type_name(ctx.query, ctx.schema);
+            let row = ts_row_type(ctx.query, ctx.schema);
             let rdp = mysql_type_param(&ctx.contract.output, "RowDataPacket[]");
             let cast = ts_cast(&format!("{row}[]"), &ctx.contract.output);
             writeln!(src, "  const [rows] = await db.query{rdp}({sql_expr}, {args});")?;

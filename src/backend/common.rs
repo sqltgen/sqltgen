@@ -68,6 +68,13 @@ pub fn queries_file_stem(group: &str) -> &str {
     }
 }
 
+/// Return the inline row-type name for a query: `"{PascalCase(name)}Row"`.
+///
+/// Used when a query has result columns that don't map to a known schema table.
+pub fn row_type_name(query_name: &str) -> String {
+    format!("{}Row", to_pascal_case(query_name))
+}
+
 /// Derive the row-type name for a query result, or `None` if the query has no
 /// result columns (e.g. `:exec` / `:execrows`).
 ///
@@ -84,7 +91,7 @@ pub fn infer_row_type_name(query: &Query, schema: &Schema) -> Option<String> {
         return Some(to_pascal_case(table_name));
     }
     if !query.result_columns.is_empty() {
-        return Some(format!("{}Row", to_pascal_case(&query.name)));
+        return Some(row_type_name(&query.name));
     }
     None
 }

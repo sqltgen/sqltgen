@@ -2,7 +2,9 @@ use std::collections::BTreeSet;
 use std::fmt::Write;
 use std::path::PathBuf;
 
-use crate::backend::common::{group_queries, has_inline_rows, infer_row_type_name, infer_table, querier_class_name, queries_file_stem, sql_const_name};
+use crate::backend::common::{
+    group_queries, has_inline_rows, infer_row_type_name, infer_table, querier_class_name, queries_file_stem, row_type_name, sql_const_name,
+};
 use crate::backend::naming::{to_pascal_case, to_snake_case};
 use crate::backend::sql_rewrite::{positional_bind_names, rewrite_to_anon_params, rewrite_to_percent_s, split_at_in_clause};
 use crate::backend::GeneratedFile;
@@ -254,7 +256,7 @@ fn emit_python_querier(
 }
 
 fn emit_row_dataclass(src: &mut String, ctx: &PythonQueryContext) -> anyhow::Result<()> {
-    let name = format!("{}Row", to_pascal_case(&ctx.query.name));
+    let name = row_type_name(&ctx.query.name);
     writeln!(src, "@dataclasses.dataclass")?;
     writeln!(src, "class {name}:")?;
     for col in &ctx.query.result_columns {
