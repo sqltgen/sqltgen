@@ -5,116 +5,26 @@ use sqlx::SqlitePool;
 async fn setup_db() -> SqlitePool {
     let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
 
-    sqlx::query(
-        "CREATE TABLE author (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            name       TEXT    NOT NULL,
-            bio        TEXT,
-            birth_year INTEGER
-        )",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    sqlx::query(
-        "CREATE TABLE book (
-            id           INTEGER PRIMARY KEY AUTOINCREMENT,
-            author_id    INTEGER NOT NULL REFERENCES author(id),
-            title        TEXT    NOT NULL,
-            genre        TEXT    NOT NULL,
-            price        DECIMAL NOT NULL,
-            published_at TEXT
-        )",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    sqlx::query(
-        "CREATE TABLE customer (
-            id    INTEGER PRIMARY KEY AUTOINCREMENT,
-            name  TEXT    NOT NULL,
-            email TEXT    NOT NULL UNIQUE
-        )",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    sqlx::query(
-        "CREATE TABLE sale (
-            id          INTEGER  PRIMARY KEY AUTOINCREMENT,
-            customer_id INTEGER  NOT NULL REFERENCES customer(id),
-            ordered_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    sqlx::query(
-        "CREATE TABLE sale_item (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            sale_id    INTEGER NOT NULL REFERENCES sale(id),
-            book_id    INTEGER NOT NULL REFERENCES book(id),
-            quantity   INTEGER NOT NULL,
-            unit_price DECIMAL NOT NULL
-        )",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    sqlx::query(
-        "CREATE TABLE product (
-            id          TEXT    PRIMARY KEY,
-            sku         TEXT    NOT NULL,
-            name        TEXT    NOT NULL,
-            active      INTEGER NOT NULL DEFAULT 1,
-            weight_kg   REAL,
-            rating      REAL,
-            metadata    TEXT,
-            thumbnail   BLOB,
-            created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
-            stock_count INTEGER NOT NULL DEFAULT 0
-        )",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
+    let schema = include_str!("../../../../../fixtures/bookstore/sqlite/schema.sql");
+    for statement in schema.split(';').map(str::trim).filter(|s: &&str| !s.is_empty()) {
+        sqlx::query(statement).execute(&pool).await.unwrap();
+    }
 
     pool
 }
 
 /// Seed the database with test data.
 async fn seed(pool: &SqlitePool) {
-    queries::create_author(pool, "Asimov".into(), Some("Sci-fi master".into()), Some(1920))
-        .await
-        .unwrap();
-    queries::create_author(pool, "Herbert".into(), None, Some(1920))
-        .await
-        .unwrap();
-    queries::create_author(pool, "Le Guin".into(), Some("Earthsea".into()), Some(1929))
-        .await
-        .unwrap();
+    queries::create_author(pool, "Asimov".into(), Some("Sci-fi master".into()), Some(1920)).await.unwrap();
+    queries::create_author(pool, "Herbert".into(), None, Some(1920)).await.unwrap();
+    queries::create_author(pool, "Le Guin".into(), Some("Earthsea".into()), Some(1929)).await.unwrap();
 
-    queries::create_book(pool, 1, "Foundation".into(), "sci-fi".into(), 9.99, Some("1951-01-01".into()))
-        .await
-        .unwrap();
-    queries::create_book(pool, 1, "I Robot".into(), "sci-fi".into(), 7.99, Some("1950-01-01".into()))
-        .await
-        .unwrap();
-    queries::create_book(pool, 2, "Dune".into(), "sci-fi".into(), 12.99, Some("1965-01-01".into()))
-        .await
-        .unwrap();
-    queries::create_book(pool, 3, "Earthsea".into(), "fantasy".into(), 8.99, Some("1968-01-01".into()))
-        .await
-        .unwrap();
+    queries::create_book(pool, 1, "Foundation".into(), "sci-fi".into(), 9.99, Some("1951-01-01".into())).await.unwrap();
+    queries::create_book(pool, 1, "I Robot".into(), "sci-fi".into(), 7.99, Some("1950-01-01".into())).await.unwrap();
+    queries::create_book(pool, 2, "Dune".into(), "sci-fi".into(), 12.99, Some("1965-01-01".into())).await.unwrap();
+    queries::create_book(pool, 3, "Earthsea".into(), "fantasy".into(), 8.99, Some("1968-01-01".into())).await.unwrap();
 
-    queries::create_customer(pool, "Alice".into(), "alice@example.com".into())
-        .await
-        .unwrap();
+    queries::create_customer(pool, "Alice".into(), "alice@example.com".into()).await.unwrap();
 
     queries::create_sale(pool, 1).await.unwrap();
 
@@ -376,9 +286,7 @@ async fn test_get_books_in_genres() {
     let pool = setup_db().await;
     seed(&pool).await;
 
-    let results = queries::get_books_in_genres(&pool, "sci-fi".into(), "fantasy".into(), "horror".into())
-        .await
-        .unwrap();
+    let results = queries::get_books_in_genres(&pool, "sci-fi".into(), "fantasy".into(), "horror".into()).await.unwrap();
     assert_eq!(results.len(), 4);
 }
 
@@ -478,9 +386,7 @@ async fn test_create_book_exec() {
     let pool = setup_db().await;
     seed(&pool).await;
 
-    queries::create_book(&pool, 1, "New Book".into(), "mystery".into(), 14.50, None)
-        .await
-        .unwrap();
+    queries::create_book(&pool, 1, "New Book".into(), "mystery".into(), 14.50, None).await.unwrap();
 
     let book = queries::get_book(&pool, 5).await.unwrap().unwrap();
     assert_eq!(book.title, "New Book");
@@ -493,15 +399,10 @@ async fn test_create_book_exec() {
 async fn test_create_customer_exec() {
     let pool = setup_db().await;
 
-    queries::create_customer(&pool, "Bob".into(), "bob@example.com".into())
-        .await
-        .unwrap();
+    queries::create_customer(&pool, "Bob".into(), "bob@example.com".into()).await.unwrap();
 
     // Verify via a SELECT that the row was inserted
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM customer WHERE name = 'Bob'")
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM customer WHERE name = 'Bob'").fetch_one(&pool).await.unwrap();
     assert_eq!(count, 1);
 }
 
@@ -513,10 +414,7 @@ async fn test_create_sale_exec() {
     // Alice is customer id 1; seed already creates one sale; add another
     queries::create_sale(&pool, 1).await.unwrap();
 
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sale WHERE customer_id = 1")
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sale WHERE customer_id = 1").fetch_one(&pool).await.unwrap();
     assert_eq!(count, 2);
 }
 
@@ -528,10 +426,7 @@ async fn test_add_sale_item_exec() {
     // Add a new sale item to sale 1 (book 4 = Earthsea, not yet ordered)
     queries::add_sale_item(&pool, 1, 4, 3, 8.99).await.unwrap();
 
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sale_item WHERE sale_id = 1")
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sale_item WHERE sale_id = 1").fetch_one(&pool).await.unwrap();
     assert_eq!(count, 3);
 }
 
@@ -570,10 +465,7 @@ async fn test_get_product() {
     let pool = setup_db().await;
 
     let pid = uuid::Uuid::new_v4().to_string();
-    queries::insert_product(
-        &pool, pid.clone(), "SKU-GET".into(), "GetWidget".into(),
-        1, None, None, None, None, 3,
-    ).await.unwrap();
+    queries::insert_product(&pool, pid.clone(), "SKU-GET".into(), "GetWidget".into(), 1, None, None, None, None, 3).await.unwrap();
 
     let row = queries::get_product(&pool, pid.clone()).await.unwrap().unwrap();
     assert_eq!(row.id, pid);
@@ -586,18 +478,9 @@ async fn test_insert_and_get_product_sqlite() {
 
     let product_id = uuid::Uuid::new_v4().to_string();
 
-    queries::insert_product(
-        &pool,
-        product_id.clone(),
-        "SKU-001".into(),
-        "Widget".into(),
-        1,
-        Some(1.5),
-        Some(4.7),
-        Some(r#"{"color":"red"}"#.into()),
-        None,
-        42,
-    ).await.unwrap();
+    queries::insert_product(&pool, product_id.clone(), "SKU-001".into(), "Widget".into(), 1, Some(1.5), Some(4.7), Some(r#"{"color":"red"}"#.into()), None, 42)
+        .await
+        .unwrap();
 
     let fetched = queries::get_product(&pool, product_id.clone()).await.unwrap().unwrap();
     assert_eq!(fetched.id, product_id);
@@ -609,15 +492,9 @@ async fn test_insert_and_get_product_sqlite() {
 async fn test_list_active_products_sqlite() {
     let pool = setup_db().await;
 
-    queries::insert_product(
-        &pool, uuid::Uuid::new_v4().to_string(), "ACT-1".into(), "Active".into(),
-        1, None, None, None, None, 10,
-    ).await.unwrap();
+    queries::insert_product(&pool, uuid::Uuid::new_v4().to_string(), "ACT-1".into(), "Active".into(), 1, None, None, None, None, 10).await.unwrap();
 
-    queries::insert_product(
-        &pool, uuid::Uuid::new_v4().to_string(), "INACT-1".into(), "Inactive".into(),
-        0, None, None, None, None, 0,
-    ).await.unwrap();
+    queries::insert_product(&pool, uuid::Uuid::new_v4().to_string(), "INACT-1".into(), "Inactive".into(), 0, None, None, None, None, 0).await.unwrap();
 
     let active = queries::list_active_products(&pool, 1).await.unwrap();
     assert_eq!(active.len(), 1);
@@ -635,9 +512,7 @@ async fn test_update_author_bio_exec() {
     let pool = setup_db().await;
     seed(&pool).await;
 
-    queries::update_author_bio(&pool, Some("Updated bio".into()), 1)
-        .await
-        .unwrap();
+    queries::update_author_bio(&pool, Some("Updated bio".into()), 1).await.unwrap();
 
     let author = queries::get_author(&pool, 1).await.unwrap().unwrap();
     assert_eq!(author.bio, Some("Updated bio".into()));
@@ -662,10 +537,7 @@ async fn test_insert_product_exec() {
     let pool = setup_db().await;
 
     let pid = uuid::Uuid::new_v4().to_string();
-    queries::insert_product(
-        &pool, pid.clone(), "SKU-002".into(), "Gadget".into(),
-        1, None, None, None, None, 5,
-    ).await.unwrap();
+    queries::insert_product(&pool, pid.clone(), "SKU-002".into(), "Gadget".into(), 1, None, None, None, None, 5).await.unwrap();
 
     let row = queries::get_product(&pool, pid).await.unwrap().unwrap();
     assert_eq!(row.name, "Gadget");
@@ -677,18 +549,14 @@ async fn test_upsert_product_exec() {
     let pool = setup_db().await;
 
     let pid = uuid::Uuid::new_v4().to_string();
-    queries::upsert_product(
-        &pool, pid.clone(), "SKU-003".into(), "Thing".into(), 1, None, 10,
-    ).await.unwrap();
+    queries::upsert_product(&pool, pid.clone(), "SKU-003".into(), "Thing".into(), 1, None, 10).await.unwrap();
 
     let row = queries::get_product(&pool, pid.clone()).await.unwrap().unwrap();
     assert_eq!(row.name, "Thing");
     assert_eq!(row.stock_count, 10);
 
     // Upsert again — should update
-    queries::upsert_product(
-        &pool, pid.clone(), "SKU-003".into(), "Thing Pro".into(), 1, None, 20,
-    ).await.unwrap();
+    queries::upsert_product(&pool, pid.clone(), "SKU-003".into(), "Thing Pro".into(), 1, None, 20).await.unwrap();
 
     let updated = queries::get_product(&pool, pid).await.unwrap().unwrap();
     assert_eq!(updated.name, "Thing Pro");
@@ -727,11 +595,7 @@ async fn test_get_books_published_between() {
     seed(&pool).await;
 
     // 1951-01-01 to 1966-01-01 → Foundation (1951) and Dune (1965)
-    let rows = queries::get_books_published_between(
-        &pool,
-        Some("1951-01-01".into()),
-        Some("1966-01-01".into()),
-    ).await.unwrap();
+    let rows = queries::get_books_published_between(&pool, Some("1951-01-01".into()), Some("1966-01-01".into())).await.unwrap();
     assert_eq!(rows.len(), 2);
     let titles: Vec<&str> = rows.iter().map(|r| r.title.as_str()).collect();
     assert!(titles.contains(&"Foundation"));

@@ -34,96 +34,11 @@ async fn setup_db() -> PgPool {
         .await
         .unwrap();
 
-    // Create tables in this schema
-    sqlx::query(
-        "CREATE TABLE author (
-            id         BIGSERIAL    PRIMARY KEY,
-            name       TEXT         NOT NULL,
-            bio        TEXT,
-            birth_year INTEGER
-        )",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    sqlx::query(
-        "CREATE TABLE book (
-            id           BIGSERIAL      PRIMARY KEY,
-            author_id    BIGINT         NOT NULL REFERENCES author(id),
-            title        TEXT           NOT NULL,
-            genre        TEXT           NOT NULL,
-            price        NUMERIC(10, 2) NOT NULL,
-            published_at DATE
-        )",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    sqlx::query(
-        "CREATE TABLE customer (
-            id    BIGSERIAL PRIMARY KEY,
-            name  TEXT      NOT NULL,
-            email TEXT      NOT NULL UNIQUE
-        )",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    sqlx::query(
-        "CREATE TABLE sale (
-            id          BIGSERIAL  PRIMARY KEY,
-            customer_id BIGINT     NOT NULL REFERENCES customer(id),
-            ordered_at  TIMESTAMP  NOT NULL DEFAULT NOW()
-        )",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    sqlx::query(
-        "CREATE TABLE sale_item (
-            id         BIGSERIAL      PRIMARY KEY,
-            sale_id    BIGINT         NOT NULL REFERENCES sale(id),
-            book_id    BIGINT         NOT NULL REFERENCES book(id),
-            quantity   INTEGER        NOT NULL,
-            unit_price NUMERIC(10, 2) NOT NULL
-        )",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    sqlx::query(
-        "CREATE TABLE product (
-            id          UUID         PRIMARY KEY,
-            sku         VARCHAR(50)  NOT NULL,
-            name        TEXT         NOT NULL,
-            active      BOOLEAN      NOT NULL DEFAULT TRUE,
-            weight_kg   REAL,
-            rating      DOUBLE PRECISION,
-            tags        TEXT[]       NOT NULL DEFAULT '{}',
-            metadata    JSONB,
-            thumbnail   BYTEA,
-            created_at  TIMESTAMP    NOT NULL DEFAULT NOW(),
-            stock_count SMALLINT     NOT NULL DEFAULT 0
-        )",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    sqlx::query(
-        "CREATE VIEW book_summaries AS
-         SELECT b.id, b.title, b.genre, a.name AS author_name
-         FROM book b
-         JOIN author a ON a.id = b.author_id",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
+    // Create schema objects from the fixture schema
+    let schema = include_str!("../../../../../fixtures/bookstore/postgresql/schema.sql");
+    for statement in schema.split(';').map(str::trim).filter(|s: &&str| !s.is_empty()) {
+        sqlx::query(statement).execute(&pool).await.unwrap();
+    }
 
     pool
 }

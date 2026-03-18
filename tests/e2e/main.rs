@@ -433,7 +433,7 @@ fn snapshot_type_overrides_typescript() {
 // These verify the pipeline handles bad/edge-case input gracefully without
 // panicking.  They don't compare golden files — just assert no crash.
 
-const SIMPLE_PG_SCHEMA: &str = "CREATE TABLE users (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL);";
+const SIMPLE_PG_SCHEMA: &str = include_str!("fixtures/resilience/postgresql/schema.sql");
 
 #[test]
 fn resilience_unknown_table_query_skipped() {
