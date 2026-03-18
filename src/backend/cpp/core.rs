@@ -264,7 +264,10 @@ fn emit_function_decl(src: &mut String, query: &Query, schema: &Schema, conn_typ
 
 /// Emit a single function definition with body.
 fn emit_function_def(src: &mut String, query: &Query, schema: &Schema, contract: &CppEngineContract) -> anyhow::Result<()> {
-    emit_function_decl(src, query, schema, contract.conn_type)?;
+    let fn_name = to_snake_case(&query.name);
+    let ret = query_return_type(query, schema);
+    let params = params_signature(query, contract.conn_type);
+    writeln!(src, "{ret} {fn_name}({params}) {{")?;
     match contract.body_emitter {
         CppBodyEmitter::Pqxx => emit_pqxx_body(src, query, schema)?,
         CppBodyEmitter::Sqlite3 => emit_sqlite3_body(src, query, schema)?,
