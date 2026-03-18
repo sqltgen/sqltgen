@@ -1,7 +1,7 @@
 use super::*;
 use crate::backend::test_helpers::{cfg, get_file, user_table};
 use crate::config::OutputConfig;
-use crate::ir::{Column, Schema, SqlType, Table};
+use crate::ir::{Column, Schema, SqlType, Table, TableKind};
 
 pub fn pg() -> CppCodegen {
     CppCodegen { target: CppTarget::Postgres }

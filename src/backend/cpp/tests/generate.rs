@@ -39,6 +39,7 @@ fn test_generate_includes_for_user_table() {
 fn test_generate_includes_chrono_for_temporal() {
     let table = Table {
         name: "event".to_string(),
+        kind: TableKind::Table,
         columns: vec![
             Column { name: "id".to_string(), sql_type: SqlType::Integer, nullable: false, is_primary_key: true },
             Column { name: "created_at".to_string(), sql_type: SqlType::Timestamp, nullable: false, is_primary_key: false },
@@ -55,6 +56,7 @@ fn test_generate_includes_chrono_for_temporal() {
 fn test_generate_includes_vector_for_bytes() {
     let table = Table {
         name: "blob".to_string(),
+        kind: TableKind::Table,
         columns: vec![
             Column { name: "data".to_string(), sql_type: SqlType::Bytes, nullable: false, is_primary_key: false },
         ],
@@ -70,6 +72,7 @@ fn test_generate_includes_vector_for_bytes() {
 fn test_generate_no_includes_for_bool_only() {
     let table = Table {
         name: "flag".to_string(),
+        kind: TableKind::Table,
         columns: vec![
             Column { name: "active".to_string(), sql_type: SqlType::Boolean, nullable: false, is_primary_key: false },
         ],
@@ -112,6 +115,7 @@ fn test_generate_one_file_per_table() {
         user_table(),
         Table {
             name: "post".to_string(),
+            kind: TableKind::Table,
             columns: vec![
                 Column { name: "id".to_string(), sql_type: SqlType::Integer, nullable: false, is_primary_key: true },
                 Column { name: "title".to_string(), sql_type: SqlType::Text, nullable: false, is_primary_key: false },
@@ -168,6 +172,7 @@ fn test_generate_includes_are_sorted() {
 fn test_generate_includes_vector_for_array_column() {
     let table = Table {
         name: "tag_list".to_string(),
+        kind: TableKind::Table,
         columns: vec![
             Column { name: "tags".to_string(), sql_type: SqlType::Array(Box::new(SqlType::Text)), nullable: false, is_primary_key: false },
         ],
