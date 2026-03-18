@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn test_generate_kotlin_queries_has_no_engine_conditionals() {
     let schema = Schema::default();
-    let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id".to_string(), SqlType::BigInt, false)]);
+    let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
 
     let files = pg().generate(&schema, std::slice::from_ref(&query), &cfg()).unwrap();
     let src = get_file(&files, "Queries.kt");
@@ -18,7 +18,7 @@ fn test_generate_kotlin_queries_has_no_engine_conditionals() {
 #[test]
 fn test_generate_kotlin_querier_has_no_engine_conditionals() {
     let schema = Schema::default();
-    let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id".to_string(), SqlType::BigInt, false)]);
+    let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
 
     let files = pg().generate(&schema, std::slice::from_ref(&query), &cfg()).unwrap();
     let src = get_file(&files, "Querier.kt");

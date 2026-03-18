@@ -17,7 +17,7 @@ fn test_serde_json_preset_json_column() {
     let query = Query::one(
         "GetDoc",
         "SELECT data FROM docs WHERE id = $1",
-        vec![Parameter::scalar(1, "id".to_string(), SqlType::BigInt, false)],
+        vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
         vec![ResultColumn::not_nullable("data", SqlType::Json)],
     );
     let cfg = cfg_with_overrides(vec![("json", TypeOverride::Same(TypeRef::String("serde_json".to_string())))]);
@@ -38,7 +38,7 @@ fn test_fqn_date_override() {
     let query = Query::one(
         "GetEvent",
         "SELECT event_date FROM events WHERE id = $1",
-        vec![Parameter::scalar(1, "id".to_string(), SqlType::BigInt, false)],
+        vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
         vec![ResultColumn::not_nullable("event_date", SqlType::Date)],
     );
     let cfg = cfg_with_overrides(vec![("date", TypeOverride::Same(TypeRef::String("time::Date".to_string())))]);
@@ -56,7 +56,7 @@ fn test_plain_string_uuid_override() {
     let query = Query::one(
         "GetUser",
         "SELECT user_id FROM users WHERE id = $1",
-        vec![Parameter::scalar(1, "id".to_string(), SqlType::BigInt, false)],
+        vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
         vec![ResultColumn::not_nullable("user_id", SqlType::Uuid)],
     );
     let cfg = cfg_with_overrides(vec![("uuid", TypeOverride::Same(TypeRef::String("String".to_string())))]);
@@ -74,7 +74,7 @@ fn test_no_override_json_stays_serde_value() {
     let query = Query::one(
         "GetDoc",
         "SELECT data FROM docs WHERE id = $1",
-        vec![Parameter::scalar(1, "id".to_string(), SqlType::BigInt, false)],
+        vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
         vec![ResultColumn::not_nullable("data", SqlType::Json)],
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();

@@ -33,7 +33,7 @@ fn test_generate_no_queries_produces_no_queries_file() {
 #[test]
 fn test_generate_exec_query() {
     let schema = Schema::default();
-    let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id".to_string(), SqlType::BigInt, false)]);
+    let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "Queries.java");
     assert!(src.contains("public static void deleteUser(Connection conn, long id)"));
@@ -44,7 +44,7 @@ fn test_generate_exec_query() {
 fn test_generate_execrows_query() {
     let schema = Schema::default();
     let query =
-        Query::exec_rows("DeleteUsers", "DELETE FROM user WHERE active = $1", vec![Parameter::scalar(1, "active".to_string(), SqlType::Boolean, false)]);
+        Query::exec_rows("DeleteUsers", "DELETE FROM user WHERE active = $1", vec![Parameter::scalar(1, "active", SqlType::Boolean, false)]);
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "Queries.java");
     assert!(src.contains("public static long deleteUsers("));
@@ -57,7 +57,7 @@ fn test_generate_one_query_infers_table_return_type() {
     let query = Query::one(
         "GetUser",
         "SELECT id, name, bio FROM user WHERE id = $1",
-        vec![Parameter::scalar(1, "id".to_string(), SqlType::BigInt, false)],
+        vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
         vec![
             ResultColumn::not_nullable("id", SqlType::BigInt),
             ResultColumn::not_nullable("name", SqlType::Text),
@@ -96,7 +96,7 @@ fn test_generate_many_query_infers_table_return_type() {
 #[test]
 fn test_generate_sql_const_name_is_screaming_snake_case() {
     let schema = Schema::default();
-    let query = Query::exec("GetUserById", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id".to_string(), SqlType::BigInt, false)]);
+    let query = Query::exec("GetUserById", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "Queries.java");
     assert!(src.contains("SQL_GET_USER_BY_ID"));
@@ -110,7 +110,7 @@ fn test_generate_inline_row_record_for_partial_result() {
     let query = Query::one(
         "GetUserName",
         "SELECT name FROM user WHERE id = $1",
-        vec![Parameter::scalar(1, "id".to_string(), SqlType::BigInt, false)],
+        vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
         vec![ResultColumn::not_nullable("name", SqlType::Text)],
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
@@ -129,7 +129,7 @@ fn test_generate_nullable_integer_result_uses_get_object() {
     let query = Query::one(
         "GetCount",
         "SELECT count FROM stats WHERE id = $1",
-        vec![Parameter::scalar(1, "id".to_string(), SqlType::BigInt, false)],
+        vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
         vec![ResultColumn::nullable("count", SqlType::Integer)],
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
@@ -144,7 +144,7 @@ fn test_generate_non_nullable_integer_result_uses_get_int() {
     let query = Query::one(
         "GetCount",
         "SELECT count FROM stats WHERE id = $1",
-        vec![Parameter::scalar(1, "id".to_string(), SqlType::BigInt, false)],
+        vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
         vec![ResultColumn::not_nullable("count", SqlType::Integer)],
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
@@ -157,7 +157,7 @@ fn test_generate_non_nullable_integer_result_uses_get_int() {
 #[test]
 fn test_generate_queries_ds_file_is_emitted() {
     let schema = Schema::default();
-    let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id".to_string(), SqlType::BigInt, false)]);
+    let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     assert!(files.iter().any(|f| f.path.file_name().is_some_and(|n| n == "Querier.java")));
 }
@@ -165,7 +165,7 @@ fn test_generate_queries_ds_file_is_emitted() {
 #[test]
 fn test_generate_queries_ds_constructor_and_datasource_import() {
     let schema = Schema::default();
-    let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id".to_string(), SqlType::BigInt, false)]);
+    let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "Querier.java");
     assert!(src.contains("import javax.sql.DataSource;"));
@@ -177,7 +177,7 @@ fn test_generate_queries_ds_constructor_and_datasource_import() {
 #[test]
 fn test_generate_queries_ds_exec_method_delegates_to_queries() {
     let schema = Schema::default();
-    let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id".to_string(), SqlType::BigInt, false)]);
+    let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "Querier.java");
     assert!(src.contains("public void deleteUser(long id) throws SQLException"));
@@ -191,7 +191,7 @@ fn test_generate_queries_ds_one_method_returns_optional() {
     let query = Query::one(
         "GetUser",
         "SELECT id, name, bio FROM user WHERE id = $1",
-        vec![Parameter::scalar(1, "id".to_string(), SqlType::BigInt, false)],
+        vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
         vec![
             ResultColumn::not_nullable("id", SqlType::BigInt),
             ResultColumn::not_nullable("name", SqlType::Text),

@@ -17,7 +17,7 @@ fn test_jackson_preset_json_column_type() {
     let query = Query::one(
         "GetDoc",
         "SELECT data FROM docs WHERE id = $1",
-        vec![Parameter::scalar(1, "id".to_string(), SqlType::BigInt, false)],
+        vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
         vec![ResultColumn::not_nullable("data", SqlType::Json)],
     );
     let cfg = cfg_with_overrides(vec![("json", TypeOverride::Same(TypeRef::String("jackson".to_string())))]);
@@ -42,7 +42,7 @@ fn test_jackson_preset_jsonb_column() {
     let query = Query::one(
         "GetMeta",
         "SELECT meta FROM docs WHERE id = $1",
-        vec![Parameter::scalar(1, "id".to_string(), SqlType::BigInt, false)],
+        vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
         vec![ResultColumn::not_nullable("meta", SqlType::Jsonb)],
     );
     let cfg = cfg_with_overrides(vec![("jsonb", TypeOverride::Same(TypeRef::String("jackson".to_string())))]);
@@ -59,7 +59,7 @@ fn test_fqn_date_override() {
     let query = Query::one(
         "GetEvent",
         "SELECT event_date FROM events WHERE id = $1",
-        vec![Parameter::scalar(1, "id".to_string(), SqlType::BigInt, false)],
+        vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
         vec![ResultColumn::not_nullable("event_date", SqlType::Date)],
     );
     let cfg = cfg_with_overrides(vec![("date", TypeOverride::Same(TypeRef::String("java.time.LocalDate".to_string())))]);
@@ -78,7 +78,7 @@ fn test_plain_string_uuid_override() {
     let query = Query::one(
         "GetUser",
         "SELECT user_id FROM users WHERE id = $1",
-        vec![Parameter::scalar(1, "id".to_string(), SqlType::BigInt, false)],
+        vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
         vec![ResultColumn::not_nullable("user_id", SqlType::Uuid)],
     );
     let cfg = cfg_with_overrides(vec![("uuid", TypeOverride::Same(TypeRef::String("String".to_string())))]);
@@ -98,7 +98,7 @@ fn test_split_date_field_string_param() {
     let query = Query::one(
         "GetEvent",
         "SELECT event_date FROM events WHERE raw_date = $1",
-        vec![Parameter::scalar(1, "raw_date".to_string(), SqlType::Date, false)],
+        vec![Parameter::scalar(1, "raw_date", SqlType::Date, false)],
         vec![ResultColumn::not_nullable("event_date", SqlType::Date)],
     );
     let cfg = cfg_with_overrides(vec![(
@@ -124,7 +124,7 @@ fn test_read_expr_uses_get_string_as_raw() {
     let query = Query::one(
         "GetEvent",
         "SELECT event_date FROM events WHERE id = $1",
-        vec![Parameter::scalar(1, "id".to_string(), SqlType::BigInt, false)],
+        vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
         vec![ResultColumn::not_nullable("event_date", SqlType::Date)],
     );
     let cfg = cfg_with_overrides(vec![(
@@ -151,7 +151,7 @@ fn test_fqn_override_uses_get_object_with_override_class() {
     let query = Query::one(
         "GetEvent",
         "SELECT event_date FROM events WHERE id = $1",
-        vec![Parameter::scalar(1, "id".to_string(), SqlType::BigInt, false)],
+        vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
         vec![ResultColumn::not_nullable("event_date", SqlType::Date)],
     );
     let cfg = cfg_with_overrides(vec![("date", TypeOverride::Same(TypeRef::String("org.joda.time.LocalDate".to_string())))]);
@@ -169,7 +169,7 @@ fn test_uuid_fqn_override_uses_get_object_with_override_class() {
     let query = Query::one(
         "GetUser",
         "SELECT user_id FROM users WHERE id = $1",
-        vec![Parameter::scalar(1, "id".to_string(), SqlType::BigInt, false)],
+        vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
         vec![ResultColumn::not_nullable("user_id", SqlType::Uuid)],
     );
     let cfg = cfg_with_overrides(vec![("uuid", TypeOverride::Same(TypeRef::String("com.example.MyUuid".to_string())))]);
@@ -187,7 +187,7 @@ fn test_jackson_read_expr_uses_get_string() {
     let query = Query::one(
         "GetDoc",
         "SELECT data FROM docs WHERE id = $1",
-        vec![Parameter::scalar(1, "id".to_string(), SqlType::BigInt, false)],
+        vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
         vec![ResultColumn::not_nullable("data", SqlType::Json)],
     );
     let cfg = cfg_with_overrides(vec![("json", TypeOverride::Same(TypeRef::String("jackson".to_string())))]);
@@ -205,7 +205,7 @@ fn test_timestamp_fqn_override_uses_get_object_with_override_class() {
     let query = Query::one(
         "GetEvent",
         "SELECT created_at FROM events WHERE id = $1",
-        vec![Parameter::scalar(1, "id".to_string(), SqlType::BigInt, false)],
+        vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
         vec![ResultColumn::not_nullable("created_at", SqlType::Timestamp)],
     );
     let cfg = cfg_with_overrides(vec![("timestamp", TypeOverride::Same(TypeRef::String("org.joda.time.DateTime".to_string())))]);
@@ -224,7 +224,7 @@ fn test_nullable_column_with_override() {
     let query = Query::one(
         "GetDoc",
         "SELECT data FROM docs WHERE id = $1",
-        vec![Parameter::scalar(1, "id".to_string(), SqlType::BigInt, false)],
+        vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
         vec![ResultColumn::nullable("data", SqlType::Json)],
     );
     let cfg = cfg_with_overrides(vec![("json", TypeOverride::Same(TypeRef::String("jackson".to_string())))]);
@@ -260,7 +260,7 @@ fn test_multiple_overrides_collect_all_imports() {
     let query = Query::one(
         "GetDoc",
         "SELECT payload, doc_id FROM docs WHERE id = $1",
-        vec![Parameter::scalar(1, "id".to_string(), SqlType::BigInt, false)],
+        vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
         vec![ResultColumn::not_nullable("payload", SqlType::Json), ResultColumn::not_nullable("doc_id", SqlType::Uuid)],
     );
     let cfg = cfg_with_overrides(vec![
@@ -285,7 +285,7 @@ fn test_write_expr_applied_to_param_binding() {
     // e.g. jackson: ps.setObject(1, objectMapper.writeValueAsString(payload), Types.OTHER)
     // rather than ps.setObject(1, payload, Types.OTHER)
     let schema = Schema::default();
-    let query = Query::exec("InsertDoc", "INSERT INTO docs (payload) VALUES ($1)", vec![Parameter::scalar(1, "payload".to_string(), SqlType::Json, false)]);
+    let query = Query::exec("InsertDoc", "INSERT INTO docs (payload) VALUES ($1)", vec![Parameter::scalar(1, "payload", SqlType::Json, false)]);
     let cfg = cfg_with_overrides(vec![("json", TypeOverride::Same(TypeRef::String("jackson".to_string())))]);
     let files = pg().generate(&schema, &[query], &cfg).unwrap();
     let src = get_file(&files, "Queries.java");
@@ -301,7 +301,7 @@ fn test_no_override_json_stays_string() {
     let query = Query::one(
         "GetDoc",
         "SELECT data FROM docs WHERE id = $1",
-        vec![Parameter::scalar(1, "id".to_string(), SqlType::BigInt, false)],
+        vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
         vec![ResultColumn::not_nullable("data", SqlType::Json)],
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();

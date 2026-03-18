@@ -9,7 +9,7 @@ fn test_generate_repeated_param_emits_bind_per_occurrence() {
     let query = Query::many(
         "FindItems",
         "SELECT * FROM t WHERE a = $1 OR $1 = -1 AND b = $1 OR $1 = 0 AND c = $2",
-        vec![Parameter::scalar(1, "accountId".to_string(), SqlType::BigInt, false), Parameter::scalar(2, "inputData".to_string(), SqlType::Text, false)],
+        vec![Parameter::scalar(1, "accountId", SqlType::BigInt, false), Parameter::scalar(2, "inputData", SqlType::Text, false)],
         vec![],
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
@@ -32,7 +32,7 @@ fn test_generate_nullable_param_uses_set_object() {
     let query = Query::exec(
         "UpdateBio",
         "UPDATE user SET bio = $1 WHERE id = $2",
-        vec![Parameter::scalar(1, "bio".to_string(), SqlType::Text, true), Parameter::scalar(2, "id".to_string(), SqlType::BigInt, false)],
+        vec![Parameter::scalar(1, "bio", SqlType::Text, true), Parameter::scalar(2, "id", SqlType::BigInt, false)],
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "Queries.java");
