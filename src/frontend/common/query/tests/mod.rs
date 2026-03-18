@@ -8,15 +8,15 @@ pub fn parse_queries(sql: &str, schema: &Schema) -> anyhow::Result<Vec<Query>> {
 
 pub fn make_schema() -> Schema {
     Schema {
-        tables: vec![Table {
-            name: "users".into(),
-            columns: vec![
+        tables: vec![Table::new(
+            "users".into(),
+            vec![
                 Column { name: "id".into(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
                 Column { name: "name".into(), sql_type: SqlType::Text, nullable: false, is_primary_key: false },
                 Column { name: "email".into(), sql_type: SqlType::Text, nullable: false, is_primary_key: false },
                 Column { name: "bio".into(), sql_type: SqlType::Text, nullable: true, is_primary_key: false },
             ],
-        }],
+        )],
         ..Default::default()
     }
 }
@@ -24,21 +24,21 @@ pub fn make_schema() -> Schema {
 pub fn make_join_schema() -> Schema {
     Schema {
         tables: vec![
-            Table {
-                name: "users".into(),
-                columns: vec![
+            Table::new(
+                "users".into(),
+                vec![
                     Column { name: "id".into(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
                     Column { name: "name".into(), sql_type: SqlType::Text, nullable: false, is_primary_key: false },
                 ],
-            },
-            Table {
-                name: "posts".into(),
-                columns: vec![
+            ),
+            Table::new(
+                "posts".into(),
+                vec![
                     Column { name: "id".into(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
                     Column { name: "user_id".into(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: false },
                     Column { name: "title".into(), sql_type: SqlType::Text, nullable: false, is_primary_key: false },
                 ],
-            },
+            ),
         ],
         ..Default::default()
     }
@@ -46,35 +46,35 @@ pub fn make_join_schema() -> Schema {
 
 pub fn make_inventory_schema() -> Schema {
     Schema {
-        tables: vec![Table {
-            name: "inventory".into(),
-            columns: vec![
+        tables: vec![Table::new(
+            "inventory".into(),
+            vec![
                 Column { name: "sku".into(), sql_type: SqlType::Text, nullable: false, is_primary_key: true },
                 Column { name: "qty".into(), sql_type: SqlType::Integer, nullable: false, is_primary_key: false },
             ],
-        }],
+        )],
         ..Default::default()
     }
 }
 
 pub fn make_upsert_schema() -> Schema {
     Schema {
-        tables: vec![Table {
-            name: "item".into(),
-            columns: vec![
+        tables: vec![Table::new(
+            "item".into(),
+            vec![
                 Column { name: "id".into(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
                 Column { name: "count".into(), sql_type: SqlType::Integer, nullable: false, is_primary_key: false },
             ],
-        }],
+        )],
         ..Default::default()
     }
 }
 
 pub fn make_numeric_schema() -> Schema {
     Schema {
-        tables: vec![Table {
-            name: "metrics".into(),
-            columns: vec![
+        tables: vec![Table::new(
+            "metrics".into(),
+            vec![
                 Column { name: "id".into(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
                 Column { name: "small_val".into(), sql_type: SqlType::SmallInt, nullable: false, is_primary_key: false },
                 Column { name: "int_val".into(), sql_type: SqlType::Integer, nullable: false, is_primary_key: false },
@@ -83,7 +83,7 @@ pub fn make_numeric_schema() -> Schema {
                 Column { name: "dbl_val".into(), sql_type: SqlType::Double, nullable: false, is_primary_key: false },
                 Column { name: "label".into(), sql_type: SqlType::Text, nullable: false, is_primary_key: false },
             ],
-        }],
+        )],
         ..Default::default()
     }
 }

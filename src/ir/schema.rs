@@ -28,10 +28,40 @@ impl Schema {
     }
 }
 
+/// Distinguishes base tables from views in the schema.
+///
+/// Backends must skip views when emitting INSERT/UPDATE helpers, since views
+/// are read-only virtual tables.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TableKind {
+    /// A base table created with `CREATE TABLE`.
+    Table,
+    /// A view created with `CREATE VIEW`.
+    View,
+}
+
 #[derive(Debug, Clone)]
 pub struct Table {
     pub name: String,
     pub columns: Vec<Column>,
+    pub kind: TableKind,
+}
+
+impl Table {
+    /// Construct a base table (from `CREATE TABLE`).
+    pub fn new(name: String, columns: Vec<Column>) -> Self {
+        Self { name, columns, kind: TableKind::Table }
+    }
+
+    /// Construct a view (from `CREATE VIEW`).
+    pub fn view(name: String, columns: Vec<Column>) -> Self {
+        Self { name, columns, kind: TableKind::View }
+    }
+
+    /// Returns `true` if this entry is a view rather than a base table.
+    pub fn is_view(&self) -> bool {
+        self.kind == TableKind::View
+    }
 }
 
 #[derive(Debug, Clone)]

@@ -1,5 +1,6 @@
 use sqlparser::dialect::SQLiteDialect;
 
+use crate::frontend::common::query::ResolverConfig;
 use crate::frontend::common::schema::parse_schema_impl;
 use crate::frontend::common::{AlterCaps, DdlDialect};
 use crate::frontend::sqlite::typemap;
@@ -7,12 +8,17 @@ use crate::ir::Schema;
 
 /// Parses SQLite DDL into a [Schema].
 ///
-/// Processes `CREATE TABLE`, `ALTER TABLE`, and `DROP TABLE` statements in
-/// order.  All other statements are silently ignored.  Delegates to the shared
-/// [`parse_schema_impl`] with the SQLite dialect, limited `ALTER TABLE`
-/// capabilities, and the SQLite type mapper.
+/// Processes `CREATE TABLE`, `ALTER TABLE`, `DROP TABLE`, and `CREATE VIEW`
+/// statements. Delegates to the shared [`parse_schema_impl`] with the SQLite
+/// dialect, limited `ALTER TABLE` capabilities, and the SQLite type mapper and
+/// resolver config.
 pub(crate) fn parse_schema(ddl: &str) -> anyhow::Result<Schema> {
-    parse_schema_impl(ddl, &SQLiteDialect {}, DdlDialect { map_type: typemap::map, alter_caps: AlterCaps::SQLITE })
+    parse_schema_impl(
+        ddl,
+        &SQLiteDialect {},
+        DdlDialect { map_type: typemap::map, alter_caps: AlterCaps::SQLITE },
+        &ResolverConfig { typemap: typemap::map, ..ResolverConfig::default() },
+    )
 }
 
 #[cfg(test)]
@@ -217,5 +223,59 @@ mod tests {
         assert_eq!(col("b").sql_type, SqlType::Bytes);
         // SQLite has no fixed-point type; NUMERIC maps to Double (REAL affinity).
         assert_eq!(col("n").sql_type, SqlType::Double);
+    }
+
+    // ─── CREATE VIEW tests ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_create_view_registers_as_view_kind() {
+        let ddl = "
+            CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
+            CREATE VIEW user_names AS SELECT id, name FROM users;
+        ";
+        let schema = parse_schema(ddl).unwrap();
+        assert_eq!(schema.tables.len(), 2);
+        let view = schema.tables.iter().find(|t| t.name == "user_names").unwrap();
+        assert!(view.is_view());
+        assert!(!schema.tables.iter().find(|t| t.name == "users").unwrap().is_view());
+    }
+
+    #[test]
+    fn test_create_view_columns_inferred() {
+        let ddl = "
+            CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
+            CREATE VIEW user_names AS SELECT id, name FROM users;
+        ";
+        let schema = parse_schema(ddl).unwrap();
+        let view = schema.tables.iter().find(|t| t.name == "user_names").unwrap();
+        assert_eq!(view.columns.len(), 2);
+        assert_eq!(view.columns[0].name, "id");
+        assert_eq!(view.columns[0].sql_type, SqlType::Integer);
+        assert_eq!(view.columns[1].name, "name");
+        assert_eq!(view.columns[1].sql_type, SqlType::Text);
+    }
+
+    #[test]
+    fn test_create_view_unknown_table_fallback() {
+        let ddl = "CREATE VIEW orphan AS SELECT id FROM ghost;";
+        let schema = parse_schema(ddl).unwrap();
+        let view = schema.tables.iter().find(|t| t.name == "orphan").unwrap();
+        assert!(view.is_view());
+        assert!(view.columns.is_empty());
+    }
+
+    #[test]
+    fn test_create_view_references_another_view() {
+        let ddl = "
+            CREATE TABLE items (id INTEGER PRIMARY KEY, qty INTEGER NOT NULL);
+            CREATE VIEW base AS SELECT id, qty FROM items;
+            CREATE VIEW derived AS SELECT id FROM base;
+        ";
+        let schema = parse_schema(ddl).unwrap();
+        let derived = schema.tables.iter().find(|t| t.name == "derived").unwrap();
+        assert!(derived.is_view());
+        assert_eq!(derived.columns.len(), 1);
+        assert_eq!(derived.columns[0].name, "id");
+        assert_eq!(derived.columns[0].sql_type, SqlType::Integer);
     }
 }

@@ -116,13 +116,13 @@ fn test_nullable_column_with_override() {
 fn test_table_model_with_override() {
     use crate::ir::{Column, Table};
     let schema = Schema {
-        tables: vec![Table {
-            name: "events".to_string(),
-            columns: vec![
+        tables: vec![Table::new(
+            "events".to_string(),
+            vec![
                 Column { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
                 Column { name: "payload".to_string(), sql_type: SqlType::Json, nullable: false, is_primary_key: false },
             ],
-        }],
+        )],
         ..Default::default()
     };
     let cfg = cfg_with_overrides(vec![("json", TypeOverride::Same(TypeRef::String("jackson".to_string())))]);

@@ -1,18 +1,24 @@
 use sqlparser::dialect::PostgreSqlDialect;
 
+use crate::frontend::common::query::ResolverConfig;
 use crate::frontend::common::schema::parse_schema_impl;
 use crate::frontend::common::{AlterCaps, DdlDialect};
 use crate::frontend::postgres::typemap;
-use crate::ir::Schema;
+use crate::ir::{Schema, SqlType};
 
 /// Parses PostgreSQL DDL into a [Schema].
 ///
-/// Processes `CREATE TABLE`, `ALTER TABLE`, and `DROP TABLE` statements in
-/// order.  All other statements are silently ignored.  Delegates to the shared
+/// Processes `CREATE TABLE`, `ALTER TABLE`, `DROP TABLE`, `CREATE FUNCTION`,
+/// `DROP FUNCTION`, and `CREATE VIEW` statements. Delegates to the shared
 /// [`parse_schema_impl`] with the PostgreSQL dialect, full `ALTER TABLE`
-/// capabilities, and the PostgreSQL type mapper.
+/// capabilities, and the PostgreSQL type mapper and resolver config.
 pub(crate) fn parse_schema(ddl: &str) -> anyhow::Result<Schema> {
-    parse_schema_impl(ddl, &PostgreSqlDialect {}, DdlDialect { map_type: typemap::map, alter_caps: AlterCaps::ALL })
+    parse_schema_impl(
+        ddl,
+        &PostgreSqlDialect {},
+        DdlDialect { map_type: typemap::map, alter_caps: AlterCaps::ALL },
+        &ResolverConfig { typemap: typemap::map, sum_bigint_type: SqlType::Decimal, avg_integer_type: SqlType::Decimal, ..ResolverConfig::default() },
+    )
 }
 
 #[cfg(test)]
@@ -501,5 +507,106 @@ mod tests {
         let schema = parse_schema(ddl).unwrap();
         // Table-valued functions are skipped
         assert_eq!(schema.functions.len(), 0);
+    }
+
+    // ─── CREATE VIEW tests ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_create_view_registers_as_view_kind() {
+        let ddl = r#"
+            CREATE TABLE users (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL);
+            CREATE VIEW user_names AS SELECT id, name FROM users;
+        "#;
+        let schema = parse_schema(ddl).unwrap();
+        // One base table, one view — both appear in schema.tables.
+        assert_eq!(schema.tables.len(), 2);
+        let view = schema.tables.iter().find(|t| t.name == "user_names").unwrap();
+        assert!(view.is_view(), "CREATE VIEW must produce a view-kind entry");
+        let table = schema.tables.iter().find(|t| t.name == "users").unwrap();
+        assert!(!table.is_view(), "base table must not be flagged as view");
+    }
+
+    #[test]
+    fn test_create_view_columns_inferred_from_select() {
+        let ddl = r#"
+            CREATE TABLE users (
+                id   BIGSERIAL PRIMARY KEY,
+                name TEXT      NOT NULL,
+                bio  TEXT
+            );
+            CREATE VIEW active_users AS SELECT id, name FROM users;
+        "#;
+        let schema = parse_schema(ddl).unwrap();
+        let view = schema.tables.iter().find(|t| t.name == "active_users").unwrap();
+        assert_eq!(view.columns.len(), 2);
+        assert_eq!(view.columns[0].name, "id");
+        assert_eq!(view.columns[0].sql_type, SqlType::BigInt);
+        assert_eq!(view.columns[1].name, "name");
+        assert_eq!(view.columns[1].sql_type, SqlType::Text);
+        // `bio` is NOT in the view
+        assert!(view.columns.iter().all(|c| c.name != "bio"));
+    }
+
+    #[test]
+    fn test_create_view_wildcard_expands_to_all_columns() {
+        let ddl = r#"
+            CREATE TABLE products (
+                id    BIGSERIAL PRIMARY KEY,
+                label TEXT      NOT NULL,
+                price NUMERIC   NOT NULL
+            );
+            CREATE VIEW all_products AS SELECT * FROM products;
+        "#;
+        let schema = parse_schema(ddl).unwrap();
+        let view = schema.tables.iter().find(|t| t.name == "all_products").unwrap();
+        assert_eq!(view.columns.len(), 3);
+        assert_eq!(view.columns[0].name, "id");
+        assert_eq!(view.columns[1].name, "label");
+        assert_eq!(view.columns[2].name, "price");
+    }
+
+    #[test]
+    fn test_create_view_references_another_view() {
+        // Second view references the first — pass-2 ordering must handle this.
+        let ddl = r#"
+            CREATE TABLE orders (
+                id     BIGSERIAL PRIMARY KEY,
+                amount NUMERIC   NOT NULL
+            );
+            CREATE VIEW base_view AS SELECT id, amount FROM orders;
+            CREATE VIEW derived_view AS SELECT id FROM base_view;
+        "#;
+        let schema = parse_schema(ddl).unwrap();
+        let derived = schema.tables.iter().find(|t| t.name == "derived_view").unwrap();
+        assert!(derived.is_view());
+        assert_eq!(derived.columns.len(), 1);
+        assert_eq!(derived.columns[0].name, "id");
+        assert_eq!(derived.columns[0].sql_type, SqlType::BigInt);
+    }
+
+    #[test]
+    fn test_create_view_unknown_table_fallback_to_empty_columns() {
+        // A view that references a table not in the schema falls back to
+        // an empty column list — the view is registered but untyped.
+        let ddl = r#"
+            CREATE VIEW orphan_view AS SELECT id, name FROM nonexistent_table;
+        "#;
+        let schema = parse_schema(ddl).unwrap();
+        let view = schema.tables.iter().find(|t| t.name == "orphan_view").unwrap();
+        assert!(view.is_view());
+        assert!(view.columns.is_empty(), "view with unknown source table must have no inferred columns");
+    }
+
+    #[test]
+    fn test_create_view_coexists_with_base_tables_and_functions() {
+        let ddl = r#"
+            CREATE TABLE users (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL);
+            CREATE FUNCTION user_count() RETURNS bigint LANGUAGE sql AS $$ SELECT COUNT(*) FROM users $$;
+            CREATE VIEW user_names AS SELECT id, name FROM users;
+        "#;
+        let schema = parse_schema(ddl).unwrap();
+        assert_eq!(schema.tables.iter().filter(|t| !t.is_view()).count(), 1);
+        assert_eq!(schema.tables.iter().filter(|t| t.is_view()).count(), 1);
+        assert_eq!(schema.functions.len(), 1);
     }
 }

@@ -45,7 +45,7 @@ SQL files
 | File | Status | Notes |
 |---|---|---|
 | `types.rs` — `SqlType` enum | ✅ | Boolean, integers, floats, decimal, text, bytes, date/time, uuid, json/jsonb, array, custom |
-| `schema.rs` — `Schema`, `Table`, `Column` | ✅ | |
+| `schema.rs` — `Schema`, `Table`, `Column`, `TableKind` | ✅ | `TableKind::Table` / `TableKind::View`; views registered via two-pass schema parsing |
 | `query.rs` — `Query`, `QueryCmd`, `Parameter`, `ResultColumn` | ✅ | |
 
 ## Config (`src/config.rs`)
@@ -66,7 +66,7 @@ SQL files
 | Named params (`@name`, `-- @name [type] [null\|not null]`) | ✅ | `src/frontend/common/named_params.rs`; rewrites to `$N` before parsing; `-- @name type[]` marks list params |
 | **PostgreSQL** | ✅ | Full DDL + query parsing; 60+ tests |
 | `typemap.rs` | ✅ | Includes `JSON`, `JSONB` |
-| `schema.rs` | ✅ | CREATE/ALTER/DROP TABLE; 22 tests |
+| `schema.rs` | ✅ | CREATE/ALTER/DROP TABLE + CREATE VIEW (two-pass, view-on-view ordering, unknown-table fallback); 28 tests |
 | `query.rs` | ✅ | SELECT/INSERT/UPDATE/DELETE + JOINs + subqueries + derived tables + CTEs + RETURNING |
 | **SQLite** | ✅ | Full DialectParser; schema + query; `?N` and `$N` params |
 | `typemap.rs` | ✅ | `JSON` recognized via `map_custom` → `SqlType::Json` |

@@ -5,14 +5,14 @@ use crate::ir::{Column, NativeListBind, Parameter, Query, ResultColumn, Schema, 
 
 pub fn schema_with_users() -> Schema {
     Schema {
-        tables: vec![Table {
-            name: "users".to_string(),
-            columns: vec![
+        tables: vec![Table::new(
+            "users".to_string(),
+            vec![
                 Column { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
                 Column { name: "name".to_string(), sql_type: SqlType::Text, nullable: false, is_primary_key: false },
                 Column { name: "email".to_string(), sql_type: SqlType::VarChar(Some(255)), nullable: true, is_primary_key: false },
             ],
-        }],
+        )],
         ..Default::default()
     }
 }

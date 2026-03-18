@@ -258,13 +258,13 @@ mod tests {
 
     fn make_schema() -> Schema {
         Schema {
-            tables: vec![Table {
-                name: "users".to_string(),
-                columns: vec![
+            tables: vec![Table::new(
+                "users".to_string(),
+                vec![
                     crate::ir::Column { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
                     crate::ir::Column { name: "name".to_string(), sql_type: SqlType::Text, nullable: false, is_primary_key: false },
                 ],
-            }],
+            )],
             ..Default::default()
         }
     }

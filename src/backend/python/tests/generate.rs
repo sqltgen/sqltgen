@@ -297,10 +297,7 @@ fn test_python_type_json_mysql_is_str() {
 #[test]
 fn test_generate_postgres_json_column_no_any_import() {
     let schema = Schema {
-        tables: vec![Table {
-            name: "doc".to_string(),
-            columns: vec![Column { name: "data".to_string(), sql_type: SqlType::Json, nullable: false, is_primary_key: false }],
-        }],
+        tables: vec![Table::new("doc".to_string(), vec![Column { name: "data".to_string(), sql_type: SqlType::Json, nullable: false, is_primary_key: false }])],
         ..Default::default()
     };
     let files = pg().generate(&schema, &[], &cfg()).unwrap();
@@ -312,10 +309,7 @@ fn test_generate_postgres_json_column_no_any_import() {
 #[test]
 fn test_generate_sqlite_json_column_no_any_import() {
     let schema = Schema {
-        tables: vec![Table {
-            name: "doc".to_string(),
-            columns: vec![Column { name: "data".to_string(), sql_type: SqlType::Json, nullable: false, is_primary_key: false }],
-        }],
+        tables: vec![Table::new("doc".to_string(), vec![Column { name: "data".to_string(), sql_type: SqlType::Json, nullable: false, is_primary_key: false }])],
         ..Default::default()
     };
     let files = sq().generate(&schema, &[], &cfg()).unwrap();

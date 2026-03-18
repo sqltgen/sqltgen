@@ -29,15 +29,15 @@ mod tests {
 
     fn make_schema() -> Schema {
         Schema {
-            tables: vec![Table {
-                name: "users".into(),
-                columns: vec![
+            tables: vec![Table::new(
+                "users".into(),
+                vec![
                     Column { name: "id".into(), sql_type: SqlType::Integer, nullable: false, is_primary_key: true },
                     Column { name: "name".into(), sql_type: SqlType::Text, nullable: false, is_primary_key: false },
                     Column { name: "email".into(), sql_type: SqlType::Text, nullable: false, is_primary_key: false },
                     Column { name: "bio".into(), sql_type: SqlType::Text, nullable: true, is_primary_key: false },
                 ],
-            }],
+            )],
             ..Default::default()
         }
     }

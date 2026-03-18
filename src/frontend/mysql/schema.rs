@@ -1,18 +1,30 @@
 use sqlparser::dialect::MySqlDialect;
 
+use crate::frontend::common::query::ResolverConfig;
 use crate::frontend::common::schema::parse_schema_impl;
 use crate::frontend::common::{AlterCaps, DdlDialect};
 use crate::frontend::mysql::typemap;
-use crate::ir::Schema;
+use crate::ir::{Schema, SqlType};
 
 /// Parses MySQL DDL into a [Schema].
 ///
-/// Processes `CREATE TABLE`, `ALTER TABLE`, and `DROP TABLE` statements in
-/// order.  All other statements are silently ignored.  Delegates to the shared
+/// Processes `CREATE TABLE`, `ALTER TABLE`, `DROP TABLE`, `CREATE FUNCTION`,
+/// `DROP FUNCTION`, and `CREATE VIEW` statements. Delegates to the shared
 /// [`parse_schema_impl`] with the MySQL dialect, full `ALTER TABLE`
-/// capabilities, and the MySQL type mapper.
+/// capabilities, and the MySQL type mapper and resolver config.
 pub(crate) fn parse_schema(ddl: &str) -> anyhow::Result<Schema> {
-    parse_schema_impl(ddl, &MySqlDialect {}, DdlDialect { map_type: typemap::map, alter_caps: AlterCaps::ALL })
+    parse_schema_impl(
+        ddl,
+        &MySqlDialect {},
+        DdlDialect { map_type: typemap::map, alter_caps: AlterCaps::ALL },
+        &ResolverConfig {
+            typemap: typemap::map,
+            sum_integer_type: SqlType::Decimal,
+            sum_bigint_type: SqlType::Decimal,
+            avg_integer_type: SqlType::Decimal,
+            ..ResolverConfig::default()
+        },
+    )
 }
 
 #[cfg(test)]
@@ -260,5 +272,42 @@ mod tests {
         assert!(col("user_id").is_primary_key);
         assert!(!col("user_id").nullable);
         assert!(col("item_id").is_primary_key);
+    }
+
+    // ─── CREATE VIEW tests ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_create_view_registers_as_view_kind() {
+        let ddl = "
+            CREATE TABLE users (id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) NOT NULL);
+            CREATE VIEW user_names AS SELECT id, name FROM users;
+        ";
+        let schema = parse_schema(ddl).unwrap();
+        assert_eq!(schema.tables.len(), 2);
+        let view = schema.tables.iter().find(|t| t.name == "user_names").unwrap();
+        assert!(view.is_view());
+        assert!(!schema.tables.iter().find(|t| t.name == "users").unwrap().is_view());
+    }
+
+    #[test]
+    fn test_create_view_columns_inferred() {
+        let ddl = "
+            CREATE TABLE users (id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) NOT NULL);
+            CREATE VIEW user_names AS SELECT id, name FROM users;
+        ";
+        let schema = parse_schema(ddl).unwrap();
+        let view = schema.tables.iter().find(|t| t.name == "user_names").unwrap();
+        assert_eq!(view.columns.len(), 2);
+        assert_eq!(view.columns[0].name, "id");
+        assert_eq!(view.columns[0].sql_type, SqlType::BigInt);
+    }
+
+    #[test]
+    fn test_create_view_unknown_table_fallback() {
+        let ddl = "CREATE VIEW orphan AS SELECT id FROM ghost;";
+        let schema = parse_schema(ddl).unwrap();
+        let view = schema.tables.iter().find(|t| t.name == "orphan").unwrap();
+        assert!(view.is_view());
+        assert!(view.columns.is_empty());
     }
 }

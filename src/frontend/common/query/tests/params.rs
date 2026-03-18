@@ -19,13 +19,13 @@ fn test_named_param_cast_infers_type_no_from() {
 
 fn make_json_schema() -> Schema {
     Schema {
-        tables: vec![Table {
-            name: "docs".into(),
-            columns: vec![
+        tables: vec![Table::new(
+            "docs".into(),
+            vec![
                 Column { name: "id".into(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
                 Column { name: "data".into(), sql_type: SqlType::Jsonb, nullable: false, is_primary_key: false },
             ],
-        }],
+        )],
         ..Default::default()
     }
 }

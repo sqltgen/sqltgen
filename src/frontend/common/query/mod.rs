@@ -314,7 +314,7 @@ pub(super) fn collect_cte_params(
         // Register this CTE's output shape so later CTEs can reference it.
         let cols = derived_cols(&cte.query, schema, &local_ctes, config);
         if !cols.is_empty() {
-            local_ctes.push(Table { name: cte.alias.name.value.clone(), columns: cols });
+            local_ctes.push(Table::new(cte.alias.name.value.clone(), cols));
         }
     }
 }
@@ -383,7 +383,7 @@ fn collect_table_factor(factor: &TableFactor, schema: &Schema, ctes: &[Table], o
             let alias_name = ident_to_str(&a.name);
             let cols = derived_cols(subquery, schema, ctes, config);
             if !cols.is_empty() {
-                out.push((Table { name: alias_name.clone(), columns: cols }, Some(alias_name)));
+                out.push((Table::new(alias_name.clone(), cols), Some(alias_name)));
             }
         },
         _ => {},
@@ -434,6 +434,16 @@ fn returning_cols_for_delete(del: &Delete, schema: &Schema, config: &ResolverCon
     returning_to_columns(returning, table, config)
 }
 
+/// Resolve the column types for a `CREATE VIEW` body.
+///
+/// Delegates to [`derived_cols`] with an empty CTE scope.  The schema passed
+/// in must already contain all base tables the view references (i.e. this is
+/// called during pass 2 of schema parsing, after all `CREATE TABLE` statements
+/// have been processed).
+pub(crate) fn resolve_view_columns(query: &SqlQuery, schema: &Schema, config: &ResolverConfig) -> Vec<Column> {
+    derived_cols(query, schema, &[], config)
+}
+
 pub(super) fn derived_cols(subquery: &SqlQuery, schema: &Schema, ctes: &[Table], config: &ResolverConfig) -> Vec<Column> {
     // A CTE body may be INSERT … RETURNING or UPDATE … RETURNING (data-modifying CTE).
     // In those cases the CTE output is the RETURNING clause, not a SELECT projection.
@@ -468,7 +478,7 @@ pub(super) fn build_cte_scope(with: Option<&With>, schema: &Schema, config: &Res
     for cte in &with.cte_tables {
         let cols = derived_cols(&cte.query, schema, &ctes, config);
         if !cols.is_empty() {
-            ctes.push(Table { name: ident_to_str(&cte.alias.name), columns: cols });
+            ctes.push(Table::new(ident_to_str(&cte.alias.name), cols));
         }
     }
     ctes

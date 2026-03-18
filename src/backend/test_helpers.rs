@@ -20,12 +20,12 @@ pub fn get_file<'a>(files: &'a [GeneratedFile], name: &str) -> &'a str {
 
 /// A minimal `users` table with `id` (bigint PK), `name` (text), `bio` (text, nullable).
 pub fn user_table() -> Table {
-    Table {
-        name: "user".to_string(),
-        columns: vec![
+    Table::new(
+        "user".to_string(),
+        vec![
             Column { name: "id".to_string(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
             Column { name: "name".to_string(), sql_type: SqlType::Text, nullable: false, is_primary_key: false },
             Column { name: "bio".to_string(), sql_type: SqlType::Text, nullable: true, is_primary_key: false },
         ],
-    }
+    )
 }

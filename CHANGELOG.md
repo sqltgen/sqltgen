@@ -11,6 +11,18 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
 ## [Unreleased]
 
 ### Added
+- **`CREATE VIEW` support** — all three SQL dialects (PostgreSQL, SQLite, MySQL)
+  now parse `CREATE VIEW … AS SELECT …` in schema files. Views are registered in
+  the `Schema` as `TableKind::View` entries; their column types are inferred
+  automatically from the SELECT body using the same expression resolver used for
+  query parsing. Views defined after the tables they reference, and views that
+  reference earlier views, are resolved correctly via a two-pass approach: base
+  tables are collected in pass 1, views resolved in pass 2 in declaration order.
+  Views with unknown source tables fall back gracefully to an empty column list.
+  The IR gains a `TableKind` enum (`Table` / `View`) on `Table`, accessible via
+  `Table::is_view()`. All `Table` construction sites use the new `Table::new()`
+  and `Table::view()` constructors so future IR changes propagate through one
+  point. 13 new unit tests across the three dialect schema parsers.
 - **Go backend** — full `database/sql` code generation targeting PostgreSQL,
   SQLite, and MySQL. Generates Go structs for row models, query functions with
   idiomatic `(T, error)` returns, and a `Querier` struct wrapper around `*sql.DB`.

@@ -138,7 +138,7 @@ pub(super) fn build_source_provenance(
             // Extend the local CTE list so subsequent CTEs can reference this one.
             let cols = derived_cols(&cte.query, schema, &cte_tables, config);
             if !cols.is_empty() {
-                cte_tables.push(Table { name: cte_name, columns: cols });
+                cte_tables.push(Table::new(cte_name, cols));
             }
         }
     }

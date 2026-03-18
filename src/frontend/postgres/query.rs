@@ -36,15 +36,15 @@ mod tests {
 
     fn make_schema() -> Schema {
         Schema {
-            tables: vec![Table {
-                name: "users".into(),
-                columns: vec![
+            tables: vec![Table::new(
+                "users".into(),
+                vec![
                     Column { name: "id".into(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
                     Column { name: "name".into(), sql_type: SqlType::Text, nullable: false, is_primary_key: false },
                     Column { name: "email".into(), sql_type: SqlType::Text, nullable: false, is_primary_key: false },
                     Column { name: "bio".into(), sql_type: SqlType::Text, nullable: true, is_primary_key: false },
                 ],
-            }],
+            )],
             ..Default::default()
         }
     }
@@ -193,21 +193,21 @@ mod tests {
     fn make_insert_select_schema() -> Schema {
         Schema {
             tables: vec![
-                Table {
-                    name: "resource".into(),
-                    columns: vec![
+                Table::new(
+                    "resource".into(),
+                    vec![
                         Column { name: "id".into(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
                         Column { name: "owner_id".into(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: false },
                         Column { name: "name".into(), sql_type: SqlType::Text, nullable: false, is_primary_key: false },
                     ],
-                },
-                Table {
-                    name: "owner".into(),
-                    columns: vec![
+                ),
+                Table::new(
+                    "owner".into(),
+                    vec![
                         Column { name: "id".into(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: true },
                         Column { name: "account_id".into(), sql_type: SqlType::BigInt, nullable: false, is_primary_key: false },
                     ],
-                },
+                ),
             ],
             ..Default::default()
         }
