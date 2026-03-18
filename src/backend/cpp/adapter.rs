@@ -17,6 +17,14 @@ pub(super) enum CppParamStyle {
     QuestionAnon,
 }
 
+/// Which engine-specific body emitter to use for generated function definitions.
+#[derive(Clone, Copy)]
+pub(super) enum CppBodyEmitter {
+    Pqxx,
+    Sqlite3,
+    Mysql,
+}
+
 /// Resolved engine-specific contract consumed by `core.rs` emitters.
 pub(super) struct CppEngineContract {
     /// Primary `#include` for the database client (e.g. `<pqxx/pqxx>`).
@@ -26,6 +34,8 @@ pub(super) struct CppEngineContract {
     pub(super) conn_type: &'static str,
     /// Placeholder style used by this engine's client library.
     pub(super) param_style: CppParamStyle,
+    /// Which engine-specific body emitter to use.
+    pub(super) body_emitter: CppBodyEmitter,
 }
 
 pub(super) fn resolve_contract(target: &super::CppTarget) -> CppEngineContract {
@@ -34,16 +44,19 @@ pub(super) fn resolve_contract(target: &super::CppTarget) -> CppEngineContract {
             db_include: "<pqxx/pqxx>",
             conn_type: "pqxx::connection&",
             param_style: CppParamStyle::Dollar,
+            body_emitter: CppBodyEmitter::Pqxx,
         },
         super::CppTarget::Sqlite => CppEngineContract {
             db_include: "<sqlite3.h>",
             conn_type: "sqlite3*",
             param_style: CppParamStyle::QuestionNumbered,
+            body_emitter: CppBodyEmitter::Sqlite3,
         },
         super::CppTarget::Mysql => CppEngineContract {
             db_include: "<mysql/mysql.h>",
             conn_type: "MYSQL*",
             param_style: CppParamStyle::QuestionAnon,
+            body_emitter: CppBodyEmitter::Mysql,
         },
     }
 }
