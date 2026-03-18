@@ -1,0 +1,6 @@
+out/db/Author.kt
+out/db/Book.kt
+out/db/BookSummaries.kt
+out/db/Querier.kt
+out/db/Queries.kt
+out/db/SciFiBooks.kt

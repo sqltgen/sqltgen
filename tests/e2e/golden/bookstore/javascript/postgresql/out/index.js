@@ -6,4 +6,5 @@ export * from './customer.js';
 export * from './sale.js';
 export * from './sale_item.js';
 export * from './product.js';
+export * from './book_summaries.js';
 export * from './queries.js';

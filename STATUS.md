@@ -72,6 +72,7 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | `HAVING` parameters | ✅ | ✅ | ✅ |
 | Schema-qualified table refs (`schema.table`) | ❌ | ❌ | ❌ |
 | `CREATE VIEW` (column type inference) | ✅ | ✅ | ✅ |
+| `DROP VIEW [IF EXISTS]` | ✅ | ✅ | ✅ |
 | `CREATE TYPE … AS ENUM` | ❌ | — | — |
 
 ---
@@ -194,20 +195,20 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | Module | Tests |
 |---|---|
 | Config | 26 |
-| Frontend — PostgreSQL (typemap + schema + query) | 81 |
-| Frontend — SQLite (typemap + schema + query) | 43 |
-| Frontend — MySQL (typemap + schema + query) | 37 |
+| Frontend — PostgreSQL (typemap + schema + query) | 82 |
+| Frontend — SQLite (typemap + schema + query) | 44 |
+| Frontend — MySQL (typemap + schema + query) | 39 |
 | Frontend — common (query parser, CTEs, subqueries, named params, list params, source_table) | 204 |
-| Backend — Java | 65 |
-| Backend — Kotlin | 64 |
-| Backend — Rust | 43 |
-| Backend — Python | 49 |
-| Backend — Go | 40 |
+| Backend — Java | 66 |
+| Backend — Kotlin | 65 |
+| Backend — Rust | 44 |
+| Backend — Python | 50 |
+| Backend — Go | 41 |
 | Backend — common (common + sql_rewrite + naming) | 50 |
 | Backend — JDBC | 13 |
-| Backend — TypeScript / JavaScript | 49 |
-| Integration (snapshots + resilience) | 28 |
-| **Total** | **792** |
+| Backend — TypeScript / JavaScript | 50 |
+| Integration (snapshots + resilience) | 39 |
+| **Total** | **814** |
 
 ---
 

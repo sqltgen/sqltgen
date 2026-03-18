@@ -257,6 +257,93 @@ fn snapshot_go_mysql() {
     snapshot_test("bookstore/mysql", &MysqlParser, "go", &GoCodegen { target: GoTarget::Mysql });
 }
 
+// ─── Views fixture snapshot tests ─────────────────────────────────────────
+
+#[test]
+fn snapshot_views_rust_postgresql() {
+    snapshot_test("views/postgresql", &PostgresParser, "rust", &RustCodegen { target: RustTarget::Postgres });
+}
+
+#[test]
+fn snapshot_views_rust_sqlite() {
+    snapshot_test("views/sqlite", &SqliteParser, "rust", &RustCodegen { target: RustTarget::Sqlite });
+}
+
+#[test]
+fn snapshot_views_rust_mysql() {
+    snapshot_test("views/mysql", &MysqlParser, "rust", &RustCodegen { target: RustTarget::Mysql });
+}
+
+#[test]
+fn snapshot_views_java_postgresql() {
+    snapshot_test("views/postgresql", &PostgresParser, "java", &JavaCodegen { target: JdbcTarget::Postgres });
+}
+
+#[test]
+fn snapshot_views_kotlin_postgresql() {
+    snapshot_test("views/postgresql", &PostgresParser, "kotlin", &KotlinCodegen { target: JdbcTarget::Postgres });
+}
+
+#[test]
+fn snapshot_views_python_postgresql() {
+    snapshot_test("views/postgresql", &PostgresParser, "python", &PythonCodegen { target: PythonTarget::Postgres });
+}
+
+#[test]
+fn snapshot_views_python_sqlite() {
+    snapshot_test("views/sqlite", &SqliteParser, "python", &PythonCodegen { target: PythonTarget::Sqlite });
+}
+
+#[test]
+fn snapshot_views_python_mysql() {
+    snapshot_test("views/mysql", &MysqlParser, "python", &PythonCodegen { target: PythonTarget::Mysql });
+}
+
+#[test]
+fn snapshot_views_typescript_postgresql() {
+    snapshot_test("views/postgresql", &PostgresParser, "typescript", &TypeScriptCodegen { target: JsTarget::Postgres, output: JsOutput::TypeScript });
+}
+
+#[test]
+fn snapshot_views_typescript_sqlite() {
+    snapshot_test("views/sqlite", &SqliteParser, "typescript", &TypeScriptCodegen { target: JsTarget::Sqlite, output: JsOutput::TypeScript });
+}
+
+#[test]
+fn snapshot_views_typescript_mysql() {
+    snapshot_test("views/mysql", &MysqlParser, "typescript", &TypeScriptCodegen { target: JsTarget::Mysql, output: JsOutput::TypeScript });
+}
+
+#[test]
+fn snapshot_views_javascript_postgresql() {
+    snapshot_test("views/postgresql", &PostgresParser, "javascript", &TypeScriptCodegen { target: JsTarget::Postgres, output: JsOutput::JavaScript });
+}
+
+#[test]
+fn snapshot_views_javascript_sqlite() {
+    snapshot_test("views/sqlite", &SqliteParser, "javascript", &TypeScriptCodegen { target: JsTarget::Sqlite, output: JsOutput::JavaScript });
+}
+
+#[test]
+fn snapshot_views_javascript_mysql() {
+    snapshot_test("views/mysql", &MysqlParser, "javascript", &TypeScriptCodegen { target: JsTarget::Mysql, output: JsOutput::JavaScript });
+}
+
+#[test]
+fn snapshot_views_go_postgresql() {
+    snapshot_test("views/postgresql", &PostgresParser, "go", &GoCodegen { target: GoTarget::Postgres });
+}
+
+#[test]
+fn snapshot_views_go_sqlite() {
+    snapshot_test("views/sqlite", &SqliteParser, "go", &GoCodegen { target: GoTarget::Sqlite });
+}
+
+#[test]
+fn snapshot_views_go_mysql() {
+    snapshot_test("views/mysql", &MysqlParser, "go", &GoCodegen { target: GoTarget::Mysql });
+}
+
 // ─── Provenance snapshot tests ────────────────────────────────────────────
 //
 // Verify that source_table is correctly resolved through CTEs and derived

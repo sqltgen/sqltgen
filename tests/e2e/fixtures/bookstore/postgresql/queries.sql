@@ -72,6 +72,11 @@ FROM book b
 JOIN author a ON a.id = b.author_id
 ORDER BY b.title;
 
+-- name: ListBookSummariesView :many
+SELECT id, title, genre, author_name
+FROM book_summaries
+ORDER BY title;
+
 -- name: GetBooksNeverOrdered :many
 SELECT b.id, b.author_id, b.title, b.genre, b.price, b.published_at
 FROM book b

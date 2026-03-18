@@ -1,6 +1,7 @@
 out/_sqltgen.rs
 out/author.rs
 out/book.rs
+out/book_summaries.rs
 out/customer.rs
 out/mod.rs
 out/product.rs

@@ -81,6 +81,11 @@ FROM book b
 JOIN author a ON a.id = b.author_id
 ORDER BY b.title
 `
+const SQL_LIST_BOOK_SUMMARIES_VIEW = `
+SELECT id, title, genre, author_name
+FROM book_summaries
+ORDER BY title
+`
 const SQL_GET_BOOKS_NEVER_ORDERED = `
 SELECT b.id, b.author_id, b.title, b.genre, b.price, b.published_at
 FROM book b
@@ -741,6 +746,27 @@ func ListBooksWithAuthor(ctx context.Context, db *sql.DB) ([]ListBooksWithAuthor
 	for rows.Next() {
 		var r ListBooksWithAuthorRow
 		if err := rows.Scan(&r.Id, &r.Title, &r.Genre, &r.Price, &r.PublishedAt, &r.AuthorName, &r.AuthorBio); err != nil {
+			return nil, err
+		}
+		results = append(results, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return results, nil
+}
+
+// ListBookSummariesView executes the ListBookSummariesView query.
+func ListBookSummariesView(ctx context.Context, db *sql.DB) ([]BookSummaries, error) {
+	rows, err := db.QueryContext(ctx, SQL_LIST_BOOK_SUMMARIES_VIEW)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var results []BookSummaries
+	for rows.Next() {
+		var r BookSummaries
+		if err := rows.Scan(&r.Id, &r.Title, &r.Genre, &r.AuthorName); err != nil {
 			return nil, err
 		}
 		results = append(results, r)
@@ -1422,6 +1448,11 @@ func (q *Querier) AddSaleItem(ctx context.Context, sale_id int64, book_id int64,
 // ListBooksWithAuthor delegates to the package-level ListBooksWithAuthor function.
 func (q *Querier) ListBooksWithAuthor(ctx context.Context) ([]ListBooksWithAuthorRow, error) {
 	return ListBooksWithAuthor(ctx, q.db)
+}
+
+// ListBookSummariesView delegates to the package-level ListBookSummariesView function.
+func (q *Querier) ListBookSummariesView(ctx context.Context) ([]BookSummaries, error) {
+	return ListBookSummariesView(ctx, q.db)
 }
 
 // GetBooksNeverOrdered delegates to the package-level GetBooksNeverOrdered function.

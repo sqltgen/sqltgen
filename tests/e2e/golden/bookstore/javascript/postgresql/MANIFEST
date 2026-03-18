@@ -1,6 +1,7 @@
 out/_sqltgen.js
 out/author.js
 out/book.js
+out/book_summaries.js
 out/customer.js
 out/index.js
 out/product.js

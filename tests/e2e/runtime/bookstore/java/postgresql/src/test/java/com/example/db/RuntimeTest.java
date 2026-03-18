@@ -219,6 +219,15 @@ class RuntimeTest {
     }
 
     @Test
+    void testListBookSummariesView() throws SQLException {
+        seed();
+        var rows = Queries.listBookSummariesView(conn);
+        assertEquals(4, rows.size());
+        assertEquals("Dune", rows.get(0).title());
+        assertEquals("Herbert", rows.get(0).authorName());
+    }
+
+    @Test
     void testGetBooksNeverOrdered() throws SQLException {
         seed();
         var books = Queries.getBooksNeverOrdered(conn);

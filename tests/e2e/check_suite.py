@@ -173,6 +173,8 @@ KNOWN_DIALECT_GAPS: dict[str, set[str]] = {
     "InsertProduct": {"mysql"},
     # ON CONFLICT … DO UPDATE SET — not supported by MySQL.
     "UpsertProduct": {"mysql"},
+    # Runtime-only view fixture currently exists only in PostgreSQL bookstore schema.
+    "ListBookSummariesView": {"sqlite", "mysql"},
 }
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

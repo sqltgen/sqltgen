@@ -15,6 +15,7 @@ Connection = psycopg.Connection
 
 from .author import Author
 from .book import Book
+from .book_summaries import BookSummaries
 from .product import Product
 
 SQL_CREATE_AUTHOR = """\
@@ -88,6 +89,11 @@ SELECT b.id, b.title, b.genre, b.price, b.published_at,
 FROM book b
 JOIN author a ON a.id = b.author_id
 ORDER BY b.title
+"""
+SQL_LIST_BOOK_SUMMARIES_VIEW = """\
+SELECT id, title, genre, author_name
+FROM book_summaries
+ORDER BY title
 """
 SQL_GET_BOOKS_NEVER_ORDERED = """\
 SELECT b.id, b.author_id, b.title, b.genre, b.price, b.published_at
@@ -434,6 +440,11 @@ class ListBooksWithAuthorRow:
 def list_books_with_author(conn: Connection) -> list[ListBooksWithAuthorRow]:
     with execute(conn, SQL_LIST_BOOKS_WITH_AUTHOR) as cur:
         return [ListBooksWithAuthorRow(*row) for row in cur.fetchall()]
+
+
+def list_book_summaries_view(conn: Connection) -> list[BookSummaries]:
+    with execute(conn, SQL_LIST_BOOK_SUMMARIES_VIEW) as cur:
+        return [BookSummaries(*row) for row in cur.fetchall()]
 
 
 def get_books_never_ordered(conn: Connection) -> list[Book]:
@@ -862,6 +873,10 @@ class Querier:
     def list_books_with_author(self) -> list[ListBooksWithAuthorRow]:
         with closing(self._connect()) as conn:
             return list_books_with_author(conn)
+
+    def list_book_summaries_view(self) -> list[BookSummaries]:
+        with closing(self._connect()) as conn:
+            return list_book_summaries_view(conn)
 
     def get_books_never_ordered(self) -> list[Book]:
         with closing(self._connect()) as conn:

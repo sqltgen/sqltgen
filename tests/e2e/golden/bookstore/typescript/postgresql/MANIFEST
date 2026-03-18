@@ -1,6 +1,7 @@
 out/_sqltgen.ts
 out/author.ts
 out/book.ts
+out/book_summaries.ts
 out/customer.ts
 out/index.ts
 out/product.ts

@@ -463,6 +463,25 @@ func TestListBooksWithAuthor(t *testing.T) {
 	}
 }
 
+func TestListBookSummariesView(t *testing.T) {
+	db, ctx := setupDB(t)
+	seed(t, ctx, db)
+
+	rows, err := gen.ListBookSummariesView(ctx, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 4 {
+		t.Fatalf("expected 4 rows, got %d", len(rows))
+	}
+	if rows[0].Title != "Dune" {
+		t.Fatalf("expected first title Dune, got %s", rows[0].Title)
+	}
+	if rows[0].AuthorName != "Herbert" {
+		t.Fatalf("expected first author Herbert, got %s", rows[0].AuthorName)
+	}
+}
+
 func TestGetBooksNeverOrdered(t *testing.T) {
 	db, ctx := setupDB(t)
 	seed(t, ctx, db)

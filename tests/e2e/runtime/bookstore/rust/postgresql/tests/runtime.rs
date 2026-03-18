@@ -10,16 +10,12 @@ use uuid::Uuid;
 /// Each test gets its own schema so tests can run in parallel.
 /// Uses `after_connect` to SET search_path on every pooled connection.
 async fn setup_db() -> PgPool {
-    let url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://sqltgen:sqltgen@localhost:15432/sqltgen_e2e".into());
+    let url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://sqltgen:sqltgen@localhost:15432/sqltgen_e2e".into());
 
     // First, create the schema using a one-off connection
     let bootstrap = PgPool::connect(&url).await.unwrap();
     let schema = format!("test_{}", Uuid::new_v4().simple());
-    sqlx::query(&format!("CREATE SCHEMA \"{schema}\""))
-        .execute(&bootstrap)
-        .await
-        .unwrap();
+    sqlx::query(&format!("CREATE SCHEMA \"{schema}\"")).execute(&bootstrap).await.unwrap();
     bootstrap.close().await;
 
     // Build a pool that sets search_path on every connection
@@ -29,9 +25,7 @@ async fn setup_db() -> PgPool {
             move |conn, _meta| {
                 let schema = schema.clone();
                 Box::pin(async move {
-                    sqlx::query(&format!("SET search_path TO \"{schema}\""))
-                        .execute(&mut *conn)
-                        .await?;
+                    sqlx::query(&format!("SET search_path TO \"{schema}\"")).execute(&mut *conn).await?;
                     Ok(())
                 })
             }
@@ -121,56 +115,41 @@ async fn setup_db() -> PgPool {
     .await
     .unwrap();
 
+    sqlx::query(
+        "CREATE VIEW book_summaries AS
+         SELECT b.id, b.title, b.genre, a.name AS author_name
+         FROM book b
+         JOIN author a ON a.id = b.author_id",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
     pool
 }
 
 /// Seed the database with test data.
 async fn seed(pool: &PgPool) {
-    queries::create_author(pool, "Asimov".into(), Some("Sci-fi master".into()), Some(1920))
-        .await
-        .unwrap();
-    queries::create_author(pool, "Herbert".into(), None, Some(1920))
-        .await
-        .unwrap();
-    queries::create_author(pool, "Le Guin".into(), Some("Earthsea".into()), Some(1929))
-        .await
-        .unwrap();
+    queries::create_author(pool, "Asimov".into(), Some("Sci-fi master".into()), Some(1920)).await.unwrap();
+    queries::create_author(pool, "Herbert".into(), None, Some(1920)).await.unwrap();
+    queries::create_author(pool, "Le Guin".into(), Some("Earthsea".into()), Some(1929)).await.unwrap();
 
     let jan_1951 = Date::from_calendar_date(1951, time::Month::January, 1).unwrap();
     let jan_1950 = Date::from_calendar_date(1950, time::Month::January, 1).unwrap();
     let jan_1965 = Date::from_calendar_date(1965, time::Month::January, 1).unwrap();
     let jan_1968 = Date::from_calendar_date(1968, time::Month::January, 1).unwrap();
 
-    queries::create_book(
-        pool, 1, "Foundation".into(), "sci-fi".into(),
-        Decimal::from_str("9.99").unwrap(), Some(jan_1951),
-    ).await.unwrap();
-    queries::create_book(
-        pool, 1, "I Robot".into(), "sci-fi".into(),
-        Decimal::from_str("7.99").unwrap(), Some(jan_1950),
-    ).await.unwrap();
-    queries::create_book(
-        pool, 2, "Dune".into(), "sci-fi".into(),
-        Decimal::from_str("12.99").unwrap(), Some(jan_1965),
-    ).await.unwrap();
-    queries::create_book(
-        pool, 3, "Earthsea".into(), "fantasy".into(),
-        Decimal::from_str("8.99").unwrap(), Some(jan_1968),
-    ).await.unwrap();
+    queries::create_book(pool, 1, "Foundation".into(), "sci-fi".into(), Decimal::from_str("9.99").unwrap(), Some(jan_1951)).await.unwrap();
+    queries::create_book(pool, 1, "I Robot".into(), "sci-fi".into(), Decimal::from_str("7.99").unwrap(), Some(jan_1950)).await.unwrap();
+    queries::create_book(pool, 2, "Dune".into(), "sci-fi".into(), Decimal::from_str("12.99").unwrap(), Some(jan_1965)).await.unwrap();
+    queries::create_book(pool, 3, "Earthsea".into(), "fantasy".into(), Decimal::from_str("8.99").unwrap(), Some(jan_1968)).await.unwrap();
 
-    let cust = queries::create_customer(pool, "Alice".into(), "alice@example.com".into())
-        .await
-        .unwrap()
-        .unwrap();
+    let cust = queries::create_customer(pool, "Alice".into(), "alice@example.com".into()).await.unwrap().unwrap();
 
     let sale = queries::create_sale(pool, cust.id).await.unwrap().unwrap();
 
-    queries::add_sale_item(pool, sale.id, 1, 2, Decimal::from_str("9.99").unwrap())
-        .await
-        .unwrap();
-    queries::add_sale_item(pool, sale.id, 3, 1, Decimal::from_str("12.99").unwrap())
-        .await
-        .unwrap();
+    queries::add_sale_item(pool, sale.id, 1, 2, Decimal::from_str("9.99").unwrap()).await.unwrap();
+    queries::add_sale_item(pool, sale.id, 3, 1, Decimal::from_str("12.99").unwrap()).await.unwrap();
 }
 
 // ─── :one tests ────────────────────────────────────────────────────────────
@@ -179,10 +158,7 @@ async fn seed(pool: &PgPool) {
 async fn test_create_author_returning() {
     let pool = setup_db().await;
 
-    let author = queries::create_author(&pool, "Test".into(), Some("bio".into()), Some(1980))
-        .await
-        .unwrap()
-        .unwrap();
+    let author = queries::create_author(&pool, "Test".into(), Some("bio".into()), Some(1980)).await.unwrap().unwrap();
     assert_eq!(author.name, "Test");
     assert_eq!(author.bio, Some("bio".into()));
     assert_eq!(author.birth_year, Some(1980));
@@ -226,10 +202,7 @@ async fn test_create_book_returning() {
     let pool = setup_db().await;
     seed(&pool).await;
 
-    let book = queries::create_book(
-        &pool, 1, "New Book".into(), "mystery".into(),
-        Decimal::from_str("14.50").unwrap(), None,
-    ).await.unwrap().unwrap();
+    let book = queries::create_book(&pool, 1, "New Book".into(), "mystery".into(), Decimal::from_str("14.50").unwrap(), None).await.unwrap().unwrap();
     assert_eq!(book.title, "New Book");
     assert_eq!(book.genre, "mystery");
     assert_eq!(book.price, Decimal::from_str("14.50").unwrap());
@@ -241,10 +214,7 @@ async fn test_update_author_bio_returning() {
     let pool = setup_db().await;
     seed(&pool).await;
 
-    let updated = queries::update_author_bio(&pool, Some("Updated bio".into()), 1)
-        .await
-        .unwrap()
-        .unwrap();
+    let updated = queries::update_author_bio(&pool, Some("Updated bio".into()), 1).await.unwrap().unwrap();
     assert_eq!(updated.name, "Asimov");
     assert_eq!(updated.bio, Some("Updated bio".into()));
 }
@@ -309,9 +279,7 @@ async fn test_add_sale_item() {
     seed(&pool).await;
 
     // add_sale_item returns () on success
-    queries::add_sale_item(&pool, 1, 2, 5, Decimal::from_str("7.99").unwrap())
-        .await
-        .unwrap();
+    queries::add_sale_item(&pool, 1, 2, 5, Decimal::from_str("7.99").unwrap()).await.unwrap();
 }
 
 // ─── :execrows tests ─────────────────────────────────────────────────────
@@ -346,6 +314,17 @@ async fn test_list_books_with_author() {
     let foundation = rows.iter().find(|r| r.title == "Foundation").unwrap();
     assert_eq!(foundation.author_name, "Asimov");
     assert_eq!(foundation.author_bio, Some("Sci-fi master".into()));
+}
+
+#[tokio::test]
+async fn test_list_book_summaries_view() {
+    let pool = setup_db().await;
+    seed(&pool).await;
+
+    let rows = queries::list_book_summaries_view(&pool).await.unwrap();
+    assert_eq!(rows.len(), 4);
+    assert_eq!(rows[0].title, "Dune");
+    assert_eq!(rows[0].author_name, "Herbert");
 }
 
 #[tokio::test]
@@ -495,11 +474,7 @@ async fn test_get_books_by_price_range() {
     let pool = setup_db().await;
     seed(&pool).await;
 
-    let results = queries::get_books_by_price_range(
-        &pool,
-        Decimal::from_str("8.00").unwrap(),
-        Decimal::from_str("10.00").unwrap(),
-    ).await.unwrap();
+    let results = queries::get_books_by_price_range(&pool, Decimal::from_str("8.00").unwrap(), Decimal::from_str("10.00").unwrap()).await.unwrap();
     // Foundation (9.99) and Earthsea (8.99)
     assert_eq!(results.len(), 2);
 }
@@ -511,9 +486,7 @@ async fn test_get_books_in_genres() {
     let pool = setup_db().await;
     seed(&pool).await;
 
-    let results = queries::get_books_in_genres(
-        &pool, "sci-fi".into(), "fantasy".into(), "horror".into(),
-    ).await.unwrap();
+    let results = queries::get_books_in_genres(&pool, "sci-fi".into(), "fantasy".into(), "horror".into()).await.unwrap();
     assert_eq!(results.len(), 4);
 }
 
@@ -616,10 +589,7 @@ async fn test_get_product() {
     let pool = setup_db().await;
 
     let product_id = Uuid::new_v4();
-    queries::insert_product(
-        &pool, product_id, "SKU-GET".into(), "GetWidget".into(), true,
-        None, None, vec![], None, None, 1,
-    ).await.unwrap();
+    queries::insert_product(&pool, product_id, "SKU-GET".into(), "GetWidget".into(), true, None, None, vec![], None, None, 1).await.unwrap();
 
     let fetched = queries::get_product(&pool, product_id).await.unwrap().unwrap();
     assert_eq!(fetched.id, product_id);
@@ -645,7 +615,10 @@ async fn test_insert_product() {
         Some(metadata),
         None,
         7,
-    ).await.unwrap().unwrap();
+    )
+    .await
+    .unwrap()
+    .unwrap();
 
     assert_eq!(product.id, product_id);
     assert_eq!(product.name, "InsWidget");
@@ -671,7 +644,10 @@ async fn test_insert_and_get_product() {
         Some(metadata.clone()),
         Some(vec![0xFF, 0xD8, 0xFF]),
         42,
-    ).await.unwrap().unwrap();
+    )
+    .await
+    .unwrap()
+    .unwrap();
 
     assert_eq!(product.id, product_id);
     assert_eq!(product.sku, "SKU-001");
@@ -695,15 +671,9 @@ async fn test_insert_and_get_product() {
 async fn test_list_active_products() {
     let pool = setup_db().await;
 
-    queries::insert_product(
-        &pool, Uuid::new_v4(), "ACT-1".into(), "Active".into(), true,
-        None, None, vec![], None, None, 10,
-    ).await.unwrap();
+    queries::insert_product(&pool, Uuid::new_v4(), "ACT-1".into(), "Active".into(), true, None, None, vec![], None, None, 10).await.unwrap();
 
-    queries::insert_product(
-        &pool, Uuid::new_v4(), "INACT-1".into(), "Inactive".into(), false,
-        None, None, vec![], None, None, 0,
-    ).await.unwrap();
+    queries::insert_product(&pool, Uuid::new_v4(), "INACT-1".into(), "Inactive".into(), false, None, None, vec![], None, None, 0).await.unwrap();
 
     let active = queries::list_active_products(&pool, true).await.unwrap();
     assert_eq!(active.len(), 1);
@@ -718,10 +688,8 @@ async fn test_list_active_products() {
 async fn test_product_with_nulls() {
     let pool = setup_db().await;
 
-    let product = queries::insert_product(
-        &pool, Uuid::new_v4(), "NULL-1".into(), "Minimal".into(), true,
-        None, None, vec![], None, None, 0,
-    ).await.unwrap().unwrap();
+    let product =
+        queries::insert_product(&pool, Uuid::new_v4(), "NULL-1".into(), "Minimal".into(), true, None, None, vec![], None, None, 0).await.unwrap().unwrap();
 
     assert!(product.weight_kg.is_none());
     assert!(product.rating.is_none());
@@ -738,9 +706,7 @@ async fn test_get_book_price_or_default() {
     seed(&pool).await;
 
     // Books with prices should return their own price; no NULL prices in seed data
-    let rows = queries::get_book_price_or_default(&pool, Some(Decimal::from_str("0.00").unwrap()))
-        .await
-        .unwrap();
+    let rows = queries::get_book_price_or_default(&pool, Some(Decimal::from_str("0.00").unwrap())).await.unwrap();
     assert_eq!(rows.len(), 4);
     // All books in seed have non-null prices, so effective_price == their own price
     assert!(rows.iter().all(|r| r.effective_price > Decimal::ZERO));
@@ -752,10 +718,7 @@ async fn test_get_book_price_or_default() {
 async fn test_create_customer() {
     let pool = setup_db().await;
 
-    let cust = queries::create_customer(&pool, "Bob".into(), "bob@example.com".into())
-        .await
-        .unwrap()
-        .unwrap();
+    let cust = queries::create_customer(&pool, "Bob".into(), "bob@example.com".into()).await.unwrap().unwrap();
     assert_eq!(cust.id, 1);
 }
 
@@ -763,10 +726,7 @@ async fn test_create_customer() {
 async fn test_create_sale() {
     let pool = setup_db().await;
 
-    let cust = queries::create_customer(&pool, "Bob".into(), "bob@example.com".into())
-        .await
-        .unwrap()
-        .unwrap();
+    let cust = queries::create_customer(&pool, "Bob".into(), "bob@example.com".into()).await.unwrap().unwrap();
     let sale = queries::create_sale(&pool, cust.id).await.unwrap().unwrap();
     assert_eq!(sale.id, 1);
 }
@@ -806,7 +766,9 @@ async fn test_get_books_published_between() {
         &pool,
         Some(Date::from_calendar_date(1951, time::Month::January, 1).unwrap()),
         Some(Date::from_calendar_date(1966, time::Month::January, 1).unwrap()),
-    ).await.unwrap();
+    )
+    .await
+    .unwrap();
     assert_eq!(rows.len(), 2);
     let titles: Vec<&str> = rows.iter().map(|r| r.title.as_str()).collect();
     assert!(titles.contains(&"Foundation"));
@@ -893,16 +855,12 @@ async fn test_upsert_product() {
 
     let product_id = Uuid::new_v4();
 
-    let inserted = queries::upsert_product(
-        &pool, product_id, "SKU-001".into(), "Widget".into(), true, vec!["tag1".into()], 10,
-    ).await.unwrap().unwrap();
+    let inserted = queries::upsert_product(&pool, product_id, "SKU-001".into(), "Widget".into(), true, vec!["tag1".into()], 10).await.unwrap().unwrap();
     assert_eq!(inserted.name, "Widget");
     assert_eq!(inserted.stock_count, 10);
 
-    let updated = queries::upsert_product(
-        &pool, product_id, "SKU-001".into(), "Widget Pro".into(), true,
-        vec!["tag1".into(), "tag2".into()], 25,
-    ).await.unwrap().unwrap();
+    let updated =
+        queries::upsert_product(&pool, product_id, "SKU-001".into(), "Widget Pro".into(), true, vec!["tag1".into(), "tag2".into()], 25).await.unwrap().unwrap();
     assert_eq!(updated.name, "Widget Pro");
     assert_eq!(updated.stock_count, 25);
 }

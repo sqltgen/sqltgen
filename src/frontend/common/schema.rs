@@ -83,8 +83,12 @@ fn process_statement(stmt: &Statement, schema: &mut Schema, dialect: DdlDialect,
         Statement::Drop { object_type: ObjectType::Table, names, .. } => apply_drop_tables(names, &mut schema.tables),
         Statement::CreateView(v) => {
             let name = obj_name_to_str(&v.name);
+            if v.or_replace {
+                pending_views.retain(|view| view.name != name);
+            }
             pending_views.push(PendingView { name, query: v.query.clone() });
         },
+        Statement::Drop { object_type: ObjectType::View, names, .. } => apply_drop_views(names, pending_views),
         Statement::CreateFunction(f) => {
             // Skip table-valued functions (RETURNS TABLE(...)) — they are not scalar.
             let return_type = match &f.return_type {
@@ -110,6 +114,14 @@ fn process_statement(stmt: &Statement, schema: &mut Schema, dialect: DdlDialect,
         },
         Statement::DropFunction(DropFunction { func_desc, .. }) => apply_drop_functions(func_desc, &mut schema.functions),
         _ => {},
+    }
+}
+
+/// Remove every pending view named in `names` from the pass-1 view list.
+fn apply_drop_views(names: &[sqlparser::ast::ObjectName], pending_views: &mut Vec<PendingView>) {
+    for name in names {
+        let name = obj_name_to_str(name);
+        pending_views.retain(|view| view.name != name);
     }
 }
 

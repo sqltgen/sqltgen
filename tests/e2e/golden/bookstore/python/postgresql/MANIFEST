@@ -2,6 +2,7 @@ out/__init__.py
 out/_sqltgen.py
 out/author.py
 out/book.py
+out/book_summaries.py
 out/customer.py
 out/product.py
 out/queries.py

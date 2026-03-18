@@ -286,6 +286,15 @@ class RuntimeTest {
     }
 
     @Test
+    fun testListBookSummariesView() {
+        seed()
+        val rows = Queries.listBookSummariesView(conn)
+        assertEquals(4, rows.size)
+        assertEquals("Dune", rows[0].title)
+        assertEquals("Herbert", rows[0].authorName)
+    }
+
+    @Test
     fun testGetBooksNeverOrdered() {
         seed()
         val books = Queries.getBooksNeverOrdered(conn)

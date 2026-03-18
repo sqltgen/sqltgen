@@ -23,6 +23,16 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
   `Table::is_view()`. All `Table` construction sites use the new `Table::new()`
   and `Table::view()` constructors so future IR changes propagate through one
   point. 13 new unit tests across the three dialect schema parsers.
+- **View-focused test coverage** — added dedicated unit/snapshot/runtime coverage
+  for view workflows.
+  - Unit tests: added MySQL view-on-view chaining coverage and new `DROP VIEW`
+    parser tests for PostgreSQL, SQLite, and MySQL; added backend unit tests for
+    Rust/Go/Java/Kotlin/Python/TypeScript asserting view models are emitted.
+  - Snapshot tests: added a new `tests/e2e/fixtures/views/` fixture (PostgreSQL,
+    SQLite, MySQL) and 17 backend snapshot tests covering all emitted targets.
+  - Runtime tests: added PostgreSQL runtime tests for all existing runtime
+    languages (Rust, Go, Java, Kotlin, Python, TypeScript) that execute
+    generated query methods against a `CREATE VIEW` schema object.
 - **Go backend** — full `database/sql` code generation targeting PostgreSQL,
   SQLite, and MySQL. Generates Go structs for row models, query functions with
   idiomatic `(T, error)` returns, and a `Querier` struct wrapper around `*sql.DB`.
@@ -104,6 +114,9 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
   pre-resolved contracts without branching on engine target.
 
 ### Fixed
+- `DROP VIEW` statements are now applied during schema parsing (all three
+  dialects). Previously `DROP VIEW` was silently ignored, leaving dropped views
+  in the inferred schema.
 - Type override named presets now emit one-time warnings when used on
   unsupported backends (for example, `jackson` in Python or `serde_json`
   in JVM backends) instead of being silently ignored.

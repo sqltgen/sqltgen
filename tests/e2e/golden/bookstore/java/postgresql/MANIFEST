@@ -1,5 +1,6 @@
 out/db/Author.java
 out/db/Book.java
+out/db/BookSummaries.java
 out/db/Customer.java
 out/db/Product.java
 out/db/Querier.java

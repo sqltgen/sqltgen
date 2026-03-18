@@ -6,6 +6,7 @@ import { releaseDb } from './_sqltgen.js';
 
 /** @typedef {import('./author.js').Author} Author */
 /** @typedef {import('./book.js').Book} Book */
+/** @typedef {import('./book_summaries.js').BookSummaries} BookSummaries */
 /** @typedef {import('./product.js').Product} Product */
 
 const SQL_CREATE_AUTHOR = `INSERT INTO author (name, bio, birth_year)
@@ -52,6 +53,9 @@ const SQL_LIST_BOOKS_WITH_AUTHOR = `SELECT b.id, b.title, b.genre, b.price, b.pu
 FROM book b
 JOIN author a ON a.id = b.author_id
 ORDER BY b.title`;
+const SQL_LIST_BOOK_SUMMARIES_VIEW = `SELECT id, title, genre, author_name
+FROM book_summaries
+ORDER BY title`;
 const SQL_GET_BOOKS_NEVER_ORDERED = `SELECT b.id, b.author_id, b.title, b.genre, b.price, b.published_at
 FROM book b
 LEFT JOIN sale_item si ON si.book_id = b.id
@@ -388,6 +392,15 @@ export async function addSaleItem(db, saleId, bookId, quantity, unitPrice) {
  */
 export async function listBooksWithAuthor(db) {
   const result = await db.query(SQL_LIST_BOOKS_WITH_AUTHOR, []);
+  return result.rows;
+}
+
+/**
+ * @param {Db} db
+ * @returns {Promise<BookSummaries[]>}
+ */
+export async function listBookSummariesView(db) {
+  const result = await db.query(SQL_LIST_BOOK_SUMMARIES_VIEW, []);
   return result.rows;
 }
 
@@ -1028,6 +1041,15 @@ export class Querier {
     const db = await this.connect();
     try {
       return listBooksWithAuthor(db);
+    } finally {
+      await releaseDb(db);
+    }
+  }
+
+  async listBookSummariesView() {
+    const db = await this.connect();
+    try {
+      return listBookSummariesView(db);
     } finally {
       await releaseDb(db);
     }

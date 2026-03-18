@@ -47,3 +47,8 @@ CREATE TABLE product (
     created_at  TIMESTAMP    NOT NULL DEFAULT NOW(),
     stock_count SMALLINT     NOT NULL DEFAULT 0
 );
+
+CREATE VIEW book_summaries AS
+SELECT b.id, b.title, b.genre, a.name AS author_name
+FROM book b
+JOIN author a ON a.id = b.author_id;

@@ -97,6 +97,12 @@ public final class Querier {
         }
     }
 
+    public List<BookSummaries> listBookSummariesView() throws SQLException {
+        try (Connection conn = dataSource.getConnection()) {
+            return Queries.listBookSummariesView(conn);
+        }
+    }
+
     public List<Book> getBooksNeverOrdered() throws SQLException {
         try (Connection conn = dataSource.getConnection()) {
             return Queries.getBooksNeverOrdered(conn);

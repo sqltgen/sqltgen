@@ -27,3 +27,8 @@ pub fn get_file<'a>(files: &'a [GeneratedFile], name: &str) -> &'a str {
 pub fn user_table() -> Table {
     Table::new("user", vec![Column::new_primary_key("id", SqlType::BigInt), Column::new_not_nullable("name", SqlType::Text), Column::new("bio", SqlType::Text)])
 }
+
+/// A minimal read-only `user_summary` view with id and display_name columns.
+pub fn user_summary_view() -> Table {
+    Table::view("user_summary", vec![Column::new_not_nullable("id", SqlType::BigInt), Column::new_not_nullable("display_name", SqlType::Text)])
+}

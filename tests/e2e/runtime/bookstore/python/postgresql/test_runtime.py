@@ -3,6 +3,7 @@
 Each test creates an isolated PostgreSQL schema so tests can run in parallel.
 Requires the docker-compose postgres service on port 15432.
 """
+
 import decimal
 import os
 import pathlib
@@ -21,6 +22,7 @@ _DB_URL = os.environ.get(
 
 
 # ─── Setup helpers ────────────────────────────────────────────────────────────
+
 
 @pytest.fixture()
 def conn():
@@ -43,14 +45,38 @@ def seed(conn: psycopg.Connection) -> None:
     a3 = queries.create_author(conn, "Le Guin", "Earthsea", 1929)
     assert a1 and a2 and a3
 
-    b1 = queries.create_book(conn, a1.id, "Foundation", "sci-fi", decimal.Decimal("9.99"),
-                             __import__("datetime").date(1951, 1, 1))
-    b2 = queries.create_book(conn, a1.id, "I Robot", "sci-fi", decimal.Decimal("7.99"),
-                             __import__("datetime").date(1950, 1, 1))
-    b3 = queries.create_book(conn, a2.id, "Dune", "sci-fi", decimal.Decimal("12.99"),
-                             __import__("datetime").date(1965, 1, 1))
-    b4 = queries.create_book(conn, a3.id, "Earthsea", "fantasy", decimal.Decimal("8.99"),
-                             __import__("datetime").date(1968, 1, 1))
+    b1 = queries.create_book(
+        conn,
+        a1.id,
+        "Foundation",
+        "sci-fi",
+        decimal.Decimal("9.99"),
+        __import__("datetime").date(1951, 1, 1),
+    )
+    b2 = queries.create_book(
+        conn,
+        a1.id,
+        "I Robot",
+        "sci-fi",
+        decimal.Decimal("7.99"),
+        __import__("datetime").date(1950, 1, 1),
+    )
+    b3 = queries.create_book(
+        conn,
+        a2.id,
+        "Dune",
+        "sci-fi",
+        decimal.Decimal("12.99"),
+        __import__("datetime").date(1965, 1, 1),
+    )
+    b4 = queries.create_book(
+        conn,
+        a3.id,
+        "Earthsea",
+        "fantasy",
+        decimal.Decimal("8.99"),
+        __import__("datetime").date(1968, 1, 1),
+    )
     assert b1 and b2 and b3 and b4
 
     alice = queries.create_customer(conn, "Alice", "alice@example.com")
@@ -70,6 +96,7 @@ def seed(conn: psycopg.Connection) -> None:
 
 
 # ─── :one tests ───────────────────────────────────────────────────────────────
+
 
 def test_get_author(conn):
     seed(conn)
@@ -93,6 +120,7 @@ def test_get_book(conn):
 
 
 # ─── :many tests ──────────────────────────────────────────────────────────────
+
 
 def test_list_authors(conn):
     seed(conn)
@@ -122,6 +150,7 @@ def test_list_books_by_genre_or_all(conn):
 
 # ─── UpdateAuthorBio / DeleteAuthor tests ────────────────────────────────────
 
+
 def test_update_author_bio(conn):
     seed(conn)
     updated = queries.update_author_bio(conn, "Updated bio", 1)
@@ -144,10 +173,12 @@ def test_delete_author(conn):
 
 # ─── CreateBook / AddSaleItem tests ──────────────────────────────────────────
 
+
 def test_create_book(conn):
     seed(conn)
-    book = queries.create_book(conn, 1, "New Book", "mystery",
-                               __import__("decimal").Decimal("14.50"), None)
+    book = queries.create_book(
+        conn, 1, "New Book", "mystery", __import__("decimal").Decimal("14.50"), None
+    )
     assert book is not None
     assert book.title == "New Book"
     assert book.genre == "mystery"
@@ -158,15 +189,19 @@ def test_add_sale_item(conn):
     seed(conn)
     # Add an extra item to sale 1 (Earthsea / book 4, qty 1)
     queries.add_sale_item(conn, 1, 4, 1, __import__("decimal").Decimal("8.99"))
-    count = conn.execute("SELECT COUNT(*) FROM sale_item WHERE sale_id = 1").fetchone()[0]
+    count = conn.execute("SELECT COUNT(*) FROM sale_item WHERE sale_id = 1").fetchone()[
+        0
+    ]
     assert count == 3
 
 
 # ─── CASE / COALESCE tests ────────────────────────────────────────────────────
 
+
 def test_get_book_price_label(conn):
     seed(conn)
     import decimal
+
     rows = queries.get_book_price_label(conn, decimal.Decimal("10.00"))
     assert len(rows) == 4
     dune = next(r for r in rows if r.title == "Dune")
@@ -178,6 +213,7 @@ def test_get_book_price_label(conn):
 def test_get_book_price_or_default(conn):
     seed(conn)
     import decimal
+
     rows = queries.get_book_price_or_default(conn, decimal.Decimal("0.00"))
     assert len(rows) == 4
     # All seeded books have non-null prices
@@ -186,11 +222,14 @@ def test_get_book_price_or_default(conn):
 
 # ─── Product type coverage ────────────────────────────────────────────────────
 
+
 def test_get_product(conn):
     import uuid
+
     product_id = uuid.UUID("00000000-0000-0000-0000-000000000002")
-    queries.insert_product(conn, product_id, "SKU-002", "Widget", True,
-                           1.5, 4.7, ["tag1"], None, None, 5)
+    queries.insert_product(
+        conn, product_id, "SKU-002", "Widget", True, 1.5, 4.7, ["tag1"], None, None, 5
+    )
     row = queries.get_product(conn, product_id)
     assert row is not None
     assert row.id == product_id
@@ -200,10 +239,13 @@ def test_get_product(conn):
 
 def test_list_active_products(conn):
     import uuid
-    queries.insert_product(conn, uuid.uuid4(), "ACT-1", "Active", True,
-                           None, None, [], None, None, 10)
-    queries.insert_product(conn, uuid.uuid4(), "INACT-1", "Inactive", False,
-                           None, None, [], None, None, 0)
+
+    queries.insert_product(
+        conn, uuid.uuid4(), "ACT-1", "Active", True, None, None, [], None, None, 10
+    )
+    queries.insert_product(
+        conn, uuid.uuid4(), "INACT-1", "Inactive", False, None, None, [], None, None, 0
+    )
     active = queries.list_active_products(conn, True)
     assert len(active) == 1
     assert active[0].name == "Active"
@@ -214,9 +256,21 @@ def test_list_active_products(conn):
 
 def test_insert_product(conn):
     import uuid
+
     product_id = uuid.UUID("00000000-0000-0000-0000-000000000003")
-    product = queries.insert_product(conn, product_id, "SKU-003", "Gadget", True,
-                                     None, None, ["electronics"], None, None, 20)
+    product = queries.insert_product(
+        conn,
+        product_id,
+        "SKU-003",
+        "Gadget",
+        True,
+        None,
+        None,
+        ["electronics"],
+        None,
+        None,
+        20,
+    )
     assert product is not None
     assert product.id == product_id
     assert product.name == "Gadget"
@@ -224,6 +278,7 @@ def test_insert_product(conn):
 
 
 # ─── :exec tests ──────────────────────────────────────────────────────────────
+
 
 def test_create_author_returns_row(conn):
     author = queries.create_author(conn, "Test", None, None)
@@ -234,6 +289,7 @@ def test_create_author_returns_row(conn):
 
 
 # ─── CreateCustomer / CreateSale tests ───────────────────────────────────────
+
 
 def test_create_customer(conn):
     cust = queries.create_customer(conn, "Solo", "solo@example.com")
@@ -251,6 +307,7 @@ def test_create_sale(conn):
 
 # ─── :execrows tests ──────────────────────────────────────────────────────────
 
+
 def test_delete_book_by_id(conn):
     seed(conn)
     affected = queries.delete_book_by_id(conn, 2)
@@ -260,6 +317,7 @@ def test_delete_book_by_id(conn):
 
 
 # ─── JOIN tests ───────────────────────────────────────────────────────────────
+
 
 def test_list_books_with_author(conn):
     seed(conn)
@@ -275,6 +333,14 @@ def test_list_books_with_author(conn):
     assert foundation.author_bio == "Sci-fi master"
 
 
+def test_list_book_summaries_view(conn):
+    seed(conn)
+    rows = queries.list_book_summaries_view(conn)
+    assert len(rows) == 4
+    assert rows[0].title == "Dune"
+    assert rows[0].author_name == "Herbert"
+
+
 def test_get_books_never_ordered(conn):
     seed(conn)
     books = queries.get_books_never_ordered(conn)
@@ -284,6 +350,7 @@ def test_get_books_never_ordered(conn):
 
 
 # ─── CTE tests ────────────────────────────────────────────────────────────────
+
 
 def test_get_top_selling_books(conn):
     seed(conn)
@@ -308,6 +375,7 @@ def test_get_author_stats(conn):
 
 # ─── Aggregate tests ──────────────────────────────────────────────────────────
 
+
 def test_count_books_by_genre(conn):
     seed(conn)
     rows = queries.count_books_by_genre(conn)
@@ -320,6 +388,7 @@ def test_count_books_by_genre(conn):
 
 # ─── LIMIT/OFFSET tests ───────────────────────────────────────────────────────
 
+
 def test_list_books_with_limit(conn):
     seed(conn)
     page1 = queries.list_books_with_limit(conn, 2, 0)
@@ -330,6 +399,7 @@ def test_list_books_with_limit(conn):
 
 
 # ─── LIKE tests ───────────────────────────────────────────────────────────────
+
 
 def test_search_books_by_title(conn):
     seed(conn)
@@ -343,6 +413,7 @@ def test_search_books_by_title(conn):
 
 # ─── BETWEEN tests ────────────────────────────────────────────────────────────
 
+
 def test_get_books_by_price_range(conn):
     seed(conn)
     results = queries.get_books_by_price_range(
@@ -354,6 +425,7 @@ def test_get_books_by_price_range(conn):
 
 # ─── IN list tests ────────────────────────────────────────────────────────────
 
+
 def test_get_books_in_genres(conn):
     seed(conn)
     results = queries.get_books_in_genres(conn, "sci-fi", "fantasy", "horror")
@@ -361,6 +433,7 @@ def test_get_books_in_genres(conn):
 
 
 # ─── HAVING tests ─────────────────────────────────────────────────────────────
+
 
 def test_get_genres_with_many_books(conn):
     seed(conn)
@@ -371,6 +444,7 @@ def test_get_genres_with_many_books(conn):
 
 
 # ─── Subquery tests ───────────────────────────────────────────────────────────
+
 
 def test_get_books_not_by_author(conn):
     seed(conn)
@@ -384,14 +458,14 @@ def test_get_books_not_by_author(conn):
 def test_get_books_with_recent_sales(conn):
     seed(conn)
     import datetime
-    results = queries.get_books_with_recent_sales(
-        conn, datetime.datetime(2000, 1, 1)
-    )
+
+    results = queries.get_books_with_recent_sales(conn, datetime.datetime(2000, 1, 1))
     # Foundation (b1), Dune (b3), Earthsea (b4) all have sale_items
     assert len(results) == 3
 
 
 # ─── Scalar subquery test ─────────────────────────────────────────────────────
+
 
 def test_get_book_with_author_name(conn):
     seed(conn)
@@ -403,6 +477,7 @@ def test_get_book_with_author_name(conn):
 
 # ─── JOIN with param tests ────────────────────────────────────────────────────
 
+
 def test_get_books_by_author_param(conn):
     seed(conn)
     results = queries.get_books_by_author_param(conn, 1925)
@@ -411,6 +486,7 @@ def test_get_books_by_author_param(conn):
 
 
 # ─── Qualified wildcard tests ─────────────────────────────────────────────────
+
 
 def test_get_all_book_fields(conn):
     seed(conn)
@@ -421,6 +497,7 @@ def test_get_all_book_fields(conn):
 
 # ─── List param tests ─────────────────────────────────────────────────────────
 
+
 def test_get_books_by_ids(conn):
     seed(conn)
     books = queries.get_books_by_ids(conn, [1, 3])
@@ -430,6 +507,7 @@ def test_get_books_by_ids(conn):
 
 
 # ─── IS NULL / IS NOT NULL tests ─────────────────────────────────────────────
+
 
 def test_get_authors_with_null_bio(conn):
     seed(conn)
@@ -448,9 +526,11 @@ def test_get_authors_with_bio(conn):
 
 # ─── Date range tests ─────────────────────────────────────────────────────────
 
+
 def test_get_books_published_between(conn):
     seed(conn)
     import datetime
+
     rows = queries.get_books_published_between(
         conn,
         datetime.date(1951, 1, 1),
@@ -463,6 +543,7 @@ def test_get_books_published_between(conn):
 
 # ─── DISTINCT tests ───────────────────────────────────────────────────────────
 
+
 def test_get_distinct_genres(conn):
     seed(conn)
     rows = queries.get_distinct_genres(conn)
@@ -472,6 +553,7 @@ def test_get_distinct_genres(conn):
 
 
 # ─── LEFT JOIN aggregate tests ────────────────────────────────────────────────
+
 
 def test_get_books_with_sales_count(conn):
     seed(conn)
@@ -490,6 +572,7 @@ def test_get_books_with_sales_count(conn):
 
 # ─── Scalar aggregate tests ───────────────────────────────────────────────────
 
+
 def test_count_sale_items(conn):
     seed(conn)
     row = queries.count_sale_items(conn, 1)
@@ -499,17 +582,22 @@ def test_count_sale_items(conn):
 
 # ─── Upsert tests (PostgreSQL-specific) ──────────────────────────────────────
 
+
 def test_upsert_product(conn):
     product_id = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
     # Insert
-    row = queries.upsert_product(conn, product_id, "SKU-001", "Widget", True, ["tag1"], 10)
+    row = queries.upsert_product(
+        conn, product_id, "SKU-001", "Widget", True, ["tag1"], 10
+    )
     assert row is not None
     assert row.name == "Widget"
     assert row.stock_count == 10
 
     # Update — same id, different name and stock_count
-    row = queries.upsert_product(conn, product_id, "SKU-001", "Widget Pro", True, ["tag1", "tag2"], 25)
+    row = queries.upsert_product(
+        conn, product_id, "SKU-001", "Widget Pro", True, ["tag1", "tag2"], 25
+    )
     assert row is not None
     assert row.name == "Widget Pro"
     assert row.stock_count == 25
@@ -517,9 +605,11 @@ def test_upsert_product(conn):
 
 # ─── CTE DELETE tests (PostgreSQL-specific) ───────────────────────────────────
 
+
 def test_archive_and_return_books(conn):
     seed(conn)
     import datetime
+
     # Archive books published before 1951-01-01.
     # Only I Robot (1950-01-01) qualifies; it has no sale_items so no FK violation.
     archived = queries.archive_and_return_books(conn, datetime.date(1951, 1, 1))
@@ -532,6 +622,7 @@ def test_archive_and_return_books(conn):
 
 
 # ─── MIN/MAX/SUM/AVG aggregate tests ─────────────────────────────────────────
+
 
 def test_get_sale_item_quantity_aggregates(conn):
     seed(conn)

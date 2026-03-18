@@ -6,4 +6,5 @@ export * from './customer';
 export * from './sale';
 export * from './sale_item';
 export * from './product';
+export * from './book_summaries';
 export * from './queries';

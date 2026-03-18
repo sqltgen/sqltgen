@@ -1,5 +1,6 @@
 out/author.go
 out/book.go
+out/book_summaries.go
 out/customer.go
 out/mod.go
 out/product.go

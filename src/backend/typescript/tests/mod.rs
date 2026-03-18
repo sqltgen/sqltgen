@@ -1,5 +1,5 @@
 use super::*;
-use crate::backend::test_helpers::get_file;
+use crate::backend::test_helpers::{get_file, user_summary_view};
 use crate::config::OutputConfig;
 use crate::ir::{Column, NativeListBind, Parameter, Query, ResultColumn, Schema, SqlType, Table};
 
@@ -61,3 +61,4 @@ mod list_params;
 mod params;
 mod type_overrides;
 mod types;
+mod views;

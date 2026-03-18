@@ -1,0 +1,7 @@
+#[derive(Debug, sqlx::FromRow)]
+pub struct Book {
+    pub id: i64,
+    pub author_id: i64,
+    pub title: String,
+    pub genre: String,
+}

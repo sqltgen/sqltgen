@@ -2,6 +2,7 @@ use super::_sqltgen::DbPool;
 
 use super::author::Author;
 use super::book::Book;
+use super::book_summaries::BookSummaries;
 use super::product::Product;
 
 #[derive(Debug, sqlx::FromRow)]
@@ -401,6 +402,17 @@ pub async fn list_books_with_author(pool: &DbPool) -> Result<Vec<ListBooksWithAu
         ORDER BY b.title
     "##;
     sqlx::query_as::<_, ListBooksWithAuthorRow>(sql)
+        .fetch_all(pool)
+        .await
+}
+
+pub async fn list_book_summaries_view(pool: &DbPool) -> Result<Vec<BookSummaries>, sqlx::Error> {
+    let sql = r##"
+        SELECT id, title, genre, author_name
+        FROM book_summaries
+        ORDER BY title
+    "##;
+    sqlx::query_as::<_, BookSummaries>(sql)
         .fetch_all(pool)
         .await
 }
@@ -917,6 +929,10 @@ impl<'a> Querier<'a> {
 
     pub async fn list_books_with_author(&self) -> Result<Vec<ListBooksWithAuthorRow>, sqlx::Error> {
         list_books_with_author(self.pool).await
+    }
+
+    pub async fn list_book_summaries_view(&self) -> Result<Vec<BookSummaries>, sqlx::Error> {
+        list_book_summaries_view(self.pool).await
     }
 
     pub async fn get_books_never_ordered(&self) -> Result<Vec<Book>, sqlx::Error> {

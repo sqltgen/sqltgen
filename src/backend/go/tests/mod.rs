@@ -1,5 +1,5 @@
 use super::*;
-use crate::backend::test_helpers::{cfg, get_file, user_table};
+use crate::backend::test_helpers::{cfg, get_file, user_summary_view, user_table};
 use crate::config::OutputConfig;
 use crate::ir::{Parameter, Query, ResultColumn, Schema, SqlType};
 
@@ -15,3 +15,4 @@ pub fn my() -> GoCodegen {
 
 mod generate;
 mod params;
+mod views;

@@ -609,4 +609,16 @@ mod tests {
         assert_eq!(schema.tables.iter().filter(|t| t.is_view()).count(), 1);
         assert_eq!(schema.functions.len(), 1);
     }
+
+    #[test]
+    fn test_drop_view_removes_from_schema() {
+        let ddl = r#"
+            CREATE TABLE users (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL);
+            CREATE VIEW user_names AS SELECT id, name FROM users;
+            DROP VIEW user_names;
+        "#;
+        let schema = parse_schema(ddl).unwrap();
+        assert!(schema.tables.iter().any(|t| t.name == "users" && !t.is_view()));
+        assert!(schema.tables.iter().all(|t| t.name != "user_names"));
+    }
 }

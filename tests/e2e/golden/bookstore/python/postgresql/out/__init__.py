@@ -5,4 +5,5 @@ from .customer import Customer
 from .sale import Sale
 from .sale_item import SaleItem
 from .product import Product
+from .book_summaries import BookSummaries
 from . import queries

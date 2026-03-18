@@ -310,4 +310,31 @@ mod tests {
         assert!(view.is_view());
         assert!(view.columns.is_empty());
     }
+
+    #[test]
+    fn test_create_view_references_another_view() {
+        let ddl = "
+            CREATE TABLE items (id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY, qty INT NOT NULL);
+            CREATE VIEW base AS SELECT id, qty FROM items;
+            CREATE VIEW derived AS SELECT id FROM base;
+        ";
+        let schema = parse_schema(ddl).unwrap();
+        let derived = schema.tables.iter().find(|t| t.name == "derived").unwrap();
+        assert!(derived.is_view());
+        assert_eq!(derived.columns.len(), 1);
+        assert_eq!(derived.columns[0].name, "id");
+        assert_eq!(derived.columns[0].sql_type, SqlType::BigInt);
+    }
+
+    #[test]
+    fn test_drop_view_removes_from_schema() {
+        let ddl = "
+            CREATE TABLE users (id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) NOT NULL);
+            CREATE VIEW user_names AS SELECT id, name FROM users;
+            DROP VIEW user_names;
+        ";
+        let schema = parse_schema(ddl).unwrap();
+        assert!(schema.tables.iter().any(|t| t.name == "users" && !t.is_view()));
+        assert!(schema.tables.iter().all(|t| t.name != "user_names"));
+    }
 }

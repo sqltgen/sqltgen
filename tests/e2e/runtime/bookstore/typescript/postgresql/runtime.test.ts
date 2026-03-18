@@ -333,6 +333,17 @@ describe('JOIN queries', () => {
     } finally { await teardown(client, schema); }
   });
 
+  it('listBookSummariesView returns rows sourced from the view', async () => {
+    const { client, schema } = await makeClient();
+    try {
+      await seed(client);
+      const rows = await queries.listBookSummariesView(client);
+      assert.equal(rows.length, 4);
+      assert.equal(rows[0].title, 'Dune');
+      assert.equal(rows[0].author_name, 'Herbert');
+    } finally { await teardown(client, schema); }
+  });
+
   it('getBooksNeverOrdered returns books with no sale_items', async () => {
     const { client, schema } = await makeClient();
     try {

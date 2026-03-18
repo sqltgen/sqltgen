@@ -278,4 +278,16 @@ mod tests {
         assert_eq!(derived.columns[0].name, "id");
         assert_eq!(derived.columns[0].sql_type, SqlType::Integer);
     }
+
+    #[test]
+    fn test_drop_view_removes_from_schema() {
+        let ddl = "
+            CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
+            CREATE VIEW user_names AS SELECT id, name FROM users;
+            DROP VIEW user_names;
+        ";
+        let schema = parse_schema(ddl).unwrap();
+        assert!(schema.tables.iter().any(|t| t.name == "users" && !t.is_view()));
+        assert!(schema.tables.iter().all(|t| t.name != "user_names"));
+    }
 }

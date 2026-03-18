@@ -46,6 +46,9 @@ class Querier(private val dataSource: DataSource) {
     fun listBooksWithAuthor(): List<Queries.ListBooksWithAuthorRow> =
         dataSource.connection.use { conn -> Queries.listBooksWithAuthor(conn) }
 
+    fun listBookSummariesView(): List<BookSummaries> =
+        dataSource.connection.use { conn -> Queries.listBookSummariesView(conn) }
+
     fun getBooksNeverOrdered(): List<Book> =
         dataSource.connection.use { conn -> Queries.getBooksNeverOrdered(conn) }
 

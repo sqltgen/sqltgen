@@ -252,6 +252,21 @@ object Queries {
         }
     }
 
+    private val SQL_LIST_BOOK_SUMMARIES_VIEW = """
+        SELECT id, title, genre, author_name
+        FROM book_summaries
+        ORDER BY title;
+    """.trimIndent()
+    fun listBookSummariesView(conn: Connection): List<BookSummaries> {
+        conn.prepareStatement(SQL_LIST_BOOK_SUMMARIES_VIEW).use { ps ->
+            val rows = mutableListOf<BookSummaries>()
+            ps.executeQuery().use { rs ->
+                while (rs.next()) rows.add(BookSummaries(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getString(4)))
+            }
+            return rows
+        }
+    }
+
     private val SQL_GET_BOOKS_NEVER_ORDERED = """
         SELECT b.id, b.author_id, b.title, b.genre, b.price, b.published_at
         FROM book b

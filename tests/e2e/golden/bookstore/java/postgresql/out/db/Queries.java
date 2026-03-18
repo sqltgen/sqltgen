@@ -259,6 +259,21 @@ public final class Queries {
         }
     }
 
+    private static final String SQL_LIST_BOOK_SUMMARIES_VIEW = """
+            SELECT id, title, genre, author_name
+            FROM book_summaries
+            ORDER BY title;
+            """;
+    public static List<BookSummaries> listBookSummariesView(Connection conn) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(SQL_LIST_BOOK_SUMMARIES_VIEW)) {
+            List<BookSummaries> rows = new ArrayList<>();
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) rows.add(new BookSummaries(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getString(4)));
+            }
+            return rows;
+        }
+    }
+
     private static final String SQL_GET_BOOKS_NEVER_ORDERED = """
             SELECT b.id, b.author_id, b.title, b.genre, b.price, b.published_at
             FROM book b
