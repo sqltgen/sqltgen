@@ -1,3 +1,4 @@
+use super::schema::Column;
 use super::types::SqlType;
 
 /// How a native list parameter is bound to the query at the driver level.
@@ -159,5 +160,11 @@ impl ResultColumn {
     /// Construct a nullable result column.
     pub fn nullable(name: impl Into<String>, sql_type: SqlType) -> Self {
         Self { name: name.into(), sql_type, nullable: true }
+    }
+}
+
+impl From<&Column> for ResultColumn {
+    fn from(col: &Column) -> Self {
+        Self { name: col.name.clone(), sql_type: col.sql_type.clone(), nullable: col.nullable }
     }
 }

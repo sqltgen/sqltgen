@@ -1,3 +1,4 @@
+use super::query::ResultColumn;
 use super::types::SqlType;
 
 /// A user-defined scalar function read from `CREATE FUNCTION` DDL.
@@ -86,5 +87,11 @@ impl Column {
     /// Construct a non-nullable primary key column.
     pub fn new_primary_key(name: impl Into<String>, sql_type: SqlType) -> Self {
         Self { name: name.into(), sql_type, nullable: false, is_primary_key: true }
+    }
+}
+
+impl From<ResultColumn> for Column {
+    fn from(rc: ResultColumn) -> Self {
+        Self { name: rc.name, sql_type: rc.sql_type, nullable: rc.nullable, is_primary_key: false }
     }
 }

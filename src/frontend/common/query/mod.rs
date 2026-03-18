@@ -25,10 +25,11 @@ use dml::{
     build_delete, build_insert, build_update, collect_delete_where_params, collect_insert_value_params, collect_returning_params, collect_update_params,
 };
 use params::{collect_join_params, collect_limit_offset_params, collect_params_from_expr};
-use resolve::{col_to_result, resolve_expr, resolve_projection};
+use resolve::{resolve_expr, resolve_projection};
 use select::build_select;
 
 /// Dialect-agnostic type inference configuration.
+#[derive(Clone)]
 pub(crate) struct ResolverConfig {
     /// Return type of SUM applied to smallint/integer columns.
     /// PostgreSQL: BigInt.  MySQL: Decimal.  SQLite: BigInt.
@@ -129,14 +130,7 @@ fn build_effective_config(config: &ResolverConfig, schema: &Schema) -> ResolverC
     for f in &schema.functions {
         user_functions.entry(f.name.to_uppercase()).or_default().push((f.param_types.clone(), f.return_type.clone()));
     }
-    ResolverConfig {
-        sum_integer_type: config.sum_integer_type.clone(),
-        sum_bigint_type: config.sum_bigint_type.clone(),
-        avg_integer_type: config.avg_integer_type.clone(),
-        typemap: config.typemap,
-        native_list_sql: config.native_list_sql,
-        user_functions,
-    }
+    ResolverConfig { user_functions, ..config.clone() }
 }
 
 // ─── Block splitting ─────────────────────────────────────────────────────────
@@ -405,10 +399,7 @@ pub(super) fn build_alias_map(tables: &[(Table, Option<String>)]) -> HashMap<Str
 
 /// Convert RETURNING result columns to `Column` values (no primary-key flag).
 fn returning_to_columns(returning: &[SelectItem], table: &Table, config: &ResolverConfig) -> Vec<Column> {
-    resolve_returning(returning, table, config)
-        .into_iter()
-        .map(|rc| Column { name: rc.name, sql_type: rc.sql_type, nullable: rc.nullable, is_primary_key: false })
-        .collect()
+    resolve_returning(returning, table, config).into_iter().map(Column::from).collect()
 }
 
 /// Resolve RETURNING columns for an INSERT CTE body.
@@ -466,10 +457,7 @@ pub(super) fn derived_cols(subquery: &SqlQuery, schema: &Schema, ctes: &[Table],
     let alias_map = build_alias_map(&inner_tables);
 
     // Reuse resolve_projection and convert ResultColumn → Column (no PK flag for derived tables).
-    resolve_projection(select, &alias_map, &inner_tables, config, schema)
-        .into_iter()
-        .map(|rc| Column { name: rc.name, sql_type: rc.sql_type, nullable: rc.nullable, is_primary_key: false })
-        .collect()
+    resolve_projection(select, &alias_map, &inner_tables, config, schema).into_iter().map(Column::from).collect()
 }
 
 pub(super) fn build_cte_scope(with: Option<&With>, schema: &Schema, config: &ResolverConfig) -> Vec<Table> {
@@ -511,7 +499,7 @@ pub(super) fn resolve_returning(items: &[SelectItem], table: &Table, config: &Re
     for item in items {
         match item {
             SelectItem::Wildcard(_) => {
-                result.extend(table.columns.iter().map(col_to_result));
+                result.extend(table.columns.iter().map(ResultColumn::from));
             },
             SelectItem::UnnamedExpr(expr) => {
                 if let Some(rc) = resolve_expr(expr, &alias_map, &all_tables, config) {

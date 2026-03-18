@@ -18,7 +18,7 @@ fn try_preset_rust(name: &str) -> Option<ResolvedType> {
     match name {
         // sqlx implements Decode/Encode for serde_json::Value natively —
         // no read_expr/write_expr needed; the type name alone is sufficient.
-        "serde_json" => Some(ResolvedType { name: "serde_json::Value".to_string(), import: None, read_expr: None, write_expr: None, extra_fields: vec![] }),
+        "serde_json" => Some(ResolvedType::simple("serde_json::Value")),
         _ => None,
     }
 }

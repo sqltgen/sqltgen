@@ -35,11 +35,7 @@ pub fn group_queries(queries: &[Query]) -> Vec<(String, Vec<Query>)> {
 /// - `""` or `"queries"` → `"Queries"` (default, no prefix)
 /// - Any other group → `"{PascalCase(group)}Queries"` (e.g. `"users"` → `"UsersQueries"`)
 pub fn queries_class_name(group: &str) -> String {
-    if group.is_empty() || group == "queries" {
-        "Queries".to_string()
-    } else {
-        format!("{}Queries", to_pascal_case(group))
-    }
+    group_class_name(group, "Queries")
 }
 
 /// Return the Querier wrapper class/object name for a query group.
@@ -47,10 +43,16 @@ pub fn queries_class_name(group: &str) -> String {
 /// - `""` or `"queries"` → `"Querier"` (default, no prefix)
 /// - Any other group → `"{PascalCase(group)}Querier"` (e.g. `"users"` → `"UsersQuerier"`)
 pub fn querier_class_name(group: &str) -> String {
+    group_class_name(group, "Querier")
+}
+
+/// Derive a class name from a query group: use `default` when the group is the
+/// canonical default, otherwise prefix with the PascalCase group name.
+fn group_class_name(group: &str, default: &str) -> String {
     if group.is_empty() || group == "queries" {
-        "Querier".to_string()
+        default.to_string()
     } else {
-        format!("{}Querier", to_pascal_case(group))
+        format!("{}{default}", to_pascal_case(group))
     }
 }
 

@@ -111,6 +111,18 @@ pub struct ResolvedType {
     pub extra_fields: Vec<ExtraField>,
 }
 
+impl ResolvedType {
+    /// Construct a type with a name only — no import, no expressions, no extra fields.
+    pub fn simple(name: impl Into<String>) -> Self {
+        Self { name: name.into(), import: None, read_expr: None, write_expr: None, extra_fields: vec![] }
+    }
+
+    /// Construct a type with a name and a fully-qualified import path.
+    pub fn with_import(name: impl Into<String>, import: impl Into<String>) -> Self {
+        Self { name: name.into(), import: Some(import.into()), read_expr: None, write_expr: None, extra_fields: vec![] }
+    }
+}
+
 /// A static field declaration to emit in the generated query class (e.g. an `ObjectMapper`
 /// for Jackson). Used to avoid re-creating expensive objects per call.
 #[derive(Debug, Clone)]
@@ -218,9 +230,9 @@ pub fn resolve_type_ref(type_ref: &TypeRef) -> Option<ResolvedType> {
             }
             if s.contains('.') {
                 let name = s.split('.').next_back().unwrap_or(s.as_str()).to_string();
-                Some(ResolvedType { name, import: Some(s.clone()), read_expr: None, write_expr: None, extra_fields: vec![] })
+                Some(ResolvedType::with_import(name, s.clone()))
             } else {
-                Some(ResolvedType { name: s.clone(), import: None, read_expr: None, write_expr: None, extra_fields: vec![] })
+                Some(ResolvedType::simple(s.clone()))
             }
         },
     }

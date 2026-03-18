@@ -14,14 +14,9 @@ use sqlparser::ast::{
 };
 
 use crate::frontend::common::ident_to_str;
-use crate::ir::{Column, ResultColumn, Schema, SqlType, Table};
+use crate::ir::{ResultColumn, Schema, SqlType, Table};
 
 use super::ResolverConfig;
-
-/// Convert a schema [`Column`] to a [`ResultColumn`].
-pub(super) fn col_to_result(col: &Column) -> ResultColumn {
-    ResultColumn { name: col.name.clone(), sql_type: col.sql_type.clone(), nullable: col.nullable }
-}
 
 /// Resolve a SELECT projection into typed result columns.
 pub(super) fn resolve_projection(
@@ -36,14 +31,14 @@ pub(super) fn resolve_projection(
         match item {
             SelectItem::Wildcard(_) => {
                 for (t, _) in all_tables {
-                    result.extend(t.columns.iter().map(col_to_result));
+                    result.extend(t.columns.iter().map(ResultColumn::from));
                 }
             },
             SelectItem::QualifiedWildcard(SelectItemQualifiedWildcardKind::ObjectName(name), _) => {
                 let qualifier =
                     name.0.last().and_then(|p| if let ObjectNamePart::Identifier(i) = p { Some(ident_to_str(i)) } else { None }).unwrap_or_default();
                 if let Some(t) = alias_map.get(&qualifier) {
-                    result.extend(t.columns.iter().map(col_to_result));
+                    result.extend(t.columns.iter().map(ResultColumn::from));
                 }
             },
             SelectItem::QualifiedWildcard(SelectItemQualifiedWildcardKind::Expr(_), _) => {},
@@ -124,12 +119,12 @@ pub(super) fn resolve_expr(
         // ── Column references ────────────────────────────────────────────
         Expr::Identifier(ident) => {
             let col_name = ident_to_str(ident);
-            all_tables.iter().flat_map(|(t, _)| t.columns.iter()).find(|c| c.name == col_name).map(col_to_result)
+            all_tables.iter().flat_map(|(t, _)| t.columns.iter()).find(|c| c.name == col_name).map(ResultColumn::from)
         },
         Expr::CompoundIdentifier(parts) if parts.len() >= 2 => {
             let qualifier = ident_to_str(&parts[parts.len() - 2]);
             let col_name = ident_to_str(&parts[parts.len() - 1]);
-            alias_map.get(&qualifier).and_then(|t| t.columns.iter().find(|c| c.name == col_name)).map(col_to_result)
+            alias_map.get(&qualifier).and_then(|t| t.columns.iter().find(|c| c.name == col_name)).map(ResultColumn::from)
         },
 
         // ── Literals ─────────────────────────────────────────────────────
@@ -171,9 +166,7 @@ pub(super) fn resolve_expr(
 
         // ── Unary operators ──────────────────────────────────────────────
         Expr::UnaryOp { op: UnaryOperator::Not, .. } => Some(ResultColumn::not_nullable("not", SqlType::Boolean)),
-        Expr::UnaryOp { op: UnaryOperator::Minus, expr } => {
-            resolve_expr(expr, alias_map, all_tables, config).map(|rc| ResultColumn { name: rc.name, sql_type: rc.sql_type, nullable: rc.nullable })
-        },
+        Expr::UnaryOp { op: UnaryOperator::Minus, expr } => resolve_expr(expr, alias_map, all_tables, config),
         Expr::UnaryOp { op: UnaryOperator::Plus, expr } => resolve_expr(expr, alias_map, all_tables, config),
 
         // ── CAST(expr AS type) ───────────────────────────────────────────
