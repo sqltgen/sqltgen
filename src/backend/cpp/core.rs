@@ -277,24 +277,67 @@ fn emit_function_def(src: &mut String, query: &Query, schema: &Schema, contract:
 // ─── Engine-specific body emitters ────────────────────────────────────────────
 
 /// Emit the function body for a libpqxx (PostgreSQL) query.
-fn emit_pqxx_body(src: &mut String, query: &Query, _schema: &Schema) -> anyhow::Result<()> {
+fn emit_pqxx_body(src: &mut String, query: &Query, schema: &Schema) -> anyhow::Result<()> {
     let const_name = sql_const_name(&query.name);
     let param_names: Vec<String> = query.params.iter().map(|p| to_snake_case(&p.name)).collect();
 
+    // Emit the common execute preamble: txn + exec/exec_params.
+    let emit_exec = |src: &mut String, capture: &str| -> anyhow::Result<()> {
+        writeln!(src, "    pqxx::work txn(db);")?;
+        if param_names.is_empty() {
+            writeln!(src, "    {capture}txn.exec({const_name});")?;
+        } else {
+            writeln!(src, "    {capture}txn.exec_params({const_name}, {});", param_names.join(", "))?;
+        }
+        writeln!(src, "    txn.commit();")?;
+        Ok(())
+    };
+
     match query.cmd {
         QueryCmd::Exec => {
-            writeln!(src, "    pqxx::work txn(db);")?;
-            if param_names.is_empty() {
-                writeln!(src, "    txn.exec({const_name});")?;
-            } else {
-                writeln!(src, "    txn.exec_params({const_name}, {});", param_names.join(", "))?;
-            }
-            writeln!(src, "    txn.commit();")?;
+            emit_exec(src, "")?;
         },
-        _ => {
-            writeln!(src, "    // TODO: not yet implemented")?;
+        QueryCmd::ExecRows => {
+            emit_exec(src, "pqxx::result r = ")?;
+            writeln!(src, "    return r.affected_rows();")?;
+        },
+        QueryCmd::One => {
+            let row_type = result_row_type(query, schema);
+            emit_exec(src, "pqxx::result r = ")?;
+            writeln!(src, "    if (r.empty()) return std::nullopt;")?;
+            writeln!(src, "    const auto& row = r[0];")?;
+            emit_pqxx_row_construction(src, &row_type, &query.result_columns, "    ")?;
+            writeln!(src, "    return result;")?;
+        },
+        QueryCmd::Many => {
+            let row_type = result_row_type(query, schema);
+            emit_exec(src, "pqxx::result r = ")?;
+            writeln!(src, "    std::vector<{row_type}> rows;")?;
+            writeln!(src, "    rows.reserve(r.size());")?;
+            writeln!(src, "    for (const auto& row : r) {{")?;
+            emit_pqxx_row_construction(src, &row_type, &query.result_columns, "        ")?;
+            writeln!(src, "        rows.push_back(std::move(result));")?;
+            writeln!(src, "    }}")?;
+            writeln!(src, "    return rows;")?;
         },
     }
+    Ok(())
+}
+
+/// Emit a row construction: `auto result = RowType{ row[0].as<T>(), ... };`
+fn emit_pqxx_row_construction(src: &mut String, row_type: &str, columns: &[crate::ir::ResultColumn], indent: &str) -> anyhow::Result<()> {
+    writeln!(src, "{indent}auto result = {row_type}{{")?;
+    for (i, col) in columns.iter().enumerate() {
+        let base_type = cpp_type(&col.sql_type, false);
+        let expr = if col.nullable {
+            format!("row[{i}].is_null() ? std::nullopt : std::optional<{base_type}>(row[{i}].as<{base_type}>())")
+        } else {
+            format!("row[{i}].as<{base_type}>()")
+        };
+        let comma = if i + 1 < columns.len() { "," } else { "" };
+        writeln!(src, "{indent}    {expr}{comma}")?;
+    }
+    writeln!(src, "{indent}}};")?;
     Ok(())
 }
 
