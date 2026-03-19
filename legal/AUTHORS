@@ -1,0 +1,8 @@
+# This is the official list of sqltgen authors.
+#
+# Names should be added to this file as:
+#   Full Name <email address>
+#
+# See also: git log --follow --format="%an <%ae>" | sort -u
+
+Leon Kacowicz <leonkacowicz@users.noreply.github.com>

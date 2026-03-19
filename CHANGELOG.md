@@ -20,8 +20,8 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
   type tables for all backends), per-language guides for Java, Kotlin, Rust,
   Python, TypeScript, and JavaScript, and `contributing.md`. The `docs/book.toml`
   is configured with the correct title, repo link, and edit-URL template.
-- **`docs.yml` CI action** — deploys the mdBook to Cloudflare Pages on every push
-  to `master` that touches `docs/`.
+- **`docs.yml` CI action** — deploys the mdBook to S3/CloudFront on every push
+  to `main` that touches `docs/`.
 
 
 - **`CREATE VIEW` support** — all three SQL dialects (PostgreSQL, SQLite, MySQL)
