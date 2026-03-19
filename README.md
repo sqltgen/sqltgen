@@ -243,7 +243,13 @@ See [`examples/README.md`](examples/README.md) for prerequisites.
 
 ## License
 
-> **To be defined.** See [#3](https://github.com/sqltgen/sqltgen/issues/3).
+Copyright 2026 The sqltgen Authors.
+
+Licensed under the [Apache License, Version 2.0](LICENSE).
+
+Generated output (code produced by sqltgen from your schemas and queries) is
+owned by you and is not subject to this license. See [`legal/NOTICE`](legal/NOTICE)
+for details.
 
 ---
 
