@@ -2,3 +2,4 @@
 .claude
 target/
 **/*/.project
+docs/book/

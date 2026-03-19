@@ -696,7 +696,7 @@ Inspect the golden files and verify the output looks correct.
 
 - `STATUS.md` — fill in the new language column with ✅/⚠️/❌ for each feature.
 - `PLAN.md` — update the backend status table.
-- `docs/user-guide.md` — add a section for the new language.
+- `docs/src/languages/{lang}.md` — add a language guide page to the mdBook.
 
 ---
 
@@ -854,4 +854,4 @@ Before a PR adding a new backend or dialect can be merged:
 - [ ] E2E snapshot golden files generated and committed
 - [ ] `STATUS.md` updated — flip feature cells from ❌/🚧 to ✅/⚠️
 - [ ] `PLAN.md` updated — mark completed items
-- [ ] `docs/user-guide.md` updated — add the new language/dialect section
+- [ ] `docs/src/languages/{lang}.md` added or updated in the mdBook

@@ -216,4 +216,5 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 
 See `PLAN.md` → Roadmap section, and `memory/roadmap.md` for full distribution plan.
 
-Pending: license choice, docs (mdBook), CI/CD (cargo-dist), distribution channels.
+Pending: license choice, CI/CD (cargo-dist), distribution channels.
+Done: docs (mdBook under `docs/src/`; `docs.yml` CI deploy action).

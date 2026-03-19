@@ -1,0 +1,15 @@
+[book]
+title = "sqltgen"
+authors = ["sqltgen contributors"]
+language = "en"
+src = "src"
+
+[output.html]
+git-repository-url = "https://github.com/sqltgen/sqltgen"
+edit-url-template = "https://github.com/sqltgen/sqltgen/edit/main/docs/src/{path}"
+site-url = "/"
+no-section-label = false
+
+[output.html.fold]
+enable = true
+level = 1

@@ -176,6 +176,6 @@ See `RELEASE_ROADMAP.md` (in the parent directory) for the full plan. Summary:
 
 - Phase 1: License (deferred — see roadmap), CHANGELOG, CONTRIBUTING, README
 - Phase 2: CI/CD via cargo-dist (ci.yml, release.yml, docs.yml)
-- Phase 3: mdBook documentation at docs.sqltgen.org; sqltgen.org redirects there
+- ~~Phase 3: mdBook documentation at docs.sqltgen.org; sqltgen.org redirects there~~ ✅
 - Phase 4: Distribution — crates.io, Homebrew, AUR, Scoop, .deb, .rpm
 - Phase 5 (future): Full landing page + WASM playground at sqltgen.org

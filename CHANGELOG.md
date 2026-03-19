@@ -11,6 +11,19 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
 ## [Unreleased]
 
 ### Added
+- **mdBook documentation site** — comprehensive user documentation under
+  `docs/src/` structured as an mdBook. Includes: `introduction.md` (what sqltgen
+  is, why it exists, comparison to sqlc), `installation.md` (cargo, Homebrew,
+  curl, .deb/.rpm), `quickstart.md` (end-to-end Java example), `config.md` (full
+  `sqltgen.json` reference), `queries.md` (annotation syntax, named params,
+  commands, RETURNING, CTEs, JOINs, list params), `types.md` (SQL type → language
+  type tables for all backends), per-language guides for Java, Kotlin, Rust,
+  Python, TypeScript, and JavaScript, and `contributing.md`. The `docs/book.toml`
+  is configured with the correct title, repo link, and edit-URL template.
+- **`docs.yml` CI action** — deploys the mdBook to Cloudflare Pages on every push
+  to `master` that touches `docs/`.
+
+
 - **`CREATE VIEW` support** — all three SQL dialects (PostgreSQL, SQLite, MySQL)
   now parse `CREATE VIEW … AS SELECT …` in schema files. Views are registered in
   the `Schema` as `TableKind::View` entries; their column types are inferred
