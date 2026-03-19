@@ -1,1 +1,6 @@
 target/
+
+# Eclipse / Spring Tools project files
+.classpath
+.project
+.settings/
