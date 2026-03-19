@@ -68,7 +68,7 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | Multiple query files | ✅ | ✅ | ✅ |
 | Glob patterns for `schema` / `queries` paths | ⚠️ queries only | ⚠️ queries only | ⚠️ queries only |
 | `UNION` / `INTERSECT` / `EXCEPT` result columns | ✅ | ✅ | ✅ |
-| `CAST(x AS type)` result type | ❌ | ❌ | ❌ |
+| `CAST(x AS type)` result type | ✅ | ✅ | ✅ |
 | `HAVING` parameters | ✅ | ✅ | ✅ |
 | Schema-qualified table refs (`schema.table`) | ❌ | ❌ | ❌ |
 | `CREATE VIEW` (column type inference) | ✅ | ✅ | ✅ |
@@ -151,7 +151,7 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | Multiple query files (list of paths) | ✅ | Supports list of files and globs |
 | Query grouping (map form: group name → paths) | ✅ | Each group → one output file per language |
 | Glob patterns for `schema` / `queries` | ⚠️ | Queries only (schema still single file/dir) |
-| Type overrides (map DB type / column → custom type) | ❌ | Per-language override map in config |
+| Type overrides (map DB type / column → custom type) | ✅ | Per-language override map in config |
 | Field / struct renaming | ❌ | `rename: { col: "FieldName" }` map in config |
 | Emit JSON tags / annotations on generated types | ❌ | |
 | Emit prepared query variants | ❌ | |
