@@ -1,8 +1,16 @@
 package db
 
+import com.fasterxml.jackson.databind.JsonNode
+import com.fasterxml.jackson.databind.ObjectMapper
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.LocalTime
+import java.time.OffsetDateTime
+import java.util.UUID
 import javax.sql.DataSource
 
 class Querier(private val dataSource: DataSource) {
+    private val objectMapper = ObjectMapper()
 
     fun getEvent(id: Long): Event? =
         dataSource.connection.use { conn -> Queries.getEvent(conn, id) }
@@ -10,15 +18,27 @@ class Querier(private val dataSource: DataSource) {
     fun listEvents(): List<Event> =
         dataSource.connection.use { conn -> Queries.listEvents(conn) }
 
-    fun insertEvent(name: String, payload: String, meta: String?, docId: java.util.UUID, createdAt: java.time.LocalDateTime, scheduledAt: java.time.OffsetDateTime?, eventDate: java.time.LocalDate?, eventTime: java.time.LocalTime?): Unit =
+    fun insertEvent(name: String, payload: JsonNode, meta: JsonNode?, docId: UUID, createdAt: LocalDateTime, scheduledAt: OffsetDateTime?, eventDate: LocalDate?, eventTime: LocalTime?): Unit =
         dataSource.connection.use { conn -> Queries.insertEvent(conn, name, payload, meta, docId, createdAt, scheduledAt, eventDate, eventTime) }
 
-    fun updatePayload(payload: String, meta: String?, id: Long): Unit =
+    fun updatePayload(payload: JsonNode, meta: JsonNode?, id: Long): Unit =
         dataSource.connection.use { conn -> Queries.updatePayload(conn, payload, meta, id) }
 
-    fun findByDate(eventDate: java.time.LocalDate?): Queries.FindByDateRow? =
+    fun findByDate(eventDate: LocalDate?): Queries.FindByDateRow? =
         dataSource.connection.use { conn -> Queries.findByDate(conn, eventDate) }
 
-    fun findByUuid(docId: java.util.UUID): Queries.FindByUuidRow? =
+    fun findByUuid(docId: UUID): Queries.FindByUuidRow? =
         dataSource.connection.use { conn -> Queries.findByUuid(conn, docId) }
+
+    fun insertEventRows(name: String, payload: JsonNode, meta: JsonNode?, docId: UUID, createdAt: LocalDateTime, scheduledAt: OffsetDateTime?, eventDate: LocalDate?, eventTime: LocalTime?): Long =
+        dataSource.connection.use { conn -> Queries.insertEventRows(conn, name, payload, meta, docId, createdAt, scheduledAt, eventDate, eventTime) }
+
+    fun getEventsByDateRange(createdAt: LocalDateTime, createdAt2: LocalDateTime): List<Event> =
+        dataSource.connection.use { conn -> Queries.getEventsByDateRange(conn, createdAt, createdAt2) }
+
+    fun countEvents(createdAt: LocalDateTime): Queries.CountEventsRow? =
+        dataSource.connection.use { conn -> Queries.countEvents(conn, createdAt) }
+
+    fun updateEventDate(eventDate: LocalDate?, id: Long): Unit =
+        dataSource.connection.use { conn -> Queries.updateEventDate(conn, eventDate, id) }
 }

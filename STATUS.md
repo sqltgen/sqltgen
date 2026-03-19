@@ -207,8 +207,8 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | Backend — common (common + sql_rewrite + naming) | 50 |
 | Backend — JDBC | 13 |
 | Backend — TypeScript / JavaScript | 50 |
-| Integration (snapshots + resilience) | 39 |
-| **Total** | **814** |
+| Integration (snapshots + resilience) | 45 |
+| **Total** | **819** |
 
 ---
 

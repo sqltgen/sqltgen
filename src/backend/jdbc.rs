@@ -336,6 +336,14 @@ pub fn collect_override_metadata(
                 if let Some(imp) = resolved.import {
                     imports.insert(imp);
                 }
+                for ef in resolved.extra_fields {
+                    if let Some(imp) = &ef.import {
+                        imports.insert(imp.clone());
+                    }
+                    if !extra_fields.iter().any(|e| e.declaration == ef.declaration) {
+                        extra_fields.push(ef);
+                    }
+                }
             }
         }
     }

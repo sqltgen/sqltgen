@@ -1,0 +1,16 @@
+{
+    "version": "1",
+    "engine": "postgresql",
+    "schema": "../../../../fixtures/type_overrides/schema.sql",
+    "queries": "../../../../fixtures/type_overrides/queries.sql",
+    "gen": {
+        "rust": {
+            "out": "src/db",
+            "package": "db",
+            "type_overrides": {
+                "json":  "serde_json",
+                "jsonb": "serde_json"
+            }
+        }
+    }
+}

@@ -194,7 +194,11 @@ fn test_jackson_read_expr_uses_get_string() {
     let files = pg().generate(&schema, &[query], &cfg).unwrap();
     let src = get_file(&files, "Queries.java");
 
-    assert!(src.contains("objectMapper.readValue(rs.getString(1), JsonNode.class)"), "expected getString in readValue:\n{src}");
+    assert!(src.contains("parseJson(rs.getString(1))"), "expected helper call with getString raw value:\n{src}");
+    assert!(
+        src.contains("objectMapper.readValue(raw, com.fasterxml.jackson.databind.JsonNode.class)"),
+        "expected parse helper to delegate to ObjectMapper.readValue:\n{src}"
+    );
 }
 
 // ─── timestamp/timestamptz override ──────────────────────────────────────────
@@ -282,15 +286,15 @@ fn test_multiple_overrides_collect_all_imports() {
 #[test]
 fn test_write_expr_applied_to_param_binding() {
     // When write_expr is configured, the param binding should apply the expression.
-    // e.g. jackson: ps.setObject(1, objectMapper.writeValueAsString(payload), Types.OTHER)
-    // rather than ps.setObject(1, payload, Types.OTHER)
+    // Jackson uses a helper that wraps checked JsonProcessingException.
     let schema = Schema::default();
     let query = Query::exec("InsertDoc", "INSERT INTO docs (payload) VALUES ($1)", vec![Parameter::scalar(1, "payload", SqlType::Json, false)]);
     let cfg = cfg_with_overrides(vec![("json", TypeOverride::Same(TypeRef::String("jackson".to_string())))]);
     let files = pg().generate(&schema, &[query], &cfg).unwrap();
     let src = get_file(&files, "Queries.java");
 
-    assert!(src.contains("objectMapper.writeValueAsString(payload)"), "expected write_expr applied to param binding:\n{src}");
+    assert!(src.contains("toJson(payload)"), "expected write_expr helper applied to param binding:\n{src}");
+    assert!(src.contains("objectMapper.writeValueAsString(value)"), "expected helper to delegate to ObjectMapper:\n{src}");
 }
 
 // ─── no override — existing output unchanged ──────────────────────────────────

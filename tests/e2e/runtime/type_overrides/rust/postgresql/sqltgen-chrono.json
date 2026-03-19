@@ -1,0 +1,20 @@
+{
+    "version": "1",
+    "engine": "postgresql",
+    "schema": "../../../../fixtures/type_overrides/schema.sql",
+    "queries": "../../../../fixtures/type_overrides/queries.sql",
+    "gen": {
+        "rust": {
+            "out": "src_chrono/db",
+            "package": "db",
+            "type_overrides": {
+                "json":        "serde_json",
+                "jsonb":       "serde_json",
+                "timestamp":   { "type": "chrono::NaiveDateTime",        "import": "chrono" },
+                "timestamptz": { "type": "chrono::DateTime<chrono::Utc>", "import": "chrono" },
+                "date":        { "type": "chrono::NaiveDate",             "import": "chrono" },
+                "time":        { "type": "chrono::NaiveTime",             "import": "chrono" }
+            }
+        }
+    }
+}

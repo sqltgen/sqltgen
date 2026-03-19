@@ -11,7 +11,7 @@ use crate::backend::jdbc::{
 };
 use crate::backend::naming::{to_camel_case, to_pascal_case};
 use crate::backend::GeneratedFile;
-use crate::config::{resolve_type_override, Language, ListParamStrategy, OutputConfig, ResolvedType, TypeVariant};
+use crate::config::{resolve_type_override, ExtraField, Language, ListParamStrategy, OutputConfig, ResolvedType, TypeVariant};
 use crate::ir::{Parameter, Query, QueryCmd, Schema, SqlType};
 
 use super::adapter::JvmCoreContract;
@@ -21,8 +21,35 @@ use super::adapter::JvmCoreContract;
 /// Returns `None` for unknown names (handled by [`resolve_type_ref`] instead).
 fn try_preset_java(name: &str) -> Option<ResolvedType> {
     match name {
-        "jackson" => Some(preset_jackson("JsonNode.class", "private static final ObjectMapper objectMapper = new ObjectMapper();")),
-        "gson" => Some(preset_gson("JsonElement.class", "private static final Gson GSON = new Gson();")),
+        "jackson" => {
+            let mut rt = preset_jackson("JsonNode.class", "private static final ObjectMapper objectMapper = new ObjectMapper();");
+            // Java has checked exceptions: objectMapper.readValue() throws JsonProcessingException.
+            // Replace the inline read_expr with a call to a private helper that wraps the
+            // checked exception as a RuntimeException so query methods only declare SQLException.
+            rt.read_expr = Some("parseJson({raw})".to_string());
+            rt.write_expr = Some("toJson({value})".to_string());
+            rt.extra_fields.push(ExtraField {
+                declaration: concat!(
+                    "private static com.fasterxml.jackson.databind.JsonNode parseJson(String raw) {",
+                    " try { return raw == null ? null : objectMapper.readValue(raw, com.fasterxml.jackson.databind.JsonNode.class); }",
+                    " catch (com.fasterxml.jackson.core.JsonProcessingException e) { throw new RuntimeException(e); } }"
+                )
+                .to_string(),
+                import: None,
+            });
+            rt.extra_fields.push(ExtraField {
+                declaration: concat!(
+                    "private static String toJson(com.fasterxml.jackson.databind.JsonNode value) {",
+                    " if (value == null) return null;",
+                    " try { return objectMapper.writeValueAsString(value); }",
+                    " catch (com.fasterxml.jackson.core.JsonProcessingException e) { throw new RuntimeException(e); } }"
+                )
+                .to_string(),
+                import: None,
+            });
+            Some(rt)
+        },
+        "gson" => Some(preset_gson("JsonElement.class", "private static final Gson gson = new Gson();")),
         _ => None,
     }
 }
@@ -163,7 +190,7 @@ pub(super) fn generate_core_files(schema: &Schema, queries: &[Query], contract: 
         .iter()
         .map(|s| s.to_string())
         .collect();
-        all_imports.extend(override_imports);
+        all_imports.extend(override_imports.iter().cloned());
         for imp in &all_imports {
             writeln!(src, "import {imp};")?;
         }
@@ -192,7 +219,7 @@ pub(super) fn generate_core_files(schema: &Schema, queries: &[Query], contract: 
 
         let mut src = String::new();
         emit_package(&mut src, &config.package, ";");
-        emit_java_querier(&mut src, &group_queries, schema, &class_name, &querier_name, contract)?;
+        emit_java_querier(&mut src, &group_queries, schema, &class_name, &querier_name, contract, config, &override_imports, &extra_fields)?;
         let path = record_path(&config.out, &config.package, &querier_name);
         files.push(GeneratedFile { path, content: src });
     }
@@ -377,22 +404,32 @@ fn emit_java_querier(
     class_name: &str,
     querier_name: &str,
     contract: &JvmCoreContract,
+    config: &OutputConfig,
+    override_imports: &BTreeSet<String>,
+    extra_fields: &[crate::config::ExtraField],
 ) -> anyhow::Result<()> {
     let has_one = queries.iter().any(|q| q.cmd == QueryCmd::One);
     let has_many = queries.iter().any(|q| q.cmd == QueryCmd::Many);
 
-    writeln!(src, "import java.sql.Connection;")?;
-    writeln!(src, "import java.sql.SQLException;")?;
+    // Emit all imports: standard JDBC + any type-override imports, sorted.
+    let mut all_imports: BTreeSet<String> = ["java.sql.Connection", "java.sql.SQLException", "javax.sql.DataSource"].iter().map(|s| s.to_string()).collect();
     if has_many {
-        writeln!(src, "import java.util.List;")?;
+        all_imports.insert("java.util.List".to_string());
     }
     if has_one {
-        writeln!(src, "import java.util.Optional;")?;
+        all_imports.insert("java.util.Optional".to_string());
     }
-    writeln!(src, "import javax.sql.DataSource;")?;
+    all_imports.extend(override_imports.iter().cloned());
+    for imp in &all_imports {
+        writeln!(src, "import {imp};")?;
+    }
+
     writeln!(src)?;
     writeln!(src, "public final class {querier_name} {{")?;
     writeln!(src, "    private final DataSource dataSource;")?;
+    for ef in extra_fields {
+        writeln!(src, "    {}", ef.declaration)?;
+    }
     writeln!(src)?;
     writeln!(src, "    public {querier_name}(DataSource dataSource) {{")?;
     writeln!(src, "        this.dataSource = dataSource;")?;
@@ -400,7 +437,7 @@ fn emit_java_querier(
 
     for query in queries {
         writeln!(src)?;
-        emit_java_querier_method(src, query, schema, class_name, contract)?;
+        emit_java_querier_method(src, query, schema, class_name, contract, config)?;
     }
 
     writeln!(src, "}}")?;
@@ -408,7 +445,14 @@ fn emit_java_querier(
 }
 
 /// Emits one instance method on the querier class that wraps the corresponding static method.
-fn emit_java_querier_method(src: &mut String, query: &Query, schema: &Schema, class_name: &str, contract: &JvmCoreContract) -> anyhow::Result<()> {
+fn emit_java_querier_method(
+    src: &mut String,
+    query: &Query,
+    schema: &Schema,
+    class_name: &str,
+    contract: &JvmCoreContract,
+    config: &OutputConfig,
+) -> anyhow::Result<()> {
     let row = jdbc::ds_result_row_type(query, schema, contract.fallback_type, class_name);
     let return_type = match query.cmd {
         QueryCmd::One => format!("Optional<{row}>"),
@@ -417,7 +461,8 @@ fn emit_java_querier_method(src: &mut String, query: &Query, schema: &Schema, cl
         QueryCmd::ExecRows => "long".to_string(),
     };
 
-    let params_sig: String = query.params.iter().map(|p| format!("{} {}", java_param_type(p), to_camel_case(&p.name))).collect::<Vec<_>>().join(", "); // Ds uses plain types (no config needed — matches what callers expect)
+    let params_sig: String =
+        query.params.iter().map(|p| format!("{} {}", java_param_type_resolved(p, config), to_camel_case(&p.name))).collect::<Vec<_>>().join(", ");
 
     let method_name = to_camel_case(&query.name);
     let args: String = query.params.iter().map(|p| to_camel_case(&p.name)).collect::<Vec<_>>().join(", ");

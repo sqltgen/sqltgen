@@ -1,0 +1,17 @@
+{
+  "name": "e2e-type-overrides-typescript-postgresql",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "test": "tsx --test runtime.test.ts"
+  },
+  "dependencies": {
+    "pg": "^8.13.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.11.10",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

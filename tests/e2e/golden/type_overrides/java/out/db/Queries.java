@@ -18,6 +18,8 @@ import java.util.UUID;
 public final class Queries {
     private Queries() {}
     private static final ObjectMapper objectMapper = new ObjectMapper();
+    private static com.fasterxml.jackson.databind.JsonNode parseJson(String raw) { try { return raw == null ? null : objectMapper.readValue(raw, com.fasterxml.jackson.databind.JsonNode.class); } catch (com.fasterxml.jackson.core.JsonProcessingException e) { throw new RuntimeException(e); } }
+    private static String toJson(com.fasterxml.jackson.databind.JsonNode value) { try { return objectMapper.writeValueAsString(value); } catch (com.fasterxml.jackson.core.JsonProcessingException e) { throw new RuntimeException(e); } }
 
     private static final String SQL_GET_EVENT = """
             SELECT id, name, payload, meta, doc_id, created_at, scheduled_at, event_date, event_time
@@ -29,7 +31,7 @@ public final class Queries {
             ps.setLong(1, id);
             try (ResultSet rs = ps.executeQuery()) {
                 if (!rs.next()) return Optional.empty();
-                return Optional.of(new Event(rs.getLong(1), rs.getString(2), objectMapper.readValue(rs.getString(3), JsonNode.class), objectMapper.readValue(rs.getString(4), JsonNode.class), rs.getObject(5, UUID.class), rs.getObject(6, LocalDateTime.class), rs.getObject(7, OffsetDateTime.class), rs.getObject(8, LocalDate.class), rs.getObject(9, LocalTime.class)));
+                return Optional.of(new Event(rs.getLong(1), rs.getString(2), parseJson(rs.getString(3)), parseJson(rs.getString(4)), rs.getObject(5, UUID.class), rs.getObject(6, LocalDateTime.class), rs.getObject(7, OffsetDateTime.class), rs.getObject(8, LocalDate.class), rs.getObject(9, LocalTime.class)));
             }
         }
     }
@@ -43,7 +45,7 @@ public final class Queries {
         try (PreparedStatement ps = conn.prepareStatement(SQL_LIST_EVENTS)) {
             List<Event> rows = new ArrayList<>();
             try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) rows.add(new Event(rs.getLong(1), rs.getString(2), objectMapper.readValue(rs.getString(3), JsonNode.class), objectMapper.readValue(rs.getString(4), JsonNode.class), rs.getObject(5, UUID.class), rs.getObject(6, LocalDateTime.class), rs.getObject(7, OffsetDateTime.class), rs.getObject(8, LocalDate.class), rs.getObject(9, LocalTime.class)));
+                while (rs.next()) rows.add(new Event(rs.getLong(1), rs.getString(2), parseJson(rs.getString(3)), parseJson(rs.getString(4)), rs.getObject(5, UUID.class), rs.getObject(6, LocalDateTime.class), rs.getObject(7, OffsetDateTime.class), rs.getObject(8, LocalDate.class), rs.getObject(9, LocalTime.class)));
             }
             return rows;
         }
@@ -56,8 +58,8 @@ public final class Queries {
     public static void insertEvent(Connection conn, String name, JsonNode payload, JsonNode meta, UUID docId, LocalDateTime createdAt, OffsetDateTime scheduledAt, LocalDate eventDate, LocalTime eventTime) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_INSERT_EVENT)) {
             ps.setString(1, name);
-            ps.setObject(2, objectMapper.writeValueAsString(payload), java.sql.Types.OTHER);
-            ps.setObject(3, objectMapper.writeValueAsString(meta), java.sql.Types.OTHER);
+            ps.setObject(2, toJson(payload), java.sql.Types.OTHER);
+            ps.setObject(3, toJson(meta), java.sql.Types.OTHER);
             ps.setObject(4, docId);
             ps.setObject(5, createdAt);
             ps.setObject(6, scheduledAt);
@@ -72,8 +74,8 @@ public final class Queries {
             """;
     public static void updatePayload(Connection conn, JsonNode payload, JsonNode meta, long id) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_UPDATE_PAYLOAD)) {
-            ps.setObject(1, objectMapper.writeValueAsString(payload), java.sql.Types.OTHER);
-            ps.setObject(2, objectMapper.writeValueAsString(meta), java.sql.Types.OTHER);
+            ps.setObject(1, toJson(payload), java.sql.Types.OTHER);
+            ps.setObject(2, toJson(meta), java.sql.Types.OTHER);
             ps.setLong(3, id);
             ps.executeUpdate();
         }
@@ -112,6 +114,70 @@ public final class Queries {
                 if (!rs.next()) return Optional.empty();
                 return Optional.of(new FindByUuidRow(rs.getLong(1), rs.getString(2)));
             }
+        }
+    }
+
+    private static final String SQL_INSERT_EVENT_ROWS = """
+            INSERT INTO event (name, payload, meta, doc_id, created_at, scheduled_at, event_date, event_time)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+            """;
+    public static long insertEventRows(Connection conn, String name, JsonNode payload, JsonNode meta, UUID docId, LocalDateTime createdAt, OffsetDateTime scheduledAt, LocalDate eventDate, LocalTime eventTime) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(SQL_INSERT_EVENT_ROWS)) {
+            ps.setString(1, name);
+            ps.setObject(2, toJson(payload), java.sql.Types.OTHER);
+            ps.setObject(3, toJson(meta), java.sql.Types.OTHER);
+            ps.setObject(4, docId);
+            ps.setObject(5, createdAt);
+            ps.setObject(6, scheduledAt);
+            ps.setObject(7, eventDate);
+            ps.setObject(8, eventTime);
+            return ps.executeUpdate();
+        }
+    }
+
+    private static final String SQL_GET_EVENTS_BY_DATE_RANGE = """
+            SELECT id, name, payload, meta, doc_id, created_at, scheduled_at, event_date, event_time
+            FROM event
+            WHERE created_at BETWEEN ? AND ?
+            ORDER BY created_at;
+            """;
+    public static List<Event> getEventsByDateRange(Connection conn, LocalDateTime createdAt, LocalDateTime createdAt2) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(SQL_GET_EVENTS_BY_DATE_RANGE)) {
+            ps.setObject(1, createdAt);
+            ps.setObject(2, createdAt2);
+            List<Event> rows = new ArrayList<>();
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) rows.add(new Event(rs.getLong(1), rs.getString(2), parseJson(rs.getString(3)), parseJson(rs.getString(4)), rs.getObject(5, UUID.class), rs.getObject(6, LocalDateTime.class), rs.getObject(7, OffsetDateTime.class), rs.getObject(8, LocalDate.class), rs.getObject(9, LocalTime.class)));
+            }
+            return rows;
+        }
+    }
+
+    public record CountEventsRow(
+        long total
+    ) {}
+
+    private static final String SQL_COUNT_EVENTS = """
+            SELECT COUNT(*) AS total FROM event WHERE created_at > ?;
+            """;
+    public static Optional<CountEventsRow> countEvents(Connection conn, LocalDateTime createdAt) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(SQL_COUNT_EVENTS)) {
+            ps.setObject(1, createdAt);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) return Optional.empty();
+                return Optional.of(new CountEventsRow(rs.getLong(1)));
+            }
+        }
+    }
+
+    private static final String SQL_UPDATE_EVENT_DATE = """
+            UPDATE event SET event_date = ? WHERE id = ?;
+            """;
+    public static void updateEventDate(Connection conn, LocalDate eventDate, long id) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(SQL_UPDATE_EVENT_DATE)) {
+            ps.setObject(1, eventDate);
+            ps.setLong(2, id);
+            ps.executeUpdate();
         }
     }
 

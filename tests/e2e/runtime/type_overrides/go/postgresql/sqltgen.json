@@ -1,0 +1,12 @@
+{
+    "version": "1",
+    "engine": "postgresql",
+    "schema": "../../../../fixtures/type_overrides/schema.sql",
+    "queries": "../../../../fixtures/type_overrides/queries.sql",
+    "gen": {
+        "go": {
+            "out": "gen",
+            "package": "gen"
+        }
+    }
+}

@@ -9,6 +9,27 @@ SQLTGEN := ./target/debug/sqltgen
        e2e-runtime-python-sqlite e2e-runtime-python-postgresql e2e-runtime-python-mysql \
        e2e-runtime-typescript-sqlite e2e-runtime-typescript-postgresql e2e-runtime-typescript-mysql \
        e2e-runtime-go-sqlite e2e-runtime-go-postgresql e2e-runtime-go-mysql \
+       e2e-runtime-type-overrides \
+       e2e-runtime-type-overrides-rust-sqlite \
+       e2e-runtime-type-overrides-rust-postgresql \
+       e2e-runtime-type-overrides-rust-mysql \
+       e2e-runtime-type-overrides-java-postgresql \
+       e2e-runtime-type-overrides-java-postgresql-gson \
+       e2e-runtime-type-overrides-java-sqlite \
+       e2e-runtime-type-overrides-java-mysql \
+       e2e-runtime-type-overrides-kotlin-postgresql \
+       e2e-runtime-type-overrides-kotlin-postgresql-gson \
+       e2e-runtime-type-overrides-kotlin-sqlite \
+       e2e-runtime-type-overrides-kotlin-mysql \
+       e2e-runtime-type-overrides-python-sqlite \
+       e2e-runtime-type-overrides-python-postgresql \
+       e2e-runtime-type-overrides-python-mysql \
+       e2e-runtime-type-overrides-typescript-sqlite \
+       e2e-runtime-type-overrides-typescript-postgresql \
+       e2e-runtime-type-overrides-typescript-mysql \
+       e2e-runtime-type-overrides-go-sqlite \
+       e2e-runtime-type-overrides-go-postgresql \
+       e2e-runtime-type-overrides-go-mysql \
        e2e-db-up e2e-db-down \
        ci-fmt ci-clippy ci-test ci-check-suite ci-examples-drift ci-runtime-sqlite ci-runtime-db
 
@@ -82,8 +103,9 @@ run-all: $(SQLTGEN)
 
 # ── E2E tests ────────────────────────────────────────────────────────────────
 
-E2E_RUNTIME    := tests/e2e/runtime/bookstore
-E2E_RUNTIME_DIR := tests/e2e/runtime
+E2E_RUNTIME        := tests/e2e/runtime/bookstore
+E2E_RUNTIME_DIR    := tests/e2e/runtime
+E2E_TYPE_OVERRIDES := tests/e2e/runtime/type_overrides
 
 e2e: e2e-snapshot e2e-runtime
 
@@ -116,7 +138,100 @@ e2e-runtime: \
 	e2e-runtime-typescript-postgresql \
 	e2e-runtime-typescript-mysql \
 	e2e-runtime-go-postgresql \
-	e2e-runtime-go-mysql
+	e2e-runtime-go-mysql \
+	e2e-runtime-type-overrides
+
+# ── Type-overrides runtime tests (all dialects × all languages) ───────────────
+
+# SQLite-only (no Docker needed)
+e2e-runtime-type-overrides-rust-sqlite: $(SQLTGEN)
+	cd $(E2E_TYPE_OVERRIDES)/rust/sqlite && $(abspath $(SQLTGEN)) generate --config sqltgen.json
+	cd $(E2E_TYPE_OVERRIDES)/rust/sqlite && cargo test
+
+e2e-runtime-type-overrides-python-sqlite: $(SQLTGEN)
+	$(MAKE) -C $(E2E_TYPE_OVERRIDES)/python/sqlite test
+
+e2e-runtime-type-overrides-typescript-sqlite: $(SQLTGEN)
+	$(MAKE) -C $(E2E_TYPE_OVERRIDES)/typescript/sqlite install test
+
+e2e-runtime-type-overrides-java-sqlite: $(SQLTGEN)
+	$(MAKE) -C $(E2E_TYPE_OVERRIDES)/java/sqlite test
+
+e2e-runtime-type-overrides-kotlin-sqlite: $(SQLTGEN)
+	$(MAKE) -C $(E2E_TYPE_OVERRIDES)/kotlin/sqlite test
+
+e2e-runtime-type-overrides-go-sqlite: $(SQLTGEN)
+	$(MAKE) -C $(E2E_TYPE_OVERRIDES)/go/sqlite test
+
+# Docker-based (PostgreSQL + MySQL)
+e2e-runtime-type-overrides-rust-postgresql: $(SQLTGEN) e2e-db-up
+	cd $(E2E_TYPE_OVERRIDES)/rust/postgresql && $(abspath $(SQLTGEN)) generate --config sqltgen.json
+	cd $(E2E_TYPE_OVERRIDES)/rust/postgresql && cargo test --test runtime
+	cd $(E2E_TYPE_OVERRIDES)/rust/postgresql && $(abspath $(SQLTGEN)) generate --config sqltgen-chrono.json
+	cd $(E2E_TYPE_OVERRIDES)/rust/postgresql && cargo test --test chrono_runtime
+
+e2e-runtime-type-overrides-rust-mysql: $(SQLTGEN) e2e-db-up
+	cd $(E2E_TYPE_OVERRIDES)/rust/mysql && $(abspath $(SQLTGEN)) generate --config sqltgen.json
+	cd $(E2E_TYPE_OVERRIDES)/rust/mysql && cargo test
+
+e2e-runtime-type-overrides-java-postgresql: $(SQLTGEN) e2e-db-up
+	$(MAKE) -C $(E2E_TYPE_OVERRIDES)/java/postgresql test
+
+e2e-runtime-type-overrides-java-postgresql-gson: $(SQLTGEN) e2e-db-up
+	$(MAKE) -C $(E2E_TYPE_OVERRIDES)/java/postgresql-gson test
+
+e2e-runtime-type-overrides-java-mysql: $(SQLTGEN) e2e-db-up
+	$(MAKE) -C $(E2E_TYPE_OVERRIDES)/java/mysql test
+
+e2e-runtime-type-overrides-kotlin-postgresql: $(SQLTGEN) e2e-db-up
+	$(MAKE) -C $(E2E_TYPE_OVERRIDES)/kotlin/postgresql test
+
+e2e-runtime-type-overrides-kotlin-postgresql-gson: $(SQLTGEN) e2e-db-up
+	$(MAKE) -C $(E2E_TYPE_OVERRIDES)/kotlin/postgresql-gson test
+
+e2e-runtime-type-overrides-kotlin-mysql: $(SQLTGEN) e2e-db-up
+	$(MAKE) -C $(E2E_TYPE_OVERRIDES)/kotlin/mysql test
+
+e2e-runtime-type-overrides-python-postgresql: $(SQLTGEN) e2e-db-up
+	$(MAKE) -C $(E2E_TYPE_OVERRIDES)/python/postgresql test
+
+e2e-runtime-type-overrides-python-mysql: $(SQLTGEN) e2e-db-up
+	$(MAKE) -C $(E2E_TYPE_OVERRIDES)/python/mysql test
+
+e2e-runtime-type-overrides-typescript-postgresql: $(SQLTGEN) e2e-db-up
+	$(MAKE) -C $(E2E_TYPE_OVERRIDES)/typescript/postgresql install test
+
+e2e-runtime-type-overrides-typescript-mysql: $(SQLTGEN) e2e-db-up
+	$(MAKE) -C $(E2E_TYPE_OVERRIDES)/typescript/mysql install test
+
+e2e-runtime-type-overrides-go-postgresql: $(SQLTGEN) e2e-db-up
+	$(MAKE) -C $(E2E_TYPE_OVERRIDES)/go/postgresql test
+
+e2e-runtime-type-overrides-go-mysql: $(SQLTGEN) e2e-db-up
+	$(MAKE) -C $(E2E_TYPE_OVERRIDES)/go/mysql test
+
+# Aggregator: SQLite first (no Docker), then Docker-based
+e2e-runtime-type-overrides: \
+	e2e-runtime-type-overrides-rust-sqlite \
+	e2e-runtime-type-overrides-python-sqlite \
+	e2e-runtime-type-overrides-typescript-sqlite \
+	e2e-runtime-type-overrides-java-sqlite \
+	e2e-runtime-type-overrides-kotlin-sqlite \
+	e2e-runtime-type-overrides-go-sqlite \
+	e2e-runtime-type-overrides-rust-postgresql \
+	e2e-runtime-type-overrides-rust-mysql \
+	e2e-runtime-type-overrides-java-postgresql \
+	e2e-runtime-type-overrides-java-postgresql-gson \
+	e2e-runtime-type-overrides-java-mysql \
+	e2e-runtime-type-overrides-kotlin-postgresql \
+	e2e-runtime-type-overrides-kotlin-postgresql-gson \
+	e2e-runtime-type-overrides-kotlin-mysql \
+	e2e-runtime-type-overrides-python-postgresql \
+	e2e-runtime-type-overrides-python-mysql \
+	e2e-runtime-type-overrides-typescript-postgresql \
+	e2e-runtime-type-overrides-typescript-mysql \
+	e2e-runtime-type-overrides-go-postgresql \
+	e2e-runtime-type-overrides-go-mysql
 
 # ── No-Docker runtime tests (SQLite) ─────────────────────────────────────────
 
@@ -213,6 +328,12 @@ ci-runtime-sqlite: build
 	$(MAKE) e2e-runtime-java-sqlite
 	$(MAKE) e2e-runtime-kotlin-sqlite
 	$(MAKE) e2e-runtime-go-sqlite
+	$(MAKE) e2e-runtime-type-overrides-rust-sqlite
+	$(MAKE) e2e-runtime-type-overrides-python-sqlite
+	$(MAKE) e2e-runtime-type-overrides-typescript-sqlite
+	$(MAKE) e2e-runtime-type-overrides-java-sqlite
+	$(MAKE) e2e-runtime-type-overrides-kotlin-sqlite
+	$(MAKE) e2e-runtime-type-overrides-go-sqlite
 
 ci-runtime-db: build
 	pip install --quiet pytest "psycopg[binary]" mysql-connector-python
@@ -228,6 +349,20 @@ ci-runtime-db: build
 	$(MAKE) e2e-runtime-typescript-mysql
 	$(MAKE) e2e-runtime-go-postgresql
 	$(MAKE) e2e-runtime-go-mysql
+	$(MAKE) e2e-runtime-type-overrides-rust-postgresql
+	$(MAKE) e2e-runtime-type-overrides-rust-mysql
+	$(MAKE) e2e-runtime-type-overrides-java-postgresql
+	$(MAKE) e2e-runtime-type-overrides-java-postgresql-gson
+	$(MAKE) e2e-runtime-type-overrides-java-mysql
+	$(MAKE) e2e-runtime-type-overrides-kotlin-postgresql
+	$(MAKE) e2e-runtime-type-overrides-kotlin-postgresql-gson
+	$(MAKE) e2e-runtime-type-overrides-kotlin-mysql
+	$(MAKE) e2e-runtime-type-overrides-python-postgresql
+	$(MAKE) e2e-runtime-type-overrides-python-mysql
+	$(MAKE) e2e-runtime-type-overrides-typescript-postgresql
+	$(MAKE) e2e-runtime-type-overrides-typescript-mysql
+	$(MAKE) e2e-runtime-type-overrides-go-postgresql
+	$(MAKE) e2e-runtime-type-overrides-go-mysql
 
 # ── PostgreSQL database ───────────────────────────────────────────────────────
 

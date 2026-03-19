@@ -11,6 +11,19 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
 ## [Unreleased]
 
 ### Added
+- **Comprehensive type-overrides E2E runtime test suite** — 20 new runtime test
+  projects covering all 6 backends × 3 SQL dialects (PostgreSQL, SQLite, MySQL)
+  for the `type_overrides` fixture. Tests verify JSON codec round-trips
+  (jackson/gson/serde_json/object presets), datetime parameter binding and
+  reading (java.time, time crate, chrono), UUID handling, and `:execrows` counts.
+  Includes a dedicated `chrono` test module in the Rust/PostgreSQL project that
+  exercises explicit `TypeRef` overrides mapping `TIMESTAMP` → `chrono::NaiveDateTime`,
+  `TIMESTAMPTZ` → `chrono::DateTime<Utc>`, `DATE` → `chrono::NaiveDate`, and
+  `TIME` → `chrono::NaiveTime`. New Makefile targets `e2e-runtime-type-overrides`
+  and per-project variants. New fixture schema/query files for SQLite and MySQL dialects.
+- **Four new type-overrides queries** — `InsertEventRows :execrows`,
+  `GetEventsByDateRange :many`, `CountEvents :one`, and `UpdateEventDate :exec`
+  added to the PostgreSQL type_overrides fixture and all dialect variants.
 - **mdBook documentation site** — comprehensive user documentation under
   `docs/src/` structured as an mdBook. Includes: `introduction.md` (what sqltgen
   is, why it exists, comparison to sqlc), `installation.md` (cargo, Homebrew,

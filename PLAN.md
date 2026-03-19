@@ -107,12 +107,12 @@ sqltgen aims for excellent JSON support across all backends. Current state and g
 | Python sqlite3 / mysql: JSON result type | ✅ | `str` (drivers return raw JSON text) |
 | Java/Kotlin: JSON result type | ⚠️ | Mapped to `String` — correct at JDBC level but no Jackson/Gson integration |
 | `json[]` / `jsonb[]` arrays (PostgreSQL) | ❌ | Untested / likely unhandled |
-| Type overrides (e.g. `json → JsonNode`) | ❌ | Blocked on config type-override feature |
+| Type overrides (e.g. `json → JsonNode`) | ✅ | Full type_overrides config with jackson/gson/serde_json/object presets |
 
 ### Planned improvements
 1. ~~**SQLite**: recognize `JSON` as a type keyword → `SqlType::Json`~~ ✅ Done
 2. ~~**Python**: `Any` → `object` for psycopg3 (already deserialized); `str` for sqlite3/mysql~~ ✅ Done
-3. **Java/Kotlin**: document the `String` limitation; unlock proper types via config type overrides
+3. ~~**Java/Kotlin**: document the `String` limitation; unlock proper types via config type overrides~~ ✅ Done via type_overrides presets
 4. **Arrays**: test and fix `json[]` / `jsonb[]` in PostgreSQL
 
 ---
@@ -127,7 +127,7 @@ sqltgen aims for excellent JSON support across all backends. Current state and g
 ### Medium priority
 
 1. **`CAST(x AS type)` result type** — call `typemap::map()` on the cast's `DataType`
-2. **Type overrides config** — per-language map of `SqlType` → custom host-language type with import management
+2. ~~**Type overrides config** — per-language map of `SqlType` → custom host-language type with import management~~ ✅ Done (jackson, gson, serde_json, object presets; FQN strings; explicit TypeRef object form)
 3. **Better error messages** — surface parse errors with line numbers
 4. **Glob patterns** for `schema` and `queries` config fields
 

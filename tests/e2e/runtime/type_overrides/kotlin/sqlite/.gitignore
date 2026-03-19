@@ -1,0 +1,4 @@
+target/
+src/main/kotlin/com/example/db
+.classpath
+.settings

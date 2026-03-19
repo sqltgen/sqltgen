@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::fmt::Write;
 use std::path::PathBuf;
 
@@ -10,7 +11,7 @@ use crate::backend::jdbc::{
 };
 use crate::backend::naming::{to_camel_case, to_pascal_case};
 use crate::backend::GeneratedFile;
-use crate::config::{resolve_type_override, Language, ListParamStrategy, OutputConfig, ResolvedType, TypeVariant};
+use crate::config::{resolve_type_override, ExtraField, Language, ListParamStrategy, OutputConfig, ResolvedType, TypeVariant};
 use crate::ir::{Parameter, Query, QueryCmd, Schema, SqlType};
 
 use super::adapter::JvmCoreContract;
@@ -163,7 +164,7 @@ pub(super) fn generate_core_files(schema: &Schema, queries: &[Query], contract: 
 
         let mut src = String::new();
         emit_package(&mut src, &config.package, "");
-        emit_kotlin_querier(&mut src, &group_queries, schema, &class_name, &querier_name, contract)?;
+        emit_kotlin_querier(&mut src, &group_queries, schema, &class_name, &querier_name, contract, config, &override_imports, &extra_fields)?;
         let path = source_path(&config.out, &config.package, &querier_name, "kt");
         files.push(GeneratedFile { path, content: src });
     }
@@ -370,14 +371,26 @@ fn emit_kotlin_querier(
     class_name: &str,
     querier_name: &str,
     contract: &JvmCoreContract,
+    config: &OutputConfig,
+    override_imports: &BTreeSet<String>,
+    extra_fields: &[ExtraField],
 ) -> anyhow::Result<()> {
-    writeln!(src, "import javax.sql.DataSource")?;
+    // Emit all imports: standard + any type-override imports, sorted.
+    let mut all_imports: BTreeSet<String> = ["javax.sql.DataSource".to_string()].into();
+    all_imports.extend(override_imports.iter().cloned());
+    for imp in &all_imports {
+        writeln!(src, "import {imp}")?;
+    }
+
     writeln!(src)?;
     writeln!(src, "class {querier_name}(private val dataSource: DataSource) {{")?;
+    for ef in extra_fields {
+        writeln!(src, "    {}", ef.declaration)?;
+    }
 
     for query in queries {
         writeln!(src)?;
-        emit_kotlin_querier_method(src, query, schema, class_name, contract)?;
+        emit_kotlin_querier_method(src, query, schema, class_name, contract, config)?;
     }
 
     writeln!(src, "}}")?;
@@ -385,7 +398,14 @@ fn emit_kotlin_querier(
 }
 
 /// Emits one method on the querier class that wraps the corresponding method in `{class_name}`.
-fn emit_kotlin_querier_method(src: &mut String, query: &Query, schema: &Schema, class_name: &str, contract: &JvmCoreContract) -> anyhow::Result<()> {
+fn emit_kotlin_querier_method(
+    src: &mut String,
+    query: &Query,
+    schema: &Schema,
+    class_name: &str,
+    contract: &JvmCoreContract,
+    config: &OutputConfig,
+) -> anyhow::Result<()> {
     let row = jdbc::ds_result_row_type(query, schema, contract.fallback_type, class_name);
     let return_type = match query.cmd {
         QueryCmd::One => format!("{row}?"),
@@ -394,7 +414,8 @@ fn emit_kotlin_querier_method(src: &mut String, query: &Query, schema: &Schema, 
         QueryCmd::ExecRows => "Long".to_string(),
     };
 
-    let params_sig: String = query.params.iter().map(|p| format!("{}: {}", to_camel_case(&p.name), kotlin_param_type(p))).collect::<Vec<_>>().join(", ");
+    let params_sig: String =
+        query.params.iter().map(|p| format!("{}: {}", to_camel_case(&p.name), kotlin_param_type_resolved(p, config))).collect::<Vec<_>>().join(", ");
 
     let method_name = to_camel_case(&query.name);
     let args: String = query.params.iter().map(|p| to_camel_case(&p.name)).collect::<Vec<_>>().join(", ");

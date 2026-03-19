@@ -108,6 +108,70 @@ object Queries {
         }
     }
 
+    private val SQL_INSERT_EVENT_ROWS = """
+        INSERT INTO event (name, payload, meta, doc_id, created_at, scheduled_at, event_date, event_time)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+    """.trimIndent()
+    fun insertEventRows(conn: Connection, name: String, payload: JsonNode, meta: JsonNode?, docId: UUID, createdAt: LocalDateTime, scheduledAt: OffsetDateTime?, eventDate: LocalDate?, eventTime: LocalTime?): Long {
+        conn.prepareStatement(SQL_INSERT_EVENT_ROWS).use { ps ->
+            ps.setString(1, name)
+            ps.setObject(2, objectMapper.writeValueAsString(payload), java.sql.Types.OTHER)
+            ps.setObject(3, objectMapper.writeValueAsString(meta), java.sql.Types.OTHER)
+            ps.setObject(4, docId)
+            ps.setObject(5, createdAt)
+            ps.setObject(6, scheduledAt)
+            ps.setObject(7, eventDate)
+            ps.setObject(8, eventTime)
+            return ps.executeUpdate().toLong()
+        }
+    }
+
+    private val SQL_GET_EVENTS_BY_DATE_RANGE = """
+        SELECT id, name, payload, meta, doc_id, created_at, scheduled_at, event_date, event_time
+        FROM event
+        WHERE created_at BETWEEN ? AND ?
+        ORDER BY created_at;
+    """.trimIndent()
+    fun getEventsByDateRange(conn: Connection, createdAt: LocalDateTime, createdAt2: LocalDateTime): List<Event> {
+        conn.prepareStatement(SQL_GET_EVENTS_BY_DATE_RANGE).use { ps ->
+            ps.setObject(1, createdAt)
+            ps.setObject(2, createdAt2)
+            val rows = mutableListOf<Event>()
+            ps.executeQuery().use { rs ->
+                while (rs.next()) rows.add(Event(rs.getLong(1), rs.getString(2), objectMapper.readValue(rs.getString(3), JsonNode::class.java), objectMapper.readValue(rs.getString(4), JsonNode::class.java), rs.getObject(5, UUID::class.java), rs.getObject(6, LocalDateTime::class.java), rs.getObject(7, OffsetDateTime::class.java), rs.getObject(8, LocalDate::class.java), rs.getObject(9, LocalTime::class.java)))
+            }
+            return rows
+        }
+    }
+
+    data class CountEventsRow(
+        val total: Long
+    )
+
+    private val SQL_COUNT_EVENTS = """
+        SELECT COUNT(*) AS total FROM event WHERE created_at > ?;
+    """.trimIndent()
+    fun countEvents(conn: Connection, createdAt: LocalDateTime): CountEventsRow? {
+        conn.prepareStatement(SQL_COUNT_EVENTS).use { ps ->
+            ps.setObject(1, createdAt)
+            ps.executeQuery().use { rs ->
+                if (!rs.next()) return null
+                return CountEventsRow(rs.getLong(1))
+            }
+        }
+    }
+
+    private val SQL_UPDATE_EVENT_DATE = """
+        UPDATE event SET event_date = ? WHERE id = ?;
+    """.trimIndent()
+    fun updateEventDate(conn: Connection, eventDate: LocalDate?, id: Long): Unit {
+        conn.prepareStatement(SQL_UPDATE_EVENT_DATE).use { ps ->
+            ps.setObject(1, eventDate)
+            ps.setLong(2, id)
+            ps.executeUpdate()
+        }
+    }
+
     private fun getNullableBoolean(rs: java.sql.ResultSet, col: Int): Boolean? {
         val v = rs.getBoolean(col)
         return if (rs.wasNull()) null else v
