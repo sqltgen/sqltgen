@@ -1,0 +1,7 @@
+services:
+  demo:
+    build: .
+    environment:
+      MIGRATIONS_DIR: /app/migrations
+    volumes:
+      - ../../common/sqlite/migrations:/app/migrations:ro

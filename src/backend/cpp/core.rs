@@ -89,6 +89,8 @@ fn scan_query_includes(queries: &[Query], schema: &Schema) -> CppIncludes {
     let mut includes = CppIncludes::default();
     // Always need <string> for SQL string constants.
     includes.set.insert("<string>");
+    // Always need <stdexcept> for std::runtime_error in query bodies.
+    includes.set.insert("<stdexcept>");
 
     for query in queries {
         // Scan parameter types.
@@ -407,9 +409,37 @@ fn emit_sqlite3_bind_params(src: &mut String, params: &[Parameter]) -> anyhow::R
     for param in params {
         let idx = param.index;
         let name = to_snake_case(&param.name);
-        let bind_call = sqlite3_bind_call(&param.sql_type, idx, &name, param.nullable);
-        writeln!(src, "    {bind_call}")?;
+        if param.is_list {
+            emit_sqlite3_bind_list(src, &param.sql_type, idx, &name)?;
+        } else {
+            let bind_call = sqlite3_bind_call(&param.sql_type, idx, &name, param.nullable);
+            writeln!(src, "    {bind_call};")?;
+        }
     }
+    Ok(())
+}
+
+/// Emit code to serialize a `std::vector<T>` to a JSON array string and bind as text.
+fn emit_sqlite3_bind_list(src: &mut String, sql_type: &SqlType, idx: usize, name: &str) -> anyhow::Result<()> {
+    let inner_type = match sql_type {
+        SqlType::Array(inner) => inner.as_ref(),
+        _ => sql_type,
+    };
+    let to_str = match inner_type {
+        SqlType::Boolean | SqlType::SmallInt | SqlType::Integer | SqlType::BigInt |
+        SqlType::Real | SqlType::Double =>
+            format!("{name}_json += std::to_string({name}[i]);"),
+        // String-like types: wrap each element in double quotes.
+        _ =>
+            format!("{name}_json += \"\\\"\" + {name}[i] + \"\\\"\";"),
+    };
+    writeln!(src, "    std::string {name}_json = \"[\";")?;
+    writeln!(src, "    for (size_t i = 0; i < {name}.size(); ++i) {{")?;
+    writeln!(src, "        if (i > 0) {name}_json += \",\";")?;
+    writeln!(src, "        {to_str}")?;
+    writeln!(src, "    }}")?;
+    writeln!(src, "    {name}_json += \"]\";")?;
+    writeln!(src, "    sqlite3_bind_text(stmt, {idx}, {name}_json.c_str(), -1, SQLITE_TRANSIENT);")?;
     Ok(())
 }
 
@@ -417,20 +447,20 @@ fn emit_sqlite3_bind_params(src: &mut String, params: &[Parameter]) -> anyhow::R
 fn sqlite3_bind_call(sql_type: &SqlType, idx: usize, name: &str, nullable: bool) -> String {
     if nullable {
         let inner = sqlite3_bind_call(sql_type, idx, &format!("{name}.value()"), false);
-        return format!("{name}.has_value() ? {inner} : sqlite3_bind_null(stmt, {idx});");
+        return format!("{name}.has_value() ? {inner} : sqlite3_bind_null(stmt, {idx})");
     }
     match sql_type {
         SqlType::Boolean | SqlType::SmallInt | SqlType::Integer =>
-            format!("sqlite3_bind_int(stmt, {idx}, {name});"),
+            format!("sqlite3_bind_int(stmt, {idx}, {name})"),
         SqlType::BigInt =>
-            format!("sqlite3_bind_int64(stmt, {idx}, {name});"),
+            format!("sqlite3_bind_int64(stmt, {idx}, {name})"),
         SqlType::Real | SqlType::Double =>
-            format!("sqlite3_bind_double(stmt, {idx}, {name});"),
+            format!("sqlite3_bind_double(stmt, {idx}, {name})"),
         SqlType::Bytes =>
-            format!("sqlite3_bind_blob(stmt, {idx}, {name}.data(), static_cast<int>({name}.size()), SQLITE_TRANSIENT);"),
+            format!("sqlite3_bind_blob(stmt, {idx}, {name}.data(), static_cast<int>({name}.size()), SQLITE_TRANSIENT)"),
         // Everything else is text (string types, dates, decimal, uuid, json, etc.)
         _ =>
-            format!("sqlite3_bind_text(stmt, {idx}, {name}.c_str(), -1, SQLITE_TRANSIENT);"),
+            format!("sqlite3_bind_text(stmt, {idx}, {name}.c_str(), -1, SQLITE_TRANSIENT)"),
     }
 }
 
