@@ -523,8 +523,50 @@ fn emit_mysql_body(src: &mut String, query: &Query, _schema: &Schema) -> anyhow:
             writeln!(src, "    mysql_stmt_close(stmt);")?;
             writeln!(src, "    return static_cast<std::int64_t>(affected);")?;
         },
-        _ => {
-            writeln!(src, "    // TODO: not yet implemented")?;
+        QueryCmd::One => {
+            let row_type = result_row_type(query, _schema);
+            emit_mysql_prepare(src, &const_name)?;
+            emit_mysql_bind_params(src, &query.params)?;
+            emit_mysql_execute(src)?;
+            emit_mysql_bind_result_columns(src, &query.result_columns)?;
+            // First fetch — populates lengths for variable-length columns
+            writeln!(src, "    int rc = mysql_stmt_fetch(stmt);")?;
+            writeln!(src, "    if (rc == MYSQL_NO_DATA) {{")?;
+            writeln!(src, "        mysql_stmt_close(stmt);")?;
+            writeln!(src, "        return std::nullopt;")?;
+            writeln!(src, "    }}")?;
+            writeln!(src, "    if (rc != 0 && rc != MYSQL_DATA_TRUNCATED) {{")?;
+            writeln!(src, "        std::string err = mysql_stmt_error(stmt);")?;
+            writeln!(src, "        mysql_stmt_close(stmt);")?;
+            writeln!(src, "        throw std::runtime_error(err);")?;
+            writeln!(src, "    }}")?;
+            // Second pass: fetch actual data for variable-length columns
+            emit_mysql_fetch_varlen_columns(src, &query.result_columns)?;
+            emit_mysql_row_construction(src, &row_type, &query.result_columns, "    ")?;
+            writeln!(src, "    mysql_stmt_close(stmt);")?;
+            writeln!(src, "    return result;")?;
+        },
+        QueryCmd::Many => {
+            let row_type = result_row_type(query, _schema);
+            emit_mysql_prepare(src, &const_name)?;
+            emit_mysql_bind_params(src, &query.params)?;
+            emit_mysql_execute(src)?;
+            emit_mysql_bind_result_columns(src, &query.result_columns)?;
+            writeln!(src, "    std::vector<{row_type}> rows;")?;
+            writeln!(src, "    while (true) {{")?;
+            writeln!(src, "        int rc = mysql_stmt_fetch(stmt);")?;
+            writeln!(src, "        if (rc == MYSQL_NO_DATA) break;")?;
+            writeln!(src, "        if (rc != 0 && rc != MYSQL_DATA_TRUNCATED) {{")?;
+            writeln!(src, "            std::string err = mysql_stmt_error(stmt);")?;
+            writeln!(src, "            mysql_stmt_close(stmt);")?;
+            writeln!(src, "            throw std::runtime_error(err);")?;
+            writeln!(src, "        }}")?;
+            emit_mysql_fetch_varlen_columns_indented(src, &query.result_columns, "        ")?;
+            emit_mysql_row_construction(src, &row_type, &query.result_columns, "        ")?;
+            writeln!(src, "        rows.push_back(std::move(result));")?;
+            writeln!(src, "    }}")?;
+            writeln!(src, "    mysql_stmt_close(stmt);")?;
+            writeln!(src, "    return rows;")?;
         },
     }
     Ok(())
@@ -636,6 +678,105 @@ fn emit_mysql_execute(src: &mut String) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Return true if a SqlType is variable-length (string, blob, etc.).
+fn mysql_is_varlen(sql_type: &SqlType) -> bool {
+    matches!(mysql_bind_info(sql_type, "x"), (_, _, true))
+}
+
+/// Return the MYSQL_TYPE_* constant for a SqlType.
+fn mysql_type_const(sql_type: &SqlType) -> &'static str {
+    mysql_bind_info(sql_type, "x").0
+}
+
+/// Emit `MYSQL_BIND result_bind[]` setup and `mysql_stmt_bind_result` for output columns.
+fn emit_mysql_bind_result_columns(src: &mut String, columns: &[ResultColumn]) -> anyhow::Result<()> {
+    let n = columns.len();
+    writeln!(src, "    MYSQL_BIND result_bind[{n}];")?;
+    writeln!(src, "    memset(result_bind, 0, sizeof(result_bind));")?;
+
+    // Declare local variables for each column
+    for (i, col) in columns.iter().enumerate() {
+        let col_name = to_snake_case(&col.name);
+        let mysql_type = mysql_type_const(&col.sql_type);
+        writeln!(src)?;
+
+        if mysql_is_varlen(&col.sql_type) {
+            // Variable-length: bind with null buffer, just capture length
+            writeln!(src, "    unsigned long {col_name}_len = 0;")?;
+            writeln!(src, "    my_bool {col_name}_is_null = 0;")?;
+            writeln!(src, "    result_bind[{i}].buffer_type = {mysql_type};")?;
+            writeln!(src, "    result_bind[{i}].buffer = nullptr;")?;
+            writeln!(src, "    result_bind[{i}].buffer_length = 0;")?;
+            writeln!(src, "    result_bind[{i}].length = &{col_name}_len;")?;
+            writeln!(src, "    result_bind[{i}].is_null = &{col_name}_is_null;")?;
+        } else {
+            // Fixed-size: bind directly to a local variable
+            let cpp_ty = cpp_type(&col.sql_type, false);
+            writeln!(src, "    {cpp_ty} {col_name}_val{{}};")?;
+            writeln!(src, "    my_bool {col_name}_is_null = 0;")?;
+            writeln!(src, "    result_bind[{i}].buffer_type = {mysql_type};")?;
+            writeln!(src, "    result_bind[{i}].buffer = &{col_name}_val;")?;
+            writeln!(src, "    result_bind[{i}].is_null = &{col_name}_is_null;")?;
+        }
+    }
+
+    writeln!(src)?;
+    writeln!(src, "    if (mysql_stmt_bind_result(stmt, result_bind) != 0) {{")?;
+    writeln!(src, "        std::string err = mysql_stmt_error(stmt);")?;
+    writeln!(src, "        mysql_stmt_close(stmt);")?;
+    writeln!(src, "        throw std::runtime_error(err);")?;
+    writeln!(src, "    }}")?;
+    Ok(())
+}
+
+/// Emit `mysql_stmt_fetch_column` calls for variable-length columns after a fetch.
+fn emit_mysql_fetch_varlen_columns(src: &mut String, columns: &[ResultColumn]) -> anyhow::Result<()> {
+    emit_mysql_fetch_varlen_columns_indented(src, columns, "    ")
+}
+
+/// Emit `mysql_stmt_fetch_column` calls with a custom indent.
+fn emit_mysql_fetch_varlen_columns_indented(src: &mut String, columns: &[ResultColumn], indent: &str) -> anyhow::Result<()> {
+    for (i, col) in columns.iter().enumerate() {
+        if !mysql_is_varlen(&col.sql_type) {
+            continue;
+        }
+        let col_name = to_snake_case(&col.name);
+        let is_blob = matches!(col.sql_type, SqlType::Bytes);
+
+        if is_blob {
+            writeln!(src, "{indent}std::vector<std::uint8_t> {col_name}_val({col_name}_len);")?;
+            writeln!(src, "{indent}result_bind[{i}].buffer = {col_name}_val.data();")?;
+        } else {
+            writeln!(src, "{indent}std::string {col_name}_val({col_name}_len, '\\0');")?;
+            writeln!(src, "{indent}result_bind[{i}].buffer = {col_name}_val.data();")?;
+        }
+        writeln!(src, "{indent}result_bind[{i}].buffer_length = {col_name}_len;")?;
+        writeln!(src, "{indent}mysql_stmt_fetch_column(stmt, &result_bind[{i}], {i}, 0);")?;
+    }
+    Ok(())
+}
+
+/// Emit row construction from the local variables populated by mysql fetch.
+fn emit_mysql_row_construction(src: &mut String, row_type: &str, columns: &[ResultColumn], indent: &str) -> anyhow::Result<()> {
+    writeln!(src, "{indent}auto result = {row_type}{{")?;
+    for (i, col) in columns.iter().enumerate() {
+        let col_name = to_snake_case(&col.name);
+        let val = format!("{col_name}_val");
+        let expr = if col.nullable {
+            let base_type = cpp_type(&col.sql_type, false);
+            format!("{col_name}_is_null ? std::nullopt : std::optional<{base_type}>({val})")
+        } else {
+            val
+        };
+        let comma = if i + 1 < columns.len() { "," } else { "" };
+        writeln!(src, "{indent}    {expr}{comma}")?;
+    }
+    writeln!(src, "{indent}}};")?;
+    Ok(())
+}
+
+// ─── Querier ────────────────────────────────────────────
+
 /// Emit a Querier class declaration that wraps a connection and delegates to free functions.
 fn emit_querier_decl(src: &mut String, group: &str, queries: &[Query], schema: &Schema, conn_type: &str) -> anyhow::Result<()> {
     let class_name = querier_class_name(group);
@@ -672,6 +813,8 @@ fn querier_method_params(query: &Query) -> String {
     }).collect();
     parts.join(", ")
 }
+
+// ─── Emit Query files ────────────────────────────────────────────
 
 /// Generate query files (one `.hpp` + one `.cpp` per query group).
 pub(super) fn generate_query_files(
