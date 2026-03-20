@@ -7,7 +7,7 @@ use crate::backend::naming::{to_pascal_case, to_snake_case};
 use crate::backend::sql_rewrite::rewrite_to_anon_params;
 use crate::backend::GeneratedFile;
 use crate::config::OutputConfig;
-use crate::ir::{Parameter, Query, QueryCmd, Schema, SqlType, Table};
+use crate::ir::{Parameter, Query, QueryCmd, ResultColumn, Schema, SqlType, Table};
 
 use super::adapter::{CppBodyEmitter, CppEngineContract, CppParamStyle};
 
@@ -360,8 +360,34 @@ fn emit_sqlite3_body(src: &mut String, query: &Query, _schema: &Schema) -> anyho
             writeln!(src, "    if (rc != SQLITE_DONE) throw std::runtime_error(sqlite3_errmsg(db));")?;
             writeln!(src, "    return sqlite3_changes(db);")?;
         },
-        _ => {
-            writeln!(src, "    // TODO: not yet implemented")?;
+        QueryCmd::One => {
+            let row_type = result_row_type(query, _schema);
+            emit_sqlite3_prepare(src, &const_name)?;
+            emit_sqlite3_bind_params(src, &query.params)?;
+            writeln!(src, "    int rc = sqlite3_step(stmt);")?;
+            writeln!(src, "    if (rc == SQLITE_DONE) {{")?;
+            writeln!(src, "        sqlite3_finalize(stmt);")?;
+            writeln!(src, "        return std::nullopt;")?;
+            writeln!(src, "    }}")?;
+            writeln!(src, "    if (rc != SQLITE_ROW) {{")?;
+            writeln!(src, "        sqlite3_finalize(stmt);")?;
+            writeln!(src, "        throw std::runtime_error(sqlite3_errmsg(db));")?;
+            writeln!(src, "    }}")?;
+            emit_sqlite3_row_construction(src, &row_type, &query.result_columns, "    ")?;
+            writeln!(src, "    sqlite3_finalize(stmt);")?;
+            writeln!(src, "    return result;")?;
+        },
+        QueryCmd::Many => {
+            let row_type = result_row_type(query, _schema);
+            emit_sqlite3_prepare(src, &const_name)?;
+            emit_sqlite3_bind_params(src, &query.params)?;
+            writeln!(src, "    std::vector<{row_type}> rows;")?;
+            writeln!(src, "    while (sqlite3_step(stmt) == SQLITE_ROW) {{")?;
+            emit_sqlite3_row_construction(src, &row_type, &query.result_columns, "        ")?;
+            writeln!(src, "        rows.push_back(std::move(result));")?;
+            writeln!(src, "    }}")?;
+            writeln!(src, "    sqlite3_finalize(stmt);")?;
+            writeln!(src, "    return rows;")?;
         },
     }
     Ok(())
@@ -405,6 +431,46 @@ fn sqlite3_bind_call(sql_type: &SqlType, idx: usize, name: &str, nullable: bool)
         // Everything else is text (string types, dates, decimal, uuid, json, etc.)
         _ =>
             format!("sqlite3_bind_text(stmt, {idx}, {name}.c_str(), -1, SQLITE_TRANSIENT);"),
+    }
+}
+
+/// Emit a row construction from sqlite3 column accessors.
+fn emit_sqlite3_row_construction(src: &mut String, row_type: &str, columns: &[ResultColumn], indent: &str) -> anyhow::Result<()> {
+    writeln!(src, "{indent}auto result = {row_type}{{")?;
+    for (i, col) in columns.iter().enumerate() {
+        let expr = sqlite3_column_expr(&col.sql_type, i, col.nullable);
+        let comma = if i + 1 < columns.len() { "," } else { "" };
+        writeln!(src, "{indent}    {expr}{comma}")?;
+    }
+    writeln!(src, "{indent}}};")?;
+    Ok(())
+}
+
+/// Return the C++ expression to read a column value from a sqlite3_stmt.
+fn sqlite3_column_expr(sql_type: &SqlType, idx: usize, nullable: bool) -> String {
+    if nullable {
+        let base_type = cpp_type(sql_type, false);
+        let inner = sqlite3_column_expr(sql_type, idx, false);
+        return format!("sqlite3_column_type(stmt, {idx}) == SQLITE_NULL ? std::nullopt : std::optional<{base_type}>({inner})");
+    }
+    match sql_type {
+        SqlType::Boolean =>
+            format!("static_cast<bool>(sqlite3_column_int(stmt, {idx}))"),
+        SqlType::SmallInt =>
+            format!("static_cast<std::int16_t>(sqlite3_column_int(stmt, {idx}))"),
+        SqlType::Integer =>
+            format!("sqlite3_column_int(stmt, {idx})"),
+        SqlType::BigInt =>
+            format!("sqlite3_column_int64(stmt, {idx})"),
+        SqlType::Real =>
+            format!("static_cast<float>(sqlite3_column_double(stmt, {idx}))"),
+        SqlType::Double =>
+            format!("sqlite3_column_double(stmt, {idx})"),
+        SqlType::Bytes =>
+            format!("std::vector<std::uint8_t>(reinterpret_cast<const std::uint8_t*>(sqlite3_column_blob(stmt, {idx})), reinterpret_cast<const std::uint8_t*>(sqlite3_column_blob(stmt, {idx})) + sqlite3_column_bytes(stmt, {idx}))"),
+        // Everything else is text
+        _ =>
+            format!("std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, {idx})))"),
     }
 }
 
