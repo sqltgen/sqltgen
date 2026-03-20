@@ -283,12 +283,18 @@ fn test_sqlite3_body_emits_todo() {
 }
 
 #[test]
-fn test_mysql_body_emits_todo() {
+fn test_mysql_exec_body() {
     let schema = Schema::default();
-    let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
+    let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = ?", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = mysql().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.cpp");
-    assert!(src.contains("// TODO: not yet implemented"), "mysql stub should emit TODO");
+    assert!(src.contains("MYSQL_STMT* stmt = mysql_stmt_init(db);"), "should init stmt");
+    assert!(src.contains("mysql_stmt_prepare(stmt,"), "should prepare");
+    assert!(src.contains("MYSQL_BIND bind[1];"), "should declare bind array");
+    assert!(src.contains("MYSQL_TYPE_LONGLONG"), "should use LONGLONG for BigInt");
+    assert!(src.contains("mysql_stmt_bind_param(stmt, bind)"), "should bind params");
+    assert!(src.contains("mysql_stmt_execute(stmt)"), "should execute");
+    assert!(src.contains("mysql_stmt_close(stmt);"), "should close stmt");
 }
 
 // ─── querier class ───────────────────────────────────────────────────────

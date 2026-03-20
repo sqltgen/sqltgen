@@ -344,7 +344,7 @@ fn emit_pqxx_row_construction(src: &mut String, row_type: &str, columns: &[crate
 }
 
 /// Emit the function body for a sqlite3 query.
-fn emit_sqlite3_body(src: &mut String, query: &Query, _schema: &Schema) -> anyhow::Result<()> {
+fn emit_sqlite3_body(src: &mut String, query: &Query, schema: &Schema) -> anyhow::Result<()> {
     let const_name = sql_const_name(&query.name);
     match query.cmd {
         QueryCmd::Exec => {
@@ -363,7 +363,7 @@ fn emit_sqlite3_body(src: &mut String, query: &Query, _schema: &Schema) -> anyho
             writeln!(src, "    return sqlite3_changes(db);")?;
         },
         QueryCmd::One => {
-            let row_type = result_row_type(query, _schema);
+            let row_type = result_row_type(query, schema);
             emit_sqlite3_prepare(src, &const_name)?;
             emit_sqlite3_bind_params(src, &query.params)?;
             writeln!(src, "    int rc = sqlite3_step(stmt);")?;
@@ -380,7 +380,7 @@ fn emit_sqlite3_body(src: &mut String, query: &Query, _schema: &Schema) -> anyho
             writeln!(src, "    return result;")?;
         },
         QueryCmd::Many => {
-            let row_type = result_row_type(query, _schema);
+            let row_type = result_row_type(query, schema);
             emit_sqlite3_prepare(src, &const_name)?;
             emit_sqlite3_bind_params(src, &query.params)?;
             writeln!(src, "    std::vector<{row_type}> rows;")?;
@@ -505,8 +505,134 @@ fn sqlite3_column_expr(sql_type: &SqlType, idx: usize, nullable: bool) -> String
 }
 
 /// Emit the function body for a libmysqlclient (MySQL) query.
-fn emit_mysql_body(src: &mut String, _query: &Query, _schema: &Schema) -> anyhow::Result<()> {
-    writeln!(src, "    // TODO: not yet implemented")?;
+fn emit_mysql_body(src: &mut String, query: &Query, _schema: &Schema) -> anyhow::Result<()> {
+    let const_name = sql_const_name(&query.name);
+
+    match query.cmd {
+        QueryCmd::Exec => {
+            emit_mysql_prepare(src, &const_name)?;
+            emit_mysql_bind_params(src, &query.params)?;
+            emit_mysql_execute(src)?;
+            writeln!(src, "    mysql_stmt_close(stmt);")?;
+        },
+        QueryCmd::ExecRows => {
+            emit_mysql_prepare(src, &const_name)?;
+            emit_mysql_bind_params(src, &query.params)?;
+            emit_mysql_execute(src)?;
+            writeln!(src, "    my_ulonglong affected = mysql_stmt_affected_rows(stmt);")?;
+            writeln!(src, "    mysql_stmt_close(stmt);")?;
+            writeln!(src, "    return static_cast<std::int64_t>(affected);")?;
+        },
+        _ => {
+            writeln!(src, "    // TODO: not yet implemented")?;
+        },
+    }
+    Ok(())
+}
+
+/// Emit `mysql_stmt_init` + `mysql_stmt_prepare` + error checks.
+fn emit_mysql_prepare(src: &mut String, const_name: &str) -> anyhow::Result<()> {
+    writeln!(src, "    MYSQL_STMT* stmt = mysql_stmt_init(db);")?;
+    writeln!(src, "    if (!stmt) throw std::runtime_error(mysql_error(db));")?;
+    writeln!(src, "    if (mysql_stmt_prepare(stmt, {const_name}.c_str(), {const_name}.size()) != 0) {{")?;
+    writeln!(src, "        std::string err = mysql_stmt_error(stmt);")?;
+    writeln!(src, "        mysql_stmt_close(stmt);")?;
+    writeln!(src, "        throw std::runtime_error(err);")?;
+    writeln!(src, "    }}")?;
+    Ok(())
+}
+
+/// Emit `MYSQL_BIND` array setup and `mysql_stmt_bind_param` for all parameters.
+fn emit_mysql_bind_params(src: &mut String, params: &[Parameter]) -> anyhow::Result<()> {
+    if params.is_empty() {
+        return Ok(());
+    }
+    let n = params.len();
+    writeln!(src, "    MYSQL_BIND bind[{n}];")?;
+    writeln!(src, "    memset(bind, 0, sizeof(bind));")?;
+
+    for param in params.iter() {
+        let name = to_snake_case(&param.name);
+        let idx = param.index - 1;
+        writeln!(src)?;
+
+        if param.nullable {
+            // Declare a flag variable; when null, set is_null and skip the rest.
+            let flag = format!("{name}_is_null");
+            writeln!(src, "    my_bool {flag} = !{name}.has_value();")?;
+            writeln!(src, "    bind[{idx}].is_null = &{flag};")?;
+            // We still need to set the buffer_type, and conditionally set buffer/length.
+            emit_mysql_bind_field(src, &param.sql_type, idx, &format!("{name}.value()"), true)?;
+        } else {
+            emit_mysql_bind_field(src, &param.sql_type, idx, &name, false)?;
+        }
+    }
+
+    writeln!(src)?;
+    writeln!(src, "    if (mysql_stmt_bind_param(stmt, bind) != 0) {{")?;
+    writeln!(src, "        std::string err = mysql_stmt_error(stmt);")?;
+    writeln!(src, "        mysql_stmt_close(stmt);")?;
+    writeln!(src, "        throw std::runtime_error(err);")?;
+    writeln!(src, "    }}")?;
+    Ok(())
+}
+
+/// Emit the `bind[i].buffer_type`, `bind[i].buffer`, etc. fields for one parameter.
+/// If `guarded` is true, buffer assignment is wrapped in an `if (name.has_value())` guard.
+fn emit_mysql_bind_field(src: &mut String, sql_type: &SqlType, idx: usize, name: &str, guarded: bool) -> anyhow::Result<()> {
+    let (mysql_type, buf_expr, needs_length) = mysql_bind_info(sql_type, name);
+    let indent = if guarded { "        " } else { "    " };
+
+    writeln!(src, "    bind[{idx}].buffer_type = {mysql_type};")?;
+
+    if guarded {
+        writeln!(src, "    if ({name_root}.has_value()) {{", name_root = name.trim_end_matches(".value()"))?;
+    }
+
+    writeln!(src, "{indent}bind[{idx}].buffer = {buf_expr};")?;
+    if needs_length {
+        let len_var = format!("{}_len", name.replace('.', "_").replace("()", ""));
+        writeln!(src, "{indent}unsigned long {len_var} = {name}.size();")?;
+        writeln!(src, "{indent}bind[{idx}].buffer_length = {name}.size();")?;
+        writeln!(src, "{indent}bind[{idx}].length = &{len_var};")?;
+    }
+
+    if guarded {
+        writeln!(src, "    }}")?;
+    }
+    Ok(())
+}
+
+/// Return (MYSQL_TYPE_*, buffer expression, needs_length) for a given SqlType.
+fn mysql_bind_info(sql_type: &SqlType, name: &str) -> (&'static str, String, bool) {
+    match sql_type {
+        SqlType::Boolean =>
+            ("MYSQL_TYPE_TINY", format!("const_cast<bool*>(&{name})"), false),
+        SqlType::SmallInt =>
+            ("MYSQL_TYPE_SHORT", format!("const_cast<std::int16_t*>(&{name})"), false),
+        SqlType::Integer =>
+            ("MYSQL_TYPE_LONG", format!("const_cast<std::int32_t*>(&{name})"), false),
+        SqlType::BigInt =>
+            ("MYSQL_TYPE_LONGLONG", format!("const_cast<std::int64_t*>(&{name})"), false),
+        SqlType::Real =>
+            ("MYSQL_TYPE_FLOAT", format!("const_cast<float*>(&{name})"), false),
+        SqlType::Double =>
+            ("MYSQL_TYPE_DOUBLE", format!("const_cast<double*>(&{name})"), false),
+        SqlType::Bytes =>
+            ("MYSQL_TYPE_BLOB", format!("const_cast<char*>(reinterpret_cast<const char*>({name}.data()))"), true),
+        // Everything else is a string
+        _ =>
+            ("MYSQL_TYPE_STRING", format!("const_cast<char*>({name}.c_str())"), true),
+    }
+}
+
+/// Emit `mysql_stmt_execute` with error handling.
+fn emit_mysql_execute(src: &mut String) -> anyhow::Result<()> {
+    writeln!(src, "    if (mysql_stmt_execute(stmt) != 0) {{")?;
+    writeln!(src, "        std::string err = mysql_stmt_error(stmt);")?;
+    writeln!(src, "        mysql_stmt_close(stmt);")?;
+    writeln!(src, "        throw std::runtime_error(err);")?;
+    writeln!(src, "    }}")?;
     Ok(())
 }
 
