@@ -1,5 +1,4 @@
-SQLTGEN := ../../../../../../target/debug/sqltgen
-COMPOSE := ../../../docker-compose.yml
+include ../../../common.mk
 
 .PHONY: generate test clean db-up db-down
 

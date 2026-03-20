@@ -1,4 +1,4 @@
-SQLTGEN  := ../../../../../../target/debug/sqltgen
+include ../../../common.mk
 
 .PHONY: generate test clean
 
