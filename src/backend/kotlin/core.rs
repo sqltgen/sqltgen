@@ -19,8 +19,37 @@ use super::adapter::JvmCoreContract;
 /// Resolve a known Kotlin/Java preset name to a [`ResolvedType`].
 fn try_preset_kotlin(name: &str) -> Option<ResolvedType> {
     match name {
-        "jackson" => Some(preset_jackson("JsonNode::class.java", "private val objectMapper = ObjectMapper()")),
-        "gson" => Some(preset_gson("JsonElement::class.java", "private val gson = Gson()")),
+        "jackson" => {
+            let mut rt = preset_jackson("JsonNode::class.java", "private val objectMapper = ObjectMapper()");
+            // Wrap read/write in helpers with null guards. ObjectMapper.readValue(null, …)
+            // returns NullNode, and writeValueAsString(null) returns "null" — both wrong.
+            rt.read_expr = Some("parseJson({raw})".to_string());
+            rt.write_expr = Some("toJson({value})".to_string());
+            rt.extra_fields.push(ExtraField {
+                declaration: "private fun parseJson(raw: String): com.fasterxml.jackson.databind.JsonNode = objectMapper.readValue(raw, com.fasterxml.jackson.databind.JsonNode::class.java)".to_string(),
+                import: None,
+            });
+            rt.extra_fields.push(ExtraField {
+                declaration: "private fun toJson(value: com.fasterxml.jackson.databind.JsonNode?): String? = if (value == null) null else objectMapper.writeValueAsString(value)".to_string(),
+                import: None,
+            });
+            Some(rt)
+        },
+        "gson" => {
+            let mut rt = preset_gson("JsonElement::class.java", "private val gson = Gson()");
+            rt.read_expr = Some("parseJson({raw})".to_string());
+            rt.write_expr = Some("toJson({value})".to_string());
+            rt.extra_fields.push(ExtraField {
+                declaration: "private fun parseJson(raw: String): com.google.gson.JsonElement = gson.fromJson(raw, com.google.gson.JsonElement::class.java)"
+                    .to_string(),
+                import: None,
+            });
+            rt.extra_fields.push(ExtraField {
+                declaration: "private fun toJson(value: com.google.gson.JsonElement?): String? = if (value == null) null else gson.toJson(value)".to_string(),
+                import: None,
+            });
+            Some(rt)
+        },
         _ => None,
     }
 }
@@ -61,6 +90,10 @@ fn kotlin_param_type_resolved(p: &Parameter, config: &OutputConfig) -> String {
 fn resolve_kotlin_read_expr(sql_type: &SqlType, nullable: bool, idx: usize, config: &OutputConfig) -> String {
     if let Some(resolved) = get_type_override_kotlin(sql_type, TypeVariant::Field, config) {
         if let Some(expr) = &resolved.read_expr {
+            if nullable {
+                // Kotlin null-safety: call the read helper only when the raw value is non-null
+                return format!("rs.getString({idx})?.let {{ {}  }}", expr.replace("{raw}", "it"));
+            }
             return expr.replace("{raw}", &format!("rs.getString({idx})"));
         }
         if uses_get_object(sql_type) {

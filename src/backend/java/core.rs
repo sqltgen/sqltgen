@@ -49,7 +49,30 @@ fn try_preset_java(name: &str) -> Option<ResolvedType> {
             });
             Some(rt)
         },
-        "gson" => Some(preset_gson("JsonElement.class", "private static final Gson gson = new Gson();")),
+        "gson" => {
+            let mut rt = preset_gson("JsonElement.class", "private static final Gson gson = new Gson();");
+            // Gson returns JsonNull (not Java null) for fromJson(null, …), and toJson(null)
+            // returns the string "null". Wrap both in helpers with null guards.
+            rt.read_expr = Some("parseJson({raw})".to_string());
+            rt.write_expr = Some("toJson({value})".to_string());
+            rt.extra_fields.push(ExtraField {
+                declaration: concat!(
+                    "private static com.google.gson.JsonElement parseJson(String raw) {",
+                    " return raw == null ? null : gson.fromJson(raw, com.google.gson.JsonElement.class); }"
+                )
+                .to_string(),
+                import: None,
+            });
+            rt.extra_fields.push(ExtraField {
+                declaration: concat!(
+                    "private static String toJson(com.google.gson.JsonElement value) {",
+                    " return value == null ? null : gson.toJson(value); }"
+                )
+                .to_string(),
+                import: None,
+            });
+            Some(rt)
+        },
         _ => None,
     }
 }

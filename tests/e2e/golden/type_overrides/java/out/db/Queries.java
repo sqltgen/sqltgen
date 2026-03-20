@@ -19,7 +19,7 @@ public final class Queries {
     private Queries() {}
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private static com.fasterxml.jackson.databind.JsonNode parseJson(String raw) { try { return raw == null ? null : objectMapper.readValue(raw, com.fasterxml.jackson.databind.JsonNode.class); } catch (com.fasterxml.jackson.core.JsonProcessingException e) { throw new RuntimeException(e); } }
-    private static String toJson(com.fasterxml.jackson.databind.JsonNode value) { try { return objectMapper.writeValueAsString(value); } catch (com.fasterxml.jackson.core.JsonProcessingException e) { throw new RuntimeException(e); } }
+    private static String toJson(com.fasterxml.jackson.databind.JsonNode value) { if (value == null) return null; try { return objectMapper.writeValueAsString(value); } catch (com.fasterxml.jackson.core.JsonProcessingException e) { throw new RuntimeException(e); } }
 
     private static final String SQL_GET_EVENT = """
             SELECT id, name, payload, meta, doc_id, created_at, scheduled_at, event_date, event_time

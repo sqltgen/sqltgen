@@ -170,7 +170,8 @@ fn test_jackson_preset_json_column() {
     assert!(src.contains("val data: JsonNode"), "expected JsonNode field:\n{src}");
     assert!(src.contains("import com.fasterxml.jackson.databind.JsonNode"), "missing JsonNode import:\n{src}");
     assert!(src.contains("import com.fasterxml.jackson.databind.ObjectMapper"), "missing ObjectMapper import:\n{src}");
-    assert!(src.contains("objectMapper.readValue(rs.getString(1), JsonNode::class.java)"), "expected readValue call:\n{src}");
+    assert!(src.contains("parseJson(rs.getString(1))"), "expected parseJson call:\n{src}");
+    assert!(src.contains("private fun parseJson(raw: String): com.fasterxml.jackson.databind.JsonNode"), "expected parseJson helper:\n{src}");
 }
 
 // ─── write_expr for param binding ────────────────────────────────────────────
@@ -183,7 +184,8 @@ fn test_write_expr_applied_to_param_binding() {
     let files = pg().generate(&schema, &[query], &cfg).unwrap();
     let src = get_file(&files, "Queries.kt");
 
-    assert!(src.contains("objectMapper.writeValueAsString(payload)"), "expected write_expr applied to param binding:\n{src}");
+    assert!(src.contains("toJson(payload)"), "expected toJson call applied to param binding:\n{src}");
+    assert!(src.contains("private fun toJson(value: com.fasterxml.jackson.databind.JsonNode?): String?"), "expected toJson helper:\n{src}");
 }
 
 // ─── type name + import ───────────────────────────────────────────────────────

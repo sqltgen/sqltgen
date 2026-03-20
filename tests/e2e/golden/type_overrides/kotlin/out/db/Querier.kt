@@ -11,6 +11,8 @@ import javax.sql.DataSource
 
 class Querier(private val dataSource: DataSource) {
     private val objectMapper = ObjectMapper()
+    private fun parseJson(raw: String): com.fasterxml.jackson.databind.JsonNode = objectMapper.readValue(raw, com.fasterxml.jackson.databind.JsonNode::class.java)
+    private fun toJson(value: com.fasterxml.jackson.databind.JsonNode?): String? = if (value == null) null else objectMapper.writeValueAsString(value)
 
     fun getEvent(id: Long): Event? =
         dataSource.connection.use { conn -> Queries.getEvent(conn, id) }

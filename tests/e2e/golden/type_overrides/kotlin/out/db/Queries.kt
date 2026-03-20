@@ -11,6 +11,8 @@ import java.util.UUID
 
 object Queries {
     private val objectMapper = ObjectMapper()
+    private fun parseJson(raw: String): com.fasterxml.jackson.databind.JsonNode = objectMapper.readValue(raw, com.fasterxml.jackson.databind.JsonNode::class.java)
+    private fun toJson(value: com.fasterxml.jackson.databind.JsonNode?): String? = if (value == null) null else objectMapper.writeValueAsString(value)
 
     private val SQL_GET_EVENT = """
         SELECT id, name, payload, meta, doc_id, created_at, scheduled_at, event_date, event_time
@@ -22,7 +24,7 @@ object Queries {
             ps.setLong(1, id)
             ps.executeQuery().use { rs ->
                 if (!rs.next()) return null
-                return Event(rs.getLong(1), rs.getString(2), objectMapper.readValue(rs.getString(3), JsonNode::class.java), objectMapper.readValue(rs.getString(4), JsonNode::class.java), rs.getObject(5, UUID::class.java), rs.getObject(6, LocalDateTime::class.java), rs.getObject(7, OffsetDateTime::class.java), rs.getObject(8, LocalDate::class.java), rs.getObject(9, LocalTime::class.java))
+                return Event(rs.getLong(1), rs.getString(2), parseJson(rs.getString(3)), rs.getString(4)?.let { parseJson(it)  }, rs.getObject(5, UUID::class.java), rs.getObject(6, LocalDateTime::class.java), rs.getObject(7, OffsetDateTime::class.java), rs.getObject(8, LocalDate::class.java), rs.getObject(9, LocalTime::class.java))
             }
         }
     }
@@ -36,7 +38,7 @@ object Queries {
         conn.prepareStatement(SQL_LIST_EVENTS).use { ps ->
             val rows = mutableListOf<Event>()
             ps.executeQuery().use { rs ->
-                while (rs.next()) rows.add(Event(rs.getLong(1), rs.getString(2), objectMapper.readValue(rs.getString(3), JsonNode::class.java), objectMapper.readValue(rs.getString(4), JsonNode::class.java), rs.getObject(5, UUID::class.java), rs.getObject(6, LocalDateTime::class.java), rs.getObject(7, OffsetDateTime::class.java), rs.getObject(8, LocalDate::class.java), rs.getObject(9, LocalTime::class.java)))
+                while (rs.next()) rows.add(Event(rs.getLong(1), rs.getString(2), parseJson(rs.getString(3)), rs.getString(4)?.let { parseJson(it)  }, rs.getObject(5, UUID::class.java), rs.getObject(6, LocalDateTime::class.java), rs.getObject(7, OffsetDateTime::class.java), rs.getObject(8, LocalDate::class.java), rs.getObject(9, LocalTime::class.java)))
             }
             return rows
         }
@@ -49,8 +51,8 @@ object Queries {
     fun insertEvent(conn: Connection, name: String, payload: JsonNode, meta: JsonNode?, docId: UUID, createdAt: LocalDateTime, scheduledAt: OffsetDateTime?, eventDate: LocalDate?, eventTime: LocalTime?): Unit {
         conn.prepareStatement(SQL_INSERT_EVENT).use { ps ->
             ps.setString(1, name)
-            ps.setObject(2, objectMapper.writeValueAsString(payload), java.sql.Types.OTHER)
-            ps.setObject(3, objectMapper.writeValueAsString(meta), java.sql.Types.OTHER)
+            ps.setObject(2, toJson(payload), java.sql.Types.OTHER)
+            ps.setObject(3, toJson(meta), java.sql.Types.OTHER)
             ps.setObject(4, docId)
             ps.setObject(5, createdAt)
             ps.setObject(6, scheduledAt)
@@ -65,8 +67,8 @@ object Queries {
     """.trimIndent()
     fun updatePayload(conn: Connection, payload: JsonNode, meta: JsonNode?, id: Long): Unit {
         conn.prepareStatement(SQL_UPDATE_PAYLOAD).use { ps ->
-            ps.setObject(1, objectMapper.writeValueAsString(payload), java.sql.Types.OTHER)
-            ps.setObject(2, objectMapper.writeValueAsString(meta), java.sql.Types.OTHER)
+            ps.setObject(1, toJson(payload), java.sql.Types.OTHER)
+            ps.setObject(2, toJson(meta), java.sql.Types.OTHER)
             ps.setLong(3, id)
             ps.executeUpdate()
         }
@@ -115,8 +117,8 @@ object Queries {
     fun insertEventRows(conn: Connection, name: String, payload: JsonNode, meta: JsonNode?, docId: UUID, createdAt: LocalDateTime, scheduledAt: OffsetDateTime?, eventDate: LocalDate?, eventTime: LocalTime?): Long {
         conn.prepareStatement(SQL_INSERT_EVENT_ROWS).use { ps ->
             ps.setString(1, name)
-            ps.setObject(2, objectMapper.writeValueAsString(payload), java.sql.Types.OTHER)
-            ps.setObject(3, objectMapper.writeValueAsString(meta), java.sql.Types.OTHER)
+            ps.setObject(2, toJson(payload), java.sql.Types.OTHER)
+            ps.setObject(3, toJson(meta), java.sql.Types.OTHER)
             ps.setObject(4, docId)
             ps.setObject(5, createdAt)
             ps.setObject(6, scheduledAt)
@@ -138,7 +140,7 @@ object Queries {
             ps.setObject(2, createdAt2)
             val rows = mutableListOf<Event>()
             ps.executeQuery().use { rs ->
-                while (rs.next()) rows.add(Event(rs.getLong(1), rs.getString(2), objectMapper.readValue(rs.getString(3), JsonNode::class.java), objectMapper.readValue(rs.getString(4), JsonNode::class.java), rs.getObject(5, UUID::class.java), rs.getObject(6, LocalDateTime::class.java), rs.getObject(7, OffsetDateTime::class.java), rs.getObject(8, LocalDate::class.java), rs.getObject(9, LocalTime::class.java)))
+                while (rs.next()) rows.add(Event(rs.getLong(1), rs.getString(2), parseJson(rs.getString(3)), rs.getString(4)?.let { parseJson(it)  }, rs.getObject(5, UUID::class.java), rs.getObject(6, LocalDateTime::class.java), rs.getObject(7, OffsetDateTime::class.java), rs.getObject(8, LocalDate::class.java), rs.getObject(9, LocalTime::class.java)))
             }
             return rows
         }
