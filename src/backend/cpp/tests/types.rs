@@ -46,18 +46,18 @@ fn test_cpp_type_bytes() {
 #[test]
 fn test_cpp_type_temporal() {
     let t = CppTarget::Postgres;
-    assert_eq!(cpp_type(&SqlType::Date, false, &t), "std::chrono::year_month_day");
-    assert_eq!(cpp_type(&SqlType::Time, false, &t), "std::chrono::seconds");
-    assert_eq!(cpp_type(&SqlType::Timestamp, false, &t), "std::chrono::system_clock::time_point");
-    assert_eq!(cpp_type(&SqlType::TimestampTz, false, &t), "std::chrono::system_clock::time_point");
-    assert_eq!(cpp_type(&SqlType::Interval, false, &t), "std::chrono::microseconds");
+    assert_eq!(cpp_type(&SqlType::Date, false, &t), "std::string");
+    assert_eq!(cpp_type(&SqlType::Time, false, &t), "std::string");
+    assert_eq!(cpp_type(&SqlType::Timestamp, false, &t), "std::string");
+    assert_eq!(cpp_type(&SqlType::TimestampTz, false, &t), "std::string");
+    assert_eq!(cpp_type(&SqlType::Interval, false, &t), "std::string");
 }
 
 #[test]
 fn test_cpp_type_temporal_nullable() {
     let t = CppTarget::Postgres;
-    assert_eq!(cpp_type(&SqlType::Date, true, &t), "std::optional<std::chrono::year_month_day>");
-    assert_eq!(cpp_type(&SqlType::Timestamp, true, &t), "std::optional<std::chrono::system_clock::time_point>");
+    assert_eq!(cpp_type(&SqlType::Date, true, &t), "std::optional<std::string>");
+    assert_eq!(cpp_type(&SqlType::Timestamp, true, &t), "std::optional<std::string>");
 }
 
 // ─── cpp_type: uuid, json, custom ────────────────────────────────────────

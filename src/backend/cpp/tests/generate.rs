@@ -36,7 +36,7 @@ fn test_generate_includes_for_user_table() {
 }
 
 #[test]
-fn test_generate_includes_chrono_for_temporal() {
+fn test_generate_includes_string_for_temporal() {
     let table = Table {
         name: "event".to_string(),
         kind: TableKind::Table,
@@ -48,7 +48,8 @@ fn test_generate_includes_chrono_for_temporal() {
     let schema = Schema::with_tables(vec![table]);
     let files = pg().generate(&schema, &[], &cfg()).unwrap();
     let src = get_file(&files, "event.hpp");
-    assert!(src.contains("#include <chrono>"), "timestamp needs chrono");
+    assert!(!src.contains("#include <chrono>"), "timestamp no longer needs chrono");
+    assert!(src.contains("#include <string>"), "timestamp mapped to std::string needs string");
     assert!(src.contains("#include <cstdint>"), "integer needs cstdint");
 }
 
