@@ -18,7 +18,7 @@ pub(crate) fn map(dt: &DataType) -> SqlType {
 
         DataType::Time(_, _) => SqlType::Time,
 
-        DataType::Timestamp(_, _) => SqlType::Timestamp,
+        DataType::Timestamp(_, _) | DataType::Datetime(_) => SqlType::Timestamp,
 
         // SQLite stores NUMERIC/DECIMAL as REAL (floating-point affinity).
         // Mapping to Double avoids exposing `rust_decimal::Decimal` in Rust backends
@@ -122,6 +122,8 @@ mod tests {
         assert_eq!(map(&DataType::Timestamp(None, TimezoneInfo::None)), SqlType::Timestamp);
         // SQLite ignores timezone info — always maps to plain Timestamp/Time
         assert_eq!(map(&DataType::Timestamp(None, TimezoneInfo::WithTimeZone)), SqlType::Timestamp);
+        // DATETIME (parsed as DataType::Datetime by sqlparser) maps to Timestamp
+        assert_eq!(map(&DataType::Datetime(None)), SqlType::Timestamp);
     }
 
     #[test]

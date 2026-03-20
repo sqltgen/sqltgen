@@ -7,7 +7,7 @@ import sqlite3
 from collections.abc import Callable
 from contextlib import closing
 from ._sqltgen import execute, exec_stmt
-from typing import Any
+import datetime
 
 Connection = sqlite3.Connection
 
@@ -544,7 +544,7 @@ class GetBooksWithRecentSalesRow:
     genre: str
 
 
-def get_books_with_recent_sales(conn: Connection, ordered_at: Any) -> list[GetBooksWithRecentSalesRow]:
+def get_books_with_recent_sales(conn: Connection, ordered_at: datetime.datetime) -> list[GetBooksWithRecentSalesRow]:
     with execute(conn, SQL_GET_BOOKS_WITH_RECENT_SALES, (ordered_at,)) as cur:
         return [GetBooksWithRecentSalesRow(*row) for row in cur.fetchall()]
 
@@ -827,7 +827,7 @@ class Querier:
         with closing(self._connect()) as conn:
             return get_books_not_by_author(conn, name)
 
-    def get_books_with_recent_sales(self, ordered_at: Any) -> list[GetBooksWithRecentSalesRow]:
+    def get_books_with_recent_sales(self, ordered_at: datetime.datetime) -> list[GetBooksWithRecentSalesRow]:
         with closing(self._connect()) as conn:
             return get_books_with_recent_sales(conn, ordered_at)
 

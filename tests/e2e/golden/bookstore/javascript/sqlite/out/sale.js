@@ -4,5 +4,5 @@
  * @typedef {Object} Sale
  * @property {number} id
  * @property {number} customer_id
- * @property {unknown} ordered_at
+ * @property {Date} ordered_at
  */

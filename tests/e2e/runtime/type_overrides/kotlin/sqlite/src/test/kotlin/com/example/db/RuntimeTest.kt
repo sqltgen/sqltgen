@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test
 import java.sql.Connection
 import java.sql.DriverManager
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.LocalTime
 
 /**
@@ -17,7 +18,7 @@ import java.time.LocalTime
  * SQLite type mapping notes:
  *  - id               → Int  (INTEGER PRIMARY KEY)
  *  - payload/meta     → String (TEXT; JSON serialised manually)
- *  - createdAt/scheduledAt → Any (DATETIME stored as text string)
+ *  - createdAt/scheduledAt → LocalDateTime (DATETIME stored as text string)
  *  - eventDate        → LocalDate?
  *  - eventTime        → LocalTime?
  *
@@ -59,7 +60,7 @@ class RuntimeTest {
 
         Queries.insertEvent(conn, "login",
             jsonStr(payload), jsonStr(meta), "doc-001",
-            "2024-06-01 12:00:00", "2024-06-01 14:00:00",
+            LocalDateTime.of(2024, 6, 1, 12, 0, 0), LocalDateTime.of(2024, 6, 1, 14, 0, 0),
             LocalDate.of(2024, 6, 1), LocalTime.of(9, 0, 0))
 
         val ev = Queries.getEvent(conn, 1)!!
@@ -80,9 +81,9 @@ class RuntimeTest {
 
     @Test
     fun testListEvents() {
-        Queries.insertEvent(conn, "alpha", "{}", null, "doc-1", "2024-06-01 12:00:00", null, null, null)
-        Queries.insertEvent(conn, "beta",  "{}", null, "doc-2", "2024-06-01 12:00:00", null, null, null)
-        Queries.insertEvent(conn, "gamma", "{}", null, "doc-3", "2024-06-01 12:00:00", null, null, null)
+        Queries.insertEvent(conn, "alpha", "{}", null, "doc-1", LocalDateTime.of(2024, 6, 1, 12, 0, 0), null, null, null)
+        Queries.insertEvent(conn, "beta",  "{}", null, "doc-2", LocalDateTime.of(2024, 6, 1, 12, 0, 0), null, null, null)
+        Queries.insertEvent(conn, "gamma", "{}", null, "doc-3", LocalDateTime.of(2024, 6, 1, 12, 0, 0), null, null, null)
 
         val events = Queries.listEvents(conn)
         assertEquals(3,       events.size)
@@ -93,12 +94,12 @@ class RuntimeTest {
 
     @Test
     fun testGetEventsByDateRange() {
-        Queries.insertEvent(conn, "early", "{}", null, "doc-1", "2024-01-01 10:00:00", null, null, null)
-        Queries.insertEvent(conn, "mid",   "{}", null, "doc-2", "2024-06-01 12:00:00", null, null, null)
-        Queries.insertEvent(conn, "late",  "{}", null, "doc-3", "2024-12-01 15:00:00", null, null, null)
+        Queries.insertEvent(conn, "early", "{}", null, "doc-1", LocalDateTime.of(2024, 1, 1, 10, 0, 0), null, null, null)
+        Queries.insertEvent(conn, "mid",   "{}", null, "doc-2", LocalDateTime.of(2024, 6, 1, 12, 0, 0), null, null, null)
+        Queries.insertEvent(conn, "late",  "{}", null, "doc-3", LocalDateTime.of(2024, 12, 1, 15, 0, 0), null, null, null)
 
         val events = Queries.getEventsByDateRange(conn,
-            "2024-01-01 00:00:00", "2024-07-01 00:00:00")
+            LocalDateTime.of(2024, 1, 1, 0, 0, 0), LocalDateTime.of(2024, 7, 1, 0, 0, 0))
 
         assertEquals(2,       events.size)
         assertEquals("early", events[0].name)
@@ -110,7 +111,7 @@ class RuntimeTest {
     @Test
     fun testUpdatePayload() {
         Queries.insertEvent(conn, "test", """{"v":1}""", null, "doc-1",
-            "2024-06-01 12:00:00", null, null, null)
+            LocalDateTime.of(2024, 6, 1, 12, 0, 0), null, null, null)
 
         Queries.updatePayload(conn, """{"v":2}""", null, 1)
 
@@ -122,7 +123,7 @@ class RuntimeTest {
     @Test
     fun testUpdateEventDate() {
         Queries.insertEvent(conn, "dated", "{}", null, "doc-1",
-            "2024-06-01 12:00:00", null, LocalDate.of(2024, 1, 1), null)
+            LocalDateTime.of(2024, 6, 1, 12, 0, 0), null, LocalDate.of(2024, 1, 1), null)
 
         Queries.updateEventDate(conn, LocalDate.of(2024, 12, 31), 1)
 
@@ -135,7 +136,7 @@ class RuntimeTest {
     @Test
     fun testInsertEventRows() {
         val n = Queries.insertEventRows(conn, "rowtest", "{}", null,
-            "doc-1", "2024-06-01 12:00:00", null, null, null)
+            "doc-1", LocalDateTime.of(2024, 6, 1, 12, 0, 0), null, null, null)
         assertEquals(1L, n)
     }
 
@@ -145,7 +146,7 @@ class RuntimeTest {
     fun testFindByDate() {
         val target = LocalDate.of(2024, 6, 15)
         Queries.insertEvent(conn, "dated", "{}", null, "doc-1",
-            "2024-06-01 12:00:00", null, target, null)
+            LocalDateTime.of(2024, 6, 1, 12, 0, 0), null, target, null)
 
         val row = Queries.findByDate(conn, target)!!
         assertEquals("dated", row.name)
@@ -154,7 +155,7 @@ class RuntimeTest {
     @Test
     fun testFindByDocId() {
         Queries.insertEvent(conn, "doctest", "{}", null, "unique-doc-id",
-            "2024-06-01 12:00:00", null, null, null)
+            LocalDateTime.of(2024, 6, 1, 12, 0, 0), null, null, null)
 
         val row = Queries.findByDocId(conn, "unique-doc-id")!!
         assertEquals("doctest", row.name)
@@ -166,10 +167,10 @@ class RuntimeTest {
     fun testCountEvents() {
         for (i in 1..3) {
             Queries.insertEvent(conn, "ev$i", "{}", null, "doc-$i",
-                "2024-06-0$i 00:00:00", null, null, null)
+                LocalDateTime.of(2024, 6, i, 0, 0, 0), null, null, null)
         }
 
-        val row = Queries.countEvents(conn, "2024-01-01 00:00:00")!!
+        val row = Queries.countEvents(conn, LocalDateTime.of(2024, 1, 1, 0, 0, 0))!!
         assertEquals(3L, row.total)
     }
 }

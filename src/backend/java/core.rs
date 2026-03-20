@@ -305,7 +305,7 @@ fn emit_java_scalar_query(src: &mut String, ctx: &QueryContext, contract: &JvmCo
     emit_java_sql_text_block(src, &sql_const, &raw_sql)?;
     writeln!(src, "    public static {} {}({}) throws SQLException {{", ctx.return_type, to_camel_case(&ctx.query.name), ctx.params_sig)?;
     writeln!(src, "        try (PreparedStatement ps = conn.prepareStatement({sql_const})) {{")?;
-    emit_jdbc_binds(src, ctx.query, "", contract.statement_end, "toArray()", |p| java_write_expr(p, ctx.config))?;
+    emit_jdbc_binds(src, ctx.query, "", contract.statement_end, "toArray()", contract.json_bind, |p| java_write_expr(p, ctx.config))?;
     emit_java_result_block(src, ctx, contract)?;
     writeln!(src, "        }}")?;
     writeln!(src, "    }}")?;
@@ -322,7 +322,7 @@ fn emit_java_list_pg_native(src: &mut String, ctx: &QueryContext, lp: &Parameter
     let type_name = pg_array_type_name(&lp.sql_type);
     writeln!(src, "        java.sql.Array arr = conn.createArrayOf(\"{type_name}\", {lp_name}.toArray());")?;
     writeln!(src, "        try (PreparedStatement ps = conn.prepareStatement({sql_const})) {{")?;
-    emit_jdbc_binds(src, ctx.query, "arr", contract.statement_end, "toArray()", |p| java_write_expr(p, ctx.config))?;
+    emit_jdbc_binds(src, ctx.query, "arr", contract.statement_end, "toArray()", contract.json_bind, |p| java_write_expr(p, ctx.config))?;
     emit_java_result_block(src, ctx, contract)?;
     writeln!(src, "        }}")?;
     writeln!(src, "    }}")?;
@@ -362,7 +362,7 @@ fn emit_java_list_json_native(src: &mut String, ctx: &QueryContext, lp: &Paramet
     writeln!(src, "    public static {} {method_name}({}) throws SQLException {{", ctx.return_type, ctx.params_sig)?;
     emit_java_json_builder(src, lp)?;
     writeln!(src, "        try (PreparedStatement ps = conn.prepareStatement({sql_const})) {{")?;
-    emit_jdbc_binds(src, ctx.query, "json", contract.statement_end, "toArray()", |p| java_write_expr(p, ctx.config))?;
+    emit_jdbc_binds(src, ctx.query, "json", contract.statement_end, "toArray()", contract.json_bind, |p| java_write_expr(p, ctx.config))?;
     emit_java_result_block(src, ctx, contract)?;
     writeln!(src, "        }}")?;
     writeln!(src, "    }}")?;

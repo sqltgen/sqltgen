@@ -10,6 +10,7 @@ import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 
 import org.junit.jupiter.api.AfterEach;
@@ -23,7 +24,7 @@ import org.junit.jupiter.api.Test;
  *  - id          → int  (INTEGER PRIMARY KEY)
  *  - payload/meta → String (TEXT; JSON serialised manually via ObjectMapper)
  *  - docId       → String (TEXT)
- *  - createdAt/scheduledAt → Object (DATETIME stored as text string)
+ *  - createdAt/scheduledAt → LocalDateTime (DATETIME stored as text string)
  *  - eventDate   → LocalDate (DATE)
  *  - eventTime   → LocalTime (TIME)
  *
@@ -71,7 +72,7 @@ class RuntimeTest {
 
         Queries.insertEvent(conn, "login",
             jsonStr(payload), jsonStr(meta), "doc-001",
-            "2024-06-01 12:00:00", "2024-06-01 14:00:00",
+            LocalDateTime.of(2024, 6, 1, 12, 0, 0), LocalDateTime.of(2024, 6, 1, 14, 0, 0),
             LocalDate.of(2024, 6, 1), LocalTime.of(9, 0, 0));
 
         var ev = Queries.getEvent(conn, 1).orElseThrow();
@@ -93,9 +94,9 @@ class RuntimeTest {
 
     @Test
     void testListEvents() throws Exception {
-        Queries.insertEvent(conn, "alpha", "{}", null, "doc-1", "2024-06-01 12:00:00", null, null, null);
-        Queries.insertEvent(conn, "beta",  "{}", null, "doc-2", "2024-06-01 12:00:00", null, null, null);
-        Queries.insertEvent(conn, "gamma", "{}", null, "doc-3", "2024-06-01 12:00:00", null, null, null);
+        Queries.insertEvent(conn, "alpha", "{}", null, "doc-1", LocalDateTime.of(2024, 6, 1, 12, 0, 0), null, null, null);
+        Queries.insertEvent(conn, "beta",  "{}", null, "doc-2", LocalDateTime.of(2024, 6, 1, 12, 0, 0), null, null, null);
+        Queries.insertEvent(conn, "gamma", "{}", null, "doc-3", LocalDateTime.of(2024, 6, 1, 12, 0, 0), null, null, null);
 
         var events = Queries.listEvents(conn);
         assertEquals(3, events.size());
@@ -106,12 +107,12 @@ class RuntimeTest {
 
     @Test
     void testGetEventsByDateRange() throws Exception {
-        Queries.insertEvent(conn, "early", "{}", null, "doc-1", "2024-01-01 10:00:00", null, null, null);
-        Queries.insertEvent(conn, "mid",   "{}", null, "doc-2", "2024-06-01 12:00:00", null, null, null);
-        Queries.insertEvent(conn, "late",  "{}", null, "doc-3", "2024-12-01 15:00:00", null, null, null);
+        Queries.insertEvent(conn, "early", "{}", null, "doc-1", LocalDateTime.of(2024, 1, 1, 10, 0, 0), null, null, null);
+        Queries.insertEvent(conn, "mid",   "{}", null, "doc-2", LocalDateTime.of(2024, 6, 1, 12, 0, 0), null, null, null);
+        Queries.insertEvent(conn, "late",  "{}", null, "doc-3", LocalDateTime.of(2024, 12, 1, 15, 0, 0), null, null, null);
 
         var events = Queries.getEventsByDateRange(conn,
-            "2024-01-01 00:00:00", "2024-07-01 00:00:00");
+            LocalDateTime.of(2024, 1, 1, 0, 0, 0), LocalDateTime.of(2024, 7, 1, 0, 0, 0));
 
         assertEquals(2, events.size());
         assertEquals("early", events.get(0).name());
@@ -123,7 +124,7 @@ class RuntimeTest {
     @Test
     void testUpdatePayload() throws Exception {
         Queries.insertEvent(conn, "test", "{\"v\":1}", null, "doc-1",
-            "2024-06-01 12:00:00", null, null, null);
+            LocalDateTime.of(2024, 6, 1, 12, 0, 0), null, null, null);
 
         Queries.updatePayload(conn, "{\"v\":2}", null, 1);
 
@@ -135,7 +136,7 @@ class RuntimeTest {
     @Test
     void testUpdateEventDate() throws Exception {
         Queries.insertEvent(conn, "dated", "{}", null, "doc-1",
-            "2024-06-01 12:00:00", null, LocalDate.of(2024, 1, 1), null);
+            LocalDateTime.of(2024, 6, 1, 12, 0, 0), null, LocalDate.of(2024, 1, 1), null);
 
         Queries.updateEventDate(conn, LocalDate.of(2024, 12, 31), 1);
 
@@ -148,7 +149,7 @@ class RuntimeTest {
     @Test
     void testInsertEventRows() throws Exception {
         long n = Queries.insertEventRows(conn, "rowtest", "{}", null,
-            "doc-1", "2024-06-01 12:00:00", null, null, null);
+            "doc-1", LocalDateTime.of(2024, 6, 1, 12, 0, 0), null, null, null);
         assertEquals(1L, n);
     }
 
@@ -157,7 +158,7 @@ class RuntimeTest {
     @Test
     void testFindByDate() throws Exception {
         Queries.insertEvent(conn, "dated", "{}", null, "doc-1",
-            "2024-06-01 12:00:00", null, LocalDate.of(2024, 6, 15), null);
+            LocalDateTime.of(2024, 6, 1, 12, 0, 0), null, LocalDate.of(2024, 6, 15), null);
 
         var row = Queries.findByDate(conn, LocalDate.of(2024, 6, 15)).orElseThrow();
         assertEquals("dated", row.name());
@@ -166,7 +167,7 @@ class RuntimeTest {
     @Test
     void testFindByDocId() throws Exception {
         Queries.insertEvent(conn, "doctest", "{}", null, "unique-doc-id",
-            "2024-06-01 12:00:00", null, null, null);
+            LocalDateTime.of(2024, 6, 1, 12, 0, 0), null, null, null);
 
         var row = Queries.findByDocId(conn, "unique-doc-id").orElseThrow();
         assertEquals("doctest", row.name());
@@ -178,10 +179,10 @@ class RuntimeTest {
     void testCountEvents() throws Exception {
         for (int i = 1; i <= 3; i++) {
             Queries.insertEvent(conn, "ev" + i, "{}", null, "doc-" + i,
-                "2024-06-0" + i + " 00:00:00", null, null, null);
+                LocalDateTime.of(2024, 6, i, 0, 0, 0), null, null, null);
         }
 
-        var row = Queries.countEvents(conn, "2024-01-01 00:00:00").orElseThrow();
+        var row = Queries.countEvents(conn, LocalDateTime.of(2024, 1, 1, 0, 0, 0)).orElseThrow();
         assertEquals(3L, row.total());
     }
 }

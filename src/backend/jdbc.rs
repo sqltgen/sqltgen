@@ -17,6 +17,20 @@ pub struct JvmCoreContract {
     pub fallback_type: &'static str,
     /// How to access a `List` size (`".size()"` for Java, `".size"` for Kotlin).
     pub size_access: &'static str,
+    /// JDBC type hint for JSON/JSONB parameter binding.
+    ///
+    /// PostgreSQL requires `java.sql.Types.OTHER` for jsonb columns, while MySQL and
+    /// SQLite work with plain `setString`. The adapter resolves this based on the engine.
+    pub json_bind: JsonBindMode,
+}
+
+/// Strategy for binding JSON/JSONB parameters via JDBC `PreparedStatement`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JsonBindMode {
+    /// `ps.setObject(idx, value, java.sql.Types.OTHER)` — required by PostgreSQL.
+    TypesOther,
+    /// `ps.setString(idx, value)` — used by MySQL and SQLite.
+    SetString,
 }
 
 /// Database engine target shared by all JDBC backends (Java, Kotlin).
@@ -81,7 +95,15 @@ pub fn ds_result_row_type(query: &Query, schema: &Schema, fallback: &str, class_
 /// `scalar_value_expr` is called for every non-list, non-array parameter and returns
 /// the expression to bind — normally just the camel-case param name, but backends can
 /// substitute a `write_expr` here (e.g. `objectMapper.writeValueAsString(payload)`).
-pub fn emit_jdbc_binds<F>(src: &mut String, query: &Query, list_bind_expr: &str, se: &str, to_array_call: &str, scalar_value_expr: F) -> anyhow::Result<()>
+pub fn emit_jdbc_binds<F>(
+    src: &mut String,
+    query: &Query,
+    list_bind_expr: &str,
+    se: &str,
+    to_array_call: &str,
+    json_bind: JsonBindMode,
+    scalar_value_expr: F,
+) -> anyhow::Result<()>
 where
     F: Fn(&Parameter) -> String,
 {
@@ -94,7 +116,17 @@ where
             let type_name = pg_array_type_name(inner);
             writeln!(src, "            ps.setArray({jdbc_idx}, conn.createArrayOf(\"{type_name}\", {name}.{to_array_call})){se}")?;
         } else if matches!(p.sql_type, SqlType::Json | SqlType::Jsonb) {
-            writeln!(src, "            ps.setObject({jdbc_idx}, {}, java.sql.Types.OTHER){se}", scalar_value_expr(p))?;
+            let val = scalar_value_expr(p);
+            match json_bind {
+                JsonBindMode::TypesOther => writeln!(src, "            ps.setObject({jdbc_idx}, {val}, java.sql.Types.OTHER){se}")?,
+                JsonBindMode::SetString => {
+                    if p.nullable {
+                        writeln!(src, "            ps.setObject({jdbc_idx}, {val}){se}")?;
+                    } else {
+                        writeln!(src, "            ps.setString({jdbc_idx}, {val}){se}")?;
+                    }
+                },
+            }
         } else if p.nullable {
             writeln!(src, "            ps.setObject({jdbc_idx}, {}){se}", scalar_value_expr(p))?;
         } else {
@@ -407,12 +439,12 @@ mod tests {
         let q = make_query("Test", "WHERE id = $1 AND name = $2", vec![p1, p2]);
 
         let mut src = String::new();
-        emit_jdbc_binds(&mut src, &q, "", ";", "toArray()", |p| to_camel_case(&p.name)).unwrap();
+        emit_jdbc_binds(&mut src, &q, "", ";", "toArray()", JsonBindMode::TypesOther, |p| to_camel_case(&p.name)).unwrap();
         assert!(src.contains("ps.setLong(1, userId);"));
         assert!(src.contains("ps.setObject(2, name);"));
 
         let mut src = String::new();
-        emit_jdbc_binds(&mut src, &q, "", "", "toTypedArray()", |p| to_camel_case(&p.name)).unwrap();
+        emit_jdbc_binds(&mut src, &q, "", "", "toTypedArray()", JsonBindMode::TypesOther, |p| to_camel_case(&p.name)).unwrap();
         assert!(src.contains("ps.setLong(1, userId)"));
         assert!(!src.contains("ps.setLong(1, userId);"));
     }
@@ -423,7 +455,7 @@ mod tests {
         let q = make_query("UpdateTags", "UPDATE t SET tags = $1", vec![p]);
 
         let mut src = String::new();
-        emit_jdbc_binds(&mut src, &q, "", ";", "toArray()", |p| to_camel_case(&p.name)).unwrap();
+        emit_jdbc_binds(&mut src, &q, "", ";", "toArray()", JsonBindMode::TypesOther, |p| to_camel_case(&p.name)).unwrap();
         assert!(src.contains("createArrayOf(\"text\", tags.toArray())"), "Java should use toArray(): {src}");
         assert!(src.contains("ps.setArray(1,"), "should use setArray, not setObject: {src}");
     }
@@ -436,7 +468,7 @@ mod tests {
         let q = make_query("UpdateTags", "UPDATE t SET tags = $1", vec![p]);
 
         let mut src = String::new();
-        emit_jdbc_binds(&mut src, &q, "", "", "toTypedArray()", |p| to_camel_case(&p.name)).unwrap();
+        emit_jdbc_binds(&mut src, &q, "", "", "toTypedArray()", JsonBindMode::TypesOther, |p| to_camel_case(&p.name)).unwrap();
         assert!(src.contains("createArrayOf(\"text\", tags.toTypedArray())"), "Kotlin should use toTypedArray(): {src}");
         assert!(!src.contains(".toArray()"), "Kotlin must not emit Java toArray(): {src}");
     }
@@ -447,7 +479,7 @@ mod tests {
         let q = make_query("UpdateMeta", "UPDATE t SET meta = $1", vec![p]);
 
         let mut src = String::new();
-        emit_jdbc_binds(&mut src, &q, "", ";", "toArray()", |p| to_camel_case(&p.name)).unwrap();
+        emit_jdbc_binds(&mut src, &q, "", ";", "toArray()", JsonBindMode::TypesOther, |p| to_camel_case(&p.name)).unwrap();
         assert!(src.contains("java.sql.Types.OTHER"), "JSONB should use Types.OTHER: {src}");
         assert!(src.contains("ps.setObject(1, metadata, java.sql.Types.OTHER)"), "full setObject call: {src}");
     }
@@ -458,8 +490,29 @@ mod tests {
         let q = make_query("SetData", "UPDATE t SET data = $1", vec![p]);
 
         let mut src = String::new();
-        emit_jdbc_binds(&mut src, &q, "", ";", "toArray()", |p| to_camel_case(&p.name)).unwrap();
+        emit_jdbc_binds(&mut src, &q, "", ";", "toArray()", JsonBindMode::TypesOther, |p| to_camel_case(&p.name)).unwrap();
         assert!(src.contains("java.sql.Types.OTHER"), "JSON should use Types.OTHER: {src}");
+    }
+
+    #[test]
+    fn test_emit_jdbc_binds_json_set_string_mode() {
+        let p = Parameter::scalar(1, "data", SqlType::Json, false);
+        let q = make_query("SetData", "UPDATE t SET data = $1", vec![p]);
+
+        let mut src = String::new();
+        emit_jdbc_binds(&mut src, &q, "", ";", "toArray()", JsonBindMode::SetString, |p| to_camel_case(&p.name)).unwrap();
+        assert!(src.contains("ps.setString(1, data)"), "MySQL/SQLite JSON should use setString: {src}");
+        assert!(!src.contains("Types.OTHER"), "must not use Types.OTHER for MySQL/SQLite: {src}");
+    }
+
+    #[test]
+    fn test_emit_jdbc_binds_json_nullable_set_string_mode() {
+        let p = Parameter::scalar(1, "data", SqlType::Json, true);
+        let q = make_query("SetData", "UPDATE t SET data = $1", vec![p]);
+
+        let mut src = String::new();
+        emit_jdbc_binds(&mut src, &q, "", ";", "toArray()", JsonBindMode::SetString, |p| to_camel_case(&p.name)).unwrap();
+        assert!(src.contains("ps.setObject(1, data)"), "nullable JSON on MySQL/SQLite should use setObject: {src}");
     }
 
     #[test]

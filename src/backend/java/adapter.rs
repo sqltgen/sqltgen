@@ -1,6 +1,10 @@
-pub(super) use crate::backend::jdbc::JvmCoreContract;
+pub(super) use crate::backend::jdbc::{JdbcTarget, JsonBindMode, JvmCoreContract};
 
-/// Resolve the Java adapter contract.
-pub(super) fn resolve_java_contract() -> JvmCoreContract {
-    JvmCoreContract { statement_end: ";", fallback_type: "Object[]", size_access: ".size()" }
+/// Resolve the Java adapter contract for the given engine target.
+pub(super) fn resolve_java_contract(target: JdbcTarget) -> JvmCoreContract {
+    let json_bind = match target {
+        JdbcTarget::Postgres => JsonBindMode::TypesOther,
+        JdbcTarget::Mysql | JdbcTarget::Sqlite => JsonBindMode::SetString,
+    };
+    JvmCoreContract { statement_end: ";", fallback_type: "Object[]", size_access: ".size()", json_bind }
 }

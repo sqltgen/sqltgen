@@ -284,7 +284,7 @@ fn emit_kotlin_scalar_query(src: &mut String, ctx: &QueryContext, contract: &Jvm
     emit_kotlin_sql_triple_quoted(src, &sql_const, &raw_sql)?;
     writeln!(src, "    fun {}({}): {} {{", to_camel_case(&ctx.query.name), ctx.params_sig, ctx.return_type)?;
     writeln!(src, "        conn.prepareStatement({sql_const}).use {{ ps ->")?;
-    emit_jdbc_binds(src, ctx.query, "", contract.statement_end, "toTypedArray()", |p| kotlin_write_expr(p, ctx.config))?;
+    emit_jdbc_binds(src, ctx.query, "", contract.statement_end, "toTypedArray()", contract.json_bind, |p| kotlin_write_expr(p, ctx.config))?;
     emit_kotlin_result_block(src, ctx, contract)?;
     writeln!(src, "        }}")?;
     writeln!(src, "    }}")?;
@@ -301,7 +301,7 @@ fn emit_kotlin_list_pg_native(src: &mut String, ctx: &QueryContext, lp: &Paramet
     let type_name = pg_array_type_name(&lp.sql_type);
     writeln!(src, "        val arr = conn.createArrayOf(\"{type_name}\", {lp_name}.toTypedArray())")?;
     writeln!(src, "        conn.prepareStatement({sql_const}).use {{ ps ->")?;
-    emit_jdbc_binds(src, ctx.query, "arr", contract.statement_end, "toTypedArray()", |p| kotlin_write_expr(p, ctx.config))?;
+    emit_jdbc_binds(src, ctx.query, "arr", contract.statement_end, "toTypedArray()", contract.json_bind, |p| kotlin_write_expr(p, ctx.config))?;
     emit_kotlin_result_block(src, ctx, contract)?;
     writeln!(src, "        }}")?;
     writeln!(src, "    }}")?;
@@ -339,7 +339,7 @@ fn emit_kotlin_list_json_native(src: &mut String, ctx: &QueryContext, lp: &Param
     writeln!(src, "    fun {method_name}({}): {} {{", ctx.params_sig, ctx.return_type)?;
     emit_kotlin_json_builder(src, lp)?;
     writeln!(src, "        conn.prepareStatement({sql_const}).use {{ ps ->")?;
-    emit_jdbc_binds(src, ctx.query, "json", contract.statement_end, "toTypedArray()", |p| kotlin_write_expr(p, ctx.config))?;
+    emit_jdbc_binds(src, ctx.query, "json", contract.statement_end, "toTypedArray()", contract.json_bind, |p| kotlin_write_expr(p, ctx.config))?;
     emit_kotlin_result_block(src, ctx, contract)?;
     writeln!(src, "        }}")?;
     writeln!(src, "    }}")?;

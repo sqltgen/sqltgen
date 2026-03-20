@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"time"
 )
 
 const SQL_CREATE_AUTHOR = `
@@ -942,7 +943,7 @@ func GetBooksNotByAuthor(ctx context.Context, db *sql.DB, name string) ([]GetBoo
 }
 
 // GetBooksWithRecentSales executes the GetBooksWithRecentSales query.
-func GetBooksWithRecentSales(ctx context.Context, db *sql.DB, ordered_at any) ([]GetBooksWithRecentSalesRow, error) {
+func GetBooksWithRecentSales(ctx context.Context, db *sql.DB, ordered_at time.Time) ([]GetBooksWithRecentSalesRow, error) {
 	rows, err := db.QueryContext(ctx, SQL_GET_BOOKS_WITH_RECENT_SALES, ordered_at)
 	if err != nil {
 		return nil, err
@@ -1356,7 +1357,7 @@ func (q *Querier) GetBooksNotByAuthor(ctx context.Context, name string) ([]GetBo
 }
 
 // GetBooksWithRecentSales delegates to the package-level GetBooksWithRecentSales function.
-func (q *Querier) GetBooksWithRecentSales(ctx context.Context, ordered_at any) ([]GetBooksWithRecentSalesRow, error) {
+func (q *Querier) GetBooksWithRecentSales(ctx context.Context, ordered_at time.Time) ([]GetBooksWithRecentSalesRow, error) {
 	return GetBooksWithRecentSales(ctx, q.db, ordered_at)
 }
 

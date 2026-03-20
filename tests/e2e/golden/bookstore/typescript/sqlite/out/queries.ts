@@ -407,7 +407,7 @@ export interface GetBooksWithRecentSalesRow {
   genre: string;
 }
 
-export async function getBooksWithRecentSales(db: Db, orderedAt: unknown): Promise<GetBooksWithRecentSalesRow[]> {
+export async function getBooksWithRecentSales(db: Db, orderedAt: Date): Promise<GetBooksWithRecentSalesRow[]> {
   return db.prepare(SQL_GET_BOOKS_WITH_RECENT_SALES).all(orderedAt) as GetBooksWithRecentSalesRow[];
 }
 
@@ -793,7 +793,7 @@ export class Querier {
     }
   }
 
-  async getBooksWithRecentSales(orderedAt: unknown): Promise<GetBooksWithRecentSalesRow[]> {
+  async getBooksWithRecentSales(orderedAt: Date): Promise<GetBooksWithRecentSalesRow[]> {
     const db = await this.connect();
     try {
       return getBooksWithRecentSales(db, orderedAt);

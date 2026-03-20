@@ -16,7 +16,7 @@ pub struct KotlinCodegen {
 
 impl Codegen for KotlinCodegen {
     fn generate(&self, schema: &Schema, queries: &[Query], config: &OutputConfig) -> anyhow::Result<Vec<GeneratedFile>> {
-        let contract = adapter::resolve_kotlin_contract();
+        let contract = adapter::resolve_kotlin_contract(self.target);
         core::generate_core_files(schema, queries, &contract, config)
     }
 }
