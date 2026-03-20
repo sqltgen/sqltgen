@@ -24,10 +24,7 @@ pub(super) fn cpp_type(sql_type: &SqlType, nullable: bool) -> String {
         SqlType::Decimal => "std::string".to_string(), // double loses precision
         SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_) => "std::string".to_string(),
         SqlType::Bytes => "std::vector<std::uint8_t>".to_string(),
-        SqlType::Date => "std::chrono::year_month_day".to_string(),
-        SqlType::Time => "std::chrono::seconds".to_string(),
-        SqlType::Timestamp | SqlType::TimestampTz => "std::chrono::system_clock::time_point".to_string(),
-        SqlType::Interval => "std::chrono::microseconds".to_string(),
+        SqlType::Date | SqlType::Time | SqlType::Timestamp | SqlType::TimestampTz | SqlType::Interval => "std::string".to_string(),
         SqlType::Uuid => "std::string".to_string(),
         SqlType::Json | SqlType::Jsonb => "std::string".to_string(),
         SqlType::Array(inner) => format!("std::vector<{}>", cpp_type(inner, false)),
@@ -59,15 +56,15 @@ impl CppIncludes {
             SqlType::SmallInt | SqlType::Integer | SqlType::BigInt => {
                 self.set.insert("<cstdint>");
             },
-            SqlType::Decimal | SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_) | SqlType::Uuid | SqlType::Json | SqlType::Jsonb | SqlType::Custom(_) => {
+            SqlType::Decimal | 
+            SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_) | 
+            SqlType::Date | SqlType::Time | SqlType::Timestamp | SqlType::TimestampTz | SqlType::Interval |
+            SqlType::Uuid | SqlType::Json | SqlType::Jsonb | SqlType::Custom(_) => {
                 self.set.insert("<string>");
             },
             SqlType::Bytes => {
                 self.set.insert("<cstdint>");
                 self.set.insert("<vector>");
-            },
-            SqlType::Date | SqlType::Time | SqlType::Timestamp | SqlType::TimestampTz | SqlType::Interval => {
-                self.set.insert("<chrono>");
             },
             SqlType::Array(inner) => {
                 self.set.insert("<vector>");
