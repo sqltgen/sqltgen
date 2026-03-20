@@ -7,7 +7,7 @@ use crate::backend::naming::{to_pascal_case, to_snake_case};
 use crate::backend::sql_rewrite::rewrite_to_anon_params;
 use crate::backend::GeneratedFile;
 use crate::config::OutputConfig;
-use crate::ir::{Query, QueryCmd, Schema, SqlType, Table};
+use crate::ir::{Parameter, Query, QueryCmd, Schema, SqlType, Table};
 
 use super::adapter::{CppBodyEmitter, CppEngineContract, CppParamStyle};
 
@@ -342,9 +342,70 @@ fn emit_pqxx_row_construction(src: &mut String, row_type: &str, columns: &[crate
 }
 
 /// Emit the function body for a sqlite3 query.
-fn emit_sqlite3_body(src: &mut String, _query: &Query, _schema: &Schema) -> anyhow::Result<()> {
-    writeln!(src, "    // TODO: not yet implemented")?;
+fn emit_sqlite3_body(src: &mut String, query: &Query, _schema: &Schema) -> anyhow::Result<()> {
+    let const_name = sql_const_name(&query.name);
+    match query.cmd {
+        QueryCmd::Exec => {
+            emit_sqlite3_prepare(src, &const_name)?;
+            emit_sqlite3_bind_params(src, &query.params)?;
+            writeln!(src, "    int rc = sqlite3_step(stmt);")?;
+            writeln!(src, "    sqlite3_finalize(stmt);")?;
+            writeln!(src, "    if (rc != SQLITE_DONE) throw std::runtime_error(sqlite3_errmsg(db));")?;
+        },
+        QueryCmd::ExecRows => {
+            emit_sqlite3_prepare(src, &const_name)?;
+            emit_sqlite3_bind_params(src, &query.params)?;
+            writeln!(src, "    int rc = sqlite3_step(stmt);")?;
+            writeln!(src, "    sqlite3_finalize(stmt);")?;
+            writeln!(src, "    if (rc != SQLITE_DONE) throw std::runtime_error(sqlite3_errmsg(db));")?;
+            writeln!(src, "    return sqlite3_changes(db);")?;
+        },
+        _ => {
+            writeln!(src, "    // TODO: not yet implemented")?;
+        },
+    }
     Ok(())
+}
+
+/// Emit `sqlite3_prepare_v2` + error check.
+fn emit_sqlite3_prepare(src: &mut String, const_name: &str) -> anyhow::Result<()> {
+    writeln!(src, "    sqlite3_stmt* stmt;")?;
+    writeln!(src, "    if (sqlite3_prepare_v2(db, {const_name}.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {{")?;
+    writeln!(src, "        throw std::runtime_error(sqlite3_errmsg(db));")?;
+    writeln!(src, "    }}")?;
+    Ok(())
+}
+
+/// Emit `sqlite3_bind_*` calls for each parameter.
+fn emit_sqlite3_bind_params(src: &mut String, params: &[Parameter]) -> anyhow::Result<()> {
+    for param in params {
+        let idx = param.index;
+        let name = to_snake_case(&param.name);
+        let bind_call = sqlite3_bind_call(&param.sql_type, idx, &name, param.nullable);
+        writeln!(src, "    {bind_call}")?;
+    }
+    Ok(())
+}
+
+/// Return the appropriate `sqlite3_bind_*` expression for a parameter.
+fn sqlite3_bind_call(sql_type: &SqlType, idx: usize, name: &str, nullable: bool) -> String {
+    if nullable {
+        let inner = sqlite3_bind_call(sql_type, idx, &format!("{name}.value()"), false);
+        return format!("{name}.has_value() ? {inner} : sqlite3_bind_null(stmt, {idx});");
+    }
+    match sql_type {
+        SqlType::Boolean | SqlType::SmallInt | SqlType::Integer =>
+            format!("sqlite3_bind_int(stmt, {idx}, {name});"),
+        SqlType::BigInt =>
+            format!("sqlite3_bind_int64(stmt, {idx}, {name});"),
+        SqlType::Real | SqlType::Double =>
+            format!("sqlite3_bind_double(stmt, {idx}, {name});"),
+        SqlType::Bytes =>
+            format!("sqlite3_bind_blob(stmt, {idx}, {name}.data(), static_cast<int>({name}.size()), SQLITE_TRANSIENT);"),
+        // Everything else is text (string types, dates, decimal, uuid, json, etc.)
+        _ =>
+            format!("sqlite3_bind_text(stmt, {idx}, {name}.c_str(), -1, SQLITE_TRANSIENT);"),
+    }
 }
 
 /// Emit the function body for a libmysqlclient (MySQL) query.
