@@ -66,6 +66,16 @@ func mustJSON(v interface{}) []byte {
 	return b
 }
 
+func ptrBytes(b []byte) *[]byte {
+	return &b
+}
+
+func testUUID() string {
+	return fmt.Sprintf("%08x-0000-4000-8000-%012x", rand.Int63()&0xFFFFFFFF, rand.Int63()&0xFFFFFFFFFFFF)
+}
+
+var nilMeta *[]byte
+
 // ─── :one tests ───────────────────────────────────────────────────────────────
 
 func TestInsertAndGetEvent(t *testing.T) {
@@ -74,10 +84,10 @@ func TestInsertAndGetEvent(t *testing.T) {
 	payload := mustJSON(map[string]interface{}{"type": "click", "x": 10})
 	meta := mustJSON(map[string]interface{}{"source": "web"})
 	docID := "aaaaaaaa-0000-0000-0000-000000000001"
-	createdAt := sql.NullTime{Time: time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC), Valid: true}
+	createdAt := time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
 	eventDate := sql.NullTime{Time: time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC), Valid: true}
 
-	if err := gen.InsertEvent(ctx, db, "login", payload, meta, docID, createdAt, sql.NullTime{}, eventDate, sql.NullTime{}); err != nil {
+	if err := gen.InsertEvent(ctx, db, "login", payload, ptrBytes(meta), docID, createdAt, sql.NullTime{}, eventDate, sql.NullTime{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -110,10 +120,10 @@ func TestGetEventNotFound(t *testing.T) {
 func TestListEvents(t *testing.T) {
 	db, ctx := setupDB(t)
 
-	ts := sql.NullTime{Time: time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC), Valid: true}
+	ts := time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
 	for _, name := range []string{"alpha", "beta", "gamma"} {
-		docID := fmt.Sprintf("doc-%s", name)
-		if err := gen.InsertEvent(ctx, db, name, mustJSON(map[string]interface{}{}), nil, docID, ts, sql.NullTime{}, sql.NullTime{}, sql.NullTime{}); err != nil {
+		docID := testUUID()
+		if err := gen.InsertEvent(ctx, db, name, mustJSON(map[string]interface{}{}), nilMeta, docID, ts, sql.NullTime{}, sql.NullTime{}, sql.NullTime{}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -135,16 +145,16 @@ func TestGetEventsByDateRange(t *testing.T) {
 
 	insertAt := func(name, docID string, ts time.Time) {
 		t.Helper()
-		if err := gen.InsertEvent(ctx, db, name, mustJSON(map[string]interface{}{}), nil, docID, sql.NullTime{Time: ts, Valid: true}, sql.NullTime{}, sql.NullTime{}, sql.NullTime{}); err != nil {
+		if err := gen.InsertEvent(ctx, db, name, mustJSON(map[string]interface{}{}), nilMeta, docID, ts, sql.NullTime{}, sql.NullTime{}, sql.NullTime{}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	insertAt("early", "doc-1", time.Date(2024, 1, 1, 10, 0, 0, 0, time.UTC))
-	insertAt("mid", "doc-2", time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC))
-	insertAt("late", "doc-3", time.Date(2024, 12, 1, 15, 0, 0, 0, time.UTC))
+	insertAt("early", testUUID(), time.Date(2024, 1, 1, 10, 0, 0, 0, time.UTC))
+	insertAt("mid", testUUID(), time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC))
+	insertAt("late", testUUID(), time.Date(2024, 12, 1, 15, 0, 0, 0, time.UTC))
 
-	start := sql.NullTime{Time: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), Valid: true}
-	end := sql.NullTime{Time: time.Date(2024, 7, 1, 0, 0, 0, 0, time.UTC), Valid: true}
+	start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	end := time.Date(2024, 7, 1, 0, 0, 0, 0, time.UTC)
 	events, err := gen.GetEventsByDateRange(ctx, db, start, end)
 	if err != nil {
 		t.Fatal(err)
@@ -162,13 +172,13 @@ func TestGetEventsByDateRange(t *testing.T) {
 func TestUpdatePayload(t *testing.T) {
 	db, ctx := setupDB(t)
 
-	ts := sql.NullTime{Time: time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC), Valid: true}
-	if err := gen.InsertEvent(ctx, db, "test", mustJSON(map[string]interface{}{"v": 1}), nil, "doc-1", ts, sql.NullTime{}, sql.NullTime{}, sql.NullTime{}); err != nil {
+	ts := time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
+	if err := gen.InsertEvent(ctx, db, "test", mustJSON(map[string]interface{}{"v": 1}), nilMeta, testUUID(), ts, sql.NullTime{}, sql.NullTime{}, sql.NullTime{}); err != nil {
 		t.Fatal(err)
 	}
 
 	updated := mustJSON(map[string]interface{}{"v": 2, "changed": true})
-	if err := gen.UpdatePayload(ctx, db, updated, nil, 1); err != nil {
+	if err := gen.UpdatePayload(ctx, db, updated, nilMeta, 1); err != nil {
 		t.Fatal(err)
 	}
 
@@ -187,9 +197,9 @@ func TestUpdatePayload(t *testing.T) {
 func TestUpdateEventDate(t *testing.T) {
 	db, ctx := setupDB(t)
 
-	ts := sql.NullTime{Time: time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC), Valid: true}
+	ts := time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
 	ed := sql.NullTime{Time: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), Valid: true}
-	if err := gen.InsertEvent(ctx, db, "dated", mustJSON(map[string]interface{}{}), nil, "doc-1", ts, sql.NullTime{}, ed, sql.NullTime{}); err != nil {
+	if err := gen.InsertEvent(ctx, db, "dated", mustJSON(map[string]interface{}{}), nilMeta, testUUID(), ts, sql.NullTime{}, ed, sql.NullTime{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -204,8 +214,8 @@ func TestUpdateEventDate(t *testing.T) {
 func TestInsertEventRows(t *testing.T) {
 	db, ctx := setupDB(t)
 
-	ts := sql.NullTime{Time: time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC), Valid: true}
-	n, err := gen.InsertEventRows(ctx, db, "rowtest", mustJSON(map[string]interface{}{}), nil, "doc-1", ts, sql.NullTime{}, sql.NullTime{}, sql.NullTime{})
+	ts := time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
+	n, err := gen.InsertEventRows(ctx, db, "rowtest", mustJSON(map[string]interface{}{}), nilMeta, testUUID(), ts, sql.NullTime{}, sql.NullTime{}, sql.NullTime{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,9 +229,9 @@ func TestInsertEventRows(t *testing.T) {
 func TestFindByDate(t *testing.T) {
 	db, ctx := setupDB(t)
 
-	ts := sql.NullTime{Time: time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC), Valid: true}
+	ts := time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
 	target := sql.NullTime{Time: time.Date(2024, 6, 15, 0, 0, 0, 0, time.UTC), Valid: true}
-	if err := gen.InsertEvent(ctx, db, "dated", mustJSON(map[string]interface{}{}), nil, "doc-1", ts, sql.NullTime{}, target, sql.NullTime{}); err != nil {
+	if err := gen.InsertEvent(ctx, db, "dated", mustJSON(map[string]interface{}{}), nilMeta, testUUID(), ts, sql.NullTime{}, target, sql.NullTime{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -241,8 +251,8 @@ func TestFindByUuid(t *testing.T) {
 	db, ctx := setupDB(t)
 
 	docID := "bbbbbbbb-0000-0000-0000-000000000001"
-	ts := sql.NullTime{Time: time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC), Valid: true}
-	if err := gen.InsertEvent(ctx, db, "uuid-test", mustJSON(map[string]interface{}{}), nil, docID, ts, sql.NullTime{}, sql.NullTime{}, sql.NullTime{}); err != nil {
+	ts := time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
+	if err := gen.InsertEvent(ctx, db, "uuid-test", mustJSON(map[string]interface{}{}), nilMeta, docID, ts, sql.NullTime{}, sql.NullTime{}, sql.NullTime{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -264,14 +274,14 @@ func TestCountEvents(t *testing.T) {
 	db, ctx := setupDB(t)
 
 	for i := 1; i <= 3; i++ {
-		ts := sql.NullTime{Time: time.Date(2024, 6, i, 0, 0, 0, 0, time.UTC), Valid: true}
-		docID := fmt.Sprintf("doc-%d", i)
-		if err := gen.InsertEvent(ctx, db, fmt.Sprintf("ev%d", i), mustJSON(map[string]interface{}{}), nil, docID, ts, sql.NullTime{}, sql.NullTime{}, sql.NullTime{}); err != nil {
+		ts := time.Date(2024, 6, i, 0, 0, 0, 0, time.UTC)
+		docID := testUUID()
+		if err := gen.InsertEvent(ctx, db, fmt.Sprintf("ev%d", i), mustJSON(map[string]interface{}{}), nilMeta, docID, ts, sql.NullTime{}, sql.NullTime{}, sql.NullTime{}); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	cutoff := sql.NullTime{Time: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), Valid: true}
+	cutoff := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	row, err := gen.CountEvents(ctx, db, cutoff)
 	if err != nil {
 		t.Fatal(err)

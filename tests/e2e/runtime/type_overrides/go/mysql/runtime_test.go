@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	gen "e2e-type-overrides-go-mysql/gen"
 	_ "github.com/go-sql-driver/mysql"
@@ -113,6 +114,12 @@ func mustJSON(v interface{}) string {
 	return string(b)
 }
 
+func ts(year, month, day, hour, min, sec int) time.Time {
+	return time.Date(year, time.Month(month), day, hour, min, sec, 0, time.UTC)
+}
+
+var nilTime sql.NullTime
+
 // ─── :one tests ───────────────────────────────────────────────────────────────
 
 func TestInsertAndGetEvent(t *testing.T) {
@@ -124,9 +131,9 @@ func TestInsertAndGetEvent(t *testing.T) {
 	meta := mustJSON(map[string]interface{}{"source": "web"})
 
 	if err := gen.InsertEvent(ctx, db, "login", payload, sql.NullString{String: meta, Valid: true},
-		"doc-001", "2024-06-01 12:00:00", sql.NullString{},
-		sql.NullString{String: "2024-06-01", Valid: true},
-		sql.NullString{String: "09:00:00", Valid: true}); err != nil {
+		"doc-001", ts(2024, 6, 1, 12, 0, 0), nilTime,
+		sql.NullTime{Time: ts(2024, 6, 1, 0, 0, 0), Valid: true},
+		nilTime); err != nil {
 		t.Fatal(err)
 	}
 
@@ -166,10 +173,9 @@ func TestListEvents(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	ts := "2024-06-01 12:00:00"
 	for _, name := range []string{"alpha", "beta", "gamma"} {
 		docID := fmt.Sprintf("doc-%s", name)
-		if err := gen.InsertEvent(ctx, db, name, "{}", sql.NullString{}, docID, ts, sql.NullString{}, sql.NullString{}, sql.NullString{}); err != nil {
+		if err := gen.InsertEvent(ctx, db, name, "{}", sql.NullString{}, docID, ts(2024, 6, 1, 12, 0, 0), nilTime, nilTime, nilTime); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -191,17 +197,17 @@ func TestGetEventsByDateRange(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	insert := func(name, ts string) {
+	insert := func(name string, created time.Time) {
 		t.Helper()
-		if err := gen.InsertEvent(ctx, db, name, "{}", sql.NullString{}, "doc-"+name, ts, sql.NullString{}, sql.NullString{}, sql.NullString{}); err != nil {
+		if err := gen.InsertEvent(ctx, db, name, "{}", sql.NullString{}, "doc-"+name, created, nilTime, nilTime, nilTime); err != nil {
 			t.Fatal(err)
 		}
 	}
-	insert("early", "2024-01-01 10:00:00")
-	insert("mid", "2024-06-01 12:00:00")
-	insert("late", "2024-12-01 15:00:00")
+	insert("early", ts(2024, 1, 1, 10, 0, 0))
+	insert("mid", ts(2024, 6, 1, 12, 0, 0))
+	insert("late", ts(2024, 12, 1, 15, 0, 0))
 
-	events, err := gen.GetEventsByDateRange(ctx, db, "2024-01-01 00:00:00", "2024-07-01 00:00:00")
+	events, err := gen.GetEventsByDateRange(ctx, db, ts(2024, 1, 1, 0, 0, 0), ts(2024, 7, 1, 0, 0, 0))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +227,7 @@ func TestUpdatePayload(t *testing.T) {
 	ctx := context.Background()
 
 	if err := gen.InsertEvent(ctx, db, "test", `{"v":1}`, sql.NullString{}, "doc-1",
-		"2024-06-01 12:00:00", sql.NullString{}, sql.NullString{}, sql.NullString{}); err != nil {
+		ts(2024, 6, 1, 12, 0, 0), nilTime, nilTime, nilTime); err != nil {
 		t.Fatal(err)
 	}
 
@@ -247,11 +253,11 @@ func TestUpdateEventDate(t *testing.T) {
 	ctx := context.Background()
 
 	if err := gen.InsertEvent(ctx, db, "dated", "{}", sql.NullString{}, "doc-1",
-		"2024-06-01 12:00:00", sql.NullString{}, sql.NullString{String: "2024-01-01", Valid: true}, sql.NullString{}); err != nil {
+		ts(2024, 6, 1, 12, 0, 0), nilTime, sql.NullTime{Time: ts(2024, 1, 1, 0, 0, 0), Valid: true}, nilTime); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := gen.UpdateEventDate(ctx, db, sql.NullString{String: "2024-12-31", Valid: true}, 1); err != nil {
+	if err := gen.UpdateEventDate(ctx, db, sql.NullTime{Time: ts(2024, 12, 31, 0, 0, 0), Valid: true}, 1); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -264,7 +270,7 @@ func TestInsertEventRows(t *testing.T) {
 	ctx := context.Background()
 
 	n, err := gen.InsertEventRows(ctx, db, "rowtest", "{}", sql.NullString{}, "doc-1",
-		"2024-06-01 12:00:00", sql.NullString{}, sql.NullString{}, sql.NullString{})
+		ts(2024, 6, 1, 12, 0, 0), nilTime, nilTime, nilTime)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,11 +287,11 @@ func TestFindByDate(t *testing.T) {
 	ctx := context.Background()
 
 	if err := gen.InsertEvent(ctx, db, "dated", "{}", sql.NullString{}, "doc-1",
-		"2024-06-01 12:00:00", sql.NullString{}, sql.NullString{String: "2024-06-15", Valid: true}, sql.NullString{}); err != nil {
+		ts(2024, 6, 1, 12, 0, 0), nilTime, sql.NullTime{Time: ts(2024, 6, 15, 0, 0, 0), Valid: true}, nilTime); err != nil {
 		t.Fatal(err)
 	}
 
-	row, err := gen.FindByDate(ctx, db, sql.NullString{String: "2024-06-15", Valid: true})
+	row, err := gen.FindByDate(ctx, db, sql.NullTime{Time: ts(2024, 6, 15, 0, 0, 0), Valid: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -303,7 +309,7 @@ func TestFindByDocId(t *testing.T) {
 	ctx := context.Background()
 
 	if err := gen.InsertEvent(ctx, db, "doctest", "{}", sql.NullString{}, "unique-doc-id",
-		"2024-06-01 12:00:00", sql.NullString{}, sql.NullString{}, sql.NullString{}); err != nil {
+		ts(2024, 6, 1, 12, 0, 0), nilTime, nilTime, nilTime); err != nil {
 		t.Fatal(err)
 	}
 
@@ -327,14 +333,13 @@ func TestCountEvents(t *testing.T) {
 	ctx := context.Background()
 
 	for i := 1; i <= 3; i++ {
-		ts := fmt.Sprintf("2024-06-0%d 00:00:00", i)
 		docID := fmt.Sprintf("doc-%d", i)
-		if err := gen.InsertEvent(ctx, db, fmt.Sprintf("ev%d", i), "{}", sql.NullString{}, docID, ts, sql.NullString{}, sql.NullString{}, sql.NullString{}); err != nil {
+		if err := gen.InsertEvent(ctx, db, fmt.Sprintf("ev%d", i), "{}", sql.NullString{}, docID, ts(2024, 6, i, 0, 0, 0), nilTime, nilTime, nilTime); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	row, err := gen.CountEvents(ctx, db, "2024-01-01 00:00:00")
+	row, err := gen.CountEvents(ctx, db, ts(2024, 1, 1, 0, 0, 0))
 	if err != nil {
 		t.Fatal(err)
 	}

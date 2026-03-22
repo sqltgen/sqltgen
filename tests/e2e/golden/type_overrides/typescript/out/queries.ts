@@ -27,14 +27,12 @@ const SQL_UPDATE_EVENT_DATE = `UPDATE event SET event_date = $1 WHERE id = $2`;
 
 export async function getEvent(db: Db, id: number): Promise<Event | null> {
   const result = await db.query<Event>(SQL_GET_EVENT, [id]);
-  const raw = result.rows[0];
-  if (!raw) return null;
-  return { ...raw, payload: JSON.parse(raw.payload as string), meta: JSON.parse(raw.meta as string) };
+  return result.rows[0] ?? null;
 }
 
 export async function listEvents(db: Db): Promise<Event[]> {
   const result = await db.query<Event>(SQL_LIST_EVENTS, []);
-  return result.rows.map(raw => ({ ...raw, payload: JSON.parse(raw.payload as string), meta: JSON.parse(raw.meta as string) }));
+  return result.rows;
 }
 
 export async function insertEvent(db: Db, name: string, payload: unknown, meta: unknown | null, docId: string, createdAt: Date, scheduledAt: Date | null, eventDate: Date | null, eventTime: Date | null): Promise<void> {
@@ -72,7 +70,7 @@ export async function insertEventRows(db: Db, name: string, payload: unknown, me
 
 export async function getEventsByDateRange(db: Db, createdAt: Date, createdAt2: Date): Promise<Event[]> {
   const result = await db.query<Event>(SQL_GET_EVENTS_BY_DATE_RANGE, [createdAt, createdAt2]);
-  return result.rows.map(raw => ({ ...raw, payload: JSON.parse(raw.payload as string), meta: JSON.parse(raw.meta as string) }));
+  return result.rows;
 }
 
 export interface CountEventsRow {

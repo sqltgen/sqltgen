@@ -11,6 +11,11 @@ pub(super) struct TsCoreContract {
     pub(super) output: JsOutput,
     pub(super) runtime_hint: &'static str,
     pub(super) date_as_string: bool,
+    /// Whether the driver returns JSON/JSONB columns as raw strings that need parsing.
+    ///
+    /// PostgreSQL's `pg` driver auto-deserializes jsonb → JS objects, so no parse is needed.
+    /// SQLite and MySQL return JSON as text strings, so `JSON.parse` is required on read.
+    pub(super) json_needs_parse: bool,
     pub(super) normalize_sql: fn(&str) -> String,
     pub(super) emit_query: fn(&mut String, &QueryContext, &ListParamStrategy) -> anyhow::Result<()>,
     pub(super) helper_content: String,
@@ -30,6 +35,7 @@ pub(super) fn resolve_ts_contract(target: JsTarget, output: JsOutput) -> TsCoreC
             output,
             runtime_hint: "pg (node-postgres) — npm install pg",
             date_as_string: false,
+            json_needs_parse: false,
             normalize_sql: passthrough_sql,
             emit_query: emit_pg_query,
             helper_content: build_helper_file(target, output),
@@ -38,6 +44,7 @@ pub(super) fn resolve_ts_contract(target: JsTarget, output: JsOutput) -> TsCoreC
             output,
             runtime_hint: "better-sqlite3 — npm install better-sqlite3",
             date_as_string: false,
+            json_needs_parse: true,
             normalize_sql: anon_sql,
             emit_query: emit_sqlite_query,
             helper_content: build_helper_file(target, output),
@@ -46,6 +53,7 @@ pub(super) fn resolve_ts_contract(target: JsTarget, output: JsOutput) -> TsCoreC
             output,
             runtime_hint: "mysql2 — npm install mysql2",
             date_as_string: true,
+            json_needs_parse: true,
             normalize_sql: anon_sql,
             emit_query: emit_mysql_query,
             helper_content: build_helper_file(target, output),

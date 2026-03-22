@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Client } from 'pg';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 
 import * as queries from './gen/queries';
 
@@ -44,7 +44,7 @@ describe(':one queries', () => {
     try {
       const payload = { type: 'click', x: 10 };
       const meta = { source: 'web' };
-      const docId = randomBytes(16).toString('hex');
+      const docId = randomUUID();
       await queries.insertEvent(client, 'login', payload, meta, docId,
         new Date('2024-06-01T12:00:00Z'), null, new Date('2024-06-01'), null);
 
@@ -71,9 +71,9 @@ describe(':many queries', () => {
     const { client, schema } = await makeClient();
     try {
       const ts = new Date('2024-06-01T12:00:00Z');
-      await queries.insertEvent(client, 'alpha', {}, null, 'doc-1', ts, null, null, null);
-      await queries.insertEvent(client, 'beta',  {}, null, 'doc-2', ts, null, null, null);
-      await queries.insertEvent(client, 'gamma', {}, null, 'doc-3', ts, null, null, null);
+      await queries.insertEvent(client, 'alpha', {}, null, randomUUID(), ts, null, null, null);
+      await queries.insertEvent(client, 'beta',  {}, null, randomUUID(), ts, null, null, null);
+      await queries.insertEvent(client, 'gamma', {}, null, randomUUID(), ts, null, null, null);
 
       const events = await queries.listEvents(client);
       assert.equal(events.length, 3);
@@ -86,9 +86,9 @@ describe(':many queries', () => {
   it('getEventsByDateRange filters correctly', async () => {
     const { client, schema } = await makeClient();
     try {
-      await queries.insertEvent(client, 'early', {}, null, 'doc-1', new Date('2024-01-01T10:00:00Z'), null, null, null);
-      await queries.insertEvent(client, 'mid',   {}, null, 'doc-2', new Date('2024-06-01T12:00:00Z'), null, null, null);
-      await queries.insertEvent(client, 'late',  {}, null, 'doc-3', new Date('2024-12-01T15:00:00Z'), null, null, null);
+      await queries.insertEvent(client, 'early', {}, null, randomUUID(), new Date('2024-01-01T10:00:00Z'), null, null, null);
+      await queries.insertEvent(client, 'mid',   {}, null, randomUUID(), new Date('2024-06-01T12:00:00Z'), null, null, null);
+      await queries.insertEvent(client, 'late',  {}, null, randomUUID(), new Date('2024-12-01T15:00:00Z'), null, null, null);
 
       const events = await queries.getEventsByDateRange(client,
         new Date('2024-01-01T00:00:00Z'),
@@ -107,7 +107,7 @@ describe(':exec queries', () => {
   it('updatePayload changes payload and meta', async () => {
     const { client, schema } = await makeClient();
     try {
-      await queries.insertEvent(client, 'test', { v: 1 }, null, 'doc-1',
+      await queries.insertEvent(client, 'test', { v: 1 }, null, randomUUID(),
         new Date('2024-06-01T12:00:00Z'), null, null, null);
 
       const updated = { v: 2, changed: true };
@@ -123,7 +123,7 @@ describe(':exec queries', () => {
   it('updateEventDate updates the date', async () => {
     const { client, schema } = await makeClient();
     try {
-      await queries.insertEvent(client, 'dated', {}, null, 'doc-1',
+      await queries.insertEvent(client, 'dated', {}, null, randomUUID(),
         new Date('2024-06-01T12:00:00Z'), null, new Date('2024-01-01'), null);
 
       await queries.updateEventDate(client, new Date('2024-12-31'), 1);
@@ -141,7 +141,7 @@ describe(':execrows queries', () => {
   it('insertEventRows returns row count', async () => {
     const { client, schema } = await makeClient();
     try {
-      const n = await queries.insertEventRows(client, 'rowtest', {}, null, 'doc-1',
+      const n = await queries.insertEventRows(client, 'rowtest', {}, null, randomUUID(),
         new Date('2024-06-01T12:00:00Z'), null, null, null);
       assert.equal(n, 1);
     } finally { await teardown(client, schema); }
@@ -154,7 +154,7 @@ describe('projection queries', () => {
   it('findByDate returns the matching event', async () => {
     const { client, schema } = await makeClient();
     try {
-      await queries.insertEvent(client, 'dated', {}, null, 'doc-1',
+      await queries.insertEvent(client, 'dated', {}, null, randomUUID(),
         new Date('2024-06-01T12:00:00Z'), null, new Date('2024-06-15'), null);
 
       const row = await queries.findByDate(client, new Date('2024-06-15'));
@@ -166,7 +166,7 @@ describe('projection queries', () => {
   it('findByUuid returns the matching event', async () => {
     const { client, schema } = await makeClient();
     try {
-      const docId = randomBytes(16).toString('hex') + '-0000-0000-0000-000000000000';
+      const docId = randomUUID();
       await queries.insertEvent(client, 'uuid-test', {}, null, docId,
         new Date('2024-06-01T12:00:00Z'), null, null, null);
 
@@ -184,7 +184,7 @@ describe('count queries', () => {
     const { client, schema } = await makeClient();
     try {
       for (let i = 1; i <= 3; i++) {
-        await queries.insertEvent(client, `ev${i}`, {}, null, `doc-${i}`,
+        await queries.insertEvent(client, `ev${i}`, {}, null, randomUUID(),
           new Date(`2024-06-0${i}T00:00:00Z`), null, null, null);
       }
 
