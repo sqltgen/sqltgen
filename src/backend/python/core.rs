@@ -11,7 +11,7 @@ use crate::backend::GeneratedFile;
 use crate::config::{resolve_type_override, Language, ListParamStrategy, OutputConfig, ResolvedType, TypeVariant};
 use crate::ir::{NativeListBind, Parameter, Query, QueryCmd, Schema, SqlType};
 
-use super::adapter::{PythonCoreContract, PythonJsonMode, PythonSqlNormMode};
+use super::adapter::{FieldReadConverter, PythonCoreContract, PythonJsonMode, PythonSqlNormMode};
 
 #[cfg(test)]
 use super::PythonTarget;
@@ -137,8 +137,23 @@ fn build_queries_file(group: &str, queries: &[Query], schema: &Schema, contract:
     writeln!(src, "from contextlib import closing")?;
     writeln!(src, "from ._sqltgen import execute, exec_stmt")?;
     imports.write(&mut src)?;
+    if let Some(json_import) = contract.sql.json_param_import {
+        let needs_json_wrap = queries.iter().any(|q| q.params.iter().any(|p| matches!(p.sql_type, SqlType::Json | SqlType::Jsonb)));
+        if needs_json_wrap {
+            writeln!(src, "{json_import}")?;
+        }
+    }
     writeln!(src)?;
     writeln!(src, "Connection = {}", contract.runtime.conn_type_expr)?;
+
+    // Emit driver-specific field read converters when any result column needs one.
+    let needed_converters: Vec<&FieldReadConverter> =
+        contract.field_read_converters.iter().filter(|conv| queries.iter().any(|q| q.result_columns.iter().any(|col| col.sql_type == conv.sql_type))).collect();
+    for conv in &needed_converters {
+        writeln!(src)?;
+        writeln!(src)?;
+        write!(src, "{}", conv.fn_body)?;
+    }
 
     let mut needed_tables: BTreeSet<&str> = BTreeSet::new();
     for query in queries {
@@ -277,7 +292,7 @@ fn emit_standard_query(src: &mut String, ctx: &PythonQueryContext) -> anyhow::Re
         .collect::<Vec<_>>()
         .join(", ");
 
-    let args = build_helper_args(&const_name, ctx.query);
+    let args = build_helper_args(&const_name, ctx.query, ctx.contract.sql.json_param_wrapper);
     writeln!(src, "def {fn_name}({params_sig}) -> {return_type}:")?;
     if ctx.query.cmd == QueryCmd::Exec {
         writeln!(src, "    exec_stmt({args})")?;
@@ -348,19 +363,22 @@ fn emit_list_body(src: &mut String, ctx: &PythonQueryContext, helper_args: &str)
 }
 
 fn emit_python_result_block(src: &mut String, ctx: &PythonQueryContext, cursor: &str, indent: &str) -> anyhow::Result<()> {
+    let converters = ctx.contract.field_read_converters;
     match ctx.query.cmd {
         QueryCmd::Exec => {},
         QueryCmd::ExecRows => writeln!(src, "{indent}return {cursor}.rowcount")?,
         QueryCmd::One => {
             let row_type = result_row_type(ctx.query, ctx.schema);
+            let expr = build_row_expr(&row_type, "row", &ctx.query.result_columns, converters);
             writeln!(src, "{indent}row = {cursor}.fetchone()")?;
             writeln!(src, "{indent}if row is None:")?;
             writeln!(src, "{indent}    return None")?;
-            writeln!(src, "{indent}return {row_type}(*row)")?;
+            writeln!(src, "{indent}return {expr}")?;
         },
         QueryCmd::Many => {
             let row_type = result_row_type(ctx.query, ctx.schema);
-            writeln!(src, "{indent}return [{row_type}(*row) for row in {cursor}.fetchall()]")?;
+            let expr = build_row_expr(&row_type, "row", &ctx.query.result_columns, converters);
+            writeln!(src, "{indent}return [{expr} for row in {cursor}.fetchall()]")?;
         },
     }
     Ok(())
@@ -395,13 +413,64 @@ fn build_dynamic_args(scalar_params: &[&Parameter], lp: &Parameter) -> String {
     }
 }
 
-fn build_helper_args(const_name: &str, query: &Query) -> String {
+fn build_helper_args(const_name: &str, query: &Query, json_wrapper: Option<&str>) -> String {
     if query.params.is_empty() {
         return format!("conn, {const_name}");
     }
-    let args: Vec<String> = positional_bind_names(query).iter().map(|&n| to_snake_case(n)).collect();
-    let tuple = if args.len() == 1 { format!("({},)", args[0]) } else { format!("({})", args.join(", ")) };
+    let bind_names = positional_bind_names(query);
+    let args: Vec<String> = bind_names
+        .iter()
+        .map(|&name| {
+            let sql_type = query.params.iter().find(|p| p.name == name).map(|p| &p.sql_type);
+            let snake = to_snake_case(name);
+            if let Some(ty) = sql_type {
+                wrap_json_param(&snake, ty, json_wrapper)
+            } else {
+                snake
+            }
+        })
+        .collect();
+    let tuple = build_arg_tuple(&args);
     format!("conn, {const_name}, {tuple}")
+}
+
+/// Find the read converter for a SQL type, if any.
+fn find_converter<'a>(sql_type: &SqlType, converters: &'a [FieldReadConverter]) -> Option<&'a FieldReadConverter> {
+    converters.iter().find(|c| c.sql_type == *sql_type)
+}
+
+/// Build a row construction expression, applying read converters where needed.
+///
+/// When no converters apply, returns `RowType(*row)`. When converters are needed,
+/// returns indexed access like `RowType(row[0], _to_time(row[1]), row[2])`.
+fn build_row_expr(row_type: &str, row_var: &str, columns: &[crate::ir::ResultColumn], converters: &[FieldReadConverter]) -> String {
+    let any_converted = columns.iter().any(|col| find_converter(&col.sql_type, converters).is_some());
+    if !any_converted {
+        return format!("{row_type}(*{row_var})");
+    }
+    let args: Vec<String> = columns
+        .iter()
+        .enumerate()
+        .map(|(i, col)| {
+            let raw = format!("{row_var}[{i}]");
+            if let Some(conv) = find_converter(&col.sql_type, converters) {
+                format!("{}({raw})", conv.fn_name)
+            } else {
+                raw
+            }
+        })
+        .collect();
+    format!("{row_type}({})", args.join(", "))
+}
+
+/// Wrap a parameter expression with the JSON adapter if the type is Json/Jsonb.
+fn wrap_json_param(expr: &str, sql_type: &SqlType, json_wrapper: Option<&str>) -> String {
+    if let Some(wrapper) = json_wrapper {
+        if matches!(sql_type, SqlType::Json | SqlType::Jsonb) {
+            return wrapper.replace("{value}", expr);
+        }
+    }
+    expr.to_string()
 }
 
 fn cursor_return_type(query: &Query, schema: &Schema) -> String {

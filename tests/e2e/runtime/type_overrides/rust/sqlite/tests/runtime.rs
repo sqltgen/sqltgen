@@ -2,14 +2,14 @@
 ///
 /// On SQLite:
 ///  - JSON columns (TEXT) stay as `String` — no native JSON type.
-///  - DATETIME columns map to `serde_json::Value` (current codegen behaviour for
-///    custom-typed columns). Tests pass datetime strings as JSON strings.
+///  - DATETIME columns map to `time::PrimitiveDateTime`.
 ///  - DATE / TIME columns use the `time` crate via sqlx's SQLite driver.
 ///  - doc_id (UUID stored as TEXT) is a plain `String`.
 use e2e_type_overrides_rust_sqlite::db::queries;
-use serde_json::{json, Value};
+use serde_json::json;
 use sqlx::SqlitePool;
-use time::macros::{date, time};
+use time::macros::{date, time as t};
+use time::PrimitiveDateTime;
 use uuid::Uuid;
 
 async fn setup_db() -> SqlitePool {
@@ -21,8 +21,9 @@ async fn setup_db() -> SqlitePool {
     pool
 }
 
-fn ts(s: &str) -> Value {
-    Value::String(s.to_string())
+fn ts(s: &str) -> PrimitiveDateTime {
+    let format = time::format_description::parse("[year]-[month]-[day] [hour]:[minute]:[second]").unwrap();
+    PrimitiveDateTime::parse(s, &format).unwrap()
 }
 
 fn payload_str() -> String {
@@ -49,7 +50,7 @@ async fn test_insert_and_get_event() {
         ts("2024-06-01 12:00:00"),
         Some(ts("2024-06-01 14:00:00")),
         Some(date!(2024 - 06 - 01)),
-        Some(time!(09:00:00)),
+        Some(t!(09:00:00)),
     )
     .await
     .unwrap();
@@ -61,7 +62,7 @@ async fn test_insert_and_get_event() {
     let payload_back: serde_json::Value = serde_json::from_str(&ev.payload).unwrap();
     assert_eq!(payload_back["type"], "click");
     assert_eq!(ev.event_date, Some(date!(2024 - 06 - 01)));
-    assert_eq!(ev.event_time, Some(time!(09:00:00)));
+    assert_eq!(ev.event_time, Some(t!(09:00:00)));
 }
 
 #[tokio::test]

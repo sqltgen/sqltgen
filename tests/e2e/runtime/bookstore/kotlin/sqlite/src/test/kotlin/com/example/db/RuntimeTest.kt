@@ -332,7 +332,7 @@ class RuntimeTest {
     fun testGetBooksWithRecentSales() {
         seed()
         // Sales are current; use a past cutoff date string
-        val results = Queries.getBooksWithRecentSales(conn, "2000-01-01")
+        val results = Queries.getBooksWithRecentSales(conn, java.time.LocalDateTime.of(2000, 1, 1, 0, 0))
         // Foundation and Dune have sale_items
         assertEquals(2, results.size)
     }

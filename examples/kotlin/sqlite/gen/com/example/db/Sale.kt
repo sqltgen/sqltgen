@@ -3,5 +3,5 @@ package com.example.db
 data class Sale(
     val id: Int,
     val customerId: Int,
-    val orderedAt: Any
+    val orderedAt: java.time.LocalDateTime
 )

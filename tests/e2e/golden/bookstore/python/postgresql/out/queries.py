@@ -10,6 +10,7 @@ from ._sqltgen import execute, exec_stmt
 import decimal
 import datetime
 import uuid
+from psycopg.types.json import Jsonb
 
 Connection = psycopg.Connection
 
@@ -690,7 +691,7 @@ def list_active_products(conn: Connection, active: bool) -> list[ListActiveProdu
 
 
 def insert_product(conn: Connection, id: uuid.UUID, sku: str, name: str, active: bool, weight_kg: float | None, rating: float | None, tags: list[str], metadata: object | None, thumbnail: bytes | None, stock_count: int) -> Product | None:
-    with execute(conn, SQL_INSERT_PRODUCT, (id, sku, name, active, weight_kg, rating, tags, metadata, thumbnail, stock_count)) as cur:
+    with execute(conn, SQL_INSERT_PRODUCT, (id, sku, name, active, weight_kg, rating, tags, Jsonb(metadata), thumbnail, stock_count)) as cur:
         row = cur.fetchone()
         if row is None:
             return None

@@ -5,8 +5,8 @@ pub struct Event {
     pub payload: String,
     pub meta: Option<String>,
     pub doc_id: String,
-    pub created_at: serde_json::Value,
-    pub scheduled_at: Option<serde_json::Value>,
+    pub created_at: time::PrimitiveDateTime,
+    pub scheduled_at: Option<time::PrimitiveDateTime>,
     pub event_date: Option<time::Date>,
     pub event_time: Option<time::Time>,
 }

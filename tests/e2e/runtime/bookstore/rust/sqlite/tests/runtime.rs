@@ -1,5 +1,6 @@
 use e2e_rust_sqlite::db::queries;
 use sqlx::SqlitePool;
+use time;
 
 /// Create an in-memory SQLite database with the schema loaded.
 async fn setup_db() -> SqlitePool {
@@ -323,7 +324,11 @@ async fn test_get_books_with_recent_sales() {
     seed(&pool).await;
 
     // Sale was created with DEFAULT CURRENT_TIMESTAMP, so use a past date
-    let results = queries::get_books_with_recent_sales(&pool, "2000-01-01".into()).await.unwrap();
+    let cutoff = time::PrimitiveDateTime::new(
+        time::Date::from_calendar_date(2000, time::Month::January, 1).unwrap(),
+        time::Time::MIDNIGHT,
+    );
+    let results = queries::get_books_with_recent_sales(&pool, cutoff).await.unwrap();
     // Foundation and Dune have sale_items
     assert_eq!(results.len(), 2);
 }

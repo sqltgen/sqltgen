@@ -42,7 +42,7 @@ pub async fn list_events(pool: &DbPool) -> Result<Vec<Event>, sqlx::Error> {
         .await
 }
 
-pub async fn insert_event(pool: &DbPool, name: String, payload: String, meta: Option<String>, doc_id: String, created_at: serde_json::Value, scheduled_at: Option<serde_json::Value>, event_date: Option<time::Date>, event_time: Option<time::Time>) -> Result<(), sqlx::Error> {
+pub async fn insert_event(pool: &DbPool, name: String, payload: String, meta: Option<String>, doc_id: String, created_at: time::PrimitiveDateTime, scheduled_at: Option<time::PrimitiveDateTime>, event_date: Option<time::Date>, event_time: Option<time::Time>) -> Result<(), sqlx::Error> {
     let sql = r##"
         INSERT INTO event (name, payload, meta, doc_id, created_at, scheduled_at, event_date, event_time)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -94,7 +94,7 @@ pub async fn find_by_doc_id(pool: &DbPool, doc_id: String) -> Result<Option<Find
         .await
 }
 
-pub async fn insert_event_rows(pool: &DbPool, name: String, payload: String, meta: Option<String>, doc_id: String, created_at: serde_json::Value, scheduled_at: Option<serde_json::Value>, event_date: Option<time::Date>, event_time: Option<time::Time>) -> Result<u64, sqlx::Error> {
+pub async fn insert_event_rows(pool: &DbPool, name: String, payload: String, meta: Option<String>, doc_id: String, created_at: time::PrimitiveDateTime, scheduled_at: Option<time::PrimitiveDateTime>, event_date: Option<time::Date>, event_time: Option<time::Time>) -> Result<u64, sqlx::Error> {
     let sql = r##"
         INSERT INTO event (name, payload, meta, doc_id, created_at, scheduled_at, event_date, event_time)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -113,7 +113,7 @@ pub async fn insert_event_rows(pool: &DbPool, name: String, payload: String, met
         .map(|r| r.rows_affected())
 }
 
-pub async fn get_events_by_date_range(pool: &DbPool, created_at: serde_json::Value, created_at_2: serde_json::Value) -> Result<Vec<Event>, sqlx::Error> {
+pub async fn get_events_by_date_range(pool: &DbPool, created_at: time::PrimitiveDateTime, created_at_2: time::PrimitiveDateTime) -> Result<Vec<Event>, sqlx::Error> {
     let sql = r##"
         SELECT id, name, payload, meta, doc_id, created_at, scheduled_at, event_date, event_time
         FROM event
@@ -127,7 +127,7 @@ pub async fn get_events_by_date_range(pool: &DbPool, created_at: serde_json::Val
         .await
 }
 
-pub async fn count_events(pool: &DbPool, created_at: serde_json::Value) -> Result<Option<CountEventsRow>, sqlx::Error> {
+pub async fn count_events(pool: &DbPool, created_at: time::PrimitiveDateTime) -> Result<Option<CountEventsRow>, sqlx::Error> {
     let sql = r##"
         SELECT COUNT(*) AS total FROM event WHERE created_at > ?
     "##;
@@ -166,7 +166,7 @@ impl<'a> Querier<'a> {
         list_events(self.pool).await
     }
 
-    pub async fn insert_event(&self, name: String, payload: String, meta: Option<String>, doc_id: String, created_at: serde_json::Value, scheduled_at: Option<serde_json::Value>, event_date: Option<time::Date>, event_time: Option<time::Time>) -> Result<(), sqlx::Error> {
+    pub async fn insert_event(&self, name: String, payload: String, meta: Option<String>, doc_id: String, created_at: time::PrimitiveDateTime, scheduled_at: Option<time::PrimitiveDateTime>, event_date: Option<time::Date>, event_time: Option<time::Time>) -> Result<(), sqlx::Error> {
         insert_event(self.pool, name, payload, meta, doc_id, created_at, scheduled_at, event_date, event_time).await
     }
 
@@ -182,15 +182,15 @@ impl<'a> Querier<'a> {
         find_by_doc_id(self.pool, doc_id).await
     }
 
-    pub async fn insert_event_rows(&self, name: String, payload: String, meta: Option<String>, doc_id: String, created_at: serde_json::Value, scheduled_at: Option<serde_json::Value>, event_date: Option<time::Date>, event_time: Option<time::Time>) -> Result<u64, sqlx::Error> {
+    pub async fn insert_event_rows(&self, name: String, payload: String, meta: Option<String>, doc_id: String, created_at: time::PrimitiveDateTime, scheduled_at: Option<time::PrimitiveDateTime>, event_date: Option<time::Date>, event_time: Option<time::Time>) -> Result<u64, sqlx::Error> {
         insert_event_rows(self.pool, name, payload, meta, doc_id, created_at, scheduled_at, event_date, event_time).await
     }
 
-    pub async fn get_events_by_date_range(&self, created_at: serde_json::Value, created_at_2: serde_json::Value) -> Result<Vec<Event>, sqlx::Error> {
+    pub async fn get_events_by_date_range(&self, created_at: time::PrimitiveDateTime, created_at_2: time::PrimitiveDateTime) -> Result<Vec<Event>, sqlx::Error> {
         get_events_by_date_range(self.pool, created_at, created_at_2).await
     }
 
-    pub async fn count_events(&self, created_at: serde_json::Value) -> Result<Option<CountEventsRow>, sqlx::Error> {
+    pub async fn count_events(&self, created_at: time::PrimitiveDateTime) -> Result<Option<CountEventsRow>, sqlx::Error> {
         count_events(self.pool, created_at).await
     }
 

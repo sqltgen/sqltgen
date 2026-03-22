@@ -1,7 +1,7 @@
 // End-to-end runtime tests for type overrides on SQLite (Go).
 //
 // JSON columns (TEXT) stay as string. DATE/TIME columns are sql.NullTime.
-// DATETIME columns (created_at / scheduled_at) are `any` — pass strings.
+// DATETIME columns (created_at / scheduled_at) are time.Time / sql.NullTime.
 package main
 
 import (
@@ -45,6 +45,14 @@ func mustJSON(v interface{}) string {
 	return string(b)
 }
 
+func ts(s string) time.Time {
+	t, err := time.Parse("2006-01-02 15:04:05", s)
+	if err != nil {
+		panic(err)
+	}
+	return t
+}
+
 func nullTime(t time.Time) sql.NullTime {
 	return sql.NullTime{Time: t, Valid: true}
 }
@@ -60,11 +68,11 @@ func TestInsertAndGetEvent(t *testing.T) {
 	meta := mustJSON(map[string]interface{}{"source": "web"})
 
 	// SQLite stores DATE/TIME as text; the go-sqlite3 driver can scan text to
-	// time.Time only for DATETIME, not for bare TIME/DATE columns. Pass nil for
+	// time.Time only for DATETIME, not for bare TIME/DATE columns. Pass nilTime for
 	// event_date/event_time to avoid scan failures on read-back.
 	if err := gen.InsertEvent(ctx, db, "login", payload,
 		sql.NullString{String: meta, Valid: true}, "doc-001",
-		"2024-06-01 12:00:00", nil, nilTime, nilTime); err != nil {
+		ts("2024-06-01 12:00:00"), nilTime, nilTime, nilTime); err != nil {
 		t.Fatal(err)
 	}
 
@@ -107,11 +115,11 @@ func TestGetEventNotFound(t *testing.T) {
 func TestListEvents(t *testing.T) {
 	db, ctx := setupDB(t)
 
-	ts := "2024-06-01 12:00:00"
+	createdAt := ts("2024-06-01 12:00:00")
 	for _, name := range []string{"alpha", "beta", "gamma"} {
 		docID := fmt.Sprintf("doc-%s", name)
 		if err := gen.InsertEvent(ctx, db, name, "{}", sql.NullString{}, docID,
-			ts, nil, nilTime, nilTime); err != nil {
+			createdAt, nilTime, nilTime, nilTime); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -131,10 +139,10 @@ func TestListEvents(t *testing.T) {
 func TestGetEventsByDateRange(t *testing.T) {
 	db, ctx := setupDB(t)
 
-	insert := func(name, ts string) {
+	insert := func(name, datetime string) {
 		t.Helper()
 		if err := gen.InsertEvent(ctx, db, name, "{}", sql.NullString{}, "doc-"+name,
-			ts, nil, nilTime, nilTime); err != nil {
+			ts(datetime), nilTime, nilTime, nilTime); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -143,7 +151,7 @@ func TestGetEventsByDateRange(t *testing.T) {
 	insert("late", "2024-12-01 15:00:00")
 
 	events, err := gen.GetEventsByDateRange(ctx, db,
-		"2024-01-01 00:00:00", "2024-07-01 00:00:00")
+		ts("2024-01-01 00:00:00"), ts("2024-07-01 00:00:00"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +169,7 @@ func TestUpdatePayload(t *testing.T) {
 	db, ctx := setupDB(t)
 
 	if err := gen.InsertEvent(ctx, db, "test", `{"v":1}`, sql.NullString{}, "doc-1",
-		"2024-06-01 12:00:00", nil, nilTime, nilTime); err != nil {
+		ts("2024-06-01 12:00:00"), nilTime, nilTime, nilTime); err != nil {
 		t.Fatal(err)
 	}
 
@@ -188,7 +196,7 @@ func TestUpdateEventDate(t *testing.T) {
 
 	// Insert with nil date to avoid TEXT/TIME scan issues on read-back
 	if err := gen.InsertEvent(ctx, db, "dated", "{}", sql.NullString{}, "doc-1",
-		"2024-06-01 12:00:00", nil, nilTime, nilTime); err != nil {
+		ts("2024-06-01 12:00:00"), nilTime, nilTime, nilTime); err != nil {
 		t.Fatal(err)
 	}
 
@@ -204,7 +212,7 @@ func TestInsertEventRows(t *testing.T) {
 	db, ctx := setupDB(t)
 
 	n, err := gen.InsertEventRows(ctx, db, "rowtest", "{}", sql.NullString{}, "doc-1",
-		"2024-06-01 12:00:00", nil, nilTime, nilTime)
+		ts("2024-06-01 12:00:00"), nilTime, nilTime, nilTime)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +229,7 @@ func TestFindByDate(t *testing.T) {
 	target := time.Date(2024, 6, 15, 0, 0, 0, 0, time.UTC)
 
 	if err := gen.InsertEvent(ctx, db, "dated", "{}", sql.NullString{}, "doc-1",
-		"2024-06-01 12:00:00", nil, nullTime(target), nilTime); err != nil {
+		ts("2024-06-01 12:00:00"), nilTime, nullTime(target), nilTime); err != nil {
 		t.Fatal(err)
 	}
 
@@ -242,7 +250,7 @@ func TestFindByDocId(t *testing.T) {
 	db, ctx := setupDB(t)
 
 	if err := gen.InsertEvent(ctx, db, "doctest", "{}", sql.NullString{}, "unique-doc-id",
-		"2024-06-01 12:00:00", nil, nilTime, nilTime); err != nil {
+		ts("2024-06-01 12:00:00"), nilTime, nilTime, nilTime); err != nil {
 		t.Fatal(err)
 	}
 
@@ -264,15 +272,15 @@ func TestCountEvents(t *testing.T) {
 	db, ctx := setupDB(t)
 
 	for i := 1; i <= 3; i++ {
-		ts := fmt.Sprintf("2024-06-0%d 00:00:00", i)
+		datetime := fmt.Sprintf("2024-06-0%d 00:00:00", i)
 		docID := fmt.Sprintf("doc-%d", i)
 		if err := gen.InsertEvent(ctx, db, fmt.Sprintf("ev%d", i), "{}", sql.NullString{},
-			docID, ts, nil, nilTime, nilTime); err != nil {
+			docID, ts(datetime), nilTime, nilTime, nilTime); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	row, err := gen.CountEvents(ctx, db, "2024-01-01 00:00:00")
+	row, err := gen.CountEvents(ctx, db, ts("2024-01-01 00:00:00"))
 	if err != nil {
 		t.Fatal(err)
 	}

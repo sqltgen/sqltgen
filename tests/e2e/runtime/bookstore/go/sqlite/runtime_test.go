@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"testing"
+	"time"
 
 	gen "e2e-go-sqlite/gen"
 
@@ -776,7 +777,7 @@ func TestGetBooksWithRecentSales(t *testing.T) {
 	seed(t, ctx, db)
 
 	// Sales use CURRENT_TIMESTAMP, so anything before "2000-01-01" should match all sold books
-	rows, err := gen.GetBooksWithRecentSales(ctx, db, "2000-01-01")
+	rows, err := gen.GetBooksWithRecentSales(ctx, db, time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("GetBooksWithRecentSales: %v", err)
 	}
@@ -786,7 +787,7 @@ func TestGetBooksWithRecentSales(t *testing.T) {
 	}
 
 	// Far future should return nothing
-	empty, err := gen.GetBooksWithRecentSales(ctx, db, "2099-01-01")
+	empty, err := gen.GetBooksWithRecentSales(ctx, db, time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("GetBooksWithRecentSales(future): %v", err)
 	}

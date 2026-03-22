@@ -336,7 +336,7 @@ class RuntimeTest {
     void testGetBooksWithRecentSales() throws SQLException {
         seed();
         // Sales are current; use a past cutoff date
-        var results = Queries.getBooksWithRecentSales(conn, "2000-01-01");
+        var results = Queries.getBooksWithRecentSales(conn, java.time.LocalDateTime.of(2000, 1, 1, 0, 0));
         // Foundation (book 1) and Dune (book 3) have sale_items
         assertEquals(2, results.size());
     }
