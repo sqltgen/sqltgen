@@ -188,7 +188,7 @@ func TestListEvents(t *testing.T) {
 		t.Fatalf("expected 3 events, got %d", len(events))
 	}
 	if events[0].Name != "alpha" || events[1].Name != "beta" || events[2].Name != "gamma" {
-		t.Errorf("unexpected order")
+		t.Errorf("unexpected order: %v %v %v", events[0].Name, events[1].Name, events[2].Name)
 	}
 }
 
@@ -215,7 +215,7 @@ func TestGetEventsByDateRange(t *testing.T) {
 		t.Fatalf("expected 2 events, got %d", len(events))
 	}
 	if events[0].Name != "early" || events[1].Name != "mid" {
-		t.Errorf("unexpected order")
+		t.Errorf("unexpected order: %v %v", events[0].Name, events[1].Name)
 	}
 }
 
@@ -226,12 +226,14 @@ func TestUpdatePayload(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	if err := gen.InsertEvent(ctx, db, "test", `{"v":1}`, sql.NullString{}, "doc-1",
+	initialMeta := sql.NullString{String: mustJSON(map[string]interface{}{"source": "web"}), Valid: true}
+	if err := gen.InsertEvent(ctx, db, "test", `{"v":1}`, initialMeta, "doc-1",
 		ts(2024, 6, 1, 12, 0, 0), nilTime, nilTime, nilTime); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := gen.UpdatePayload(ctx, db, `{"v":2}`, sql.NullString{}, 1); err != nil {
+	updatedPayload := `{"v":2,"changed":true}`
+	if err := gen.UpdatePayload(ctx, db, updatedPayload, sql.NullString{}, 1); err != nil {
 		t.Fatal(err)
 	}
 
@@ -242,8 +244,14 @@ func TestUpdatePayload(t *testing.T) {
 	if ev == nil {
 		t.Fatal("expected event")
 	}
+	var gotPayload, wantPayload interface{}
+	_ = json.Unmarshal([]byte(ev.Payload), &gotPayload)
+	_ = json.Unmarshal([]byte(updatedPayload), &wantPayload)
+	if fmt.Sprintf("%v", gotPayload) != fmt.Sprintf("%v", wantPayload) {
+		t.Errorf("expected payload=%s, got %s", updatedPayload, ev.Payload)
+	}
 	if ev.Meta.Valid {
-		t.Errorf("expected nil meta")
+		t.Errorf("expected nil meta, got %s", ev.Meta.String)
 	}
 }
 
@@ -257,8 +265,23 @@ func TestUpdateEventDate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := gen.UpdateEventDate(ctx, db, sql.NullTime{Time: ts(2024, 12, 31, 0, 0, 0), Valid: true}, 1); err != nil {
+	newDate := sql.NullTime{Time: ts(2024, 12, 31, 0, 0, 0), Valid: true}
+	if err := gen.UpdateEventDate(ctx, db, newDate, 1); err != nil {
 		t.Fatal(err)
+	}
+
+	ev, err := gen.GetEvent(ctx, db, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ev == nil {
+		t.Fatal("expected event after update")
+	}
+	if !ev.EventDate.Valid {
+		t.Fatal("expected event_date to be valid after update")
+	}
+	if !ev.EventDate.Time.Equal(newDate.Time) {
+		t.Errorf("expected event_date=%v, got %v", newDate.Time, ev.EventDate.Time)
 	}
 }
 

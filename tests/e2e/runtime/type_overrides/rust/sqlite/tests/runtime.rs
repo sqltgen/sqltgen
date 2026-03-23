@@ -110,16 +110,16 @@ async fn test_get_events_by_date_range() {
 async fn test_update_payload() {
     let pool = setup_db().await;
 
-    queries::insert_event(&pool, "test".into(), r#"{"v":1}"#.into(), None, Uuid::new_v4().to_string(), ts("2024-06-01 12:00:00"), None, None, None)
+    queries::insert_event(&pool, "test".into(), r#"{"v":1}"#.into(), Some(r#"{"source":"web"}"#.into()), Uuid::new_v4().to_string(), ts("2024-06-01 12:00:00"), None, None, None)
         .await
         .unwrap();
 
-    queries::update_payload(&pool, r#"{"v":2}"#.into(), None, 1).await.unwrap();
+    let updated = r#"{"v":2}"#;
+    queries::update_payload(&pool, updated.into(), None, 1).await.unwrap();
 
     let ev = queries::get_event(&pool, 1).await.unwrap().unwrap();
-    let payload: serde_json::Value = serde_json::from_str(&ev.payload).unwrap();
-    assert_eq!(payload["v"], 2);
-    assert!(ev.meta.is_none());
+    assert_eq!(ev.payload, updated);
+    assert_eq!(ev.meta, None);
 }
 
 #[tokio::test]

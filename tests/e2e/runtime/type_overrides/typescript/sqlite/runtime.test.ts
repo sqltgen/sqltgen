@@ -38,6 +38,8 @@ describe(':one queries', () => {
     const ev = await queries.getEvent(db, 1);
     assert.ok(ev);
     assert.equal(ev.name, 'login');
+    assert.equal(ev.payload, JSON.stringify({ type: 'click', x: 10 }));
+    assert.equal(ev.meta, JSON.stringify({ source: 'web' }));
     assert.equal(ev.doc_id, 'doc-001');
     assert.equal(ev.event_date, '2024-06-01');
     assert.equal(ev.event_time, '09:00:00');
@@ -84,16 +86,17 @@ describe(':many queries', () => {
 // ─── :exec tests ──────────────────────────────────────────────────────────────
 
 describe(':exec queries', () => {
-  it('updatePayload changes payload', async () => {
+  it('updatePayload changes payload and meta', async () => {
     const db = makeDb();
-    await queries.insertEvent(db, 'test', '{"v":1}', null, 'doc-1',
+    await queries.insertEvent(db, 'test', '{"v":1}', '{"source":"web"}', 'doc-1',
       '2024-06-01 12:00:00', null, null, null);
 
-    await queries.updatePayload(db, '{"v":2}', null, 1);
+    const updated = '{"v":2,"changed":true}';
+    await queries.updatePayload(db, updated, null, 1);
 
     const ev = await queries.getEvent(db, 1);
     assert.ok(ev);
-    assert.equal(ev.payload, '{"v":2}');
+    assert.equal(ev.payload, updated);
     assert.equal(ev.meta, null);
   });
 

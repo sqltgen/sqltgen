@@ -61,15 +61,10 @@ def test_get_event_not_found():
 
 def test_list_events():
     conn = make_db()
-    queries.insert_event(
-        conn, "alpha", "{}", None, "doc-1", "2024-06-01 12:00:00", None, None, None
-    )
-    queries.insert_event(
-        conn, "beta", "{}", None, "doc-2", "2024-06-01 12:00:00", None, None, None
-    )
-    queries.insert_event(
-        conn, "gamma", "{}", None, "doc-3", "2024-06-01 12:00:00", None, None, None
-    )
+    ts = "2024-06-01 12:00:00"
+    queries.insert_event(conn, "alpha", "{}", None, "doc-1", ts, None, None, None)
+    queries.insert_event(conn, "beta", "{}", None, "doc-2", ts, None, None, None)
+    queries.insert_event(conn, "gamma", "{}", None, "doc-3", ts, None, None, None)
 
     events = queries.list_events(conn)
     assert len(events) == 3
@@ -104,13 +99,13 @@ def test_get_events_by_date_range():
 def test_update_payload():
     conn = make_db()
     queries.insert_event(
-        conn, "test", '{"v":1}', None, "doc-1", "2024-06-01 12:00:00", None, None, None
+        conn, "test", '{"v":1}', '{"source":"web"}', "doc-1", "2024-06-01 12:00:00", None, None, None
     )
-    queries.update_payload(conn, '{"v":2}', None, 1)
+    queries.update_payload(conn, '{"v":2,"changed":true}', None, 1)
 
     ev = queries.get_event(conn, 1)
     assert ev is not None
-    assert ev.payload == '{"v":2}'
+    assert json.loads(ev.payload) == {"v": 2, "changed": True}
     assert ev.meta is None
 
 

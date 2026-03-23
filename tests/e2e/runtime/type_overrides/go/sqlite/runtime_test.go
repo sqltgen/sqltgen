@@ -168,12 +168,14 @@ func TestGetEventsByDateRange(t *testing.T) {
 func TestUpdatePayload(t *testing.T) {
 	db, ctx := setupDB(t)
 
-	if err := gen.InsertEvent(ctx, db, "test", `{"v":1}`, sql.NullString{}, "doc-1",
+	initialMeta := sql.NullString{String: mustJSON(map[string]interface{}{"source": "web"}), Valid: true}
+	if err := gen.InsertEvent(ctx, db, "test", `{"v":1}`, initialMeta, "doc-1",
 		ts("2024-06-01 12:00:00"), nilTime, nilTime, nilTime); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := gen.UpdatePayload(ctx, db, `{"v":2}`, sql.NullString{}, 1); err != nil {
+	updatedPayload := `{"v":2,"changed":true}`
+	if err := gen.UpdatePayload(ctx, db, updatedPayload, sql.NullString{}, 1); err != nil {
 		t.Fatal(err)
 	}
 
@@ -183,6 +185,9 @@ func TestUpdatePayload(t *testing.T) {
 	}
 	if ev == nil {
 		t.Fatal("expected event")
+	}
+	if ev.Payload != updatedPayload {
+		t.Errorf("expected payload=%s, got %s", updatedPayload, ev.Payload)
 	}
 	if ev.Meta.Valid {
 		t.Errorf("expected nil meta, got %s", ev.Meta.String)
@@ -200,9 +205,22 @@ func TestUpdateEventDate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Just verify the update doesn't error
 	if err := gen.UpdateEventDate(ctx, db, nullTime(d2), 1); err != nil {
 		t.Fatal(err)
+	}
+
+	ev, err := gen.GetEvent(ctx, db, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ev == nil {
+		t.Fatal("expected event after update")
+	}
+	if !ev.EventDate.Valid {
+		t.Fatal("expected event_date to be valid after update")
+	}
+	if !ev.EventDate.Time.Equal(d2) {
+		t.Errorf("expected event_date=%v, got %v", d2, ev.EventDate.Time)
 	}
 }
 

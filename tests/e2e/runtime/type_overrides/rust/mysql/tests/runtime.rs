@@ -108,6 +108,8 @@ async fn test_list_events() {
     let events = queries::list_events(&pool).await.unwrap();
     assert_eq!(events.len(), 3);
     assert_eq!(events[0].name, "alpha");
+    assert_eq!(events[1].name, "beta");
+    assert_eq!(events[2].name, "gamma");
 
     teardown(pool, &db_name).await;
 }
@@ -138,13 +140,14 @@ async fn test_get_events_by_date_range() {
 async fn test_update_payload() {
     let (pool, db_name) = setup_db().await;
 
-    queries::insert_event(&pool, "test".into(), json!({ "v": 1 }), None, Uuid::new_v4().to_string(), sample_created_at(), None, None, None).await.unwrap();
+    queries::insert_event(&pool, "test".into(), json!({ "v": 1 }), Some(json!({"source": "web"})), Uuid::new_v4().to_string(), sample_created_at(), None, None, None).await.unwrap();
 
     let updated = json!({ "v": 2 });
     queries::update_payload(&pool, updated.clone(), None, 1).await.unwrap();
 
     let ev = queries::get_event(&pool, 1).await.unwrap().unwrap();
     assert_eq!(ev.payload, updated);
+    assert_eq!(ev.meta, None);
 
     teardown(pool, &db_name).await;
 }

@@ -110,7 +110,7 @@ class RuntimeTest {
 
     @Test
     fun testUpdatePayload() {
-        Queries.insertEvent(conn, "test", """{"v":1}""", null, "doc-1",
+        Queries.insertEvent(conn, "test", """{"v":1}""", """{"source":"web"}""", "doc-1",
             LocalDateTime.of(2024, 6, 1, 12, 0, 0), null, null, null)
 
         Queries.updatePayload(conn, """{"v":2}""", null, 1)

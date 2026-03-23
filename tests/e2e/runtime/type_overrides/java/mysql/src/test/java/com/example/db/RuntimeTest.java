@@ -96,7 +96,10 @@ class RuntimeTest {
 
         var ev = Queries.getEvent(conn, 1L).orElseThrow();
         assertEquals("login", ev.name());
+        assertEquals(payload, ev.payload());
+        assertEquals(meta, ev.meta());
         assertEquals("doc-001", ev.docId());
+        assertEquals(sampleCreatedAt(), ev.createdAt());
         assertEquals(LocalDate.of(2024, 6, 1), ev.eventDate());
         assertEquals(LocalTime.of(9, 0, 0), ev.eventTime());
     }
@@ -148,8 +151,8 @@ class RuntimeTest {
     @Test
     void testUpdatePayload() throws Exception {
 
-        Queries.insertEvent(conn, "test", json("{\"v\":1}"), null, "doc-1",
-            sampleCreatedAt(), null, null, null);
+        Queries.insertEvent(conn, "test", json("{\"v\":1}"), json("{\"source\":\"web\"}"),
+            "doc-1", sampleCreatedAt(), null, null, null);
 
         var updated = json("{\"v\":2,\"changed\":true}");
         Queries.updatePayload(conn, updated, null, 1L);

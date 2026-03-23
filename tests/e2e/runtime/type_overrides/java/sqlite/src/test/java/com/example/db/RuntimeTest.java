@@ -123,13 +123,14 @@ class RuntimeTest {
 
     @Test
     void testUpdatePayload() throws Exception {
-        Queries.insertEvent(conn, "test", "{\"v\":1}", null, "doc-1",
+        Queries.insertEvent(conn, "test", "{\"v\":1}", "{\"source\":\"web\"}", "doc-1",
             LocalDateTime.of(2024, 6, 1, 12, 0, 0), null, null, null);
 
-        Queries.updatePayload(conn, "{\"v\":2}", null, 1);
+        var updated = "{\"v\":2,\"changed\":true}";
+        Queries.updatePayload(conn, updated, null, 1);
 
         var ev = Queries.getEvent(conn, 1).orElseThrow();
-        assertEquals(json("{\"v\":2}"), json(ev.payload()));
+        assertEquals(json(updated), json(ev.payload()));
         assertNull(ev.meta());
     }
 

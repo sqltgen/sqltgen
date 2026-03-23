@@ -50,8 +50,10 @@ def test_insert_and_get_event(conn):
     event_date = datetime.date(2024, 6, 1)
     event_time = datetime.time(9, 0, 0)
 
+    scheduled_at = datetime.datetime(2024, 6, 1, 14, 0, 0, tzinfo=datetime.timezone.utc)
+
     queries.insert_event(
-        conn, "login", payload, meta, doc_id, created_at, None, event_date, event_time
+        conn, "login", payload, meta, doc_id, created_at, scheduled_at, event_date, event_time
     )
 
     ev = queries.get_event(conn, 1)
@@ -60,6 +62,7 @@ def test_insert_and_get_event(conn):
     assert ev.payload == payload
     assert ev.meta == meta
     assert str(ev.doc_id) == doc_id
+    assert ev.scheduled_at == scheduled_at
     assert ev.event_date == event_date
     assert ev.event_time == event_time
 
@@ -141,7 +144,7 @@ def test_get_events_by_date_range(conn):
 def test_update_payload(conn):
     ts = datetime.datetime(2024, 6, 1, 12, 0, 0)
     queries.insert_event(
-        conn, "test", {"v": 1}, None, str(uuid.uuid4()), ts, None, None, None
+        conn, "test", {"v": 1}, {"source": "web"}, str(uuid.uuid4()), ts, None, None, None
     )
 
     updated = {"v": 2, "changed": True}

@@ -4,6 +4,7 @@ Each test creates an isolated MySQL database named test_<uuid> and drops it
 on teardown. Requires the docker-compose MySQL service on port 13306.
 """
 
+import datetime
 import json
 import os
 import pathlib
@@ -83,16 +84,18 @@ def test_insert_and_get_event(conn):
         json.dumps(payload),
         json.dumps(meta),
         "doc-001",
-        "2024-06-01 12:00:00",
-        "2024-06-01 14:00:00",
-        "2024-06-01",
-        "09:00:00",
+        datetime.datetime(2024, 6, 1, 12, 0, 0),
+        datetime.datetime(2024, 6, 1, 14, 0, 0),
+        datetime.date(2024, 6, 1),
+        datetime.time(9, 0, 0),
     )
     conn.commit()
 
     ev = queries.get_event(conn, 1)
     assert ev is not None
     assert ev.name == "login"
+    assert json.loads(ev.payload) == payload
+    assert json.loads(ev.meta) == meta
     assert ev.doc_id == "doc-001"
     assert str(ev.event_date) == "2024-06-01"
     assert str(ev.event_time) == "09:00:00"
@@ -106,7 +109,7 @@ def test_get_event_not_found(conn):
 
 
 def test_list_events(conn):
-    ts = "2024-06-01 12:00:00"
+    ts = datetime.datetime(2024, 6, 1, 12, 0, 0)
     for name, doc in [("alpha", "doc-1"), ("beta", "doc-2"), ("gamma", "doc-3")]:
         queries.insert_event(conn, name, "{}", None, doc, ts, None, None, None)
     conn.commit()
@@ -120,18 +123,18 @@ def test_list_events(conn):
 
 def test_get_events_by_date_range(conn):
     queries.insert_event(
-        conn, "early", "{}", None, "doc-1", "2024-01-01 10:00:00", None, None, None
+        conn, "early", "{}", None, "doc-1", datetime.datetime(2024, 1, 1, 10, 0, 0), None, None, None
     )
     queries.insert_event(
-        conn, "mid", "{}", None, "doc-2", "2024-06-01 12:00:00", None, None, None
+        conn, "mid", "{}", None, "doc-2", datetime.datetime(2024, 6, 1, 12, 0, 0), None, None, None
     )
     queries.insert_event(
-        conn, "late", "{}", None, "doc-3", "2024-12-01 15:00:00", None, None, None
+        conn, "late", "{}", None, "doc-3", datetime.datetime(2024, 12, 1, 15, 0, 0), None, None, None
     )
     conn.commit()
 
     events = queries.get_events_by_date_range(
-        conn, "2024-01-01 00:00:00", "2024-07-01 00:00:00"
+        conn, datetime.datetime(2024, 1, 1, 0, 0, 0), datetime.datetime(2024, 7, 1, 0, 0, 0)
     )
     assert len(events) == 2
     assert events[0].name == "early"
@@ -143,15 +146,16 @@ def test_get_events_by_date_range(conn):
 
 def test_update_payload(conn):
     queries.insert_event(
-        conn, "test", '{"v":1}', None, "doc-1", "2024-06-01 12:00:00", None, None, None
+        conn, "test", '{"v":1}', '{"source":"web"}', "doc-1", datetime.datetime(2024, 6, 1, 12, 0, 0), None, None, None
     )
     conn.commit()
 
-    queries.update_payload(conn, '{"v":2}', None, 1)
+    queries.update_payload(conn, '{"v":2,"changed":true}', None, 1)
     conn.commit()
 
     ev = queries.get_event(conn, 1)
     assert ev is not None
+    assert json.loads(ev.payload) == {"v": 2, "changed": True}
     assert ev.meta is None
 
 
@@ -162,19 +166,19 @@ def test_update_event_date(conn):
         "{}",
         None,
         "doc-1",
-        "2024-06-01 12:00:00",
+        datetime.datetime(2024, 6, 1, 12, 0, 0),
         None,
-        "2024-01-01",
+        datetime.date(2024, 1, 1),
         None,
     )
     conn.commit()
 
-    queries.update_event_date(conn, "2024-12-31", 1)
+    queries.update_event_date(conn, datetime.date(2024, 12, 31), 1)
     conn.commit()
 
     ev = queries.get_event(conn, 1)
     assert ev is not None
-    assert str(ev.event_date) == "2024-12-31"
+    assert ev.event_date == datetime.date(2024, 12, 31)
 
 
 # ─── :execrows tests ──────────────────────────────────────────────────────────
@@ -182,7 +186,7 @@ def test_update_event_date(conn):
 
 def test_insert_event_rows(conn):
     n = queries.insert_event_rows(
-        conn, "rowtest", "{}", None, "doc-1", "2024-06-01 12:00:00", None, None, None
+        conn, "rowtest", "{}", None, "doc-1", datetime.datetime(2024, 6, 1, 12, 0, 0), None, None, None
     )
     conn.commit()
     assert n == 1
@@ -198,14 +202,14 @@ def test_find_by_date(conn):
         "{}",
         None,
         "doc-1",
-        "2024-06-01 12:00:00",
+        datetime.datetime(2024, 6, 1, 12, 0, 0),
         None,
-        "2024-06-15",
+        datetime.date(2024, 6, 15),
         None,
     )
     conn.commit()
 
-    row = queries.find_by_date(conn, "2024-06-15")
+    row = queries.find_by_date(conn, datetime.date(2024, 6, 15))
     assert row is not None
     assert row.name == "dated"
 
@@ -217,7 +221,7 @@ def test_find_by_doc_id(conn):
         "{}",
         None,
         "unique-doc-id",
-        "2024-06-01 12:00:00",
+        datetime.datetime(2024, 6, 1, 12, 0, 0),
         None,
         None,
         None,
@@ -240,13 +244,13 @@ def test_count_events(conn):
             "{}",
             None,
             f"doc-{i}",
-            f"2024-06-0{i} 00:00:00",
+            datetime.datetime(2024, 6, i, 0, 0, 0),
             None,
             None,
             None,
         )
     conn.commit()
 
-    row = queries.count_events(conn, "2024-01-01 00:00:00")
+    row = queries.count_events(conn, datetime.datetime(2024, 1, 1, 0, 0, 0))
     assert row is not None
     assert row.total == 3

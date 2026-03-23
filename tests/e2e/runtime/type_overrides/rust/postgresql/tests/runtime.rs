@@ -88,6 +88,7 @@ async fn test_insert_and_get_event() {
     assert_eq!(ev.meta, Some(sample_meta()));
     assert_eq!(ev.doc_id, doc_id);
     assert_eq!(ev.created_at, sample_created_at());
+    assert_eq!(ev.scheduled_at, Some(sample_scheduled_at()));
     assert_eq!(ev.event_date, Some(date!(2024 - 06 - 01)));
     assert_eq!(ev.event_time, Some(time!(09:00:00)));
 }
@@ -144,7 +145,7 @@ async fn test_update_payload() {
     let pool = setup_db().await;
     let doc_id = Uuid::new_v4();
 
-    queries::insert_event(&pool, "test".into(), json!({ "v": 1 }), None, doc_id, sample_created_at(), None, None, None).await.unwrap();
+    queries::insert_event(&pool, "test".into(), json!({ "v": 1 }), Some(json!({"source": "web"})), doc_id, sample_created_at(), None, None, None).await.unwrap();
 
     let updated = json!({ "v": 2, "changed": true });
     queries::update_payload(&pool, updated.clone(), None, 1).await.unwrap();

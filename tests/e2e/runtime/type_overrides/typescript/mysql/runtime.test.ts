@@ -64,19 +64,24 @@ describe(':one queries', () => {
   it('insertEvent and getEvent round-trip', async () => {
     const { conn, dbName } = await makeConn();
     try {
+      const payload = { type: 'click', x: 10 };
+      const meta = { source: 'web' };
       await queries.insertEvent(conn, 'login',
-        JSON.stringify({ type: 'click', x: 10 }),
-        JSON.stringify({ source: 'web' }),
+        payload,
+        meta,
         'doc-001',
-        '2024-06-01 12:00:00',
-        '2024-06-01 14:00:00',
+        new Date('2024-06-01T12:00:00Z'),
+        new Date('2024-06-01T14:00:00Z'),
         '2024-06-01',
-        '09:00:00');
+        new Date('1970-01-01T09:00:00Z'));
 
       const ev = await queries.getEvent(conn, 1);
       assert.ok(ev);
       assert.equal(ev.name, 'login');
       assert.equal(ev.doc_id, 'doc-001');
+      assert.deepEqual(ev.payload, payload);
+      assert.deepEqual(ev.meta, meta);
+      assert.ok(ev.scheduled_at);
     } finally { await teardown(conn, dbName); }
   });
 
@@ -94,10 +99,10 @@ describe(':many queries', () => {
   it('listEvents returns all events ordered by id', async () => {
     const { conn, dbName } = await makeConn();
     try {
-      const ts = '2024-06-01 12:00:00';
-      await queries.insertEvent(conn, 'alpha', '{}', null, 'doc-1', ts, null, null, null);
-      await queries.insertEvent(conn, 'beta',  '{}', null, 'doc-2', ts, null, null, null);
-      await queries.insertEvent(conn, 'gamma', '{}', null, 'doc-3', ts, null, null, null);
+      const ts = new Date('2024-06-01T12:00:00Z');
+      await queries.insertEvent(conn, 'alpha', {}, null, 'doc-1', ts, null, null, null);
+      await queries.insertEvent(conn, 'beta',  {}, null, 'doc-2', ts, null, null, null);
+      await queries.insertEvent(conn, 'gamma', {}, null, 'doc-3', ts, null, null, null);
 
       const events = await queries.listEvents(conn);
       assert.equal(events.length, 3);
@@ -110,12 +115,12 @@ describe(':many queries', () => {
   it('getEventsByDateRange filters correctly', async () => {
     const { conn, dbName } = await makeConn();
     try {
-      await queries.insertEvent(conn, 'early', '{}', null, 'doc-1', '2024-01-01 10:00:00', null, null, null);
-      await queries.insertEvent(conn, 'mid',   '{}', null, 'doc-2', '2024-06-01 12:00:00', null, null, null);
-      await queries.insertEvent(conn, 'late',  '{}', null, 'doc-3', '2024-12-01 15:00:00', null, null, null);
+      await queries.insertEvent(conn, 'early', {}, null, 'doc-1', new Date('2024-01-01T10:00:00Z'), null, null, null);
+      await queries.insertEvent(conn, 'mid',   {}, null, 'doc-2', new Date('2024-06-01T12:00:00Z'), null, null, null);
+      await queries.insertEvent(conn, 'late',  {}, null, 'doc-3', new Date('2024-12-01T15:00:00Z'), null, null, null);
 
       const events = await queries.getEventsByDateRange(conn,
-        '2024-01-01 00:00:00', '2024-07-01 00:00:00');
+        new Date('2024-01-01T00:00:00Z'), new Date('2024-07-01T00:00:00Z'));
 
       assert.equal(events.length, 2);
       assert.equal(events[0].name, 'early');
@@ -127,16 +132,18 @@ describe(':many queries', () => {
 // ─── :exec tests ──────────────────────────────────────────────────────────────
 
 describe(':exec queries', () => {
-  it('updatePayload changes payload', async () => {
+  it('updatePayload changes payload and meta', async () => {
     const { conn, dbName } = await makeConn();
     try {
-      await queries.insertEvent(conn, 'test', '{"v":1}', null, 'doc-1',
-        '2024-06-01 12:00:00', null, null, null);
+      await queries.insertEvent(conn, 'test', { v: 1 }, { source: 'web' }, 'doc-1',
+        new Date('2024-06-01T12:00:00Z'), null, null, null);
 
-      await queries.updatePayload(conn, '{"v":2}', null, 1);
+      const updated = { v: 2, changed: true };
+      await queries.updatePayload(conn, updated, null, 1);
 
       const ev = await queries.getEvent(conn, 1);
       assert.ok(ev);
+      assert.deepEqual(ev.payload, updated);
       assert.equal(ev.meta, null);
     } finally { await teardown(conn, dbName); }
   });
@@ -144,13 +151,14 @@ describe(':exec queries', () => {
   it('updateEventDate updates the date', async () => {
     const { conn, dbName } = await makeConn();
     try {
-      await queries.insertEvent(conn, 'dated', '{}', null, 'doc-1',
-        '2024-06-01 12:00:00', null, '2024-01-01', null);
+      await queries.insertEvent(conn, 'dated', {}, null, 'doc-1',
+        new Date('2024-06-01T12:00:00Z'), null, '2024-01-01', null);
 
       await queries.updateEventDate(conn, '2024-12-31', 1);
 
       const ev = await queries.getEvent(conn, 1);
       assert.ok(ev);
+      assert.ok(ev.event_date);
     } finally { await teardown(conn, dbName); }
   });
 });
@@ -161,8 +169,8 @@ describe(':execrows queries', () => {
   it('insertEventRows returns row count', async () => {
     const { conn, dbName } = await makeConn();
     try {
-      const n = await queries.insertEventRows(conn, 'rowtest', '{}', null, 'doc-1',
-        '2024-06-01 12:00:00', null, null, null);
+      const n = await queries.insertEventRows(conn, 'rowtest', {}, null, 'doc-1',
+        new Date('2024-06-01T12:00:00Z'), null, null, null);
       assert.equal(n, 1);
     } finally { await teardown(conn, dbName); }
   });
@@ -174,8 +182,8 @@ describe('projection queries', () => {
   it('findByDate returns the matching event', async () => {
     const { conn, dbName } = await makeConn();
     try {
-      await queries.insertEvent(conn, 'dated', '{}', null, 'doc-1',
-        '2024-06-01 12:00:00', null, '2024-06-15', null);
+      await queries.insertEvent(conn, 'dated', {}, null, 'doc-1',
+        new Date('2024-06-01T12:00:00Z'), null, '2024-06-15', null);
 
       const row = await queries.findByDate(conn, '2024-06-15');
       assert.ok(row);
@@ -186,8 +194,8 @@ describe('projection queries', () => {
   it('findByDocId returns the matching event', async () => {
     const { conn, dbName } = await makeConn();
     try {
-      await queries.insertEvent(conn, 'doctest', '{}', null, 'unique-doc-id',
-        '2024-06-01 12:00:00', null, null, null);
+      await queries.insertEvent(conn, 'doctest', {}, null, 'unique-doc-id',
+        new Date('2024-06-01T12:00:00Z'), null, null, null);
 
       const row = await queries.findByDocId(conn, 'unique-doc-id');
       assert.ok(row);
@@ -203,11 +211,11 @@ describe('count queries', () => {
     const { conn, dbName } = await makeConn();
     try {
       for (let i = 1; i <= 3; i++) {
-        await queries.insertEvent(conn, `ev${i}`, '{}', null, `doc-${i}`,
-          `2024-06-0${i} 00:00:00`, null, null, null);
+        await queries.insertEvent(conn, `ev${i}`, {}, null, `doc-${i}`,
+          new Date(`2024-06-0${i}T00:00:00Z`), null, null, null);
       }
 
-      const row = await queries.countEvents(conn, '2024-01-01 00:00:00');
+      const row = await queries.countEvents(conn, new Date('2024-01-01T00:00:00Z'));
       assert.ok(row);
       assert.equal(Number(row.total), 3);
     } finally { await teardown(conn, dbName); }

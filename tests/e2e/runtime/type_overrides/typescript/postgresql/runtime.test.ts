@@ -46,13 +46,14 @@ describe(':one queries', () => {
       const meta = { source: 'web' };
       const docId = randomUUID();
       await queries.insertEvent(client, 'login', payload, meta, docId,
-        new Date('2024-06-01T12:00:00Z'), null, new Date('2024-06-01'), null);
+        new Date('2024-06-01T12:00:00Z'), new Date('2024-06-01T14:00:00Z'), new Date('2024-06-01T00:00:00Z'), null);
 
       const ev = await queries.getEvent(client, 1);
       assert.ok(ev);
       assert.equal(ev.name, 'login');
       assert.deepEqual(ev.payload, payload);
       assert.deepEqual(ev.meta, meta);
+      assert.ok(ev.scheduled_at);
     } finally { await teardown(client, schema); }
   });
 
@@ -107,7 +108,7 @@ describe(':exec queries', () => {
   it('updatePayload changes payload and meta', async () => {
     const { client, schema } = await makeClient();
     try {
-      await queries.insertEvent(client, 'test', { v: 1 }, null, randomUUID(),
+      await queries.insertEvent(client, 'test', { v: 1 }, { source: 'web' }, randomUUID(),
         new Date('2024-06-01T12:00:00Z'), null, null, null);
 
       const updated = { v: 2, changed: true };
@@ -124,9 +125,9 @@ describe(':exec queries', () => {
     const { client, schema } = await makeClient();
     try {
       await queries.insertEvent(client, 'dated', {}, null, randomUUID(),
-        new Date('2024-06-01T12:00:00Z'), null, new Date('2024-01-01'), null);
+        new Date('2024-06-01T12:00:00Z'), null, new Date('2024-01-01T00:00:00Z'), null);
 
-      await queries.updateEventDate(client, new Date('2024-12-31'), 1);
+      await queries.updateEventDate(client, new Date('2024-12-31T00:00:00Z'), 1);
 
       const ev = await queries.getEvent(client, 1);
       assert.ok(ev);
@@ -155,9 +156,9 @@ describe('projection queries', () => {
     const { client, schema } = await makeClient();
     try {
       await queries.insertEvent(client, 'dated', {}, null, randomUUID(),
-        new Date('2024-06-01T12:00:00Z'), null, new Date('2024-06-15'), null);
+        new Date('2024-06-01T12:00:00Z'), null, new Date('2024-06-15T00:00:00Z'), null);
 
-      const row = await queries.findByDate(client, new Date('2024-06-15'));
+      const row = await queries.findByDate(client, new Date('2024-06-15T00:00:00Z'));
       assert.ok(row);
       assert.equal(row.name, 'dated');
     } finally { await teardown(client, schema); }

@@ -79,7 +79,10 @@ class RuntimeTest {
 
         val ev = Queries.getEvent(conn, 1L)!!
         assertEquals("login", ev.name)
+        assertEquals(payload, ev.payload)
+        assertEquals(meta, ev.meta)
         assertEquals("doc-001", ev.docId)
+        assertEquals(LocalDateTime.of(2024, 6, 1, 12, 0, 0), ev.createdAt)
         assertEquals(LocalDate.of(2024, 6, 1), ev.eventDate)
         assertEquals(LocalTime.of(9, 0, 0), ev.eventTime)
     }
@@ -122,7 +125,8 @@ class RuntimeTest {
 
     @Test
     fun testUpdatePayload() {
-        Queries.insertEvent(conn, "test", json("""{"v":1}"""), null, "doc-1",
+        val originalMeta = json("""{"source":"web"}""")
+        Queries.insertEvent(conn, "test", json("""{"v":1}"""), originalMeta, "doc-1",
             LocalDateTime.of(2024, 6, 1, 12, 0, 0), null, null, null)
 
         val updated = json("""{"v":2,"changed":true}""")

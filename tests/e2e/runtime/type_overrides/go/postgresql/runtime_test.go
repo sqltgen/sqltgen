@@ -101,6 +101,9 @@ func TestInsertAndGetEvent(t *testing.T) {
 	if ev.Name != "login" {
 		t.Errorf("expected name=login, got %s", ev.Name)
 	}
+	if ev.DocId != docID {
+		t.Errorf("expected doc_id=%s, got %s", docID, ev.DocId)
+	}
 }
 
 func TestGetEventNotFound(t *testing.T) {
@@ -173,7 +176,8 @@ func TestUpdatePayload(t *testing.T) {
 	db, ctx := setupDB(t)
 
 	ts := time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
-	if err := gen.InsertEvent(ctx, db, "test", mustJSON(map[string]interface{}{"v": 1}), nilMeta, testUUID(), ts, sql.NullTime{}, sql.NullTime{}, sql.NullTime{}); err != nil {
+	initialMeta := mustJSON(map[string]interface{}{"source": "web"})
+	if err := gen.InsertEvent(ctx, db, "test", mustJSON(map[string]interface{}{"v": 1}), ptrBytes(initialMeta), testUUID(), ts, sql.NullTime{}, sql.NullTime{}, sql.NullTime{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -188,6 +192,12 @@ func TestUpdatePayload(t *testing.T) {
 	}
 	if ev == nil {
 		t.Fatal("expected event")
+	}
+	var gotPayload, wantPayload interface{}
+	_ = json.Unmarshal(ev.Payload, &gotPayload)
+	_ = json.Unmarshal(updated, &wantPayload)
+	if fmt.Sprintf("%v", gotPayload) != fmt.Sprintf("%v", wantPayload) {
+		t.Errorf("expected payload=%s, got %s", string(updated), string(ev.Payload))
 	}
 	if ev.Meta != nil {
 		t.Errorf("expected nil meta, got %v", ev.Meta)
@@ -206,6 +216,20 @@ func TestUpdateEventDate(t *testing.T) {
 	newDate := sql.NullTime{Time: time.Date(2024, 12, 31, 0, 0, 0, 0, time.UTC), Valid: true}
 	if err := gen.UpdateEventDate(ctx, db, newDate, 1); err != nil {
 		t.Fatal(err)
+	}
+
+	ev, err := gen.GetEvent(ctx, db, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ev == nil {
+		t.Fatal("expected event after update")
+	}
+	if !ev.EventDate.Valid {
+		t.Fatal("expected event_date to be valid after update")
+	}
+	if !ev.EventDate.Time.Equal(newDate.Time) {
+		t.Errorf("expected event_date=%v, got %v", newDate.Time, ev.EventDate.Time)
 	}
 }
 

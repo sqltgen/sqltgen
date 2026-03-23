@@ -53,7 +53,7 @@ pub(super) fn resolve_ts_contract(target: JsTarget, output: JsOutput) -> TsCoreC
             output,
             runtime_hint: "mysql2 — npm install mysql2",
             date_as_string: true,
-            json_needs_parse: true,
+            json_needs_parse: false,
             normalize_sql: anon_sql,
             emit_query: emit_mysql_query,
             helper_content: build_helper_file(target, output),

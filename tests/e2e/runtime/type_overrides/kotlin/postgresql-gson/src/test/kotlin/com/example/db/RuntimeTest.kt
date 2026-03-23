@@ -76,6 +76,7 @@ class RuntimeTest {
         assertEquals(sampleCreatedAt(), ev.createdAt)
         assertEquals(LocalDate.of(2024, 6, 1), ev.eventDate)
         assertEquals(LocalTime.of(9, 0, 0), ev.eventTime)
+        assertEquals(sampleScheduledAt(), ev.scheduledAt)
     }
 
     @Test
@@ -124,7 +125,8 @@ class RuntimeTest {
 
     @Test
     fun testUpdatePayload() {
-        Queries.insertEvent(conn, "test", json("""{"v":1}"""), null, UUID.randomUUID(),
+        val originalMeta = json("""{"source":"web"}""")
+        Queries.insertEvent(conn, "test", json("""{"v":1}"""), originalMeta, UUID.randomUUID(),
             sampleCreatedAt(), null, null, null)
 
         val updated = json("""{"v":2,"changed":true}""")
