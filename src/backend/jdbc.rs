@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::fmt::Write;
 
 use crate::backend::common::{infer_row_type_name, infer_table, jdbc_bind_sequence, jdbc_setter, pg_array_type_name, sql_const_name};
@@ -22,6 +23,18 @@ pub struct JvmCoreContract {
     /// PostgreSQL requires `java.sql.Types.OTHER` for jsonb columns, while MySQL and
     /// SQLite work with plain `setString`. The adapter resolves this based on the engine.
     pub json_bind: JsonBindMode,
+}
+
+/// Groups the per-query-group metadata needed to emit a querier class.
+pub struct QuerierContext<'a> {
+    /// Static-methods class name (e.g. `Queries`, `UsersQueries`).
+    pub class_name: &'a str,
+    /// DataSource-backed wrapper class name (e.g. `Querier`, `UsersQuerier`).
+    pub querier_name: &'a str,
+    /// Type-override imports that the querier file must include.
+    pub override_imports: &'a BTreeSet<String>,
+    /// Extra fields declared in the querier class (from config).
+    pub extra_fields: &'a [ExtraField],
 }
 
 /// Strategy for binding JSON/JSONB parameters via JDBC `PreparedStatement`.

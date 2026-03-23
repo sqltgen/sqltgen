@@ -7,7 +7,7 @@ use crate::backend::common::{
 };
 use crate::backend::jdbc::{
     self, collect_override_metadata, collect_table_imports, emit_dynamic_binds, emit_jdbc_binds, prepare_dynamic_sql_parts, prepare_sql_const,
-    prepare_sql_const_from, preset_gson, preset_jackson, uses_get_object, ListAction,
+    prepare_sql_const_from, preset_gson, preset_jackson, uses_get_object, ListAction, QuerierContext,
 };
 use crate::backend::naming::{to_camel_case, to_pascal_case};
 use crate::backend::GeneratedFile;
@@ -242,7 +242,8 @@ pub(super) fn generate_core_files(schema: &Schema, queries: &[Query], contract: 
 
         let mut src = String::new();
         emit_package(&mut src, &config.package, ";");
-        emit_java_querier(&mut src, &group_queries, schema, &class_name, &querier_name, contract, config, &override_imports, &extra_fields)?;
+        let ctx = QuerierContext { class_name: &class_name, querier_name: &querier_name, override_imports: &override_imports, extra_fields: &extra_fields };
+        emit_java_querier(&mut src, &group_queries, schema, &ctx, contract, config)?;
         let path = record_path(&config.out, &config.package, &querier_name);
         files.push(GeneratedFile { path, content: src });
     }
@@ -424,12 +425,9 @@ fn emit_java_querier(
     src: &mut String,
     queries: &[Query],
     schema: &Schema,
-    class_name: &str,
-    querier_name: &str,
+    ctx: &QuerierContext,
     contract: &JvmCoreContract,
     config: &OutputConfig,
-    override_imports: &BTreeSet<String>,
-    extra_fields: &[crate::config::ExtraField],
 ) -> anyhow::Result<()> {
     let has_one = queries.iter().any(|q| q.cmd == QueryCmd::One);
     let has_many = queries.iter().any(|q| q.cmd == QueryCmd::Many);
@@ -442,15 +440,16 @@ fn emit_java_querier(
     if has_one {
         all_imports.insert("java.util.Optional".to_string());
     }
-    all_imports.extend(override_imports.iter().cloned());
+    all_imports.extend(ctx.override_imports.iter().cloned());
     for imp in &all_imports {
         writeln!(src, "import {imp};")?;
     }
 
+    let querier_name = ctx.querier_name;
     writeln!(src)?;
     writeln!(src, "public final class {querier_name} {{")?;
     writeln!(src, "    private final DataSource dataSource;")?;
-    for ef in extra_fields {
+    for ef in ctx.extra_fields {
         writeln!(src, "    {}", ef.declaration)?;
     }
     writeln!(src)?;
@@ -460,7 +459,7 @@ fn emit_java_querier(
 
     for query in queries {
         writeln!(src)?;
-        emit_java_querier_method(src, query, schema, class_name, contract, config)?;
+        emit_java_querier_method(src, query, schema, ctx.class_name, contract, config)?;
     }
 
     writeln!(src, "}}")?;

@@ -7,7 +7,7 @@ use crate::backend::common::{
 };
 use crate::backend::jdbc::{
     self, collect_override_metadata, collect_table_imports, emit_dynamic_binds, emit_jdbc_binds, prepare_dynamic_sql_parts, prepare_sql_const,
-    prepare_sql_const_from, preset_gson, preset_jackson, uses_get_object, ListAction,
+    prepare_sql_const_from, preset_gson, preset_jackson, uses_get_object, ListAction, QuerierContext,
 };
 use crate::backend::naming::{to_camel_case, to_pascal_case};
 use crate::backend::GeneratedFile;
@@ -197,7 +197,8 @@ pub(super) fn generate_core_files(schema: &Schema, queries: &[Query], contract: 
 
         let mut src = String::new();
         emit_package(&mut src, &config.package, "");
-        emit_kotlin_querier(&mut src, &group_queries, schema, &class_name, &querier_name, contract, config, &override_imports, &extra_fields)?;
+        let ctx = QuerierContext { class_name: &class_name, querier_name: &querier_name, override_imports: &override_imports, extra_fields: &extra_fields };
+        emit_kotlin_querier(&mut src, &group_queries, schema, &ctx, contract, config)?;
         let path = source_path(&config.out, &config.package, &querier_name, "kt");
         files.push(GeneratedFile { path, content: src });
     }
@@ -401,29 +402,27 @@ fn emit_kotlin_querier(
     src: &mut String,
     queries: &[Query],
     schema: &Schema,
-    class_name: &str,
-    querier_name: &str,
+    ctx: &QuerierContext,
     contract: &JvmCoreContract,
     config: &OutputConfig,
-    override_imports: &BTreeSet<String>,
-    extra_fields: &[ExtraField],
 ) -> anyhow::Result<()> {
     // Emit all imports: standard + any type-override imports, sorted.
     let mut all_imports: BTreeSet<String> = ["javax.sql.DataSource".to_string()].into();
-    all_imports.extend(override_imports.iter().cloned());
+    all_imports.extend(ctx.override_imports.iter().cloned());
     for imp in &all_imports {
         writeln!(src, "import {imp}")?;
     }
 
+    let querier_name = ctx.querier_name;
     writeln!(src)?;
     writeln!(src, "class {querier_name}(private val dataSource: DataSource) {{")?;
-    for ef in extra_fields {
+    for ef in ctx.extra_fields {
         writeln!(src, "    {}", ef.declaration)?;
     }
 
     for query in queries {
         writeln!(src)?;
-        emit_kotlin_querier_method(src, query, schema, class_name, contract, config)?;
+        emit_kotlin_querier_method(src, query, schema, ctx.class_name, contract, config)?;
     }
 
     writeln!(src, "}}")?;
