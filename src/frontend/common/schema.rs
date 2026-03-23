@@ -3,7 +3,7 @@ use sqlparser::dialect::Dialect;
 use sqlparser::parser::Parser;
 use sqlparser::tokenizer::{Token, Tokenizer};
 
-use super::{apply_alter_table, apply_drop_tables, build_create_table, obj_name_to_str, DdlDialect};
+use super::{apply_alter_table, apply_drop_tables, build_column, build_create_table, obj_name_to_str, DdlDialect};
 use crate::frontend::common::query::{resolve_view_columns, ResolverConfig};
 use crate::ir::{ScalarFunction, Schema, SqlType, Table};
 
@@ -90,27 +90,37 @@ fn process_statement(stmt: &Statement, schema: &mut Schema, dialect: DdlDialect,
         },
         Statement::Drop { object_type: ObjectType::View, names, .. } => apply_drop_views(names, pending_views),
         Statement::CreateFunction(f) => {
-            // Skip table-valued functions (RETURNS TABLE(...)) — they are not scalar.
-            let return_type = match &f.return_type {
-                Some(dt) if !matches!(dt, DataType::Table(_)) => (dialect.map_type)(dt),
-                _ => return,
-            };
             let name = obj_name_to_str(&f.name);
-            let param_types: Vec<SqlType> = f
-                .args
-                .as_deref()
-                .unwrap_or(&[])
-                .iter()
-                .filter(|a| matches!(a.mode, None | Some(ArgMode::In)))
-                .map(|a| (dialect.map_type)(&a.data_type))
-                .collect();
-            if f.or_replace {
-                // Replace the existing overload with the same name and parameter count.
-                // PostgreSQL's OR REPLACE cannot change parameter types — only the body
-                // and return type — so matching by name + arity is sufficient.
-                schema.functions.retain(|g| g.name != name || g.param_types.len() != param_types.len());
+            match &f.return_type {
+                // Table-valued function: RETURNS TABLE(col1 type, col2 type, ...)
+                Some(DataType::Table(Some(col_defs))) => {
+                    let columns = col_defs.iter().map(|cd| build_column(cd, dialect.map_type)).collect();
+                    if f.or_replace {
+                        schema.tables.retain(|t| t.name != name);
+                    }
+                    schema.tables.push(Table::view(name, columns));
+                },
+                // RETURNS TABLE without column list — skip.
+                Some(DataType::Table(None)) => {},
+                // Scalar function.
+                Some(dt) => {
+                    let return_type = (dialect.map_type)(dt);
+                    let param_types: Vec<SqlType> = f
+                        .args
+                        .as_deref()
+                        .unwrap_or(&[])
+                        .iter()
+                        .filter(|a| matches!(a.mode, None | Some(ArgMode::In)))
+                        .map(|a| (dialect.map_type)(&a.data_type))
+                        .collect();
+                    if f.or_replace {
+                        schema.functions.retain(|g| g.name != name || g.param_types.len() != param_types.len());
+                    }
+                    schema.functions.push(ScalarFunction { name, return_type, param_types });
+                },
+                // No return type — skip.
+                None => {},
             }
-            schema.functions.push(ScalarFunction { name, return_type, param_types });
         },
         Statement::DropFunction(DropFunction { func_desc, .. }) => apply_drop_functions(func_desc, &mut schema.functions),
         _ => {},

@@ -502,11 +502,83 @@ mod tests {
     }
 
     #[test]
-    fn test_create_function_table_returning_skipped() {
+    fn test_create_function_table_returning_not_scalar() {
         let ddl = "CREATE FUNCTION get_users() RETURNS TABLE(id bigint, name text) LANGUAGE sql AS $$ SELECT id, name FROM users $$;";
         let schema = parse_schema(ddl).unwrap();
-        // Table-valued functions are skipped
+        // Table-valued functions are not scalar functions.
         assert_eq!(schema.functions.len(), 0);
+    }
+
+    // ─── Table-valued function tests ─────────────────────────────────────────
+
+    #[test]
+    fn test_tvf_returns_table_registers_as_view() {
+        let ddl = "CREATE FUNCTION get_users() RETURNS TABLE(id BIGINT, name TEXT) LANGUAGE sql AS $$ SELECT id, name FROM users $$;";
+        let schema = parse_schema(ddl).unwrap();
+        assert_eq!(schema.tables.len(), 1);
+        let t = &schema.tables[0];
+        assert_eq!(t.name, "get_users");
+        assert!(t.is_view(), "TVF must be registered as a view");
+        assert_eq!(t.columns.len(), 2);
+        assert_eq!(t.columns[0].name, "id");
+        assert_eq!(t.columns[0].sql_type, SqlType::BigInt);
+        assert_eq!(t.columns[1].name, "name");
+        assert_eq!(t.columns[1].sql_type, SqlType::Text);
+    }
+
+    #[test]
+    fn test_tvf_or_replace_replaces_existing() {
+        let ddl = "\
+            CREATE FUNCTION get_users() RETURNS TABLE(id BIGINT) LANGUAGE sql AS $$ SELECT 1 $$;\
+            CREATE OR REPLACE FUNCTION get_users() RETURNS TABLE(id BIGINT, name TEXT) LANGUAGE sql AS $$ SELECT 1, '' $$;";
+        let schema = parse_schema(ddl).unwrap();
+        assert_eq!(schema.tables.len(), 1, "OR REPLACE must not duplicate the TVF");
+        assert_eq!(schema.tables[0].columns.len(), 2, "OR REPLACE must update columns");
+    }
+
+    #[test]
+    fn test_tvf_coexists_with_tables_and_scalar_functions() {
+        let ddl = r#"
+            CREATE TABLE users (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL);
+            CREATE FUNCTION user_count() RETURNS bigint LANGUAGE sql AS $$ SELECT COUNT(*) FROM users $$;
+            CREATE FUNCTION get_active() RETURNS TABLE(id BIGINT, name TEXT) LANGUAGE sql AS $$ SELECT id, name FROM users $$;
+        "#;
+        let schema = parse_schema(ddl).unwrap();
+        // 1 base table + 1 TVF (registered as view)
+        assert_eq!(schema.tables.len(), 2);
+        assert!(!schema.tables[0].is_view());
+        assert!(schema.tables[1].is_view());
+        assert_eq!(schema.tables[1].name, "get_active");
+        // 1 scalar function
+        assert_eq!(schema.functions.len(), 1);
+    }
+
+    #[test]
+    fn test_tvf_query_resolves_column_types() {
+        // End-to-end: define a TVF, then use it in a query — columns should resolve.
+        let ddl = r#"
+            CREATE TABLE users (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL);
+            CREATE FUNCTION active_users() RETURNS TABLE(id BIGINT, name TEXT) LANGUAGE sql AS $$ SELECT id, name FROM users $$;
+        "#;
+        let schema = parse_schema(ddl).unwrap();
+        let tvf = schema.tables.iter().find(|t| t.name == "active_users").unwrap();
+        assert_eq!(tvf.columns.len(), 2);
+        assert_eq!(tvf.columns[0].sql_type, SqlType::BigInt);
+        assert_eq!(tvf.columns[1].sql_type, SqlType::Text);
+    }
+
+    #[test]
+    fn test_tvf_returns_setof_skipped_by_error_recovery() {
+        // sqlparser 0.61 cannot parse RETURNS SETOF — the error-recovery
+        // loop skips it and continues parsing subsequent statements.
+        let ddl = r#"
+            CREATE FUNCTION get_users() RETURNS SETOF users LANGUAGE sql AS $$ SELECT * FROM users $$;
+            CREATE TABLE users (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL);
+        "#;
+        let schema = parse_schema(ddl).unwrap();
+        // The RETURNS SETOF function is skipped; only the table is parsed.
+        assert_eq!(schema.tables.len(), 1);
+        assert_eq!(schema.tables[0].name, "users");
     }
 
     // ─── CREATE VIEW tests ───────────────────────────────────────────────────

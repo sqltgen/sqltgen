@@ -430,4 +430,32 @@ mod tests {
         assert_eq!(result.sql_type, SqlType::Text);
         assert!(result.nullable);
     }
+
+    #[test]
+    fn test_tvf_in_from_resolves_column_types() {
+        // A table-valued function registered as a view should resolve columns
+        // when used in a FROM clause, just like a regular table.
+        let mut schema = make_schema();
+        schema.tables.push(Table::view("active_users", vec![Column::new_not_nullable("id", SqlType::BigInt), Column::new_not_nullable("name", SqlType::Text)]));
+        let sql = "-- name: GetActive :many\nSELECT id, name FROM active_users();";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.result_columns.len(), 2);
+        assert_eq!(q.result_columns[0].name, "id");
+        assert_eq!(q.result_columns[0].sql_type, SqlType::BigInt);
+        assert_eq!(q.result_columns[1].name, "name");
+        assert_eq!(q.result_columns[1].sql_type, SqlType::Text);
+    }
+
+    #[test]
+    fn test_tvf_wildcard_resolves_all_columns() {
+        let mut schema = make_schema();
+        schema.tables.push(Table::view("get_stats", vec![Column::new_not_nullable("total", SqlType::Integer), Column::new("avg_score", SqlType::Decimal)]));
+        let sql = "-- name: Stats :one\nSELECT * FROM get_stats();";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.result_columns.len(), 2);
+        assert_eq!(q.result_columns[0].name, "total");
+        assert_eq!(q.result_columns[0].sql_type, SqlType::Integer);
+        assert_eq!(q.result_columns[1].name, "avg_score");
+        assert_eq!(q.result_columns[1].sql_type, SqlType::Decimal);
+    }
 }
