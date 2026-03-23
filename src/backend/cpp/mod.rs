@@ -1,6 +1,6 @@
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::{Engine, OutputConfig};
-use crate::ir::{Query, Schema, SqlType};
+use crate::ir::{Query, Schema};
 
 mod adapter;
 mod core;
@@ -32,10 +32,6 @@ impl Codegen for CppCodegen {
         files.extend(core::generate_query_files(schema, queries, &contract, config)?);
         Ok(files)
     }
-}
-
-fn cpp_type(sql_type: &SqlType, nullable: bool, _target: &CppTarget) -> String {
-    core::cpp_type(sql_type, nullable)
 }
 
 #[cfg(test)]
