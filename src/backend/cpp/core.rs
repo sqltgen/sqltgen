@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use crate::backend::common::{group_queries, has_inline_rows, infer_row_type_name, infer_table, querier_class_name, queries_file_stem, sql_const_name};
 use crate::backend::naming::{to_pascal_case, to_snake_case};
-use crate::backend::sql_rewrite::rewrite_to_anon_params;
+use crate::backend::sql_rewrite::{parse_placeholder_indices, rewrite_to_anon_params};
 use crate::backend::GeneratedFile;
 use crate::config::OutputConfig;
 use crate::ir::{Parameter, Query, QueryCmd, ResultColumn, Schema, SqlType, Table};
@@ -511,13 +511,13 @@ fn emit_mysql_body(src: &mut String, query: &Query, schema: &Schema) -> anyhow::
     match query.cmd {
         QueryCmd::Exec => {
             emit_mysql_prepare(src, &const_name)?;
-            emit_mysql_bind_params(src, &query.params)?;
+            emit_mysql_bind_params(src, query)?;
             emit_mysql_execute(src)?;
             writeln!(src, "    mysql_stmt_close(stmt);")?;
         },
         QueryCmd::ExecRows => {
             emit_mysql_prepare(src, &const_name)?;
-            emit_mysql_bind_params(src, &query.params)?;
+            emit_mysql_bind_params(src, query)?;
             emit_mysql_execute(src)?;
             writeln!(src, "    my_ulonglong affected = mysql_stmt_affected_rows(stmt);")?;
             writeln!(src, "    mysql_stmt_close(stmt);")?;
@@ -526,7 +526,7 @@ fn emit_mysql_body(src: &mut String, query: &Query, schema: &Schema) -> anyhow::
         QueryCmd::One => {
             let row_type = result_row_type(query, schema);
             emit_mysql_prepare(src, &const_name)?;
-            emit_mysql_bind_params(src, &query.params)?;
+            emit_mysql_bind_params(src, query)?;
             emit_mysql_execute(src)?;
             emit_mysql_bind_result_columns(src, &query.result_columns)?;
             // First fetch — populates lengths for variable-length columns
@@ -549,7 +549,7 @@ fn emit_mysql_body(src: &mut String, query: &Query, schema: &Schema) -> anyhow::
         QueryCmd::Many => {
             let row_type = result_row_type(query, schema);
             emit_mysql_prepare(src, &const_name)?;
-            emit_mysql_bind_params(src, &query.params)?;
+            emit_mysql_bind_params(src, query)?;
             emit_mysql_execute(src)?;
             emit_mysql_bind_result_columns(src, &query.result_columns)?;
             writeln!(src, "    std::vector<{row_type}> rows;")?;
@@ -585,30 +585,53 @@ fn emit_mysql_prepare(src: &mut String, const_name: &str) -> anyhow::Result<()> 
 }
 
 /// Emit `MYSQL_BIND` array setup and `mysql_stmt_bind_param` for all parameters.
-fn emit_mysql_bind_params(src: &mut String, params: &[Parameter]) -> anyhow::Result<()> {
-    if params.is_empty() {
+///
+/// MySQL uses anonymous `?` placeholders, so when a parameter appears more than once
+/// in the SQL (e.g. `WHERE ? = 'all' OR genre = ?` for a single `@genre` param)
+/// we must emit one bind entry per `?` occurrence.
+fn emit_mysql_bind_params(src: &mut String, query: &Query) -> anyhow::Result<()> {
+    if query.params.is_empty() {
         return Ok(());
     }
-    let n = params.len();
+
+    // Build index → Parameter lookup.
+    let by_idx: std::collections::HashMap<usize, &Parameter> =
+        query.params.iter().map(|p| (p.index, p)).collect();
+
+    // One entry per `?` in the rewritten SQL, in occurrence order.
+    let bind_plan = parse_placeholder_indices(&query.sql);
+    let n = bind_plan.len();
     writeln!(src, "    MYSQL_BIND bind[{n}];")?;
     writeln!(src, "    memset(bind, 0, sizeof(bind));")?;
 
-    for param in params.iter() {
+    // Emit variable declarations once per unique parameter.
+    for param in &query.params {
         let name = to_snake_case(&param.name);
-        let idx = param.index - 1;
         writeln!(src)?;
-
         if param.is_list {
-            emit_mysql_bind_list(src, &param.sql_type, idx, &name)?;
+            emit_mysql_bind_list_vars(src, &param.sql_type, &name)?;
         } else if param.nullable {
-            // Declare a flag variable; when null, set is_null and skip the rest.
             let flag = format!("{name}_is_null");
             writeln!(src, "    my_bool {flag} = !{name}.has_value();")?;
-            writeln!(src, "    bind[{idx}].is_null = &{flag};")?;
-            // We still need to set the buffer_type, and conditionally set buffer/length.
-            emit_mysql_bind_field(src, &param.sql_type, idx, &format!("{name}.value()"), true)?;
+            emit_mysql_bind_field_vars(src, &param.sql_type, &format!("{name}.value()"), true)?;
         } else {
-            emit_mysql_bind_field(src, &param.sql_type, idx, &name, false)?;
+            emit_mysql_bind_field_vars(src, &param.sql_type, &name, false)?;
+        }
+    }
+
+    // Emit bind assignments in SQL occurrence order.
+    for (slot, &param_idx) in bind_plan.iter().enumerate() {
+        let param = by_idx[&param_idx];
+        let name = to_snake_case(&param.name);
+        writeln!(src)?;
+        if param.is_list {
+            emit_mysql_bind_list_assign(src, slot, &name)?;
+        } else if param.nullable {
+            let flag = format!("{name}_is_null");
+            writeln!(src, "    bind[{slot}].is_null = &{flag};")?;
+            emit_mysql_bind_field_assign(src, &param.sql_type, slot, &format!("{name}.value()"), true)?;
+        } else {
+            emit_mysql_bind_field_assign(src, &param.sql_type, slot, &name, false)?;
         }
     }
 
@@ -621,9 +644,9 @@ fn emit_mysql_bind_params(src: &mut String, params: &[Parameter]) -> anyhow::Res
     Ok(())
 }
 
-/// Emit code to serialize a `std::vector<T>` to a JSON array string and bind as
-/// `MYSQL_TYPE_STRING` for a `JSON_TABLE` list-param expansion.
-fn emit_mysql_bind_list(src: &mut String, sql_type: &SqlType, idx: usize, name: &str) -> anyhow::Result<()> {
+/// Emit variable declarations for serializing a list param to a JSON array string.
+/// Called once per unique list parameter.
+fn emit_mysql_bind_list_vars(src: &mut String, sql_type: &SqlType, name: &str) -> anyhow::Result<()> {
     let inner_type = match sql_type {
         SqlType::Array(inner) => inner.as_ref(),
         _ => sql_type,
@@ -643,31 +666,57 @@ fn emit_mysql_bind_list(src: &mut String, sql_type: &SqlType, idx: usize, name: 
     writeln!(src, "    }}")?;
     writeln!(src, "    p_{name}_json += \"]\";")?;
     writeln!(src, "    unsigned long p_{name}_json_len = p_{name}_json.size();")?;
-    writeln!(src, "    bind[{idx}].buffer_type = MYSQL_TYPE_STRING;")?;
-    writeln!(src, "    bind[{idx}].buffer = const_cast<char*>(p_{name}_json.c_str());")?;
-    writeln!(src, "    bind[{idx}].buffer_length = p_{name}_json.size();")?;
-    writeln!(src, "    bind[{idx}].length = &p_{name}_json_len;")?;
     Ok(())
 }
 
-/// Emit the `bind[i].buffer_type`, `bind[i].buffer`, etc. fields for one parameter.
+/// Emit bind assignment for a list param at a given bind slot.
+/// Called once per `?` occurrence that references this list param.
+fn emit_mysql_bind_list_assign(src: &mut String, slot: usize, name: &str) -> anyhow::Result<()> {
+    writeln!(src, "    bind[{slot}].buffer_type = MYSQL_TYPE_STRING;")?;
+    writeln!(src, "    bind[{slot}].buffer = const_cast<char*>(p_{name}_json.c_str());")?;
+    writeln!(src, "    bind[{slot}].buffer_length = p_{name}_json.size();")?;
+    writeln!(src, "    bind[{slot}].length = &p_{name}_json_len;")?;
+    Ok(())
+}
+
+/// Emit variable declarations for a scalar parameter bind.
+/// Called once per unique parameter. Only emits for types that need a length variable.
+/// If `guarded` is true, the declaration is wrapped in an `if (name.has_value())` guard.
+fn emit_mysql_bind_field_vars(src: &mut String, sql_type: &SqlType, name: &str, guarded: bool) -> anyhow::Result<()> {
+    let (_, _, needs_length) = mysql_bind_info(sql_type, name);
+    if needs_length {
+        let indent = if guarded { "        " } else { "    " };
+        let len_var = format!("p_{}_len", name.replace('.', "_").replace("()", ""));
+        if guarded {
+            writeln!(src, "    unsigned long {len_var} = 0;")?;
+            writeln!(src, "    if ({name_root}.has_value()) {{", name_root = name.trim_end_matches(".value()"))?;
+            writeln!(src, "{indent}{len_var} = {name}.size();")?;
+            writeln!(src, "    }}")?;
+        } else {
+            writeln!(src, "    unsigned long {len_var} = {name}.size();")?;
+        }
+    }
+    Ok(())
+}
+
+/// Emit bind slot assignments for a scalar parameter.
+/// Called once per `?` occurrence that references this parameter.
 /// If `guarded` is true, buffer assignment is wrapped in an `if (name.has_value())` guard.
-fn emit_mysql_bind_field(src: &mut String, sql_type: &SqlType, idx: usize, name: &str, guarded: bool) -> anyhow::Result<()> {
+fn emit_mysql_bind_field_assign(src: &mut String, sql_type: &SqlType, slot: usize, name: &str, guarded: bool) -> anyhow::Result<()> {
     let (mysql_type, buf_expr, needs_length) = mysql_bind_info(sql_type, name);
     let indent = if guarded { "        " } else { "    " };
 
-    writeln!(src, "    bind[{idx}].buffer_type = {mysql_type};")?;
+    writeln!(src, "    bind[{slot}].buffer_type = {mysql_type};")?;
 
     if guarded {
         writeln!(src, "    if ({name_root}.has_value()) {{", name_root = name.trim_end_matches(".value()"))?;
     }
 
-    writeln!(src, "{indent}bind[{idx}].buffer = {buf_expr};")?;
+    writeln!(src, "{indent}bind[{slot}].buffer = {buf_expr};")?;
     if needs_length {
         let len_var = format!("p_{}_len", name.replace('.', "_").replace("()", ""));
-        writeln!(src, "{indent}unsigned long {len_var} = {name}.size();")?;
-        writeln!(src, "{indent}bind[{idx}].buffer_length = {name}.size();")?;
-        writeln!(src, "{indent}bind[{idx}].length = &{len_var};")?;
+        writeln!(src, "{indent}bind[{slot}].buffer_length = {name}.size();")?;
+        writeln!(src, "{indent}bind[{slot}].length = &{len_var};")?;
     }
 
     if guarded {
