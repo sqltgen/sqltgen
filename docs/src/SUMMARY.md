@@ -14,6 +14,7 @@
 - [Schema](schema.md)
 - [Configuration](config.md)
 - [Writing queries](queries.md)
+- [Nested query results](nested-results.md)
 - [Type mapping](types.md)
 - [Examples](examples.md)
 

@@ -45,6 +45,12 @@ pub struct Query {
     /// table's existing record type instead of emitting a per-query row struct.
     /// Identity — not structural shape — is the criterion.
     pub source_table: Option<String>,
+    /// Column groups that should be aggregated into nested array fields.
+    ///
+    /// Populated from `-- nest: field(col, …)` annotations. When non-empty,
+    /// backends emit child types for each group and generate row-aggregation
+    /// logic that collapses flat SQL rows into parent objects with nested arrays.
+    pub nested_groups: Vec<NestedGroup>,
 }
 
 impl Query {
@@ -56,7 +62,7 @@ impl Query {
     /// projection is an unambiguous `table.*` or bare `*` over a single
     /// non-nullable schema table.
     pub fn new(name: impl Into<String>, cmd: QueryCmd, sql: impl Into<String>, params: Vec<Parameter>, result_columns: Vec<ResultColumn>) -> Self {
-        Self { name: name.into(), group: String::new(), cmd, sql: sql.into(), params, result_columns, source_table: None }
+        Self { name: name.into(), group: String::new(), cmd, sql: sql.into(), params, result_columns, source_table: None, nested_groups: vec![] }
     }
 
     /// Construct an `:exec` query (no result columns).
@@ -83,6 +89,22 @@ impl Query {
     pub fn with_source_table(mut self, table: Option<String>) -> Self {
         self.source_table = table;
         self
+    }
+
+    /// True when this query has at least one nested group.
+    pub fn has_nested_groups(&self) -> bool {
+        !self.nested_groups.is_empty()
+    }
+
+    /// Result columns that are **not** part of any nested group.
+    ///
+    /// These "parent" columns form the grouping key for row aggregation and
+    /// become scalar fields on the parent type.
+    pub fn parent_columns(&self) -> Vec<&ResultColumn> {
+        self.result_columns
+            .iter()
+            .filter(|rc| !self.nested_groups.iter().any(|g| g.columns.iter().any(|nc| nc.source_name == rc.name)))
+            .collect()
     }
 }
 
@@ -142,6 +164,34 @@ impl Parameter {
         self.native_list_bind = Some(bind);
         self
     }
+}
+
+/// A column within a [`NestedGroup`], mapping a flat SQL result column to a
+/// field in the generated nested type.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NestedColumn {
+    /// Column name in the flat SQL result row (e.g. `"company_id"`).
+    pub source_name: String,
+    /// Field name in the generated nested type (e.g. `"id"`).
+    pub target_name: String,
+    pub sql_type: SqlType,
+    pub nullable: bool,
+}
+
+/// A group of flat result columns that should be aggregated into a nested array
+/// field on the parent row type.
+///
+/// Declared via `-- nest: <field>(<col>, …)` annotations. At code-generation
+/// time the backend emits a child type for the group, replaces the listed
+/// columns with a single array field on the parent type, and generates
+/// row-aggregation logic that groups flat SQL rows by the remaining (parent)
+/// columns.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NestedGroup {
+    /// Array field name on the parent type (e.g. `"company"`).
+    pub field_name: String,
+    /// Columns from the flat SQL result that belong to this group.
+    pub columns: Vec<NestedColumn>,
 }
 
 #[derive(Debug, Clone)]

@@ -58,6 +58,7 @@ pub fn config() -> OutputConfig {
 mod generate;
 mod grouping;
 mod list_params;
+mod nested;
 mod params;
 mod type_overrides;
 mod types;
