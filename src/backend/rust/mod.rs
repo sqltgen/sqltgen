@@ -31,6 +31,20 @@ impl From<Engine> for RustTarget {
 }
 
 impl RustTarget {
+    /// Resolve the target from an engine and optional driver string.
+    ///
+    /// The only supported driver is `"sqlx"` (or absent). Any other string is an error.
+    pub fn from_engine_and_driver(engine: Engine, driver: Option<&str>) -> anyhow::Result<Self> {
+        match driver {
+            None | Some("sqlx") => Ok(engine.into()),
+            Some(d) => anyhow::bail!(
+                "driver {:?} is not supported for rust/{}; supported drivers: sqlx",
+                d,
+                engine.as_str(),
+            ),
+        }
+    }
+
     fn engine_str(&self) -> &'static str {
         match self {
             RustTarget::Postgres => "postgresql",

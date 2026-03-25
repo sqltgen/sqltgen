@@ -343,6 +343,12 @@ pub struct OutputConfig {
     /// with resolved, language-specific types. Used by test-generation tooling.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub manifest: Option<String>,
+    /// Database driver to use for this output target.
+    ///
+    /// Optional. When omitted the default driver for the engine is used.
+    /// Specifying an unsupported driver is a fatal error at startup.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub driver: Option<String>,
 }
 
 impl OutputConfig {

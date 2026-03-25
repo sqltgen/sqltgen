@@ -1,7 +1,7 @@
 use super::*;
 
 fn pg_ts() -> TypeScriptCodegen {
-    TypeScriptCodegen { target: JsTarget::Postgres, output: JsOutput::TypeScript }
+    TypeScriptCodegen { target: JsTarget::Pg, output: JsOutput::TypeScript }
 }
 
 fn ts_cfg() -> crate::config::OutputConfig {

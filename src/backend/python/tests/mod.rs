@@ -4,13 +4,13 @@ use crate::config::OutputConfig;
 use crate::ir::{Column, NativeListBind, Parameter, Query, ResultColumn, Schema, SqlType, Table};
 
 pub fn pg() -> PythonCodegen {
-    PythonCodegen { target: PythonTarget::Postgres }
+    PythonCodegen { target: PythonTarget::Psycopg }
 }
 pub fn sq() -> PythonCodegen {
-    PythonCodegen { target: PythonTarget::Sqlite }
+    PythonCodegen { target: PythonTarget::Sqlite3 }
 }
 pub fn my() -> PythonCodegen {
-    PythonCodegen { target: PythonTarget::Mysql }
+    PythonCodegen { target: PythonTarget::MysqlConnector }
 }
 
 mod architecture;

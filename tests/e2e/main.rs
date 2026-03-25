@@ -193,51 +193,51 @@ fn snapshot_kotlin_postgresql() {
 
 #[test]
 fn snapshot_python_postgresql() {
-    snapshot_test("bookstore/postgresql", &PostgresParser, "python", &PythonCodegen { target: PythonTarget::Postgres });
+    snapshot_test("bookstore/postgresql", &PostgresParser, "python", &PythonCodegen { target: PythonTarget::Psycopg });
 }
 
 #[test]
 fn snapshot_python_sqlite() {
-    snapshot_test("bookstore/sqlite", &SqliteParser, "python", &PythonCodegen { target: PythonTarget::Sqlite });
+    snapshot_test("bookstore/sqlite", &SqliteParser, "python", &PythonCodegen { target: PythonTarget::Sqlite3 });
 }
 
 #[test]
 fn snapshot_python_mysql() {
-    snapshot_test("bookstore/mysql", &MysqlParser, "python", &PythonCodegen { target: PythonTarget::Mysql });
+    snapshot_test("bookstore/mysql", &MysqlParser, "python", &PythonCodegen { target: PythonTarget::MysqlConnector });
 }
 
 // ─── TypeScript backend ────────────────────────────────────────────────────
 
 #[test]
 fn snapshot_typescript_postgresql() {
-    snapshot_test("bookstore/postgresql", &PostgresParser, "typescript", &TypeScriptCodegen { target: JsTarget::Postgres, output: JsOutput::TypeScript });
+    snapshot_test("bookstore/postgresql", &PostgresParser, "typescript", &TypeScriptCodegen { target: JsTarget::Pg, output: JsOutput::TypeScript });
 }
 
 #[test]
 fn snapshot_typescript_sqlite() {
-    snapshot_test("bookstore/sqlite", &SqliteParser, "typescript", &TypeScriptCodegen { target: JsTarget::Sqlite, output: JsOutput::TypeScript });
+    snapshot_test("bookstore/sqlite", &SqliteParser, "typescript", &TypeScriptCodegen { target: JsTarget::BetterSqlite3, output: JsOutput::TypeScript });
 }
 
 #[test]
 fn snapshot_typescript_mysql() {
-    snapshot_test("bookstore/mysql", &MysqlParser, "typescript", &TypeScriptCodegen { target: JsTarget::Mysql, output: JsOutput::TypeScript });
+    snapshot_test("bookstore/mysql", &MysqlParser, "typescript", &TypeScriptCodegen { target: JsTarget::Mysql2, output: JsOutput::TypeScript });
 }
 
 // ─── JavaScript backend ───────────────────────────────────────────────────
 
 #[test]
 fn snapshot_javascript_postgresql() {
-    snapshot_test("bookstore/postgresql", &PostgresParser, "javascript", &TypeScriptCodegen { target: JsTarget::Postgres, output: JsOutput::JavaScript });
+    snapshot_test("bookstore/postgresql", &PostgresParser, "javascript", &TypeScriptCodegen { target: JsTarget::Pg, output: JsOutput::JavaScript });
 }
 
 #[test]
 fn snapshot_javascript_sqlite() {
-    snapshot_test("bookstore/sqlite", &SqliteParser, "javascript", &TypeScriptCodegen { target: JsTarget::Sqlite, output: JsOutput::JavaScript });
+    snapshot_test("bookstore/sqlite", &SqliteParser, "javascript", &TypeScriptCodegen { target: JsTarget::BetterSqlite3, output: JsOutput::JavaScript });
 }
 
 #[test]
 fn snapshot_javascript_mysql() {
-    snapshot_test("bookstore/mysql", &MysqlParser, "javascript", &TypeScriptCodegen { target: JsTarget::Mysql, output: JsOutput::JavaScript });
+    snapshot_test("bookstore/mysql", &MysqlParser, "javascript", &TypeScriptCodegen { target: JsTarget::Mysql2, output: JsOutput::JavaScript });
 }
 
 // ─── Go backend ───────────────────────────────────────────────────────────
@@ -286,47 +286,47 @@ fn snapshot_views_kotlin_postgresql() {
 
 #[test]
 fn snapshot_views_python_postgresql() {
-    snapshot_test("views/postgresql", &PostgresParser, "python", &PythonCodegen { target: PythonTarget::Postgres });
+    snapshot_test("views/postgresql", &PostgresParser, "python", &PythonCodegen { target: PythonTarget::Psycopg });
 }
 
 #[test]
 fn snapshot_views_python_sqlite() {
-    snapshot_test("views/sqlite", &SqliteParser, "python", &PythonCodegen { target: PythonTarget::Sqlite });
+    snapshot_test("views/sqlite", &SqliteParser, "python", &PythonCodegen { target: PythonTarget::Sqlite3 });
 }
 
 #[test]
 fn snapshot_views_python_mysql() {
-    snapshot_test("views/mysql", &MysqlParser, "python", &PythonCodegen { target: PythonTarget::Mysql });
+    snapshot_test("views/mysql", &MysqlParser, "python", &PythonCodegen { target: PythonTarget::MysqlConnector });
 }
 
 #[test]
 fn snapshot_views_typescript_postgresql() {
-    snapshot_test("views/postgresql", &PostgresParser, "typescript", &TypeScriptCodegen { target: JsTarget::Postgres, output: JsOutput::TypeScript });
+    snapshot_test("views/postgresql", &PostgresParser, "typescript", &TypeScriptCodegen { target: JsTarget::Pg, output: JsOutput::TypeScript });
 }
 
 #[test]
 fn snapshot_views_typescript_sqlite() {
-    snapshot_test("views/sqlite", &SqliteParser, "typescript", &TypeScriptCodegen { target: JsTarget::Sqlite, output: JsOutput::TypeScript });
+    snapshot_test("views/sqlite", &SqliteParser, "typescript", &TypeScriptCodegen { target: JsTarget::BetterSqlite3, output: JsOutput::TypeScript });
 }
 
 #[test]
 fn snapshot_views_typescript_mysql() {
-    snapshot_test("views/mysql", &MysqlParser, "typescript", &TypeScriptCodegen { target: JsTarget::Mysql, output: JsOutput::TypeScript });
+    snapshot_test("views/mysql", &MysqlParser, "typescript", &TypeScriptCodegen { target: JsTarget::Mysql2, output: JsOutput::TypeScript });
 }
 
 #[test]
 fn snapshot_views_javascript_postgresql() {
-    snapshot_test("views/postgresql", &PostgresParser, "javascript", &TypeScriptCodegen { target: JsTarget::Postgres, output: JsOutput::JavaScript });
+    snapshot_test("views/postgresql", &PostgresParser, "javascript", &TypeScriptCodegen { target: JsTarget::Pg, output: JsOutput::JavaScript });
 }
 
 #[test]
 fn snapshot_views_javascript_sqlite() {
-    snapshot_test("views/sqlite", &SqliteParser, "javascript", &TypeScriptCodegen { target: JsTarget::Sqlite, output: JsOutput::JavaScript });
+    snapshot_test("views/sqlite", &SqliteParser, "javascript", &TypeScriptCodegen { target: JsTarget::BetterSqlite3, output: JsOutput::JavaScript });
 }
 
 #[test]
 fn snapshot_views_javascript_mysql() {
-    snapshot_test("views/mysql", &MysqlParser, "javascript", &TypeScriptCodegen { target: JsTarget::Mysql, output: JsOutput::JavaScript });
+    snapshot_test("views/mysql", &MysqlParser, "javascript", &TypeScriptCodegen { target: JsTarget::Mysql2, output: JsOutput::JavaScript });
 }
 
 #[test]
@@ -423,7 +423,7 @@ fn snapshot_type_overrides_typescript() {
         "type_overrides",
         &PostgresParser,
         "typescript",
-        &TypeScriptCodegen { target: JsTarget::Postgres, output: JsOutput::TypeScript },
+        &TypeScriptCodegen { target: JsTarget::Pg, output: JsOutput::TypeScript },
         config_object(),
     );
 }
@@ -477,12 +477,12 @@ fn resilience_unknown_column_graceful() {
 fn resilience_all_backends_empty_queries() {
     let backends: Vec<Box<dyn Codegen>> = vec![
         Box::new(RustCodegen { target: RustTarget::Postgres }),
-        Box::new(PythonCodegen { target: PythonTarget::Postgres }),
+        Box::new(PythonCodegen { target: PythonTarget::Psycopg }),
         Box::new(JavaCodegen { target: JdbcTarget::Postgres }),
         Box::new(KotlinCodegen { target: JdbcTarget::Postgres }),
         Box::new(GoCodegen { target: GoTarget::Postgres }),
-        Box::new(TypeScriptCodegen { target: JsTarget::Postgres, output: JsOutput::TypeScript }),
-        Box::new(TypeScriptCodegen { target: JsTarget::Postgres, output: JsOutput::JavaScript }),
+        Box::new(TypeScriptCodegen { target: JsTarget::Pg, output: JsOutput::TypeScript }),
+        Box::new(TypeScriptCodegen { target: JsTarget::Pg, output: JsOutput::JavaScript }),
     ];
     let schema = PostgresParser.parse_schema(SIMPLE_PG_SCHEMA).unwrap();
     let config = output_config();

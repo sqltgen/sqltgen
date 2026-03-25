@@ -487,11 +487,8 @@ fn cursor_return_type(query: &Query, schema: &Schema) -> String {
 
 #[cfg(test)]
 pub(super) fn python_type_for_target(sql_type: &SqlType, nullable: bool, target: &PythonTarget) -> String {
-    let json_mode = match target {
-        PythonTarget::Postgres | PythonTarget::Mysql => PythonJsonMode::Object,
-        PythonTarget::Sqlite => PythonJsonMode::Text,
-    };
-    python_type_with_json_mode(sql_type, nullable, json_mode)
+    let contract = super::adapter::resolve_python_contract(target);
+    python_type_with_json_mode(sql_type, nullable, contract.sql.json_mode)
 }
 
 fn python_type_with_json_mode(sql_type: &SqlType, nullable: bool, json_mode: PythonJsonMode) -> String {

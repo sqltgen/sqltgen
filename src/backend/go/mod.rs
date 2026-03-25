@@ -31,6 +31,21 @@ impl From<Engine> for GoTarget {
 }
 
 impl GoTarget {
+    /// Resolve the target from an engine and optional driver string.
+    ///
+    /// Go codegen generates `database/sql` compatible code; the concrete driver
+    /// is a runtime dependency only. No driver variants exist yet — omit the key.
+    pub fn from_engine_and_driver(engine: Engine, driver: Option<&str>) -> anyhow::Result<Self> {
+        if let Some(d) = driver {
+            anyhow::bail!(
+                "driver {:?} is not supported for go/{}; driver selection is not yet available for go",
+                d,
+                engine.as_str(),
+            );
+        }
+        Ok(engine.into())
+    }
+
     fn engine_str(&self) -> &'static str {
         match self {
             GoTarget::Postgres => "postgresql",

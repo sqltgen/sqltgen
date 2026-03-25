@@ -63,7 +63,7 @@ pub(super) struct PythonCoreContract {
 /// Resolve the Python adapter contract for the selected target.
 pub(super) fn resolve_python_contract(target: &PythonTarget) -> PythonCoreContract {
     match target {
-        PythonTarget::Postgres => PythonCoreContract {
+        PythonTarget::Psycopg => PythonCoreContract {
             helper_source: include_str!("_sqltgen_cursor.py"),
             runtime: PythonRuntimeContract {
                 runtime_banner: "# Runtime: psycopg (psycopg3) — pip install psycopg",
@@ -79,7 +79,7 @@ pub(super) fn resolve_python_contract(target: &PythonTarget) -> PythonCoreContra
             },
             field_read_converters: &[],
         },
-        PythonTarget::Sqlite => PythonCoreContract {
+        PythonTarget::Sqlite3 => PythonCoreContract {
             helper_source: include_str!("_sqltgen_sqlite.py"),
             runtime: PythonRuntimeContract { runtime_banner: "# Runtime: sqlite3 (stdlib)", db_import: "import sqlite3", conn_type_expr: "sqlite3.Connection" },
             sql: PythonSqlContract {
@@ -91,7 +91,7 @@ pub(super) fn resolve_python_contract(target: &PythonTarget) -> PythonCoreContra
             },
             field_read_converters: &[],
         },
-        PythonTarget::Mysql => PythonCoreContract {
+        PythonTarget::MysqlConnector => PythonCoreContract {
             helper_source: include_str!("_sqltgen_cursor.py"),
             runtime: PythonRuntimeContract {
                 runtime_banner: "# Runtime: mysql-connector-python — pip install mysql-connector-python",

@@ -6,7 +6,7 @@ use crate::backend::test_helpers::cfg;
 #[test]
 fn test_ts_model_file_interface() {
     let schema = schema_with_users();
-    let gen = TypeScriptCodegen { target: JsTarget::Postgres, output: JsOutput::TypeScript };
+    let gen = TypeScriptCodegen { target: JsTarget::Pg, output: JsOutput::TypeScript };
     let content = gen.emit_model_file(&schema.tables[0], &cfg()).unwrap();
     assert!(content.contains("export interface Users {"));
     assert!(content.contains("id: number;"));
@@ -17,7 +17,7 @@ fn test_ts_model_file_interface() {
 #[test]
 fn test_js_model_file_typedef() {
     let schema = schema_with_users();
-    let gen = TypeScriptCodegen { target: JsTarget::Postgres, output: JsOutput::JavaScript };
+    let gen = TypeScriptCodegen { target: JsTarget::Pg, output: JsOutput::JavaScript };
     let content = gen.emit_model_file(&schema.tables[0], &cfg()).unwrap();
     assert!(content.contains("@typedef {Object} Users"));
     assert!(content.contains("@property {number} id"));
@@ -30,7 +30,7 @@ fn test_js_model_file_typedef() {
 #[test]
 fn test_ts_index_file_with_queries() {
     let schema = schema_with_users();
-    let gen = TypeScriptCodegen { target: JsTarget::Postgres, output: JsOutput::TypeScript };
+    let gen = TypeScriptCodegen { target: JsTarget::Pg, output: JsOutput::TypeScript };
     let content = gen.emit_index_file(&schema, &["queries".to_string()]).unwrap();
     assert!(content.contains("export * from './users';"));
     assert!(content.contains("export * from './queries';"));
@@ -39,7 +39,7 @@ fn test_ts_index_file_with_queries() {
 #[test]
 fn test_js_index_file_no_queries() {
     let schema = schema_with_users();
-    let gen = TypeScriptCodegen { target: JsTarget::Postgres, output: JsOutput::JavaScript };
+    let gen = TypeScriptCodegen { target: JsTarget::Pg, output: JsOutput::JavaScript };
     let content = gen.emit_index_file(&schema, &[]).unwrap();
     assert!(content.contains("export * from './users.js';"));
     assert!(!content.contains("queries"));
@@ -51,7 +51,7 @@ fn test_js_index_file_no_queries() {
 fn test_pg_ts_one_query() {
     let schema = schema_with_users();
     let queries = vec![get_user_query()];
-    let gen = TypeScriptCodegen { target: JsTarget::Postgres, output: JsOutput::TypeScript };
+    let gen = TypeScriptCodegen { target: JsTarget::Pg, output: JsOutput::TypeScript };
     let content = build_queries_file("", &queries, &schema, &gen.target, &gen.output, &config()).unwrap();
     assert!(content.contains("import type { ConnectFn, Db } from './_sqltgen';"));
     assert!(content.contains("import { releaseDb } from './_sqltgen';"));
@@ -65,7 +65,7 @@ fn test_pg_ts_one_query() {
 fn test_pg_ts_many_query() {
     let schema = schema_with_users();
     let queries = vec![list_users_query()];
-    let gen = TypeScriptCodegen { target: JsTarget::Postgres, output: JsOutput::TypeScript };
+    let gen = TypeScriptCodegen { target: JsTarget::Pg, output: JsOutput::TypeScript };
     let content = build_queries_file("", &queries, &schema, &gen.target, &gen.output, &config()).unwrap();
     assert!(content.contains("Promise<Users[]>"));
     assert!(content.contains("return result.rows;"));
@@ -75,7 +75,7 @@ fn test_pg_ts_many_query() {
 fn test_pg_ts_exec_and_execrows() {
     let schema = schema_with_users();
     let queries = vec![delete_user_query(), delete_users_query()];
-    let gen = TypeScriptCodegen { target: JsTarget::Postgres, output: JsOutput::TypeScript };
+    let gen = TypeScriptCodegen { target: JsTarget::Pg, output: JsOutput::TypeScript };
     let content = build_queries_file("", &queries, &schema, &gen.target, &gen.output, &config()).unwrap();
     assert!(content.contains("Promise<void>"));
     assert!(content.contains("Promise<number>"));
@@ -86,7 +86,7 @@ fn test_pg_ts_exec_and_execrows() {
 fn test_pg_js_one_query() {
     let schema = schema_with_users();
     let queries = vec![get_user_query()];
-    let gen = TypeScriptCodegen { target: JsTarget::Postgres, output: JsOutput::JavaScript };
+    let gen = TypeScriptCodegen { target: JsTarget::Pg, output: JsOutput::JavaScript };
     let content = build_queries_file("", &queries, &schema, &gen.target, &gen.output, &config()).unwrap();
     assert!(content.contains("@typedef {import('./_sqltgen.js').Db} Db"));
     assert!(content.contains("@typedef {import('./_sqltgen.js').ConnectFn} ConnectFn"));
@@ -104,7 +104,7 @@ fn test_pg_js_one_query() {
 fn test_sqlite_ts_one_query() {
     let schema = schema_with_users();
     let queries = vec![get_user_query()];
-    let gen = TypeScriptCodegen { target: JsTarget::Sqlite, output: JsOutput::TypeScript };
+    let gen = TypeScriptCodegen { target: JsTarget::BetterSqlite3, output: JsOutput::TypeScript };
     let content = build_queries_file("", &queries, &schema, &gen.target, &gen.output, &config()).unwrap();
     assert!(content.contains("import type { ConnectFn, Db } from './_sqltgen';"));
     assert!(content.contains("db: Db"));
@@ -116,7 +116,7 @@ fn test_sqlite_ts_one_query() {
 fn test_sqlite_ts_many_query() {
     let schema = schema_with_users();
     let queries = vec![list_users_query()];
-    let gen = TypeScriptCodegen { target: JsTarget::Sqlite, output: JsOutput::TypeScript };
+    let gen = TypeScriptCodegen { target: JsTarget::BetterSqlite3, output: JsOutput::TypeScript };
     let content = build_queries_file("", &queries, &schema, &gen.target, &gen.output, &config()).unwrap();
     assert!(content.contains(".all() as Users[]"));
 }
@@ -125,7 +125,7 @@ fn test_sqlite_ts_many_query() {
 fn test_sqlite_js_one_query() {
     let schema = schema_with_users();
     let queries = vec![get_user_query()];
-    let gen = TypeScriptCodegen { target: JsTarget::Sqlite, output: JsOutput::JavaScript };
+    let gen = TypeScriptCodegen { target: JsTarget::BetterSqlite3, output: JsOutput::JavaScript };
     let content = build_queries_file("", &queries, &schema, &gen.target, &gen.output, &config()).unwrap();
     assert!(content.contains("@typedef {import('./_sqltgen.js').Db} Db"));
     assert!(content.contains("export async function getUser(db, id)"));
@@ -139,7 +139,7 @@ fn test_sqlite_js_one_query() {
 fn test_mysql_ts_one_query() {
     let schema = schema_with_users();
     let queries = vec![get_user_query()];
-    let gen = TypeScriptCodegen { target: JsTarget::Mysql, output: JsOutput::TypeScript };
+    let gen = TypeScriptCodegen { target: JsTarget::Mysql2, output: JsOutput::TypeScript };
     let content = build_queries_file("", &queries, &schema, &gen.target, &gen.output, &config()).unwrap();
     assert!(content.contains("import type { ConnectFn, Db } from './_sqltgen';"));
     assert!(content.contains("db: Db"));
@@ -152,7 +152,7 @@ fn test_mysql_ts_one_query() {
 fn test_mysql_ts_execrows() {
     let schema = schema_with_users();
     let queries = vec![delete_users_query()];
-    let gen = TypeScriptCodegen { target: JsTarget::Mysql, output: JsOutput::TypeScript };
+    let gen = TypeScriptCodegen { target: JsTarget::Mysql2, output: JsOutput::TypeScript };
     let content = build_queries_file("", &queries, &schema, &gen.target, &gen.output, &config()).unwrap();
     assert!(content.contains("query<ResultSetHeader>"));
     assert!(content.contains("result.affectedRows"));
@@ -162,7 +162,7 @@ fn test_mysql_ts_execrows() {
 fn test_ts_querier_wrapper_is_emitted() {
     let schema = schema_with_users();
     let queries = vec![get_user_query()];
-    let gen = TypeScriptCodegen { target: JsTarget::Postgres, output: JsOutput::TypeScript };
+    let gen = TypeScriptCodegen { target: JsTarget::Pg, output: JsOutput::TypeScript };
     let content = build_queries_file("", &queries, &schema, &gen.target, &gen.output, &config()).unwrap();
     assert!(content.contains("export class Querier {"));
     assert!(content.contains("constructor(private readonly connect: ConnectFn)"));
@@ -178,7 +178,7 @@ fn test_ts_querier_wrapper_is_emitted() {
 fn test_inline_row_type_ts() {
     let query = Query::one("GetStats", "SELECT count(*) AS total FROM users", vec![], vec![ResultColumn::nullable("total", SqlType::BigInt)]);
     let mut src = String::new();
-    emit_inline_row_type(&mut src, &query, &JsOutput::TypeScript, &JsTarget::Postgres, &cfg()).unwrap();
+    emit_inline_row_type(&mut src, &query, &JsOutput::TypeScript, &JsTarget::Pg, &cfg()).unwrap();
     assert!(src.contains("export interface GetStatsRow {"));
     assert!(src.contains("total: number | null;"));
 }
@@ -187,7 +187,7 @@ fn test_inline_row_type_ts() {
 fn test_inline_row_type_js() {
     let query = Query::one("GetStats", "SELECT count(*) AS total FROM users", vec![], vec![ResultColumn::nullable("total", SqlType::BigInt)]);
     let mut src = String::new();
-    emit_inline_row_type(&mut src, &query, &JsOutput::JavaScript, &JsTarget::Postgres, &cfg()).unwrap();
+    emit_inline_row_type(&mut src, &query, &JsOutput::JavaScript, &JsTarget::Pg, &cfg()).unwrap();
     assert!(src.contains("@typedef {Object} GetStatsRow"));
     assert!(src.contains("@property {number | null} total"));
 }

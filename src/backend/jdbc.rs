@@ -58,6 +58,21 @@ pub enum JdbcTarget {
 }
 
 impl JdbcTarget {
+    /// Resolve the target from an engine and optional driver string.
+    ///
+    /// Java and Kotlin generate JDBC code; the concrete driver JAR is a build dependency
+    /// only and does not affect generated code. No driver variants exist — omit the key.
+    pub fn from_engine_and_driver(engine: Engine, driver: Option<&str>) -> anyhow::Result<Self> {
+        if let Some(d) = driver {
+            anyhow::bail!(
+                "driver {:?} is not supported for java-kotlin/{}; driver selection is not yet available for JDBC backends",
+                d,
+                engine.as_str(),
+            );
+        }
+        Ok(engine.into())
+    }
+
     /// Return the engine name string for manifest files.
     pub fn engine_str(&self) -> &'static str {
         match self {
