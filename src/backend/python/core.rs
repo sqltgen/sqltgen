@@ -138,8 +138,11 @@ fn build_queries_file(group: &str, queries: &[Query], schema: &Schema, contract:
     writeln!(src, "from ._sqltgen import execute, exec_stmt")?;
     imports.write(&mut src)?;
     if let Some(json_import) = contract.sql.json_param_import {
-        let needs_json_wrap = queries.iter().any(|q| q.params.iter().any(|p| matches!(p.sql_type, SqlType::Json | SqlType::Jsonb)));
-        if needs_json_wrap {
+        let needs_json = queries.iter().any(|q| {
+            q.params.iter().any(|p| matches!(p.sql_type, SqlType::Json | SqlType::Jsonb))
+                || q.result_columns.iter().any(|c| matches!(c.sql_type, SqlType::Json | SqlType::Jsonb))
+        });
+        if needs_json {
             writeln!(src, "{json_import}")?;
         }
     }
@@ -485,8 +488,8 @@ fn cursor_return_type(query: &Query, schema: &Schema) -> String {
 #[cfg(test)]
 pub(super) fn python_type_for_target(sql_type: &SqlType, nullable: bool, target: &PythonTarget) -> String {
     let json_mode = match target {
-        PythonTarget::Postgres => PythonJsonMode::Object,
-        PythonTarget::Sqlite | PythonTarget::Mysql => PythonJsonMode::Text,
+        PythonTarget::Postgres | PythonTarget::Mysql => PythonJsonMode::Object,
+        PythonTarget::Sqlite => PythonJsonMode::Text,
     };
     python_type_with_json_mode(sql_type, nullable, json_mode)
 }

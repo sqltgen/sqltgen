@@ -289,9 +289,9 @@ fn test_python_type_json_sqlite_is_str() {
 }
 
 #[test]
-fn test_python_type_json_mysql_is_str() {
-    assert_eq!(python_type(&SqlType::Json, false, &PythonTarget::Mysql), "str");
-    assert_eq!(python_type(&SqlType::Jsonb, false, &PythonTarget::Mysql), "str");
+fn test_python_type_json_mysql_is_object() {
+    assert_eq!(python_type(&SqlType::Json, false, &PythonTarget::Mysql), "object");
+    assert_eq!(python_type(&SqlType::Jsonb, false, &PythonTarget::Mysql), "object");
 }
 
 #[test]

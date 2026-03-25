@@ -13,7 +13,7 @@ class Product:
     active: bool
     weight_kg: float | None
     rating: float | None
-    metadata: str | None
+    metadata: object | None
     thumbnail: bytes | None
     created_at: datetime.datetime
     stock_count: int

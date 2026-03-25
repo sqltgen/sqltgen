@@ -306,5 +306,4 @@ engine_overrides:
       find_by_uuid: find_by_doc_id
     type_coercions:
       datetime: naive_datetime
-      json: json_string
       uuid: string
