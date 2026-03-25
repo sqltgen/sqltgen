@@ -1,6 +1,6 @@
 # sqltgen — implementation plan
 
-Multi-language SQL-to-code generator written in Rust.
+Multi-language SQL-to-code generator.
 Inspired by [sqlc](https://sqlc.dev), using a 3-layer compiler architecture.
 
 ---

@@ -4,7 +4,7 @@ A multi-language SQL-to-code generator. Annotate your SQL queries; sqltgen emits
 idiomatic, type-safe database access code in Java, Kotlin, Rust, Go, Python,
 TypeScript, and JavaScript.
 
-Inspired by [sqlc](https://sqlc.dev). Written in Rust.
+Inspired by [sqlc](https://sqlc.dev).
 
 > **Status:** pre-release / active development. APIs and generated code format may change.
 
