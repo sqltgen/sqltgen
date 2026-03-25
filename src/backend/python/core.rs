@@ -24,7 +24,7 @@ fn get_type_override_python(sql_type: &SqlType, variant: TypeVariant, config: &O
 }
 
 /// Map a SQL column type to its Python type string, applying any configured field override.
-fn python_field_type(sql_type: &SqlType, nullable: bool, contract: &PythonCoreContract, config: &OutputConfig) -> String {
+pub(super) fn python_field_type(sql_type: &SqlType, nullable: bool, contract: &PythonCoreContract, config: &OutputConfig) -> String {
     if let Some(resolved) = get_type_override_python(sql_type, TypeVariant::Field, config) {
         return if nullable { format!("{} | None", resolved.name) } else { resolved.name };
     }
@@ -32,7 +32,7 @@ fn python_field_type(sql_type: &SqlType, nullable: bool, contract: &PythonCoreCo
 }
 
 /// Map a SQL parameter type to its Python type string, applying any configured param override.
-fn python_param_type_resolved(sql_type: &SqlType, nullable: bool, contract: &PythonCoreContract, config: &OutputConfig) -> String {
+pub(super) fn python_param_type_resolved(sql_type: &SqlType, nullable: bool, contract: &PythonCoreContract, config: &OutputConfig) -> String {
     if let Some(resolved) = get_type_override_python(sql_type, TypeVariant::Param, config) {
         return if nullable { format!("{} | None", resolved.name) } else { resolved.name };
     }

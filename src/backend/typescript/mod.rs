@@ -1,3 +1,5 @@
+use crate::backend::manifest::build_manifest_file;
+use crate::backend::naming::to_camel_case;
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::{Engine, OutputConfig};
 use crate::ir::{Query, Schema};
@@ -29,6 +31,16 @@ impl From<Engine> for JsTarget {
     }
 }
 
+impl JsTarget {
+    fn engine_str(&self) -> &'static str {
+        match self {
+            JsTarget::Postgres => "postgresql",
+            JsTarget::Sqlite => "sqlite",
+            JsTarget::Mysql => "mysql",
+        }
+    }
+}
+
 /// Whether to emit TypeScript (inline types) or JavaScript (JSDoc annotations).
 #[derive(Clone, Copy)]
 pub enum JsOutput {
@@ -52,9 +64,34 @@ impl Codegen for TypeScriptCodegen {
             JsOutput::JavaScript => "js",
         };
 
+        let lang = match self.output {
+            JsOutput::TypeScript => "typescript",
+            JsOutput::JavaScript => "javascript",
+        };
+
         let mut files = Vec::new();
         files.push(adapter::emit_helper_file(&contract, config, ext));
         files.extend(core::generate_core_files(self, schema, queries, &contract, config)?);
+
+        if let Some(manifest) = build_manifest_file(
+            lang,
+            self.target.engine_str(),
+            config,
+            schema,
+            queries,
+            &to_camel_case,
+            &|st, nullable| core::js_type_resolved(st, nullable, &contract, config),
+            &|p| {
+                if p.is_list {
+                    let elem = core::js_type_resolved(&p.sql_type, false, &contract, config);
+                    format!("{elem}[]")
+                } else {
+                    core::js_type_resolved(&p.sql_type, p.nullable, &contract, config)
+                }
+            },
+        ) {
+            files.push(manifest);
+        }
 
         Ok(files)
     }

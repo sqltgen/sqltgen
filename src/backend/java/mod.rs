@@ -1,3 +1,5 @@
+use crate::backend::manifest::build_manifest_file;
+use crate::backend::naming::to_camel_case;
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::OutputConfig;
 use crate::ir::{Query, Schema};
@@ -17,7 +19,22 @@ pub struct JavaCodegen {
 impl Codegen for JavaCodegen {
     fn generate(&self, schema: &Schema, queries: &[Query], config: &OutputConfig) -> anyhow::Result<Vec<GeneratedFile>> {
         let contract = adapter::resolve_java_contract(self.target);
-        core::generate_core_files(schema, queries, &contract, config)
+        let mut files = core::generate_core_files(schema, queries, &contract, config)?;
+
+        if let Some(manifest) = build_manifest_file(
+            "java",
+            self.target.engine_str(),
+            config,
+            schema,
+            queries,
+            &to_camel_case,
+            &|st, nullable| core::java_field_type(st, nullable, config),
+            &|p| core::java_param_type_resolved(p, config),
+        ) {
+            files.push(manifest);
+        }
+
+        Ok(files)
     }
 }
 

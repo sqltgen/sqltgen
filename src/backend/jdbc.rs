@@ -57,6 +57,17 @@ pub enum JdbcTarget {
     Sqlite,
 }
 
+impl JdbcTarget {
+    /// Return the engine name string for manifest files.
+    pub fn engine_str(&self) -> &'static str {
+        match self {
+            JdbcTarget::Postgres => "postgresql",
+            JdbcTarget::Mysql => "mysql",
+            JdbcTarget::Sqlite => "sqlite",
+        }
+    }
+}
+
 impl From<Engine> for JdbcTarget {
     fn from(engine: Engine) -> Self {
         match engine {

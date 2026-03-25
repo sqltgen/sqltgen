@@ -26,7 +26,7 @@ fn get_type_override_rust(sql_type: &SqlType, variant: TypeVariant, config: &Out
 }
 
 /// Return the Rust type for a SQL type, applying any configured type override first.
-fn rust_field_type(sql_type: &SqlType, nullable: bool, config: &OutputConfig) -> String {
+pub(super) fn rust_field_type(sql_type: &SqlType, nullable: bool, config: &OutputConfig) -> String {
     if let Some(resolved) = get_type_override_rust(sql_type, TypeVariant::Field, config) {
         return if nullable { format!("Option<{}>", resolved.name) } else { resolved.name };
     }
@@ -34,7 +34,7 @@ fn rust_field_type(sql_type: &SqlType, nullable: bool, config: &OutputConfig) ->
 }
 
 /// Return the Rust parameter type, applying any configured param type override first.
-fn rust_param_type_resolved(sql_type: &SqlType, nullable: bool, config: &OutputConfig) -> String {
+pub(super) fn rust_param_type_resolved(sql_type: &SqlType, nullable: bool, config: &OutputConfig) -> String {
     if let Some(resolved) = get_type_override_rust(sql_type, TypeVariant::Param, config) {
         return if nullable { format!("Option<{}>", resolved.name) } else { resolved.name };
     }

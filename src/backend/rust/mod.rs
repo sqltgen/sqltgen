@@ -1,3 +1,5 @@
+use crate::backend::manifest::build_manifest_file;
+use crate::backend::naming::to_snake_case;
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::{Engine, OutputConfig};
 use crate::ir::{Query, Schema};
@@ -28,6 +30,16 @@ impl From<Engine> for RustTarget {
     }
 }
 
+impl RustTarget {
+    fn engine_str(&self) -> &'static str {
+        match self {
+            RustTarget::Postgres => "postgresql",
+            RustTarget::Sqlite => "sqlite",
+            RustTarget::Mysql => "mysql",
+        }
+    }
+}
+
 /// Code generator for Rust/sqlx output.
 pub struct RustCodegen {
     /// Selected sqlx engine target.
@@ -41,6 +53,20 @@ impl Codegen for RustCodegen {
         let mut files = Vec::new();
         files.push(adapter::emit_helper_file(&contract, config));
         files.extend(core::generate_core_files(schema, queries, &contract, config)?);
+
+        if let Some(manifest) = build_manifest_file(
+            "rust",
+            self.target.engine_str(),
+            config,
+            schema,
+            queries,
+            &to_snake_case,
+            &|st, nullable| core::rust_field_type(st, nullable, config),
+            &|p| core::rust_param_type_resolved(&p.sql_type, p.nullable, config),
+        ) {
+            files.push(manifest);
+        }
+
         Ok(files)
     }
 }

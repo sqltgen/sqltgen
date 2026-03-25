@@ -1,3 +1,5 @@
+use crate::backend::manifest::build_manifest_file;
+use crate::backend::naming::to_pascal_case;
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::{Engine, OutputConfig};
 use crate::ir::{Query, Schema};
@@ -28,6 +30,16 @@ impl From<Engine> for GoTarget {
     }
 }
 
+impl GoTarget {
+    fn engine_str(&self) -> &'static str {
+        match self {
+            GoTarget::Postgres => "postgresql",
+            GoTarget::Sqlite => "sqlite",
+            GoTarget::Mysql => "mysql",
+        }
+    }
+}
+
 /// Code generator for Go using `database/sql`.
 pub struct GoCodegen {
     /// Database driver target.
@@ -42,6 +54,19 @@ impl Codegen for GoCodegen {
         let mut files = Vec::new();
         files.push(adapter::emit_helper_file(&contract, &pkg, config));
         files.extend(core::generate_core_files(schema, queries, &contract, config)?);
+
+        if let Some(manifest) = build_manifest_file(
+            "go",
+            self.target.engine_str(),
+            config,
+            schema,
+            queries,
+            &to_pascal_case,
+            &|st, nullable| core::go_field_type(st, nullable, &contract, config),
+            &|p| core::go_param_type(&p.sql_type, p.nullable, &contract, config),
+        ) {
+            files.push(manifest);
+        }
 
         Ok(files)
     }

@@ -54,7 +54,7 @@ fn get_type_override_ts(sql_type: &SqlType, variant: TypeVariant, config: &Outpu
 }
 
 /// Map a SQL type to its JavaScript/TypeScript type string, applying any configured override.
-fn js_type_resolved(sql_type: &SqlType, nullable: bool, contract: &TsCoreContract, config: &OutputConfig) -> String {
+pub(super) fn js_type_resolved(sql_type: &SqlType, nullable: bool, contract: &TsCoreContract, config: &OutputConfig) -> String {
     if let Some(resolved) = get_type_override_ts(sql_type, TypeVariant::Field, config, contract) {
         return if nullable { format!("{} | null", resolved.name) } else { resolved.name };
     }
