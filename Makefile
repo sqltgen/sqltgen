@@ -31,6 +31,7 @@ SQLTGEN := ./target/debug/sqltgen
        e2e-runtime-type-overrides-go-postgresql \
        e2e-runtime-type-overrides-go-mysql \
        e2e-db-up e2e-db-down \
+       e2e-testgen-setup e2e-testgen-generate e2e-testgen-generate-python \
        ci-fmt ci-clippy ci-test ci-check-suite ci-examples-drift ci-runtime-sqlite ci-runtime-db
 
 all: build test
@@ -106,6 +107,9 @@ run-all: $(SQLTGEN)
 E2E_RUNTIME        := tests/e2e/runtime/bookstore
 E2E_RUNTIME_DIR    := tests/e2e/runtime
 E2E_TYPE_OVERRIDES := tests/e2e/runtime/type_overrides
+E2E_TESTGEN        := scripts/e2e_testgen
+E2E_TESTGEN_PYTHON := $(E2E_TESTGEN)/.venv/bin/python
+E2E_TESTGEN_STAMP  := $(E2E_TESTGEN)/.venv/.stamp
 
 e2e: e2e-snapshot e2e-runtime
 
@@ -301,6 +305,32 @@ e2e-db-up:
 
 e2e-db-down:
 	docker compose -f $(E2E_RUNTIME_DIR)/docker-compose.yml down
+
+# ── E2E test generation (dynamic test files from test_spec.yaml) ──────────────
+
+# Stamp target: create the venv and install deps when requirements change.
+$(E2E_TESTGEN_STAMP): $(E2E_TESTGEN)/requirements.txt
+	python3 -m venv $(E2E_TESTGEN)/.venv
+	$(E2E_TESTGEN_PYTHON) -m pip install -q -r $(E2E_TESTGEN)/requirements.txt
+	touch $(E2E_TESTGEN_STAMP)
+
+e2e-testgen-setup: $(E2E_TESTGEN_STAMP)
+
+# Generate test files for every fixture × language × engine combo that has a
+# test_spec.yaml and a sqltgen.json. Accepts optional TESTGEN_FIXTURE/TESTGEN_LANG/TESTGEN_ENGINE
+# overrides: make e2e-testgen-generate TESTGEN_LANG=python TESTGEN_ENGINE=postgresql
+e2e-testgen-generate: $(E2E_TESTGEN_STAMP) $(SQLTGEN)
+	$(E2E_TESTGEN_PYTHON) $(E2E_TESTGEN)/orchestrate.py generate \
+	    $(if $(TESTGEN_FIXTURE),--fixture $(TESTGEN_FIXTURE)) \
+	    $(if $(TESTGEN_LANG),--lang $(TESTGEN_LANG)) \
+	    $(if $(TESTGEN_ENGINE),--engine $(TESTGEN_ENGINE)) \
+	    --sqltgen $(abspath $(SQLTGEN))
+
+# Convenience shorthand: generate Python test files only.
+e2e-testgen-generate-python: $(E2E_TESTGEN_STAMP) $(SQLTGEN)
+	$(E2E_TESTGEN_PYTHON) $(E2E_TESTGEN)/orchestrate.py generate \
+	    --lang python \
+	    --sqltgen $(abspath $(SQLTGEN))
 
 # ── CI targets ────────────────────────────────────────────────────────────────
 
