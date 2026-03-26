@@ -79,12 +79,15 @@ def _render_step(
     """Render a single step as indented source lines."""
     indent = "    "
 
+    use_await = getattr(lit, "use_await", lambda: False)()
+    decl = getattr(lit, "decl_prefix", lambda: "")()
+
     if step.kind == "let":
         lines = []
         for var_name, raw_val in step.data["let"].items():
             tv = TypedValue.parse(raw_val)
             val = lit.render_value(tv.kind, tv.value, engine, eo.type_coercions)
-            lines.append(f"{indent}{var_name} = {val}")
+            lines.append(f"{indent}{decl}{var_name} = {val}")
         return lines
 
     elif step.kind == "call":
@@ -92,9 +95,10 @@ def _render_step(
         args = _render_call_args(step.data.get("args", {}), engine, eo, lit)
         bind = step.data.get("bind")
         args_str = ", ".join([lit.conn_param()] + args)
-        call = f"queries.{func_name}({args_str})"
+        await_kw = "await " if use_await else ""
+        call = f"{await_kw}queries.{func_name}({args_str})"
         if bind:
-            return [f"{indent}{bind} = {call}"]
+            return [f"{indent}{decl}{bind} = {call}"]
         return [f"{indent}{call}"]
 
     elif step.kind == "assert_eq":
@@ -107,7 +111,13 @@ def _render_step(
         # JSON round-tripped as a string may have different key ordering; compare parsed.
         if tv.kind == "json" and eo.type_coercions.get("json") == "json_string":
             return [f"{indent}{lit.render_assert_json_eq(field_expr, tv.value)}"]
-        return [f"{indent}{lit.render_assert_eq(field_expr, expected)}"]
+        if hasattr(lit, "render_assert_eq_typed"):
+            line = lit.render_assert_eq_typed(
+                field_expr, expected, tv.kind, engine, eo.type_coercions
+            )
+        else:
+            line = lit.render_assert_eq(field_expr, expected)
+        return [f"{indent}{line}"]
 
     elif step.kind == "assert_null":
         return [f"{indent}{lit.render_assert_null(step.data['expr'])}"]
