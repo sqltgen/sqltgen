@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -66,8 +67,9 @@ def _render_scenario_body(
 ) -> str:
     """Render the body of a test function (the steps)."""
     lines = []
+    var_types: dict[str, str] = {}  # var_name → model_name (e.g. "ev" → "Event")
     for step in scenario.steps:
-        lines.extend(_render_step(step, engine, eo, lit, language, manifest))
+        lines.extend(_render_step(step, engine, eo, lit, language, manifest, var_types))
     return "\n".join(lines)
 
 
@@ -78,20 +80,29 @@ def _render_step(
     lit: Any,
     language: str,
     manifest: Manifest | None = None,
+    var_types: dict[str, str] | None = None,
 ) -> list[str]:
-    """Render a single step as indented source lines."""
+    """Render a single step as indented source lines.
+
+    var_types is mutated in-place: call steps with a bind update it so that
+    subsequent assertion steps can resolve field lang_types from the manifest.
+    """
+    if var_types is None:
+        var_types = {}
+
     indent = getattr(lit, "step_indent", lambda: "    ")()
     assign = getattr(lit, "assign_op", lambda: "=")()
     decl = getattr(lit, "decl_prefix", lambda: "")()
     use_await = getattr(lit, "use_await", lambda: False)()
     func_pfx = getattr(lit, "func_prefix", lambda: "queries.")()
+    terminator = getattr(lit, "stmt_terminator", lambda: "")()
 
     if step.kind == "let":
         lines = []
         for var_name, raw_val in step.data["let"].items():
             tv = TypedValue.parse(raw_val)
             val = lit.render_value(tv.kind, tv.value, engine, eo.type_coercions)
-            lines.append(f"{indent}{decl}{var_name} {assign} {val}")
+            lines.append(f"{indent}{decl}{var_name} {assign} {val}{terminator}")
         return lines
 
     elif step.kind == "call":
@@ -99,13 +110,19 @@ def _render_step(
         raw_args = step.data.get("args", {})
         bind = step.data.get("bind")
 
+        # Track return type so assertion steps can resolve field lang_types.
+        if bind and manifest:
+            fn = manifest.get_function(func_name)
+            if fn and fn.returns:
+                var_types[bind] = fn.returns
+
         param_types = _get_param_types(manifest, func_name)
         args = _render_call_args(raw_args, engine, eo, lit, param_types)
         conn = lit.conn_param()
         args_str = ", ".join([conn] + args)
         call_expr = f"{func_pfx}{func_name}({args_str})"
 
-        # Languages with explicit error returns (Go) override via render_call_lines.
+        # Languages with explicit error returns (Go, Rust) override via render_call_lines.
         if hasattr(lit, "render_call_lines"):
             command = _get_func_command(manifest, func_name)
             return lit.render_call_lines(call_expr, bind, command or "exec", indent)
@@ -127,6 +144,7 @@ def _render_step(
             display_field = field_expr
 
         expected = lit.render_value(tv.kind, tv.value, engine, eo.type_coercions)
+        field_lang_type = _get_field_lang_type(manifest, var_types, field_expr)
 
         if compare == "uuid_str":
             result = lit.render_uuid_compare(display_field, expected)
@@ -134,12 +152,12 @@ def _render_step(
 
         # JSON round-tripped as a string may have different key ordering; compare parsed.
         if tv.kind == "json" and eo.type_coercions.get("json") == "json_string":
-            result = lit.render_assert_json_eq(display_field, tv.value)
+            result = lit.render_assert_json_eq(display_field, tv.value, field_lang_type)
             return _as_lines(indent, result)
 
         if hasattr(lit, "render_assert_eq_typed"):
             result = lit.render_assert_eq_typed(
-                display_field, expected, tv.kind, engine, eo.type_coercions
+                display_field, expected, tv.kind, engine, eo.type_coercions, field_lang_type
             )
         else:
             result = lit.render_assert_eq(display_field, expected)
@@ -149,8 +167,9 @@ def _render_step(
         expr = step.data["expr"]
         if hasattr(lit, "transform_field_expr"):
             expr = lit.transform_field_expr(expr)
+        field_lang_type = _get_field_lang_type(manifest, var_types, expr)
         if hasattr(lit, "render_assert_null_typed"):
-            result = lit.render_assert_null_typed(expr, engine, eo.type_coercions)
+            result = lit.render_assert_null_typed(expr, engine, eo.type_coercions, field_lang_type)
         else:
             result = lit.render_assert_null(expr)
         return _as_lines(indent, result)
@@ -159,8 +178,9 @@ def _render_step(
         expr = step.data["expr"]
         if hasattr(lit, "transform_field_expr"):
             expr = lit.transform_field_expr(expr)
+        field_lang_type = _get_field_lang_type(manifest, var_types, expr)
         if hasattr(lit, "render_assert_not_null_typed"):
-            result = lit.render_assert_not_null_typed(expr, engine, eo.type_coercions)
+            result = lit.render_assert_not_null_typed(expr, engine, eo.type_coercions, field_lang_type)
         else:
             result = lit.render_assert_not_null(expr)
         return _as_lines(indent, result)
@@ -222,6 +242,34 @@ def _get_param_types(manifest: Manifest | None, func_name: str) -> dict[str, str
     if fn is None:
         return {}
     return {p.name: p.lang_type for p in fn.params}
+
+
+def _get_field_lang_type(
+    manifest: Manifest | None,
+    var_types: dict[str, str],
+    field_expr: str,
+) -> str | None:
+    """Return the lang_type of a field in a field expression like 'ev.scheduled_at'.
+
+    Returns None for bare variables (no dot) or when the manifest doesn't have
+    the necessary information.
+    """
+    if not manifest or "." not in field_expr:
+        return None
+    # Strip array index notation: 'events[0].name' → 'events.name'
+    clean = re.sub(r"\[\d+\]", "", field_expr)
+    parts = clean.split(".", 1)
+    var_name, field_name = parts[0], parts[1]
+    model_name = var_types.get(var_name)
+    if not model_name:
+        return None
+    model = manifest.get_model(model_name)
+    if not model:
+        return None
+    for field in model.fields:
+        if field.name == field_name:
+            return field.lang_type
+    return None
 
 
 def _get_func_command(manifest: Manifest | None, func_name: str) -> str | None:

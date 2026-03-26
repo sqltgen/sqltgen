@@ -160,6 +160,7 @@ def render_assert_eq_typed(
     kind: str,
     engine: str,
     coercions: dict[str, str],
+    field_lang_type: str | None = None,
 ) -> str:
     """Type-aware equality assertion.
 
@@ -183,7 +184,7 @@ def render_assert_eq_typed(
     return f"if {field_expr} != {expected} {{ t.Errorf(\"expected %v, got %v\", {expected}, {field_expr}) }}"
 
 
-def render_assert_json_eq(field_expr: str, value: Any) -> str:
+def render_assert_json_eq(field_expr: str, value: Any, field_lang_type: str | None = None) -> str:
     """JSON equality assertion for json_string coercion (SQLite).
 
     Both field and expected value go through genAssertJSON which parses
@@ -197,6 +198,7 @@ def render_assert_null_typed(
     expr: str,
     engine: str,
     coercions: dict[str, str],
+    field_lang_type: str | None = None,
 ) -> str:
     """Null assertion.
 
@@ -214,6 +216,7 @@ def render_assert_not_null_typed(
     expr: str,
     engine: str,
     coercions: dict[str, str],
+    field_lang_type: str | None = None,
 ) -> str:
     """Not-null assertion.
 

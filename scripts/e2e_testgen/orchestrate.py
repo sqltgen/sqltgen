@@ -35,7 +35,7 @@ TEST_FILE_NAMES = {
     "python": "test_runtime_gen.py",
     "go": "runtime_gen_test.go",
     "typescript": "runtime_gen.test.ts",
-    "rust": "runtime_gen.rs",
+    "rust": "tests/runtime_gen.rs",
     "java": "RuntimeGenTest.java",
     "kotlin": "RuntimeGenTest.kt",
 }
