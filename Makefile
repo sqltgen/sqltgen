@@ -32,7 +32,7 @@ SQLTGEN := ./target/debug/sqltgen
        e2e-runtime-type-overrides-go-mysql \
        e2e-db-up e2e-db-down \
        e2e-testgen-setup e2e-testgen-generate e2e-testgen-generate-python \
-       ci-fmt ci-clippy ci-test ci-check-suite ci-examples-drift ci-runtime-sqlite ci-runtime-db
+       ci-fmt ci-clippy ci-test ci-check-suite ci-examples-drift ci-testgen-drift ci-runtime-sqlite ci-runtime-db
 
 all: build test
 
@@ -316,14 +316,15 @@ $(E2E_TESTGEN_STAMP): $(E2E_TESTGEN)/requirements.txt
 
 e2e-testgen-setup: $(E2E_TESTGEN_STAMP)
 
-# Generate test files for every fixture × language × engine combo that has a
-# test_spec.yaml and a sqltgen.json. Accepts optional TESTGEN_FIXTURE/TESTGEN_LANG/TESTGEN_ENGINE
-# overrides: make e2e-testgen-generate TESTGEN_LANG=python TESTGEN_ENGINE=postgresql
+# Generate test files for every fixture × language × engine × variant combo that
+# has a test_spec.yaml and a sqltgen.json. Accepts optional overrides:
+#   make e2e-testgen-generate TESTGEN_LANG=python TESTGEN_ENGINE=postgresql TESTGEN_VARIANT=gson
 e2e-testgen-generate: $(E2E_TESTGEN_STAMP) $(SQLTGEN)
 	$(E2E_TESTGEN_PYTHON) $(E2E_TESTGEN)/orchestrate.py generate \
 	    $(if $(TESTGEN_FIXTURE),--fixture $(TESTGEN_FIXTURE)) \
 	    $(if $(TESTGEN_LANG),--lang $(TESTGEN_LANG)) \
 	    $(if $(TESTGEN_ENGINE),--engine $(TESTGEN_ENGINE)) \
+	    $(if $(TESTGEN_VARIANT),--variant $(TESTGEN_VARIANT)) \
 	    --sqltgen $(abspath $(SQLTGEN))
 
 # Convenience shorthand: generate Python test files only.
@@ -349,6 +350,11 @@ ci-check-suite:
 ci-examples-drift: build
 	$(MAKE) generate
 	git diff --exit-code -- examples/
+
+ci-testgen-drift: build
+	$(MAKE) e2e-testgen-setup
+	$(MAKE) e2e-testgen-generate
+	git diff --exit-code -- tests/e2e/runtime/
 
 ci-runtime-sqlite: build
 	pip install --quiet pytest
