@@ -277,21 +277,21 @@ fn test_generate_querier_wrapper_is_emitted() {
 
 #[test]
 fn test_python_type_json_postgres_is_object() {
-    assert_eq!(python_type(&SqlType::Json, false, &PythonTarget::Postgres), "object");
-    assert_eq!(python_type(&SqlType::Jsonb, false, &PythonTarget::Postgres), "object");
-    assert_eq!(python_type(&SqlType::Json, true, &PythonTarget::Postgres), "object | None");
+    assert_eq!(python_type(&SqlType::Json, false, &PythonTarget::Psycopg), "object");
+    assert_eq!(python_type(&SqlType::Jsonb, false, &PythonTarget::Psycopg), "object");
+    assert_eq!(python_type(&SqlType::Json, true, &PythonTarget::Psycopg), "object | None");
 }
 
 #[test]
 fn test_python_type_json_sqlite_is_str() {
-    assert_eq!(python_type(&SqlType::Json, false, &PythonTarget::Sqlite), "str");
-    assert_eq!(python_type(&SqlType::Json, true, &PythonTarget::Sqlite), "str | None");
+    assert_eq!(python_type(&SqlType::Json, false, &PythonTarget::Sqlite3), "str");
+    assert_eq!(python_type(&SqlType::Json, true, &PythonTarget::Sqlite3), "str | None");
 }
 
 #[test]
-fn test_python_type_json_mysql_is_str() {
-    assert_eq!(python_type(&SqlType::Json, false, &PythonTarget::Mysql), "str");
-    assert_eq!(python_type(&SqlType::Jsonb, false, &PythonTarget::Mysql), "str");
+fn test_python_type_json_mysql_is_object() {
+    assert_eq!(python_type(&SqlType::Json, false, &PythonTarget::MysqlConnector), "object");
+    assert_eq!(python_type(&SqlType::Jsonb, false, &PythonTarget::MysqlConnector), "object");
 }
 
 #[test]

@@ -3,6 +3,7 @@ pub mod go;
 pub mod java;
 pub mod jdbc;
 pub mod kotlin;
+pub mod manifest;
 pub mod naming;
 pub mod python;
 pub mod rust;

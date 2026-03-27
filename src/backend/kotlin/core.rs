@@ -58,14 +58,14 @@ fn get_type_override_kotlin(sql_type: &SqlType, variant: TypeVariant, config: &O
     resolve_type_override(sql_type, variant, config, Language::Kotlin, try_preset_kotlin)
 }
 
-fn kotlin_field_type(sql_type: &SqlType, nullable: bool, config: &OutputConfig) -> String {
+pub(super) fn kotlin_field_type(sql_type: &SqlType, nullable: bool, config: &OutputConfig) -> String {
     if let Some(resolved) = get_type_override_kotlin(sql_type, TypeVariant::Field, config) {
         return if nullable { format!("{}?", resolved.name) } else { resolved.name };
     }
     kotlin_type(sql_type, nullable)
 }
 
-fn kotlin_param_type_resolved(p: &Parameter, config: &OutputConfig) -> String {
+pub(super) fn kotlin_param_type_resolved(p: &Parameter, config: &OutputConfig) -> String {
     if p.is_list {
         let elem = if let Some(resolved) = get_type_override_kotlin(&p.sql_type, TypeVariant::Param, config) {
             resolved.name

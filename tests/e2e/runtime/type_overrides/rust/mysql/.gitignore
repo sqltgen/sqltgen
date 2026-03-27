@@ -1,2 +1,4 @@
+src/db/
 target/
 Cargo.lock
+tests/runtime_gen.rs

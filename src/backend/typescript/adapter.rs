@@ -31,7 +31,7 @@ fn anon_sql(sql: &str) -> String {
 
 pub(super) fn resolve_ts_contract(target: JsTarget, output: JsOutput) -> TsCoreContract {
     match target {
-        JsTarget::Postgres => TsCoreContract {
+        JsTarget::Pg => TsCoreContract {
             output,
             runtime_hint: "pg (node-postgres) — npm install pg",
             date_as_string: false,
@@ -40,7 +40,7 @@ pub(super) fn resolve_ts_contract(target: JsTarget, output: JsOutput) -> TsCoreC
             emit_query: emit_pg_query,
             helper_content: build_helper_file(target, output),
         },
-        JsTarget::Sqlite => TsCoreContract {
+        JsTarget::BetterSqlite3 => TsCoreContract {
             output,
             runtime_hint: "better-sqlite3 — npm install better-sqlite3",
             date_as_string: false,
@@ -49,7 +49,7 @@ pub(super) fn resolve_ts_contract(target: JsTarget, output: JsOutput) -> TsCoreC
             emit_query: emit_sqlite_query,
             helper_content: build_helper_file(target, output),
         },
-        JsTarget::Mysql => TsCoreContract {
+        JsTarget::Mysql2 => TsCoreContract {
             output,
             runtime_hint: "mysql2 — npm install mysql2",
             date_as_string: true,
@@ -72,15 +72,15 @@ fn build_helper_file(target: JsTarget, output: JsOutput) -> String {
     match output {
         JsOutput::TypeScript => {
             match target {
-                JsTarget::Postgres => {
+                JsTarget::Pg => {
                     _ = writeln!(src, "import type {{ ClientBase }} from 'pg';");
                     _ = writeln!(src, "export type Db = ClientBase;");
                 },
-                JsTarget::Sqlite => {
+                JsTarget::BetterSqlite3 => {
                     _ = writeln!(src, "import type {{ Database }} from 'better-sqlite3';");
                     _ = writeln!(src, "export type Db = Database;");
                 },
-                JsTarget::Mysql => {
+                JsTarget::Mysql2 => {
                     _ = writeln!(src, "import type {{ Connection }} from 'mysql2/promise';");
                     _ = writeln!(src, "export type Db = Connection;");
                 },
@@ -101,13 +101,13 @@ fn build_helper_file(target: JsTarget, output: JsOutput) -> String {
         },
         JsOutput::JavaScript => {
             match target {
-                JsTarget::Postgres => {
+                JsTarget::Pg => {
                     _ = writeln!(src, "/** @typedef {{import('pg').ClientBase}} Db */");
                 },
-                JsTarget::Sqlite => {
+                JsTarget::BetterSqlite3 => {
                     _ = writeln!(src, "/** @typedef {{import('better-sqlite3').Database}} Db */");
                 },
-                JsTarget::Mysql => {
+                JsTarget::Mysql2 => {
                     _ = writeln!(src, "/** @typedef {{import('mysql2/promise').Connection}} Db */");
                 },
             }

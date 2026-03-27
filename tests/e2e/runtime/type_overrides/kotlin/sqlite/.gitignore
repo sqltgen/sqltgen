@@ -1,4 +1,5 @@
 target/
-src/main/kotlin/com/example/db
+src/main/kotlin/
 .classpath
 .settings
+src/test/kotlin/com/example/db/RuntimeGenTest.kt

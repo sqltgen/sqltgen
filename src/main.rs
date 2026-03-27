@@ -82,18 +82,21 @@ fn run_generate(config_path: &Path) -> anyhow::Result<()> {
 
     // Run each configured codegen target
     for (lang, output_config) in &cfg.gen {
+        let driver = output_config.driver.as_deref();
         let codegen: Box<dyn Codegen> = match lang {
-            Language::Java => Box::new(backend::java::JavaCodegen { target: cfg.engine.into() }),
-            Language::Kotlin => Box::new(backend::kotlin::KotlinCodegen { target: cfg.engine.into() }),
-            Language::Rust => Box::new(backend::rust::RustCodegen { target: cfg.engine.into() }),
-            Language::Go => Box::new(backend::go::GoCodegen { target: cfg.engine.into() }),
-            Language::Python => Box::new(backend::python::PythonCodegen { target: cfg.engine.into() }),
-            Language::TypeScript => {
-                Box::new(backend::typescript::TypeScriptCodegen { target: cfg.engine.into(), output: backend::typescript::JsOutput::TypeScript })
-            },
-            Language::JavaScript => {
-                Box::new(backend::typescript::TypeScriptCodegen { target: cfg.engine.into(), output: backend::typescript::JsOutput::JavaScript })
-            },
+            Language::Java => Box::new(backend::java::JavaCodegen { target: backend::jdbc::JdbcTarget::from_engine_and_driver(cfg.engine, driver)? }),
+            Language::Kotlin => Box::new(backend::kotlin::KotlinCodegen { target: backend::jdbc::JdbcTarget::from_engine_and_driver(cfg.engine, driver)? }),
+            Language::Rust => Box::new(backend::rust::RustCodegen { target: backend::rust::RustTarget::from_engine_and_driver(cfg.engine, driver)? }),
+            Language::Go => Box::new(backend::go::GoCodegen { target: backend::go::GoTarget::from_engine_and_driver(cfg.engine, driver)? }),
+            Language::Python => Box::new(backend::python::PythonCodegen { target: backend::python::PythonTarget::from_engine_and_driver(cfg.engine, driver)? }),
+            Language::TypeScript => Box::new(backend::typescript::TypeScriptCodegen {
+                target: backend::typescript::JsTarget::from_engine_and_driver(cfg.engine, driver)?,
+                output: backend::typescript::JsOutput::TypeScript,
+            }),
+            Language::JavaScript => Box::new(backend::typescript::TypeScriptCodegen {
+                target: backend::typescript::JsTarget::from_engine_and_driver(cfg.engine, driver)?,
+                output: backend::typescript::JsOutput::JavaScript,
+            }),
         };
 
         let files = codegen.generate(&schema, &queries, output_config)?;

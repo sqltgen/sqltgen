@@ -1,4 +1,5 @@
 target/
-src/main/java/com/example/db
+src/main/java/
 .classpath
 .settings
+src/test/java/com/example/db/RuntimeGenTest.java

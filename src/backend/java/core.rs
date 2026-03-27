@@ -84,7 +84,7 @@ fn get_type_override_java(sql_type: &SqlType, variant: TypeVariant, config: &Out
 }
 
 /// Return the Java field type for a SQL type, applying any configured type override first.
-fn java_field_type(sql_type: &SqlType, nullable: bool, config: &OutputConfig) -> String {
+pub(super) fn java_field_type(sql_type: &SqlType, nullable: bool, config: &OutputConfig) -> String {
     if let Some(resolved) = get_type_override_java(sql_type, TypeVariant::Field, config) {
         return apply_nullable_java(&resolved.name, nullable, false);
     }
@@ -92,7 +92,7 @@ fn java_field_type(sql_type: &SqlType, nullable: bool, config: &OutputConfig) ->
 }
 
 /// Return the Java parameter type, applying any configured param type override first.
-fn java_param_type_resolved(p: &Parameter, config: &OutputConfig) -> String {
+pub(super) fn java_param_type_resolved(p: &Parameter, config: &OutputConfig) -> String {
     if p.is_list {
         let elem =
             if let Some(resolved) = get_type_override_java(&p.sql_type, TypeVariant::Param, config) { resolved.name } else { java_type_boxed(&p.sql_type) };

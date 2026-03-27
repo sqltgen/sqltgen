@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "test": "tsx --test runtime.test.ts"
+    "test": "tsx --test runtime.test.ts runtime_gen.test.ts"
   },
   "dependencies": {
     "pg": "^8.13.3"

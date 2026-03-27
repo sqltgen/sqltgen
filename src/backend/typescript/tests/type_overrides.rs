@@ -20,7 +20,7 @@ fn test_pg_write_expr_applied_to_json_param() {
     let schema = Schema::default();
     let query = Query::exec("InsertDoc", "INSERT INTO docs (payload) VALUES ($1)", vec![Parameter::scalar(1, "payload", SqlType::Json, false)]);
     let cfg = cfg_with_overrides(vec![("json", TypeOverride::Same(TypeRef::String("object".to_string())))]);
-    let gen = TypeScriptCodegen { target: JsTarget::Postgres, output: JsOutput::TypeScript };
+    let gen = TypeScriptCodegen { target: JsTarget::Pg, output: JsOutput::TypeScript };
     let files = gen.generate(&schema, &[query], &cfg).unwrap();
     let src = get_file(&files, "queries.ts");
 
@@ -33,7 +33,7 @@ fn test_sqlite_write_expr_applied_to_json_param() {
     let schema = Schema::default();
     let query = Query::exec("InsertDoc", "INSERT INTO docs (payload) VALUES (?1)", vec![Parameter::scalar(1, "payload", SqlType::Json, false)]);
     let cfg = cfg_with_overrides(vec![("json", TypeOverride::Same(TypeRef::String("object".to_string())))]);
-    let gen = TypeScriptCodegen { target: JsTarget::Sqlite, output: JsOutput::TypeScript };
+    let gen = TypeScriptCodegen { target: JsTarget::BetterSqlite3, output: JsOutput::TypeScript };
     let files = gen.generate(&schema, &[query], &cfg).unwrap();
     let src = get_file(&files, "queries.ts");
 
@@ -45,7 +45,7 @@ fn test_mysql_write_expr_applied_to_json_param() {
     let schema = Schema::default();
     let query = Query::exec("InsertDoc", "INSERT INTO docs (payload) VALUES ($1)", vec![Parameter::scalar(1, "payload", SqlType::Json, false)]);
     let cfg = cfg_with_overrides(vec![("json", TypeOverride::Same(TypeRef::String("object".to_string())))]);
-    let gen = TypeScriptCodegen { target: JsTarget::Mysql, output: JsOutput::TypeScript };
+    let gen = TypeScriptCodegen { target: JsTarget::Mysql2, output: JsOutput::TypeScript };
     let files = gen.generate(&schema, &[query], &cfg).unwrap();
     let src = get_file(&files, "queries.ts");
 
@@ -66,7 +66,7 @@ fn test_explicit_write_expr_applied_to_param() {
             write_expr: Some("mySerialize({value})".to_string()),
         }),
     )]);
-    let gen = TypeScriptCodegen { target: JsTarget::Postgres, output: JsOutput::TypeScript };
+    let gen = TypeScriptCodegen { target: JsTarget::Pg, output: JsOutput::TypeScript };
     let files = gen.generate(&schema, &[query], &cfg).unwrap();
     let src = get_file(&files, "queries.ts");
 
@@ -78,7 +78,7 @@ fn test_no_write_expr_emits_bare_param() {
     // Without any override, params must appear as plain camelCase names.
     let schema = Schema::default();
     let query = Query::exec("InsertDoc", "INSERT INTO docs (payload) VALUES ($1)", vec![Parameter::scalar(1, "payload", SqlType::Json, false)]);
-    let gen = TypeScriptCodegen { target: JsTarget::Postgres, output: JsOutput::TypeScript };
+    let gen = TypeScriptCodegen { target: JsTarget::Pg, output: JsOutput::TypeScript };
     let files = gen.generate(&schema, &[query], &config()).unwrap();
     let src = get_file(&files, "queries.ts");
 
@@ -108,7 +108,7 @@ fn test_pg_read_expr_applied_to_one_query() {
             write_expr: None,
         }),
     )]);
-    let gen = TypeScriptCodegen { target: JsTarget::Postgres, output: JsOutput::TypeScript };
+    let gen = TypeScriptCodegen { target: JsTarget::Pg, output: JsOutput::TypeScript };
     let files = gen.generate(&schema, &[query], &cfg).unwrap();
     let src = get_file(&files, "queries.ts");
 
@@ -130,7 +130,7 @@ fn test_pg_read_expr_applied_to_many_query() {
             write_expr: None,
         }),
     )]);
-    let gen = TypeScriptCodegen { target: JsTarget::Postgres, output: JsOutput::TypeScript };
+    let gen = TypeScriptCodegen { target: JsTarget::Pg, output: JsOutput::TypeScript };
     let files = gen.generate(&schema, &[query], &cfg).unwrap();
     let src = get_file(&files, "queries.ts");
 
@@ -156,7 +156,7 @@ fn test_sqlite_read_expr_applied_to_one_query() {
             write_expr: None,
         }),
     )]);
-    let gen = TypeScriptCodegen { target: JsTarget::Sqlite, output: JsOutput::TypeScript };
+    let gen = TypeScriptCodegen { target: JsTarget::BetterSqlite3, output: JsOutput::TypeScript };
     let files = gen.generate(&schema, &[query], &cfg).unwrap();
     let src = get_file(&files, "queries.ts");
 
@@ -179,7 +179,7 @@ fn test_sqlite_read_expr_applied_to_many_query() {
             write_expr: None,
         }),
     )]);
-    let gen = TypeScriptCodegen { target: JsTarget::Sqlite, output: JsOutput::TypeScript };
+    let gen = TypeScriptCodegen { target: JsTarget::BetterSqlite3, output: JsOutput::TypeScript };
     let files = gen.generate(&schema, &[query], &cfg).unwrap();
     let src = get_file(&files, "queries.ts");
 
@@ -205,7 +205,7 @@ fn test_mysql_read_expr_applied_to_one_query() {
             write_expr: None,
         }),
     )]);
-    let gen = TypeScriptCodegen { target: JsTarget::Mysql, output: JsOutput::TypeScript };
+    let gen = TypeScriptCodegen { target: JsTarget::Mysql2, output: JsOutput::TypeScript };
     let files = gen.generate(&schema, &[query], &cfg).unwrap();
     let src = get_file(&files, "queries.ts");
 
@@ -223,7 +223,7 @@ fn test_no_read_expr_no_row_transform() {
         vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
         vec![ResultColumn::not_nullable("data", SqlType::Json)],
     );
-    let gen = TypeScriptCodegen { target: JsTarget::Postgres, output: JsOutput::TypeScript };
+    let gen = TypeScriptCodegen { target: JsTarget::Pg, output: JsOutput::TypeScript };
     let files = gen.generate(&schema, &[query], &config()).unwrap();
     let src = get_file(&files, "queries.ts");
 
@@ -244,7 +244,7 @@ fn test_object_preset_sqlite_one_applies_both_exprs() {
         vec![ResultColumn::not_nullable("data", SqlType::Json)],
     );
     let cfg = cfg_with_overrides(vec![("json", TypeOverride::Same(TypeRef::String("object".to_string())))]);
-    let gen = TypeScriptCodegen { target: JsTarget::Sqlite, output: JsOutput::TypeScript };
+    let gen = TypeScriptCodegen { target: JsTarget::BetterSqlite3, output: JsOutput::TypeScript };
     let files = gen.generate(&schema, &[query], &cfg).unwrap();
     let src = get_file(&files, "queries.ts");
 

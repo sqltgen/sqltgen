@@ -9,8 +9,16 @@ from contextlib import closing
 from ._sqltgen import execute, exec_stmt
 import decimal
 import datetime
+import json
 
 Connection = mysql.connector.MySQLConnection
+
+
+def _load_json(v):
+    """Deserialize a JSON string returned by MySQL."""
+    if v is None:
+        return None
+    return json.loads(v)
 
 from .author import Author
 from .book import Book
@@ -575,7 +583,7 @@ def get_product(conn: Connection, id: str) -> Product | None:
         row = cur.fetchone()
         if row is None:
             return None
-        return Product(*row)
+        return Product(row[0], row[1], row[2], row[3], row[4], row[5], _load_json(row[6]), row[7], row[8], row[9])
 
 
 @dataclasses.dataclass
@@ -586,14 +594,14 @@ class ListActiveProductsRow:
     active: bool
     weight_kg: float | None
     rating: float | None
-    metadata: str | None
+    metadata: object | None
     created_at: datetime.datetime
     stock_count: int
 
 
 def list_active_products(conn: Connection, active: bool) -> list[ListActiveProductsRow]:
     with execute(conn, SQL_LIST_ACTIVE_PRODUCTS, (active,)) as cur:
-        return [ListActiveProductsRow(*row) for row in cur.fetchall()]
+        return [ListActiveProductsRow(row[0], row[1], row[2], row[3], row[4], row[5], _load_json(row[6]), row[7], row[8]) for row in cur.fetchall()]
 
 
 @dataclasses.dataclass

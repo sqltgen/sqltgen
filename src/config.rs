@@ -265,6 +265,17 @@ pub enum Engine {
     Mysql,
 }
 
+impl Engine {
+    /// Return the lowercase engine name used in manifest files.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Engine::Postgresql => "postgresql",
+            Engine::Sqlite => "sqlite",
+            Engine::Mysql => "mysql",
+        }
+    }
+}
+
 /// Target language for code generation.
 ///
 /// Used as the key in `gen` — invalid values are rejected at deserialization time.
@@ -326,6 +337,18 @@ pub struct OutputConfig {
     /// type specifications. When present, overrides the backend's default type mapping.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub type_overrides: HashMap<String, TypeOverride>,
+    /// Path to write the manifest JSON file (relative to the config directory).
+    ///
+    /// When set, sqltgen emits a JSON manifest describing the generated API surface
+    /// with resolved, language-specific types. Used by test-generation tooling.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub manifest: Option<String>,
+    /// Database driver to use for this output target.
+    ///
+    /// Optional. When omitted the default driver for the engine is used.
+    /// Specifying an unsupported driver is a fatal error at startup.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub driver: Option<String>,
 }
 
 impl OutputConfig {
@@ -819,5 +842,39 @@ mod tests {
         let java = cfg.gen.get(&Language::Java).unwrap();
         assert!(java.type_overrides.contains_key("json"));
         assert!(java.type_overrides.contains_key("date"));
+    }
+
+    #[test]
+    fn test_output_config_manifest_deserializes() {
+        let json = r#"{
+            "version": "1",
+            "engine": "postgresql",
+            "schema": "schema.sql",
+            "queries": "queries.sql",
+            "gen": {
+                "python": {
+                    "out": "gen",
+                    "package": "db",
+                    "manifest": "gen/manifest.json"
+                }
+            }
+        }"#;
+        let cfg = SqltgenConfig::from_json(json).unwrap();
+        let python = cfg.gen.get(&Language::Python).unwrap();
+        assert_eq!(python.manifest.as_deref(), Some("gen/manifest.json"));
+    }
+
+    #[test]
+    fn test_output_config_manifest_absent_is_none() {
+        let cfg = SqltgenConfig::from_json(SAMPLE).unwrap();
+        let java = cfg.gen.get(&Language::Java).unwrap();
+        assert!(java.manifest.is_none());
+    }
+
+    #[test]
+    fn test_engine_as_str() {
+        assert_eq!(Engine::Postgresql.as_str(), "postgresql");
+        assert_eq!(Engine::Sqlite.as_str(), "sqlite");
+        assert_eq!(Engine::Mysql.as_str(), "mysql");
     }
 }
