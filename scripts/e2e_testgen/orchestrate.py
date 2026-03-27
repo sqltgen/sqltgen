@@ -25,10 +25,17 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 FIXTURES_DIR = REPO_ROOT / "tests" / "e2e" / "fixtures"
 RUNTIME_DIR = REPO_ROOT / "tests" / "e2e" / "runtime"
 
-# All known (fixture, language, engine) combinations.
-# Each tuple: (fixture, language, engine, sqltgen_json_dir)
+# Known dimensions for test generation.
 KNOWN_LANGUAGES = ["python", "go", "typescript", "rust", "java", "kotlin"]
 KNOWN_ENGINES = ["postgresql", "sqlite", "mysql"]
+
+# Non-default variants available per language.
+# A variant names the one thing deviating from the language default
+# (e.g. "gson" for Gson JSON library instead of Jackson).
+KNOWN_VARIANTS: dict[str, list[str]] = {
+    "java": ["gson"],
+    "kotlin": ["gson"],
+}
 
 # Output test file names per language.
 TEST_FILE_NAMES = {
@@ -43,11 +50,21 @@ TEST_FILE_NAMES = {
 
 @dataclass
 class Combo:
-    """A (fixture, language, engine) combination to generate/run."""
+    """A (fixture, language, engine, variant) combination to generate/run.
+
+    variant names the one thing deviating from the language default (e.g. "gson").
+    Empty string means all defaults.
+    """
 
     fixture: str
     language: str
     engine: str
+    variant: str = ""
+
+    @property
+    def engine_dir(self) -> str:
+        """Directory name: engine + variant suffix when non-default."""
+        return f"{self.engine}-{self.variant}" if self.variant else self.engine
 
     @property
     def fixture_dir(self) -> Path:
@@ -55,7 +72,7 @@ class Combo:
 
     @property
     def runtime_dir(self) -> Path:
-        return RUNTIME_DIR / self.fixture / self.language / self.engine
+        return RUNTIME_DIR / self.fixture / self.language / self.engine_dir
 
     @property
     def spec_path(self) -> Path:
@@ -78,8 +95,14 @@ def discover_combos(
     fixture: str | None = None,
     lang: str | None = None,
     engine: str | None = None,
+    variant: str | None = None,
 ) -> list[Combo]:
-    """Find all valid (fixture, language, engine) combos matching filters."""
+    """Find all valid combos matching filters.
+
+    For each language, iterates the default variant (empty) plus any
+    language-specific variants from KNOWN_VARIANTS. Only combos whose
+    sqltgen.json exists on disk are included.
+    """
     combos = []
     fixtures = [fixture] if fixture else [d.name for d in FIXTURES_DIR.iterdir() if d.is_dir()]
 
@@ -92,10 +115,12 @@ def discover_combos(
         engines = [engine] if engine else KNOWN_ENGINES
 
         for l in languages:
+            variants = [variant] if variant is not None else [""] + KNOWN_VARIANTS.get(l, [])
             for e in engines:
-                combo = Combo(fixture=fix, language=l, engine=e)
-                if combo.sqltgen_json.exists():
-                    combos.append(combo)
+                for v in variants:
+                    combo = Combo(fixture=fix, language=l, engine=e, variant=v)
+                    if combo.sqltgen_json.exists():
+                        combos.append(combo)
     return combos
 
 
@@ -141,7 +166,7 @@ def ensure_manifest(combo: Combo, sqltgen_binary: str = "cargo") -> Path:
             text=True,
         )
         if result.returncode != 0:
-            print(f"sqltgen generate failed for {combo.language}/{combo.engine}:", file=sys.stderr)
+            print(f"sqltgen generate failed for {combo.language}/{combo.engine_dir}:", file=sys.stderr)
             print(result.stderr, file=sys.stderr)
             sys.exit(1)
     finally:
@@ -161,7 +186,7 @@ def generate(combo: Combo, sqltgen_binary: str = "cargo") -> Path:
 
     # 3. Render test
     engine_override = spec.get_engine_override(combo.engine)
-    test_code = render_test(combo.language, combo.engine, spec, manifest, engine_override)
+    test_code = render_test(combo.language, combo.engine, spec, manifest, engine_override, combo.variant)
 
     # 4. Write test file
     output = combo.output_test_file
@@ -181,10 +206,11 @@ def main():
         p.add_argument("--fixture", help="Fixture name (e.g. type_overrides)")
         p.add_argument("--lang", help="Target language (e.g. python)")
         p.add_argument("--engine", help="Database engine (e.g. postgresql)")
+        p.add_argument("--variant", help="Non-default variant (e.g. gson)")
         p.add_argument("--sqltgen", default="cargo", help="sqltgen binary or 'cargo' (default)")
 
     args = parser.parse_args()
-    combos = discover_combos(args.fixture, args.lang, args.engine)
+    combos = discover_combos(args.fixture, args.lang, args.engine, args.variant)
 
     if not combos:
         print("No matching combos found.", file=sys.stderr)
@@ -192,7 +218,7 @@ def main():
 
     print(f"Found {len(combos)} combo(s):")
     for c in combos:
-        print(f"  {c.fixture}/{c.language}/{c.engine}")
+        print(f"  {c.fixture}/{c.language}/{c.engine_dir}")
 
     skipped = []
 
@@ -201,7 +227,7 @@ def main():
             try:
                 generate(combo, args.sqltgen)
             except ModuleNotFoundError as e:
-                print(f"  Skipped {combo.language}/{combo.engine}: {e}", file=sys.stderr)
+                print(f"  Skipped {combo.language}/{combo.engine_dir}: {e}", file=sys.stderr)
                 skipped.append(combo)
 
     elif args.command == "run":
@@ -209,14 +235,14 @@ def main():
             try:
                 generate(combo, args.sqltgen)
             except ModuleNotFoundError as e:
-                print(f"  Skipped {combo.language}/{combo.engine}: {e}", file=sys.stderr)
+                print(f"  Skipped {combo.language}/{combo.engine_dir}: {e}", file=sys.stderr)
                 skipped.append(combo)
         # TODO: Add language-specific test runners
         print("\nTest running not yet implemented. Generated files are ready for manual testing.")
 
     if skipped:
         print(f"\n{len(skipped)} combo(s) skipped (renderer not yet implemented):"
-              f" {', '.join(f'{c.language}/{c.engine}' for c in skipped)}", file=sys.stderr)
+              f" {', '.join(f'{c.language}/{c.engine_dir}' for c in skipped)}", file=sys.stderr)
 
 
 if __name__ == "__main__":

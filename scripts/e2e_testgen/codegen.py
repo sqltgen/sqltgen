@@ -21,8 +21,9 @@ def render_test(
     spec: TestSpec,
     manifest: Manifest,
     engine_override: EngineOverride,
+    variant: str = "",
 ) -> str:
-    """Render a test file for a (language, engine) combination."""
+    """Render a test file for a (language, engine, variant) combination."""
     env = jinja2.Environment(
         loader=jinja2.FileSystemLoader(str(TEMPLATES_DIR)),
         keep_trailing_newline=True,
@@ -50,6 +51,7 @@ def render_test(
     return template.render(
         language=language,
         engine=engine,
+        variant=variant,
         spec=spec,
         manifest=manifest,
         engine_override=engine_override,
