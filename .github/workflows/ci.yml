@@ -28,6 +28,18 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: make ci-examples-drift
 
+  testgen-drift:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - run: make ci-testgen-drift
+
   runtime-sqlite:
     runs-on: ubuntu-latest
     needs: build-and-test

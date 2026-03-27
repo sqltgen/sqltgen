@@ -1,0 +1,7 @@
+# Generated e2e test files — collapsed by default in GitHub PR diffs.
+tests/e2e/runtime/**/test_runtime_gen.py       linguist-generated=true
+tests/e2e/runtime/**/runtime_gen_test.go       linguist-generated=true
+tests/e2e/runtime/**/runtime_gen.test.ts       linguist-generated=true
+tests/e2e/runtime/**/tests/runtime_gen.rs      linguist-generated=true
+tests/e2e/runtime/**/RuntimeGenTest.java       linguist-generated=true
+tests/e2e/runtime/**/RuntimeGenTest.kt         linguist-generated=true
