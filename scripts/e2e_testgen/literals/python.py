@@ -42,7 +42,7 @@ def render_assert_eq(field_expr: str, expected: str) -> str:
     return f"assert {field_expr} == {expected}"
 
 
-def render_assert_json_eq(field_expr: str, value: Any) -> str:
+def render_assert_json_eq(field_expr: str, value: Any, field_lang_type: str | None = None) -> str:
     """Render a JSON equality assertion that parses the field before comparing.
 
     Used when the engine coerces JSON to a string on round-trip (e.g. MySQL),

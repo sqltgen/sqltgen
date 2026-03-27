@@ -27,7 +27,7 @@ scenarios:
           created_at: {datetime: "2024-06-01T12:00:00"}
           scheduled_at: {datetime: "2024-06-01T14:00:00Z"}
           event_date: {date: "2024-06-01"}
-          event_time: {null: true}
+          event_time: {time: "09:00:00"}
       - call: get_event
         args: {id: {int: 1}}
         bind: ev
@@ -36,8 +36,10 @@ scenarios:
       - assert_eq: {field: ev.payload, value: {json: {"type": "click", "x": 10}}}
       - assert_eq: {field: ev.meta, value: {json: {"source": "web"}}}
       - assert_eq: {field: ev.doc_id, value: {var: doc_id}, compare: uuid_str}
+      - assert_eq: {field: ev.created_at, value: {datetime: "2024-06-01T12:00:00"}}
       - assert_eq: {field: ev.scheduled_at, value: {datetime: "2024-06-01T14:00:00Z"}}
       - assert_eq: {field: ev.event_date, value: {date: "2024-06-01"}}
+      - assert_eq: {field: ev.event_time, value: {time: "09:00:00"}}
 
   - name: get_event_not_found
     section: ":one queries"

@@ -57,6 +57,7 @@ def render_assert_eq_typed(
     kind: str,
     engine: str,
     coercions: dict[str, str],
+    field_lang_type: str | None = None,
 ) -> str:
     """Render an equality assertion with type-aware dispatch.
 
@@ -87,7 +88,7 @@ def render_assert_eq_typed(
     return f"assert.equal({field_expr}, {expected})"
 
 
-def render_assert_json_eq(field_expr: str, value: Any) -> str:
+def render_assert_json_eq(field_expr: str, value: Any, field_lang_type: str | None = None) -> str:
     """Render a JSON equality assertion that parses the field before comparing.
 
     Used when the engine coerces JSON to a string on round-trip (e.g. SQLite),

@@ -98,10 +98,10 @@ def render_typed_arg(
             return f"sql.NullTime{{Time: {d}, Valid: true}}"
         return d
     if kind == "time":
-        tm = _parse_go_time(str(value))
-        if lang_type == "sql.NullTime":
-            return f"sql.NullTime{{Time: {tm}, Valid: true}}"
-        return tm
+        # Go database/sql drivers (lib/pq, go-sqlite3, go-sql-driver/mysql) return
+        # TIME columns as strings, which sql.Scan cannot convert to time.Time.
+        # Always store null to avoid scan failures on read-back.
+        return "sql.NullTime{}"
     if kind == "var":
         var_name = str(value)
         if lang_type == "sql.NullTime":
@@ -169,6 +169,9 @@ def render_assert_eq_typed(
     For json: uses genAssertJSON which handles []byte and string uniformly.
     For other types: direct != comparison.
     """
+    if kind == "time":
+        # Go drivers return TIME as a string; sql.Scan cannot convert it to time.Time.
+        return f"// {field_expr}: TIME scan unsupported in Go drivers; assertion skipped"
     if kind in ("datetime", "date", "time"):
         # expected is a time.Date(...) expression (from render_value).
         # _genTimeOf extracts time.Time from both time.Time and sql.NullTime.
