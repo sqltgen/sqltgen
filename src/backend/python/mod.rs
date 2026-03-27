@@ -30,12 +30,9 @@ impl PythonTarget {
             (Engine::Postgresql, None | Some("psycopg")) => Ok(PythonTarget::Psycopg),
             (Engine::Sqlite, None | Some("sqlite3")) => Ok(PythonTarget::Sqlite3),
             (Engine::Mysql, None | Some("mysql-connector-python")) => Ok(PythonTarget::MysqlConnector),
-            (_, Some(d)) => anyhow::bail!(
-                "driver {:?} is not supported for python/{}; supported drivers: {}",
-                d,
-                engine.as_str(),
-                Self::supported_drivers(engine),
-            ),
+            (_, Some(d)) => {
+                anyhow::bail!("driver {:?} is not supported for python/{}; supported drivers: {}", d, engine.as_str(), Self::supported_drivers(engine),)
+            },
         }
     }
 

@@ -64,11 +64,7 @@ impl JdbcTarget {
     /// only and does not affect generated code. No driver variants exist — omit the key.
     pub fn from_engine_and_driver(engine: Engine, driver: Option<&str>) -> anyhow::Result<Self> {
         if let Some(d) = driver {
-            anyhow::bail!(
-                "driver {:?} is not supported for java-kotlin/{}; driver selection is not yet available for JDBC backends",
-                d,
-                engine.as_str(),
-            );
+            anyhow::bail!("driver {:?} is not supported for java-kotlin/{}; driver selection is not yet available for JDBC backends", d, engine.as_str(),);
         }
         Ok(engine.into())
     }

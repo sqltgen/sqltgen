@@ -84,21 +84,11 @@ fn run_generate(config_path: &Path) -> anyhow::Result<()> {
     for (lang, output_config) in &cfg.gen {
         let driver = output_config.driver.as_deref();
         let codegen: Box<dyn Codegen> = match lang {
-            Language::Java => Box::new(backend::java::JavaCodegen {
-                target: backend::jdbc::JdbcTarget::from_engine_and_driver(cfg.engine, driver)?,
-            }),
-            Language::Kotlin => Box::new(backend::kotlin::KotlinCodegen {
-                target: backend::jdbc::JdbcTarget::from_engine_and_driver(cfg.engine, driver)?,
-            }),
-            Language::Rust => Box::new(backend::rust::RustCodegen {
-                target: backend::rust::RustTarget::from_engine_and_driver(cfg.engine, driver)?,
-            }),
-            Language::Go => Box::new(backend::go::GoCodegen {
-                target: backend::go::GoTarget::from_engine_and_driver(cfg.engine, driver)?,
-            }),
-            Language::Python => Box::new(backend::python::PythonCodegen {
-                target: backend::python::PythonTarget::from_engine_and_driver(cfg.engine, driver)?,
-            }),
+            Language::Java => Box::new(backend::java::JavaCodegen { target: backend::jdbc::JdbcTarget::from_engine_and_driver(cfg.engine, driver)? }),
+            Language::Kotlin => Box::new(backend::kotlin::KotlinCodegen { target: backend::jdbc::JdbcTarget::from_engine_and_driver(cfg.engine, driver)? }),
+            Language::Rust => Box::new(backend::rust::RustCodegen { target: backend::rust::RustTarget::from_engine_and_driver(cfg.engine, driver)? }),
+            Language::Go => Box::new(backend::go::GoCodegen { target: backend::go::GoTarget::from_engine_and_driver(cfg.engine, driver)? }),
+            Language::Python => Box::new(backend::python::PythonCodegen { target: backend::python::PythonTarget::from_engine_and_driver(cfg.engine, driver)? }),
             Language::TypeScript => Box::new(backend::typescript::TypeScriptCodegen {
                 target: backend::typescript::JsTarget::from_engine_and_driver(cfg.engine, driver)?,
                 output: backend::typescript::JsOutput::TypeScript,

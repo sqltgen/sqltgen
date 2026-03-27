@@ -37,11 +37,7 @@ impl RustTarget {
     pub fn from_engine_and_driver(engine: Engine, driver: Option<&str>) -> anyhow::Result<Self> {
         match driver {
             None | Some("sqlx") => Ok(engine.into()),
-            Some(d) => anyhow::bail!(
-                "driver {:?} is not supported for rust/{}; supported drivers: sqlx",
-                d,
-                engine.as_str(),
-            ),
+            Some(d) => anyhow::bail!("driver {:?} is not supported for rust/{}; supported drivers: sqlx", d, engine.as_str(),),
         }
     }
 

@@ -31,12 +31,9 @@ impl JsTarget {
             (Engine::Postgresql, None | Some("pg")) => Ok(JsTarget::Pg),
             (Engine::Sqlite, None | Some("better-sqlite3")) => Ok(JsTarget::BetterSqlite3),
             (Engine::Mysql, None | Some("mysql2")) => Ok(JsTarget::Mysql2),
-            (_, Some(d)) => anyhow::bail!(
-                "driver {:?} is not supported for typescript/{}; supported drivers: {}",
-                d,
-                engine.as_str(),
-                Self::supported_drivers(engine),
-            ),
+            (_, Some(d)) => {
+                anyhow::bail!("driver {:?} is not supported for typescript/{}; supported drivers: {}", d, engine.as_str(), Self::supported_drivers(engine),)
+            },
         }
     }
 
