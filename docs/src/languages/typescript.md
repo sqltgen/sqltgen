@@ -175,6 +175,19 @@ export interface ListBooksWithAuthorRow {
 export async function listBooksWithAuthor(db: ClientBase): Promise<ListBooksWithAuthorRow[]> { … }
 ```
 
+## Nested row types (`-- nest:`)
+
+When a query includes `-- nest:` annotations, generated output contains:
+
+- a private flat row interface (`_QueryFlatRow`) used for raw DB rows
+- a child interface per nested group (`Query_Group`)
+- a parent row interface (`QueryRow`) with nested array fields
+
+At runtime, generated code aggregates flat rows using `Map` + `Set` and returns
+parent objects with de-duplicated child arrays.
+
+See [Nested query results](../nested-results.md) for full details and limits.
+
 ## Naming conventions
 
 | SQL | TypeScript |

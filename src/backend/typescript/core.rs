@@ -3,14 +3,14 @@ use std::fmt::Write;
 use std::path::PathBuf;
 
 use crate::backend::common::{
-    group_queries, has_inline_rows, infer_row_type_name, infer_table, querier_class_name, queries_file_stem, row_type_name as inline_row_type_name,
-    sql_const_name,
+    flat_row_type_name, group_queries, has_inline_rows, infer_row_type_name, infer_table, nested_type_name, querier_class_name, queries_file_stem,
+    row_type_name as inline_row_type_name, sql_const_name,
 };
 use crate::backend::naming::{to_camel_case, to_pascal_case};
 use crate::backend::sql_rewrite::{positional_bind_names, rewrite_to_anon_params, split_at_in_clause};
 use crate::backend::GeneratedFile;
 use crate::config::{resolve_type_override, Language, ListParamStrategy, OutputConfig, ResolvedType, TypeVariant};
-use crate::ir::{Parameter, Query, QueryCmd, Schema, SqlType, Table};
+use crate::ir::{NestedGroup, Parameter, Query, QueryCmd, Schema, SqlType, Table};
 
 use super::adapter::TsCoreContract;
 use super::{JsOutput, TypeScriptCodegen};
@@ -220,6 +220,339 @@ fn emit_inline_row_type_with_contract(src: &mut String, query: &Query, contract:
     }
 }
 
+// ─── Nested result types ──────────────────────────────────────────────────────
+
+/// Emit all type declarations for a nested-result query:
+///
+/// 1. A private flat row interface (raw SQL result shape before aggregation).
+/// 2. A public child interface per nested group.
+/// 3. A public parent interface with nested array fields.
+fn emit_nested_types(src: &mut String, query: &Query, contract: &TsCoreContract, config: &OutputConfig) -> anyhow::Result<()> {
+    let parent_cols = query.parent_columns();
+
+    match contract.output {
+        JsOutput::TypeScript => {
+            // 1. Private flat row type
+            let flat_name = flat_row_type_name(&query.name);
+            let flat_fields: Vec<(&str, &SqlType, bool)> = query.result_columns.iter().map(|c| (c.name.as_str(), &c.sql_type, c.nullable)).collect();
+            writeln!(src, "interface {flat_name} {{")?;
+            for (fname, ftype, nullable) in &flat_fields {
+                writeln!(src, "  {fname}: {};", js_type_resolved(ftype, *nullable, contract, config))?;
+            }
+            writeln!(src, "}}")?;
+            writeln!(src)?;
+
+            // 2. Child types
+            for group in &query.nested_groups {
+                let child_name = nested_type_name(&query.name, &group.field_name);
+                writeln!(src, "export interface {child_name} {{")?;
+                for nc in &group.columns {
+                    writeln!(src, "  {}: {};", nc.target_name, js_type_resolved(&nc.sql_type, nc.nullable, contract, config))?;
+                }
+                writeln!(src, "}}")?;
+                writeln!(src)?;
+            }
+
+            // 3. Parent type
+            let parent_name = inline_row_type_name(&query.name);
+            writeln!(src, "export interface {parent_name} {{")?;
+            for pc in &parent_cols {
+                writeln!(src, "  {}: {};", pc.name, js_type_resolved(&pc.sql_type, pc.nullable, contract, config))?;
+            }
+            for group in &query.nested_groups {
+                let child_name = nested_type_name(&query.name, &group.field_name);
+                writeln!(src, "  {}: {child_name}[];", group.field_name)?;
+            }
+            writeln!(src, "}}")?;
+        },
+        JsOutput::JavaScript => {
+            // 2. Child @typedefs
+            for group in &query.nested_groups {
+                let child_name = nested_type_name(&query.name, &group.field_name);
+                writeln!(src, "/**")?;
+                writeln!(src, " * @typedef {{Object}} {child_name}")?;
+                for nc in &group.columns {
+                    let ty = js_type_resolved(&nc.sql_type, nc.nullable, contract, config);
+                    writeln!(src, " * @property {{{ty}}} {}", nc.target_name)?;
+                }
+                writeln!(src, " */")?;
+                writeln!(src)?;
+            }
+
+            // 3. Parent @typedef
+            let parent_name = inline_row_type_name(&query.name);
+            writeln!(src, "/**")?;
+            writeln!(src, " * @typedef {{Object}} {parent_name}")?;
+            for pc in &parent_cols {
+                let ty = js_type_resolved(&pc.sql_type, pc.nullable, contract, config);
+                writeln!(src, " * @property {{{ty}}} {}", pc.name)?;
+            }
+            for group in &query.nested_groups {
+                let child_name = nested_type_name(&query.name, &group.field_name);
+                writeln!(src, " * @property {{{child_name}[]}} {}", group.field_name)?;
+            }
+            writeln!(src, " */")?;
+        },
+    }
+    Ok(())
+}
+
+/// Emit the row-aggregation body for a nested `:many` query (PostgreSQL target).
+///
+/// Generates a `Map`-based grouping loop that collapses flat rows into parent
+/// objects with nested arrays, then returns `Array.from(map.values())`.
+fn emit_pg_nested_many_body(src: &mut String, ctx: &QueryContext, sql_expr: &str, args: &str) -> anyhow::Result<()> {
+    let flat_name = flat_row_type_name(&ctx.query.name);
+    let parent_name = inline_row_type_name(&ctx.query.name);
+    let parent_cols = ctx.query.parent_columns();
+    let call = pg_query_call(sql_expr, &flat_name, args, &ctx.contract.output);
+    let generic = map_generic(&parent_name, &ctx.contract.output);
+    writeln!(src, "  const result = await {call};")?;
+    writeln!(src, "  const grouped = new Map{generic}();")?;
+    emit_seen_sets(src, ctx.query, &ctx.contract.output)?;
+    writeln!(src, "  for (const row of result.rows) {{")?;
+    emit_aggregation_loop_body(src, ctx.query, &parent_cols)?;
+    writeln!(src, "  }}")?;
+    writeln!(src, "  return Array.from(grouped.values());")?;
+    Ok(())
+}
+
+fn ensure_no_nested_list_combo(query: &Query) -> anyhow::Result<()> {
+    if query.has_nested_groups() && query.params.iter().any(|p| p.is_list) {
+        anyhow::bail!(
+            "query '{}' combines nested results with list params; this combination is not supported for TypeScript/JavaScript yet",
+            query.name
+        );
+    }
+    Ok(())
+}
+
+/// Emit the row-aggregation body for a nested `:one` query (PostgreSQL target).
+///
+/// All flat rows belong to a single parent. Returns the parent with nested
+/// arrays, or `null` if no rows were returned.
+fn emit_pg_nested_one_body(src: &mut String, ctx: &QueryContext, sql_expr: &str, args: &str) -> anyhow::Result<()> {
+    let flat_name = flat_row_type_name(&ctx.query.name);
+    let parent_name = inline_row_type_name(&ctx.query.name);
+    let parent_cols = ctx.query.parent_columns();
+    let call = pg_query_call(sql_expr, &flat_name, args, &ctx.contract.output);
+    writeln!(src, "  const result = await {call};")?;
+    writeln!(src, "  if (result.rows.length === 0) return null;")?;
+    let parent_init = build_parent_initializer(&parent_cols, &ctx.query.nested_groups, "result.rows[0]");
+    let ann = ts_type_annotation(&parent_name, &ctx.contract.output);
+    writeln!(src, "  const parent{ann} = {{ {parent_init} }};")?;
+    emit_seen_sets(src, ctx.query, &ctx.contract.output)?;
+    writeln!(src, "  for (const row of result.rows) {{")?;
+    emit_one_nested_push_body(src, &ctx.query.nested_groups)?;
+    writeln!(src, "  }}")?;
+    writeln!(src, "  return parent;")?;
+    Ok(())
+}
+
+/// Emit the row-aggregation body for a nested `:many` query (SQLite target).
+fn emit_sqlite_nested_many_body(src: &mut String, ctx: &QueryContext, sql_expr: &str, args: &str) -> anyhow::Result<()> {
+    let parent_name = inline_row_type_name(&ctx.query.name);
+    let parent_cols = ctx.query.parent_columns();
+
+    match ctx.contract.output {
+        JsOutput::TypeScript => {
+            let flat_name = flat_row_type_name(&ctx.query.name);
+            writeln!(src, "  const rows = db.prepare({sql_expr}).all({args}) as {flat_name}[];")?;
+        },
+        JsOutput::JavaScript => {
+            writeln!(src, "  const rows = db.prepare({sql_expr}).all({args});")?;
+        },
+    }
+    let generic = map_generic(&parent_name, &ctx.contract.output);
+    writeln!(src, "  const grouped = new Map{generic}();")?;
+    emit_seen_sets(src, ctx.query, &ctx.contract.output)?;
+    writeln!(src, "  for (const row of rows) {{")?;
+    emit_aggregation_loop_body(src, ctx.query, &parent_cols)?;
+    writeln!(src, "  }}")?;
+    writeln!(src, "  return Array.from(grouped.values());")?;
+    Ok(())
+}
+
+/// Emit the row-aggregation body for a nested `:one` query (SQLite target).
+fn emit_sqlite_nested_one_body(src: &mut String, ctx: &QueryContext, sql_expr: &str, args: &str) -> anyhow::Result<()> {
+    let parent_name = inline_row_type_name(&ctx.query.name);
+    let parent_cols = ctx.query.parent_columns();
+
+    match ctx.contract.output {
+        JsOutput::TypeScript => {
+            let flat_name = flat_row_type_name(&ctx.query.name);
+            writeln!(src, "  const rows = db.prepare({sql_expr}).all({args}) as {flat_name}[];")?;
+        },
+        JsOutput::JavaScript => {
+            writeln!(src, "  const rows = db.prepare({sql_expr}).all({args});")?;
+        },
+    }
+    writeln!(src, "  if (rows.length === 0) return null;")?;
+    let parent_init = build_parent_initializer(&parent_cols, &ctx.query.nested_groups, "rows[0]");
+    let ann = ts_type_annotation(&parent_name, &ctx.contract.output);
+    writeln!(src, "  const parent{ann} = {{ {parent_init} }};")?;
+    emit_seen_sets(src, ctx.query, &ctx.contract.output)?;
+    writeln!(src, "  for (const row of rows) {{")?;
+    emit_one_nested_push_body(src, &ctx.query.nested_groups)?;
+    writeln!(src, "  }}")?;
+    writeln!(src, "  return parent;")?;
+    Ok(())
+}
+
+/// Emit the row-aggregation body for a nested `:many` query (MySQL target).
+fn emit_mysql_nested_many_body(src: &mut String, ctx: &QueryContext, sql_expr: &str, args: &str) -> anyhow::Result<()> {
+    let parent_name = inline_row_type_name(&ctx.query.name);
+    let parent_cols = ctx.query.parent_columns();
+    let rdp = mysql_type_param(&ctx.contract.output, "RowDataPacket[]");
+
+    match ctx.contract.output {
+        JsOutput::TypeScript => {
+            let flat_name = flat_row_type_name(&ctx.query.name);
+            writeln!(src, "  const [rows] = await db.query{rdp}({sql_expr}, {args});")?;
+            writeln!(src, "  const typed = rows as unknown as {flat_name}[];")?;
+        },
+        JsOutput::JavaScript => {
+            writeln!(src, "  const [rows] = await db.query({sql_expr}, {args});")?;
+            writeln!(src, "  const typed = rows;")?;
+        },
+    }
+    let generic = map_generic(&parent_name, &ctx.contract.output);
+    writeln!(src, "  const grouped = new Map{generic}();")?;
+    emit_seen_sets(src, ctx.query, &ctx.contract.output)?;
+    writeln!(src, "  for (const row of typed) {{")?;
+    emit_aggregation_loop_body(src, ctx.query, &parent_cols)?;
+    writeln!(src, "  }}")?;
+    writeln!(src, "  return Array.from(grouped.values());")?;
+    Ok(())
+}
+
+/// Emit the row-aggregation body for a nested `:one` query (MySQL target).
+fn emit_mysql_nested_one_body(src: &mut String, ctx: &QueryContext, sql_expr: &str, args: &str) -> anyhow::Result<()> {
+    let parent_name = inline_row_type_name(&ctx.query.name);
+    let parent_cols = ctx.query.parent_columns();
+    let rdp = mysql_type_param(&ctx.contract.output, "RowDataPacket[]");
+
+    match ctx.contract.output {
+        JsOutput::TypeScript => {
+            let flat_name = flat_row_type_name(&ctx.query.name);
+            writeln!(src, "  const [rows] = await db.query{rdp}({sql_expr}, {args});")?;
+            writeln!(src, "  const typed = rows as unknown as {flat_name}[];")?;
+        },
+        JsOutput::JavaScript => {
+            writeln!(src, "  const [rows] = await db.query({sql_expr}, {args});")?;
+            writeln!(src, "  const typed = rows;")?;
+        },
+    }
+    writeln!(src, "  if (typed.length === 0) return null;")?;
+    let parent_init = build_parent_initializer(&parent_cols, &ctx.query.nested_groups, "typed[0]");
+    let ann = ts_type_annotation(&parent_name, &ctx.contract.output);
+    writeln!(src, "  const parent{ann} = {{ {parent_init} }};")?;
+    emit_seen_sets(src, ctx.query, &ctx.contract.output)?;
+    writeln!(src, "  for (const row of typed) {{")?;
+    emit_one_nested_push_body(src, &ctx.query.nested_groups)?;
+    writeln!(src, "  }}")?;
+    writeln!(src, "  return parent;")?;
+    Ok(())
+}
+
+/// Emit the inner aggregation loop body shared by all targets for `:many` nested queries.
+///
+/// Emits parent-key computation, parent lookup/creation in `grouped`, and
+/// child push logic with dedup checks using `seen_<group>` sets that must
+/// already be declared by the caller.
+fn emit_aggregation_loop_body(src: &mut String, query: &Query, parent_cols: &[&crate::ir::ResultColumn]) -> anyhow::Result<()> {
+    let key_fields: Vec<String> = parent_cols.iter().map(|c| format!("row.{}", c.name)).collect();
+    let parent_init = build_parent_initializer(parent_cols, &query.nested_groups, "row");
+    writeln!(src, "    const key = JSON.stringify([{}]);", key_fields.join(", "))?;
+    writeln!(src, "    let parent = grouped.get(key);")?;
+    writeln!(src, "    if (!parent) {{")?;
+    writeln!(src, "      parent = {{ {parent_init} }};")?;
+    writeln!(src, "      grouped.set(key, parent);")?;
+    writeln!(src, "    }}")?;
+    for group in &query.nested_groups {
+        if group.columns.is_empty() {
+            continue;
+        }
+        let first_src = &group.columns[0].source_name;
+        let child_init = build_child_initializer(group);
+        let child_key_fields: Vec<String> = group.columns.iter().map(|nc| format!("row.{}", nc.source_name)).collect();
+        writeln!(src, "    if (row.{first_src} != null) {{")?;
+        writeln!(src, "      const {}_key = JSON.stringify([{}]);", group.field_name, child_key_fields.join(", "))?;
+        writeln!(src, "      if (!seen_{}.has({}_key)) {{", group.field_name, group.field_name)?;
+        writeln!(src, "        seen_{}.add({}_key);", group.field_name, group.field_name)?;
+        writeln!(src, "        parent.{}.push({{ {child_init} }});", group.field_name)?;
+        writeln!(src, "      }}")?;
+        writeln!(src, "    }}")?;
+    }
+    Ok(())
+}
+
+/// Emit the nested-push body for `:one` queries, with deduplication via seen-sets.
+fn emit_one_nested_push_body(src: &mut String, groups: &[NestedGroup]) -> anyhow::Result<()> {
+    for group in groups {
+        if group.columns.is_empty() {
+            continue;
+        }
+        let first_src = &group.columns[0].source_name;
+        let child_init = build_child_initializer(group);
+        let child_key_fields: Vec<String> = group.columns.iter().map(|nc| format!("row.{}", nc.source_name)).collect();
+        writeln!(src, "    if (row.{first_src} != null) {{")?;
+        writeln!(src, "      const {}_key = JSON.stringify([{}]);", group.field_name, child_key_fields.join(", "))?;
+        writeln!(src, "      if (!seen_{}.has({}_key)) {{", group.field_name, group.field_name)?;
+        writeln!(src, "        seen_{}.add({}_key);", group.field_name, group.field_name)?;
+        writeln!(src, "        parent.{}.push({{ {child_init} }});", group.field_name)?;
+        writeln!(src, "      }}")?;
+        writeln!(src, "    }}")?;
+    }
+    Ok(())
+}
+
+/// Emit `const seen_<field> = new Set<string>();` declarations for child deduplication.
+fn emit_seen_sets(src: &mut String, query: &Query, output: &JsOutput) -> anyhow::Result<()> {
+    for group in &query.nested_groups {
+        let generic = match output {
+            JsOutput::TypeScript => "<string>",
+            JsOutput::JavaScript => "",
+        };
+        writeln!(src, "  const seen_{} = new Set{generic}();", group.field_name)?;
+    }
+    Ok(())
+}
+
+/// Build `"id: <src>.id, name: <src>.name, company: []"` for the parent object initializer.
+///
+/// `row_var` is the variable holding the flat row (e.g. `"row"` inside a for-loop,
+/// or `"result.rows[0]"` for `:one` initialisation outside the loop).
+fn build_parent_initializer(parent_cols: &[&crate::ir::ResultColumn], groups: &[NestedGroup], row_var: &str) -> String {
+    let field_inits: Vec<String> = parent_cols
+        .iter()
+        .map(|c| format!("{}: {row_var}.{}", c.name, c.name))
+        .chain(groups.iter().map(|g| format!("{}: []", g.field_name)))
+        .collect();
+    field_inits.join(", ")
+}
+
+/// Build `"id: row.company_id, name: row.company_name"` for a child object initializer.
+fn build_child_initializer(group: &NestedGroup) -> String {
+    group.columns.iter().map(|nc| format!("{}: row.{}", nc.target_name, nc.source_name)).collect::<Vec<_>>().join(", ")
+}
+
+/// Returns `: Type` for TypeScript variable annotations or empty string for JS.
+fn ts_type_annotation(ts_type: &str, output: &JsOutput) -> String {
+    match output {
+        JsOutput::TypeScript => format!(": {ts_type}"),
+        JsOutput::JavaScript => String::new(),
+    }
+}
+
+/// Returns `<string, T>` for TypeScript Map generics or empty string for JS.
+fn map_generic(value_type: &str, output: &JsOutput) -> String {
+    match output {
+        JsOutput::TypeScript => format!("<string, {value_type}>"),
+        JsOutput::JavaScript => String::new(),
+    }
+}
+
 /// Map a SQL type to its JavaScript/TypeScript type string.
 fn js_type_with_contract(sql_type: &SqlType, nullable: bool, contract: &TsCoreContract) -> String {
     let base = js_base_type(sql_type, contract);
@@ -279,7 +612,10 @@ fn build_queries_file_with_contract(
     emit_sql_constants(&mut src, queries, contract, &strategy)?;
     for query in queries {
         writeln!(src)?;
-        if has_inline_rows(query, schema) {
+        if query.has_nested_groups() {
+            emit_nested_types(&mut src, query, contract, config)?;
+            writeln!(src)?;
+        } else if has_inline_rows(query, schema) {
             emit_inline_row_type_with_contract(&mut src, query, contract, config)?;
             writeln!(src)?;
         }
@@ -478,6 +814,9 @@ fn emit_query(
     config: &OutputConfig,
     strategy: &ListParamStrategy,
 ) -> anyhow::Result<()> {
+    // Defensive guard: frontend should already reject this combination,
+    // but keep a backend-level check for manually constructed IR in tests/tools.
+    ensure_no_nested_list_combo(query)?;
     let ctx = QueryContext::new(query, schema, contract, config, "Db");
     (contract.emit_query)(src, &ctx, strategy)
 }
@@ -543,7 +882,13 @@ fn return_type(query: &Query, schema: &Schema) -> String {
 }
 
 /// Compute the row type name for a query result (table name or `{Query}Row`).
+///
+/// Nested-group queries always use the inline `{Query}Row` name because the
+/// parent type is structurally different from any schema table.
 fn ts_row_type(query: &Query, schema: &Schema) -> String {
+    if query.has_nested_groups() {
+        return inline_row_type_name(&query.name);
+    }
     infer_row_type_name(query, schema).unwrap_or_else(|| inline_row_type_name(&query.name))
 }
 
@@ -558,7 +903,15 @@ pub(super) fn emit_pg_query(src: &mut String, ctx: &QueryContext, strategy: &Lis
     emit_jsdoc(src, ctx, &params)?;
     emit_fn_open(src, ctx, &params)?;
     let args = pg_params_array(ctx.query, ctx.config, ctx.contract);
-    emit_pg_body(src, ctx, &const_name, &args)?;
+    if ctx.query.has_nested_groups() {
+        match ctx.query.cmd {
+            QueryCmd::Many => emit_pg_nested_many_body(src, ctx, &const_name, &args)?,
+            QueryCmd::One => emit_pg_nested_one_body(src, ctx, &const_name, &args)?,
+            _ => emit_pg_body(src, ctx, &const_name, &args)?,
+        }
+    } else {
+        emit_pg_body(src, ctx, &const_name, &args)?;
+    }
     writeln!(src, "}}")?;
     Ok(())
 }
@@ -663,7 +1016,15 @@ pub(super) fn emit_sqlite_query(src: &mut String, ctx: &QueryContext, strategy: 
     emit_jsdoc(src, ctx, &params)?;
     emit_fn_open(src, ctx, &params)?;
     let args = sqlite_spread_args(ctx.query, ctx.config, ctx.contract);
-    emit_sqlite_body(src, ctx, &const_name, &args)?;
+    if ctx.query.has_nested_groups() {
+        match ctx.query.cmd {
+            QueryCmd::Many => emit_sqlite_nested_many_body(src, ctx, &const_name, &args)?,
+            QueryCmd::One => emit_sqlite_nested_one_body(src, ctx, &const_name, &args)?,
+            _ => emit_sqlite_body(src, ctx, &const_name, &args)?,
+        }
+    } else {
+        emit_sqlite_body(src, ctx, &const_name, &args)?;
+    }
     writeln!(src, "}}")?;
     Ok(())
 }
@@ -789,7 +1150,15 @@ pub(super) fn emit_mysql_query(src: &mut String, ctx: &QueryContext, strategy: &
     emit_jsdoc(src, ctx, &params)?;
     emit_fn_open(src, ctx, &params)?;
     let args = mysql_params_array(ctx.query, ctx.config, ctx.contract);
-    emit_mysql_body(src, ctx, &const_name, &args)?;
+    if ctx.query.has_nested_groups() {
+        match ctx.query.cmd {
+            QueryCmd::Many => emit_mysql_nested_many_body(src, ctx, &const_name, &args)?,
+            QueryCmd::One => emit_mysql_nested_one_body(src, ctx, &const_name, &args)?,
+            _ => emit_mysql_body(src, ctx, &const_name, &args)?,
+        }
+    } else {
+        emit_mysql_body(src, ctx, &const_name, &args)?;
+    }
     writeln!(src, "}}")?;
     Ok(())
 }

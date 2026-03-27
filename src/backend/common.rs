@@ -75,6 +75,21 @@ pub fn row_type_name(query_name: &str) -> String {
     format!("{}Row", to_pascal_case(query_name))
 }
 
+/// Return the nested child type name: `"{PascalCase(query)}_{PascalCase(field)}"`.
+///
+/// Example: query `"GetUserWithCompanies"`, field `"company"` → `"GetUserWithCompanies_Company"`.
+pub fn nested_type_name(query_name: &str, field_name: &str) -> String {
+    format!("{}_{}", to_pascal_case(query_name), to_pascal_case(field_name))
+}
+
+/// Return the private flat row type name used internally for nested-result queries.
+///
+/// This type represents the raw SQL result before aggregation:
+/// `"_{PascalCase(name)}FlatRow"`.
+pub fn flat_row_type_name(query_name: &str) -> String {
+    format!("_{}FlatRow", to_pascal_case(query_name))
+}
+
 /// Derive the row-type name for a query result, or `None` if the query has no
 /// result columns (e.g. `:exec` / `:execrows`).
 ///
