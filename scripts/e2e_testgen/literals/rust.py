@@ -142,6 +142,7 @@ def render_call_lines(
     bind: str | None,
     command: str,
     indent: str,
+    null_checked_vars: set[str] | None = None,
 ) -> list[str]:
     """Render an async function call as Rust source lines."""
     if bind:

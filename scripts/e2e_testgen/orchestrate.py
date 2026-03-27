@@ -36,8 +36,8 @@ TEST_FILE_NAMES = {
     "go": "runtime_gen_test.go",
     "typescript": "runtime_gen.test.ts",
     "rust": "tests/runtime_gen.rs",
-    "java": "RuntimeGenTest.java",
-    "kotlin": "RuntimeGenTest.kt",
+    "java": "src/test/java/com/example/db/RuntimeGenTest.java",
+    "kotlin": "src/test/kotlin/com/example/db/RuntimeGenTest.kt",
 }
 
 

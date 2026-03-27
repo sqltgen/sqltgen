@@ -118,6 +118,7 @@ def render_call_lines(
     bind: str | None,
     command: str,
     indent: str,
+    null_checked_vars: set[str] | None = None,
 ) -> list[str]:
     """Render a function call as Go source lines with error handling."""
     if bind:

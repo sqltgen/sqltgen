@@ -66,10 +66,17 @@ def _render_scenario_body(
     manifest: Manifest | None = None,
 ) -> str:
     """Render the body of a test function (the steps)."""
+    # Pre-scan: find bare variable names asserted null (not field accesses).
+    # Used by Java's render_call_lines to decide whether to keep Optional or unwrap.
+    null_checked_vars: set[str] = {
+        step.data["expr"]
+        for step in scenario.steps
+        if step.kind == "assert_null" and "." not in step.data.get("expr", "")
+    }
     lines = []
     var_types: dict[str, str] = {}  # var_name → model_name (e.g. "ev" → "Event")
     for step in scenario.steps:
-        lines.extend(_render_step(step, engine, eo, lit, language, manifest, var_types))
+        lines.extend(_render_step(step, engine, eo, lit, language, manifest, var_types, null_checked_vars))
     return "\n".join(lines)
 
 
@@ -81,6 +88,7 @@ def _render_step(
     language: str,
     manifest: Manifest | None = None,
     var_types: dict[str, str] | None = None,
+    null_checked_vars: set[str] | None = None,
 ) -> list[str]:
     """Render a single step as indented source lines.
 
@@ -122,10 +130,10 @@ def _render_step(
         args_str = ", ".join([conn] + args)
         call_expr = f"{func_pfx}{func_name}({args_str})"
 
-        # Languages with explicit error returns (Go, Rust) override via render_call_lines.
+        # Languages with explicit error returns or Optional unwrapping override via render_call_lines.
         if hasattr(lit, "render_call_lines"):
             command = _get_func_command(manifest, func_name)
-            return lit.render_call_lines(call_expr, bind, command or "exec", indent)
+            return lit.render_call_lines(call_expr, bind, command or "exec", indent, null_checked_vars or set())
 
         await_kw = "await " if use_await else ""
         call = f"{await_kw}{call_expr}"

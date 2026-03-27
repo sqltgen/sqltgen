@@ -2,3 +2,4 @@ target/
 src/main/java/
 .classpath
 .settings
+src/test/java/com/example/db/RuntimeGenTest.java
