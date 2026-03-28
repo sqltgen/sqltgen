@@ -167,7 +167,7 @@ def render_assert_eq_typed(
 ) -> str:
     """Type-aware equality assertion using field_lang_type when available."""
     is_option = field_lang_type is not None and field_lang_type.startswith("Option<")
-    inner_type = field_lang_type[7:-1] if is_option else (field_lang_type or "")
+    inner_type = field_lang_type[7:-1] if is_option and field_lang_type is not None else (field_lang_type or "")
 
     if kind == "json":
         # For SQLite (json_string coercion) codegen.py routes to render_assert_json_eq instead,

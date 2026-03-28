@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import importlib
 import re
 from pathlib import Path
-from typing import Any
+from types import ModuleType
+from typing import Any, cast
 
 import jinja2
 
@@ -135,7 +137,7 @@ def _render_step(
         # Languages with explicit error returns or Optional unwrapping override via render_call_lines.
         if hasattr(lit, "render_call_lines"):
             command = _get_func_command(manifest, func_name)
-            return lit.render_call_lines(call_expr, bind, command or "exec", indent, null_checked_vars or set())
+            return cast(list[str], lit.render_call_lines(call_expr, bind, command or "exec", indent, null_checked_vars or set()))
 
         await_kw = "await " if use_await else ""
         call = f"{await_kw}{call_expr}"
@@ -290,11 +292,13 @@ def _get_func_command(manifest: Manifest | None, func_name: str) -> str | None:
     return fn.command if fn else None
 
 
-def _load_literals(language: str):
-    """Dynamically import the literals module for a language."""
-    import importlib
+def _load_literals(language: str) -> ModuleType:
+    """Dynamically import and validate the literals module for a language."""
+    from literals.protocol import validate_renderer
 
-    return importlib.import_module(f"literals.{language}")
+    mod = importlib.import_module(f"literals.{language}")
+    validate_renderer(mod)
+    return mod
 
 
 # ── Naming helpers ──────────────────────────────────────────────────────

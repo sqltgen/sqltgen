@@ -136,10 +136,11 @@ def ensure_manifest(combo: Combo, sqltgen_binary: str = "cargo") -> Path:
     # Find the language key in gen
     lang_key = combo.language
     if lang_key not in config.get("gen", {}):
-        # Try alternate keys (e.g., "javascript" for "typescript")
-        for k in config.get("gen", {}):
-            lang_key = k
-            break
+        available = list(config.get("gen", {}).keys())
+        raise KeyError(
+            f"Language '{combo.language}' not found in gen config of {config_path}. "
+            f"Available keys: {available}"
+        )
 
     gen_config = config["gen"][lang_key]
 
@@ -172,7 +173,7 @@ def ensure_manifest(combo: Combo, sqltgen_binary: str = "cargo") -> Path:
     finally:
         tmp_config.unlink(missing_ok=True)
 
-    return config_path.parent / manifest_rel
+    return Path(config_path.parent / manifest_rel)
 
 
 def generate(combo: Combo, sqltgen_binary: str = "cargo") -> Path:
@@ -197,7 +198,7 @@ def generate(combo: Combo, sqltgen_binary: str = "cargo") -> Path:
     return output
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="E2E test generator")
     sub = parser.add_subparsers(dest="command", required=True)
 

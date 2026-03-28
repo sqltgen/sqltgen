@@ -58,7 +58,7 @@ class Step:
     data: dict[str, Any]
 
     @staticmethod
-    def parse(raw: dict) -> Step:
+    def parse(raw: dict[str, Any]) -> Step:
         """Parse a step from YAML."""
         if "call" in raw:
             return Step(kind="call", data=raw)
@@ -84,7 +84,7 @@ class Scenario:
     steps: list[Step]
 
     @staticmethod
-    def parse(raw: dict) -> Scenario:
+    def parse(raw: dict[str, Any]) -> Scenario:
         return Scenario(
             name=raw["name"],
             section=raw.get("section", ""),
@@ -100,7 +100,7 @@ class EngineOverride:
     type_coercions: dict[str, str] = field(default_factory=dict)
 
     @staticmethod
-    def parse(raw: dict | None) -> EngineOverride:
+    def parse(raw: dict[str, Any] | None) -> EngineOverride:
         if raw is None:
             return EngineOverride()
         return EngineOverride(

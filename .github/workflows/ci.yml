@@ -28,6 +28,15 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: make ci-examples-drift
 
+  testgen-mypy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - run: make ci-testgen-mypy
+
   testgen-drift:
     runs-on: ubuntu-latest
     needs: build-and-test

@@ -32,7 +32,7 @@ SQLTGEN := ./target/debug/sqltgen
        e2e-runtime-type-overrides-go-mysql \
        e2e-db-up e2e-db-down \
        e2e-testgen-setup e2e-testgen-generate e2e-testgen-generate-python \
-       ci-fmt ci-clippy ci-test ci-check-suite ci-examples-drift ci-testgen-drift ci-runtime-sqlite ci-runtime-db
+       ci-fmt ci-clippy ci-test ci-check-suite ci-examples-drift ci-testgen-mypy ci-testgen-drift ci-runtime-sqlite ci-runtime-db
 
 all: build test
 
@@ -350,6 +350,9 @@ ci-check-suite:
 ci-examples-drift: build
 	$(MAKE) generate
 	git diff --exit-code -- examples/
+
+ci-testgen-mypy: $(E2E_TESTGEN_STAMP)
+	cd $(E2E_TESTGEN) && .venv/bin/python -m mypy --explicit-package-bases codegen.py orchestrate.py manifest.py test_spec.py literals/
 
 ci-testgen-drift: build
 	$(MAKE) e2e-testgen-setup
