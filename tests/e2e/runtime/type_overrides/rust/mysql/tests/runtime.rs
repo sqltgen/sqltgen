@@ -14,7 +14,7 @@ use time::macros::{date, datetime, time};
 use uuid::Uuid;
 
 fn root_url() -> String {
-    std::env::var("MYSQL_ROOT_URL").unwrap_or_else(|_| "mysql://root:sqltgen@localhost:13306".into())
+    std::env::var("MYSQL_ROOT_URL").unwrap_or_else(|_| "mysql://sqltgen:sqltgen@localhost:13306".into())
 }
 
 fn test_url() -> String {

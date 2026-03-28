@@ -33,7 +33,7 @@ class RuntimeTest {
     @BeforeEach
     fun setUp() {
         dbName = "test_" + UUID.randomUUID().toString().replace("-", "")
-        DriverManager.getConnection(rootUrl, "root", "sqltgen").use { admin ->
+        DriverManager.getConnection(rootUrl, "sqltgen", "sqltgen").use { admin ->
             admin.createStatement().use { s ->
                 s.execute("CREATE DATABASE `$dbName`")
                 s.execute("GRANT ALL ON `$dbName`.* TO 'sqltgen'@'%'")
@@ -57,7 +57,7 @@ class RuntimeTest {
     @AfterEach
     fun tearDown() {
         conn.close()
-        DriverManager.getConnection(rootUrl, "root", "sqltgen").use { admin ->
+        DriverManager.getConnection(rootUrl, "sqltgen", "sqltgen").use { admin ->
             admin.createStatement().use { s ->
                 s.execute("DROP DATABASE IF EXISTS `$dbName`")
             }

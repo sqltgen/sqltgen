@@ -33,7 +33,7 @@ class RuntimeTest {
         System.getenv().getOrDefault("DATABASE_URL", "jdbc:mysql://localhost:13306/");
     private static final String USER      = "sqltgen";
     private static final String PASS      = "sqltgen";
-    private static final String ROOT_USER = "root";
+    private static final String ROOT_USER = "sqltgen";
     private static final String ROOT_PASS = "sqltgen";
 
     private Connection conn;
