@@ -1,12 +1,6 @@
 services:
   postgres:
-    image: postgres:16-alpine
-    tmpfs:
-      - /var/lib/postgresql/data
-    environment:
-      POSTGRES_USER: sqltgen
-      POSTGRES_PASSWORD: sqltgen
-      POSTGRES_DB: sqltgen_e2e
+    image: ghcr.io/sqltgen/db-postgres:latest
     ports:
       - "15432:5432"
     healthcheck:
@@ -16,20 +10,11 @@ services:
       retries: 10
 
   mysql:
-    image: mysql:8
-    tmpfs:
-      - /var/lib/mysql
-    volumes:
-      - ./mysql-init:/docker-entrypoint-initdb.d:ro
-    environment:
-      MYSQL_ROOT_PASSWORD: sqltgen
-      MYSQL_DATABASE: sqltgen_e2e
-      MYSQL_USER: sqltgen
-      MYSQL_PASSWORD: sqltgen
+    image: ghcr.io/sqltgen/db-mysql:latest
     ports:
       - "13306:3306"
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "sqltgen", "-psqltgen"]
       interval: 1s
       timeout: 5s
       retries: 20

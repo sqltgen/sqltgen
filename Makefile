@@ -302,6 +302,8 @@ e2e-runtime-go-mysql: $(SQLTGEN) e2e-db-up
 
 e2e-db-up:
 	docker compose -f $(E2E_RUNTIME_DIR)/docker-compose.yml up -d --wait
+	docker compose -f $(E2E_RUNTIME_DIR)/docker-compose.yml exec -T postgres psql -U sqltgen -c "CREATE DATABASE sqltgen_e2e OWNER sqltgen;"
+	docker compose -f $(E2E_RUNTIME_DIR)/docker-compose.yml exec -T mysql mysql -u sqltgen -psqltgen -e "CREATE DATABASE IF NOT EXISTS sqltgen_e2e;"
 
 e2e-db-down:
 	docker compose -f $(E2E_RUNTIME_DIR)/docker-compose.yml down

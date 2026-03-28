@@ -1,17 +1,10 @@
 services:
   db:
-    build: .
+    image: ghcr.io/sqltgen/db-mysql:latest
+    build:
+      context: .
     ports:
       - "3307:3306"
-    command: >
-      --datadir=/mysqldata
-      --skip-log-bin
-      --skip-performance-schema
-      --skip-name-resolve
-      --innodb-flush-log-at-trx-commit=0
-      --innodb-doublewrite=0
-      --innodb-buffer-pool-size=8M
-      --skip-ssl
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "sqltgen", "-psqltgen"]
       interval: 0.1s
