@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 use sqlparser::ast::{
     BinaryOperator, Expr, FunctionArg, FunctionArgExpr, FunctionArguments, JoinConstraint, JoinOperator, LimitClause, OrderByKind, Query as SqlQuery, Select,
-    SelectItem, SetExpr, UnaryOperator, Value, ValueWithSpan,
+    SelectItem, SetExpr, TableFactor, UnaryOperator, Value, ValueWithSpan,
 };
 
 use crate::ir::{Schema, SqlType, Table};
@@ -42,6 +42,7 @@ pub(super) fn collect_select_params(
             mark_is_null_nullable(expr, ctx.mapping);
         }
     }
+    collect_from_tvf_params(select, ctx);
     collect_projection_params(select, ctx);
 }
 
@@ -389,6 +390,7 @@ fn collect_params_from_subquery(
         collect_params_from_expr(expr, ctx);
     }
     collect_join_params(select, ctx);
+    collect_from_tvf_params(select, ctx);
     if let Some(expr) = &select.having {
         collect_params_from_expr(expr, ctx);
     }
@@ -457,6 +459,34 @@ pub(super) fn collect_order_by_params(q: &SqlQuery, ctx: &mut ResolverContext) {
             for obe in exprs {
                 collect_params_from_expr(&obe.expr, ctx);
             }
+        }
+    }
+}
+
+/// Collect parameter mappings from TVF call arguments in FROM and JOIN clauses.
+///
+/// `SELECT * FROM f($1)` and `… JOIN f($2) ON …` embed params in the TVF's
+/// argument list, which the WHERE/JOIN-ON walk never visits.
+fn collect_from_tvf_params(select: &Select, ctx: &mut ResolverContext) {
+    for twj in &select.from {
+        collect_tvf_factor_params(&twj.relation, ctx);
+        for join in &twj.joins {
+            collect_tvf_factor_params(&join.relation, ctx);
+        }
+    }
+}
+
+/// Extract and collect parameters from a single `TableFactor::Table` TVF call.
+fn collect_tvf_factor_params(factor: &TableFactor, ctx: &mut ResolverContext) {
+    let TableFactor::Table { args: Some(tvf_args), .. } = factor else { return };
+    for arg in &tvf_args.args {
+        let inner = match arg {
+            FunctionArg::Unnamed(FunctionArgExpr::Expr(e)) => Some(e),
+            FunctionArg::Named { arg: FunctionArgExpr::Expr(e), .. } => Some(e),
+            _ => None,
+        };
+        if let Some(expr) = inner {
+            collect_params_from_expr(expr, ctx);
         }
     }
 }
