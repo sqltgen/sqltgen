@@ -126,20 +126,22 @@ sqltgen aims for excellent JSON support across all backends. Current state and g
 
 ### Medium priority
 
-1. **`CAST(x AS type)` result type** — call `typemap::map()` on the cast's `DataType`
+1. ~~**`CAST(x AS type)` result type** — call `typemap::map()` on the cast's `DataType`~~ ✅
 2. ~~**Type overrides config** — per-language map of `SqlType` → custom host-language type with import management~~ ✅ Done (jackson, gson, serde_json, object presets; FQN strings; explicit TypeRef object form)
 3. **Better error messages** — surface parse errors with line numbers
 4. **Glob patterns** for `schema` and `queries` config fields
+5. **Transaction support** — `with_tx(tx)` on Querier
+6. **Params struct** — emit `{Query}Params` + `QueriesParams` wrapper for queries with many params
 
 ### Low priority / future
 
 1. **Querier interface** — emit an interface/protocol/ABC for the generated Querier type (testability)
-2. **Transaction support** — `with_tx(tx)` constructor on the Queries wrapper
-3. **Enum support** — `CREATE TYPE foo AS ENUM` → typed enum / sealed class / string alias
-4. **Field renaming config** — `rename: { db_col: "FieldName" }` map in config
-5. **JSON tags / serialization annotations** — emit Jackson/serde/dataclasses-json annotations
-6. **`query_parameter_limit`** — emit a params struct when a query has more than N parameters
-7. **Schema-qualified tables** — handle `schema.table` references in queries
+2. **Enum support** — `CREATE TYPE foo AS ENUM` → typed enum / sealed class / string alias
+3. **`:execresult` / `:execlastid`** — return driver result object or last insert ID
+4. **Schema-qualified tables** — handle `schema.table` references in queries
+5. **Table-valued functions** — TVF support in frontend + backends
+6. **Field renaming config** — `rename: { db_col: "FieldName" }` map in config
+7. **JSON tags / serialization annotations** — emit Jackson/serde/dataclasses-json annotations
 8. **`sqltgen init`** subcommand — scaffold a starter `sqltgen.json`
 9. **C / C++ / C# backends**
 
@@ -174,8 +176,8 @@ Identified from the [sqlc documentation](https://docs.sqlc.dev).
 
 See `RELEASE_ROADMAP.md` (in the parent directory) for the full plan. Summary:
 
-- Phase 1: License (deferred — see roadmap), CHANGELOG, CONTRIBUTING, README
-- Phase 2: CI/CD via cargo-dist (ci.yml, release.yml, docs.yml)
+- ~~Phase 1: License, CHANGELOG, CONTRIBUTING, README~~ ✅
+- Phase 2: CI/CD via cargo-dist — ci.yml ✅, release.yml ❌, docs.yml ✅
 - ~~Phase 3: mdBook documentation at docs.sqltgen.org; sqltgen.org redirects there~~ ✅
 - Phase 4: Distribution — crates.io, Homebrew, AUR, Scoop, .deb, .rpm
 - Phase 5 (future): Full landing page + WASM playground at sqltgen.org

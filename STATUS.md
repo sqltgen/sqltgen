@@ -157,7 +157,7 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | Emit prepared query variants | ❌ | |
 | Emit querier interface | ❌ | |
 | Configurable strictness (warn vs. error) | ❌ | Per-project error level |
-| `query_parameter_limit` (params struct threshold) | ❌ | Emit params struct when > N params |
+| `params_struct_threshold` + `:params` annotation | ❌ | Emit `{Query}Params` struct + `QueriesParams` wrapper when above threshold |
 | `emit_exact_table_names` (skip singularization) | ❌ | |
 | `sqltgen init` subcommand | ❌ | Scaffold a starter config |
 
@@ -194,21 +194,21 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 
 | Module | Tests |
 |---|---|
-| Config | 26 |
-| Frontend — PostgreSQL (typemap + schema + query) | 82 |
+| Config | 29 |
+| Frontend — PostgreSQL (typemap + schema + query) | 95 |
 | Frontend — SQLite (typemap + schema + query) | 44 |
 | Frontend — MySQL (typemap + schema + query) | 39 |
 | Frontend — common (query parser, CTEs, subqueries, named params, list params, source_table) | 204 |
 | Backend — Java | 66 |
 | Backend — Kotlin | 65 |
 | Backend — Rust | 44 |
-| Backend — Python | 50 |
+| Backend — Python | 53 |
 | Backend — Go | 41 |
-| Backend — common (common + sql_rewrite + naming) | 50 |
-| Backend — JDBC | 13 |
+| Backend — common (common + sql_rewrite + naming + manifest) | 58 |
+| Backend — JDBC | 15 |
 | Backend — TypeScript / JavaScript | 50 |
 | Integration (snapshots + resilience) | 45 |
-| **Total** | **819** |
+| **Total** | **848** |
 
 ---
 
@@ -216,5 +216,5 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 
 See `PLAN.md` → Roadmap section, and `memory/roadmap.md` for full distribution plan.
 
-Pending: license choice, CI/CD (cargo-dist), distribution channels.
-Done: docs (mdBook under `docs/src/`; `docs.yml` CI deploy action).
+Pending: CI/CD release workflow (cargo-dist), distribution channels.
+Done: license (Apache 2.0), docs (mdBook under `docs/src/`; `docs.yml` CI deploy action), CI (`ci.yml`).
