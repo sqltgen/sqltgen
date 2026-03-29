@@ -350,7 +350,61 @@ fn mark_is_null_nullable(expr: &Expr, mapping: &mut HashMap<usize, (String, SqlT
         Expr::Nested(inner) | Expr::UnaryOp { expr: inner, .. } | Expr::Cast { expr: inner, .. } => {
             mark_is_null_nullable(inner, mapping);
         },
+        Expr::Case { operand, conditions, else_result, .. } => {
+            if let Some(op) = operand {
+                mark_is_null_nullable(op, mapping);
+            }
+            for cw in conditions {
+                mark_is_null_nullable(&cw.condition, mapping);
+                mark_is_null_nullable(&cw.result, mapping);
+            }
+            if let Some(el) = else_result {
+                mark_is_null_nullable(el, mapping);
+            }
+        },
+        Expr::Subquery(q) | Expr::Exists { subquery: q, .. } => {
+            mark_is_null_nullable_in_subquery(q, mapping);
+        },
+        Expr::InSubquery { expr, subquery, .. } => {
+            mark_is_null_nullable(expr, mapping);
+            mark_is_null_nullable_in_subquery(subquery, mapping);
+        },
+        Expr::Function(func) => {
+            if let FunctionArguments::List(arg_list) = &func.args {
+                for arg in &arg_list.args {
+                    if let FunctionArg::Unnamed(FunctionArgExpr::Expr(inner)) = arg {
+                        mark_is_null_nullable(inner, mapping);
+                    }
+                }
+            }
+        },
+        Expr::InList { expr, list, .. } => {
+            mark_is_null_nullable(expr, mapping);
+            for item in list {
+                mark_is_null_nullable(item, mapping);
+            }
+        },
+        Expr::Between { expr, low, high, .. } => {
+            mark_is_null_nullable(expr, mapping);
+            mark_is_null_nullable(low, mapping);
+            mark_is_null_nullable(high, mapping);
+        },
+        Expr::Like { expr, pattern, .. } | Expr::ILike { expr, pattern, .. } => {
+            mark_is_null_nullable(expr, mapping);
+            mark_is_null_nullable(pattern, mapping);
+        },
         _ => {},
+    }
+}
+
+/// Walk a subquery's WHERE and HAVING clauses to mark IS NULL/IS NOT NULL params as nullable.
+fn mark_is_null_nullable_in_subquery(q: &SqlQuery, mapping: &mut HashMap<usize, (String, SqlType, bool)>) {
+    let SetExpr::Select(select) = q.body.as_ref() else { return };
+    if let Some(expr) = &select.selection {
+        mark_is_null_nullable(expr, mapping);
+    }
+    if let Some(expr) = &select.having {
+        mark_is_null_nullable(expr, mapping);
     }
 }
 
@@ -388,11 +442,13 @@ fn collect_params_from_subquery(
     let ctx = &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping, query_name };
     if let Some(expr) = &select.selection {
         collect_params_from_expr(expr, ctx);
+        mark_is_null_nullable(expr, ctx.mapping);
     }
     collect_join_params(select, ctx);
     collect_from_tvf_params(select, ctx);
     if let Some(expr) = &select.having {
         collect_params_from_expr(expr, ctx);
+        mark_is_null_nullable(expr, ctx.mapping);
     }
     collect_limit_offset_params(q, ctx.mapping);
 }
@@ -422,6 +478,7 @@ pub(super) fn collect_join_params(select: &Select, ctx: &mut ResolverContext) {
             };
             if let JoinConstraint::On(expr) = constraint {
                 collect_params_from_expr(expr, ctx);
+                mark_is_null_nullable(expr, ctx.mapping);
             }
         }
     }
