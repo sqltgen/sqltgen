@@ -458,4 +458,37 @@ mod tests {
         assert_eq!(q.result_columns[1].name, "avg_score");
         assert_eq!(q.result_columns[1].sql_type, SqlType::Decimal);
     }
+
+    #[test]
+    fn test_tvf_parameterised_from_collects_params() {
+        // $1 passed as a TVF argument must appear as a query parameter.
+        // Because the IR records only result columns (not TVF parameter types),
+        // the placeholder falls back to nullable=false Text.
+        let mut schema = make_schema();
+        schema
+            .tables
+            .push(Table::view("get_active_users", vec![Column::new_not_nullable("id", SqlType::BigInt), Column::new_not_nullable("name", SqlType::Text)]));
+        let sql = "-- name: GetActiveUsers :many\nSELECT id, name FROM get_active_users($1);";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.params.len(), 1);
+        assert_eq!(q.params[0].name, "param1");
+        assert_eq!(q.params[0].sql_type, SqlType::Text);
+    }
+
+    #[test]
+    fn test_tvf_parameterised_from_and_where() {
+        // A TVF arg ($1) and a WHERE clause param ($2) must both be collected.
+        // $1 falls back to Text; $2 is inferred from the `id: BigInt` column.
+        let mut schema = make_schema();
+        schema
+            .tables
+            .push(Table::view("get_active_users", vec![Column::new_not_nullable("id", SqlType::BigInt), Column::new_not_nullable("name", SqlType::Text)]));
+        let sql = "-- name: GetActiveUserById :one\nSELECT id, name FROM get_active_users($1) WHERE id = $2;";
+        let q = &parse_queries(sql, &schema).unwrap()[0];
+        assert_eq!(q.params.len(), 2);
+        assert_eq!(q.params[0].name, "param1");
+        assert_eq!(q.params[0].sql_type, SqlType::Text);
+        assert_eq!(q.params[1].name, "id");
+        assert_eq!(q.params[1].sql_type, SqlType::BigInt);
+    }
 }
