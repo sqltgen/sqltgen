@@ -131,7 +131,7 @@ Valid keys in the `gen` map:
 | `python` | Python (psycopg3 / sqlite3 / mysql-connector) |
 | `typescript` | TypeScript |
 | `javascript` | JavaScript (JSDoc types) |
-| `go` | Go (in progress — not yet usable) |
+| `go` | Go (`database/sql`) |
 
 ## List parameter strategies
 

@@ -76,7 +76,7 @@ they reflect different trade-offs between extensibility and native integration.
 | Python | psycopg3 / sqlite3 / mysql-connector |
 | TypeScript | pg / better-sqlite3 / mysql2 |
 | JavaScript | same as TypeScript (JSDoc types) |
-| Go | `database/sql` (in progress) |
+| Go | `database/sql` |
 
 ## Supported dialects
 
