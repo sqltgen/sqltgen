@@ -140,6 +140,12 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
   pre-resolved contracts without branching on engine target.
 
 ### Fixed
+- `IS NULL` / `IS NOT NULL` nullable inference now recurses into CASE branches,
+  subqueries, function arguments, JOIN ON clauses, IN lists, BETWEEN, and
+  LIKE/ILIKE expressions. Previously, parameters tested with IS NULL inside
+  these nested contexts were silently left non-nullable in generated code.
+  The same fix was applied to `collect_params_from_subquery`, which was missing
+  the nullable marking pass entirely.
 - `DROP VIEW` statements are now applied during schema parsing (all three
   dialects). Previously `DROP VIEW` was silently ignored, leaving dropped views
   in the inferred schema.

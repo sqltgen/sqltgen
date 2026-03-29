@@ -138,6 +138,54 @@ mod tests {
         assert!(q.params[0].nullable, "plain $1 inside IS NULL must be inferred as nullable");
     }
 
+    #[test]
+    fn test_is_null_in_case_branch_inferred_as_nullable() {
+        // A parameter tested with IS NULL inside a CASE condition must still be
+        // inferred as nullable.
+        let sql = "-- name: FilterCase :many\n\
+            SELECT id, name FROM users WHERE CASE WHEN $1::bigint IS NULL THEN true ELSE id = $1 END;";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let p = &q.params[0];
+        assert_eq!(p.sql_type, SqlType::BigInt);
+        assert!(p.nullable, "param inside IS NULL in CASE branch must be nullable");
+    }
+
+    #[test]
+    fn test_is_null_in_subquery_inferred_as_nullable() {
+        // A parameter tested with IS NULL inside a subquery WHERE clause must be
+        // inferred as nullable.
+        let sql = "-- name: FilterSub :many\n\
+            SELECT id, name FROM users WHERE EXISTS (SELECT 1 FROM users u2 WHERE $1::bigint IS NULL OR u2.id = $1);";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let p = &q.params[0];
+        assert_eq!(p.sql_type, SqlType::BigInt);
+        assert!(p.nullable, "param inside IS NULL in subquery must be nullable");
+    }
+
+    #[test]
+    fn test_is_null_in_join_on_inferred_as_nullable() {
+        // A parameter tested with IS NULL inside a JOIN ON clause must be
+        // inferred as nullable.
+        let sql = "-- name: FilterJoin :many\n\
+            SELECT u.id, u.name FROM users u JOIN users u2 ON ($1::bigint IS NULL OR u.id = u2.id);";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let p = &q.params[0];
+        assert_eq!(p.sql_type, SqlType::BigInt);
+        assert!(p.nullable, "param inside IS NULL in JOIN ON must be nullable");
+    }
+
+    #[test]
+    fn test_is_null_in_function_arg_inferred_as_nullable() {
+        // A parameter tested with IS NULL inside a function argument must be
+        // inferred as nullable (e.g. COALESCE wrapping an IS NULL check).
+        let sql = "-- name: FilterFunc :many\n\
+            SELECT id, name FROM users WHERE id = COALESCE((CASE WHEN $1::bigint IS NULL THEN NULL ELSE $1 END), 0);";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let p = &q.params[0];
+        assert_eq!(p.sql_type, SqlType::BigInt);
+        assert!(p.nullable, "param inside IS NULL nested in function arg must be nullable");
+    }
+
     // ─── Bug C: list-param patterns with named params ─────────────────────────
 
     #[test]

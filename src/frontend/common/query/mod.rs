@@ -482,7 +482,7 @@ pub(super) fn build_params(mapping: HashMap<usize, (String, SqlType, bool)>, cou
             Some((name, sql_type, nullable)) => {
                 let count = name_counts.entry(name.clone()).or_insert(0);
                 *count += 1;
-                let unique_name = if *count == 1 { name.clone() } else { format!("{}_{}", name, count) };
+                let unique_name = if *count == 1 { name.clone() } else { format!("{name}_{count}") };
                 Parameter::scalar(idx, unique_name, sql_type.clone(), *nullable)
             },
             None => Parameter::scalar(idx, format!("param{idx}"), SqlType::Text, false),
