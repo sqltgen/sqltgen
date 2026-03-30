@@ -162,6 +162,18 @@ const author = await getAuthor(conn, 1);
 All drivers, driver setup, and query function semantics are identical.
 See the [TypeScript guide](typescript.md) for more detail.
 
+## Nested typedefs (`-- nest:`)
+
+For queries that use `-- nest:`, JavaScript output emits JSDoc typedefs for:
+
+- each nested child group (`Query_Group`)
+- the parent query row (`QueryRow`) with nested array properties
+
+Generated runtime code aggregates flat rows using `Map` + `Set`, mirroring the
+TypeScript backend behavior but without TS generics.
+
+See [Nested query results](../nested-results.md) for full parser/codegen details.
+
 ## Naming conventions
 
 Identical to TypeScript: function names are `camelCase`, interface field names

@@ -114,6 +114,7 @@ mod ctes;
 mod dml;
 mod expr;
 mod joins;
+mod nest;
 mod params;
 mod select;
 mod set_ops;

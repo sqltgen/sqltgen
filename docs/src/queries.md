@@ -120,6 +120,30 @@ Rust, `list[int]` in Python, `number[]` in TypeScript). The SQL is rewritten to
 the engine's native expression — see
 [List parameter strategies](config.md#list-parameter-strategies).
 
+## Nested result annotations (`-- nest:`)
+
+Use `-- nest:` to map flat result columns into nested arrays in generated
+TypeScript/JavaScript query row types.
+
+```sql
+-- name: GetUserWithCompanies :many
+-- nest: company(company_id, company_name)
+SELECT u.id, u.name,
+       c.id AS company_id, c.name AS company_name
+FROM users u
+LEFT JOIN companies c ON c.user_id = u.id;
+```
+
+Rules:
+
+- Supported only for `:one` and `:many`.
+- `field` in `-- nest: field(...)` must be a valid JS identifier.
+- Column entries can be `source_col` or `source_col as alias`.
+- `-- nest:` cannot currently be combined with list parameters.
+
+For detailed parser/codegen behavior and rationale, see
+[Nested query results](nested-results.md).
+
 ## RETURNING clauses
 
 `RETURNING` columns are resolved just like SELECT projections. When `RETURNING *`

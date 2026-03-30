@@ -10,7 +10,7 @@ use sqlparser::dialect::Dialect;
 use sqlparser::parser::Parser;
 
 use crate::frontend::common::{ident_to_str, named_params, obj_name_to_str};
-use crate::ir::{Column, NativeListBind, Parameter, Query, QueryCmd, ResultColumn, Schema, SqlType, Table};
+use crate::ir::{Column, NativeListBind, NestedColumn, NestedGroup, Parameter, Query, QueryCmd, ResultColumn, Schema, SqlType, Table};
 
 type UserFunctions = HashMap<String, Vec<(Vec<SqlType>, SqlType)>>;
 
@@ -133,6 +133,107 @@ fn build_effective_config(config: &ResolverConfig, schema: &Schema) -> ResolverC
     ResolverConfig { user_functions, ..config.clone() }
 }
 
+// ─── Nest annotations ────────────────────────────────────────────────────────
+
+/// Raw `-- nest:` annotation parsed from query body comments.
+struct NestAnnotation {
+    field_name: String,
+    /// `(source_column, optional_explicit_alias)` pairs.
+    columns: Vec<(String, Option<String>)>,
+}
+
+/// Extract `-- nest:` comment lines from a query body, returning the cleaned
+/// SQL and the parsed nest annotations.
+fn extract_nest_annotations(sql: &str) -> (String, Vec<NestAnnotation>) {
+    let mut clean_lines = Vec::new();
+    let mut nests = Vec::new();
+    for line in sql.lines() {
+        if let Some(nest) = parse_nest_line(line) {
+            nests.push(nest);
+        } else {
+            clean_lines.push(line);
+        }
+    }
+    (clean_lines.join("\n"), nests)
+}
+
+/// Parse a single `-- nest: field(col1 [as alias1], col2 [as alias2], …)` line.
+fn parse_nest_line(line: &str) -> Option<NestAnnotation> {
+    let trimmed = line.trim();
+    let rest = trimmed.strip_prefix("--")?.trim();
+    let rest = rest.strip_prefix("nest:")?.trim();
+    let paren_start = rest.find('(')?;
+    let paren_end = rest.rfind(')')?;
+    if paren_end <= paren_start {
+        return None;
+    }
+    let field_name = rest[..paren_start].trim();
+    if field_name.is_empty() {
+        return None;
+    }
+    let cols_str = &rest[paren_start + 1..paren_end];
+    let columns: Vec<(String, Option<String>)> = cols_str
+        .split(',')
+        .filter_map(|s| {
+            let s = s.trim();
+            if s.is_empty() {
+                return None;
+            }
+            let parts: Vec<&str> = s.split_whitespace().collect();
+            if parts.len() == 3 && parts[1].eq_ignore_ascii_case("as") {
+                Some((parts[0].to_string(), Some(parts[2].to_string())))
+            } else {
+                Some((s.to_string(), None))
+            }
+        })
+        .collect();
+    if columns.is_empty() {
+        return None;
+    }
+    Some(NestAnnotation { field_name: field_name.to_string(), columns })
+}
+
+fn is_valid_js_identifier(name: &str) -> bool {
+    let mut chars = name.chars();
+    let Some(first) = chars.next() else { return false };
+    if !(first == '_' || first.is_ascii_alphabetic()) {
+        return false;
+    }
+    chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+}
+
+/// Strip a prefix from a column name for auto-deriving nested field names.
+///
+/// If `source` starts with `"{prefix}_"`, the prefix is stripped. Otherwise
+/// the original name is returned unchanged.
+fn strip_field_prefix<'a>(source: &'a str, prefix: &str) -> &'a str {
+    let with_underscore = format!("{prefix}_");
+    source.strip_prefix(&with_underscore).unwrap_or(source)
+}
+
+/// Build [`NestedGroup`]s from parsed annotations and resolved result columns.
+fn apply_nest_groups(query: &mut Query, annotations: &[NestAnnotation]) {
+    for ann in annotations {
+        let mut columns = Vec::new();
+        for (source_name, alias) in &ann.columns {
+            if let Some(rc) = query.result_columns.iter().find(|c| c.name == *source_name) {
+                let target_name = alias
+                    .clone()
+                    .unwrap_or_else(|| strip_field_prefix(source_name, &ann.field_name).to_string());
+                columns.push(NestedColumn {
+                    source_name: source_name.clone(),
+                    target_name,
+                    sql_type: rc.sql_type.clone(),
+                    nullable: rc.nullable,
+                });
+            }
+        }
+        if !columns.is_empty() {
+            query.nested_groups.push(NestedGroup { field_name: ann.field_name.clone(), columns });
+        }
+    }
+}
+
 // ─── Block splitting ─────────────────────────────────────────────────────────
 
 pub(super) struct QueryAnnotation {
@@ -192,6 +293,23 @@ fn parse_annotation(line: &str) -> Option<QueryAnnotation> {
 // ─── Query building ──────────────────────────────────────────────────────────
 
 fn build_query_with_dialect(dialect: &dyn Dialect, ann: &QueryAnnotation, sql: &str, schema: &Schema, config: &ResolverConfig) -> anyhow::Result<Query> {
+    let (sql, nest_annotations) = extract_nest_annotations(sql);
+    if !nest_annotations.is_empty() && !matches!(ann.cmd, QueryCmd::One | QueryCmd::Many) {
+        anyhow::bail!(
+            "query '{}' uses -- nest:, but nesting is only supported for :one and :many (found :{})",
+            ann.name,
+            query_cmd_name(&ann.cmd)
+        );
+    }
+    if let Some(invalid) = nest_annotations.iter().find(|n| !is_valid_js_identifier(&n.field_name)) {
+        anyhow::bail!(
+            "query '{}' uses invalid -- nest: field name '{}'; expected JavaScript identifier [a-zA-Z_][a-zA-Z0-9_]*",
+            ann.name,
+            invalid.field_name
+        );
+    }
+    let sql = sql.as_str();
+
     let (sql_buf, np) = match named_params::preprocess_named_params(sql) {
         Some((rewritten, params)) => (rewritten, params),
         // No named params: still strip comment lines so that the stored SQL can be
@@ -205,6 +323,13 @@ fn build_query_with_dialect(dialect: &dyn Dialect, ann: &QueryAnnotation, sql: &
         _ => {
             let mut query = unresolved_query(ann, sql);
             named_params::apply_named_param_overrides(&mut query.params, &np);
+            if !nest_annotations.is_empty() && query.params.iter().any(|p| p.is_list) {
+                anyhow::bail!(
+                    "query '{}' combines -- nest: with list parameters; this combination is not supported yet",
+                    ann.name
+                );
+            }
+            apply_nest_groups(&mut query, &nest_annotations);
             return Ok(query);
         },
     };
@@ -219,7 +344,23 @@ fn build_query_with_dialect(dialect: &dyn Dialect, ann: &QueryAnnotation, sql: &
 
     named_params::apply_named_param_overrides(&mut query.params, &np);
     apply_native_list_sql(&mut query, config);
+    if !nest_annotations.is_empty() && query.params.iter().any(|p| p.is_list) {
+        anyhow::bail!(
+            "query '{}' combines -- nest: with list parameters; this combination is not supported yet",
+            ann.name
+        );
+    }
+    apply_nest_groups(&mut query, &nest_annotations);
     Ok(query)
+}
+
+fn query_cmd_name(cmd: &QueryCmd) -> &'static str {
+    match cmd {
+        QueryCmd::One => "one",
+        QueryCmd::Many => "many",
+        QueryCmd::Exec => "exec",
+        QueryCmd::ExecRows => "execrows",
+    }
 }
 
 /// Populate `native_list_sql` and `native_list_bind` for each list parameter.
