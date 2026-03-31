@@ -114,6 +114,26 @@ mod tests {
         assert_eq!(q.params[0].sql_type, SqlType::BigInt);
     }
 
+    // ─── Null-aware operators ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_spaceship_param_on_right_inferred_as_nullable() {
+        let sql = "-- name: Q :many\nSELECT id FROM users WHERE id <=> $1;";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        assert_eq!(q.params.len(), 1);
+        assert_eq!(q.params[0].sql_type, SqlType::BigInt);
+        assert!(q.params[0].nullable, "param in <=> must be nullable");
+    }
+
+    #[test]
+    fn test_spaceship_param_on_left_inferred_as_nullable() {
+        let sql = "-- name: Q :many\nSELECT id FROM users WHERE $1 <=> id;";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        assert_eq!(q.params.len(), 1);
+        assert_eq!(q.params[0].sql_type, SqlType::BigInt);
+        assert!(q.params[0].nullable, "left-side param in <=> must be nullable");
+    }
+
     #[test]
     fn strips_trailing_semicolons() {
         let sql = "-- name: ListUsers :many\nSELECT id, name FROM users;";
