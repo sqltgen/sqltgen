@@ -145,11 +145,21 @@ pub(super) fn resolve_expr(
 
         // ── Comparison operators → Boolean ───────────────────────────────
         Expr::BinaryOp {
-            op: BinaryOperator::Eq | BinaryOperator::NotEq | BinaryOperator::Lt | BinaryOperator::LtEq | BinaryOperator::Gt | BinaryOperator::GtEq,
+            op: BinaryOperator::Eq
+            | BinaryOperator::NotEq
+            | BinaryOperator::Lt
+            | BinaryOperator::LtEq
+            | BinaryOperator::Gt
+            | BinaryOperator::GtEq
+            // Null-safe equality: MySQL `<=>`, equivalent to IS NOT DISTINCT FROM
+            | BinaryOperator::Spaceship,
             ..
         }
         | Expr::IsNull(_)
         | Expr::IsNotNull(_)
+        // Null-aware comparisons: standard SQL and MySQL equivalents
+        | Expr::IsDistinctFrom(_, _)
+        | Expr::IsNotDistinctFrom(_, _)
         | Expr::IsTrue(_)
         | Expr::IsFalse(_)
         | Expr::IsNotTrue(_)

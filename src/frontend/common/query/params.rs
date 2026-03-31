@@ -103,6 +103,8 @@ pub(super) fn collect_params_from_expr(expr: &Expr, ctx: &mut ResolverContext) {
                     // JSON containment: both operands are the same JSONB type
                     | BinaryOperator::AtArrow
                     | BinaryOperator::ArrowAt
+                    // Null-safe equality: MySQL `<=>` (IS NOT DISTINCT FROM equivalent)
+                    | BinaryOperator::Spaceship
             ) {
                 // col OP $N
                 if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = &**right {
@@ -159,6 +161,31 @@ pub(super) fn collect_params_from_expr(expr: &Expr, ctx: &mut ResolverContext) {
         },
         Expr::IsNull(inner) | Expr::IsNotNull(inner) => {
             collect_params_from_expr(inner, ctx);
+        },
+        // Null-aware comparisons: infer param type from the non-placeholder side,
+        // same as regular equality. Both operands may legally be NULL so both
+        // sides are walked and type inference is bidirectional.
+        Expr::IsDistinctFrom(left, right) | Expr::IsNotDistinctFrom(left, right) => {
+            if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = right.as_ref() {
+                if let Some(idx) = placeholder_idx(p) {
+                    if !is_literal_expr(left) {
+                        if let Some(rc) = resolve_expr(left, ctx.alias_map, ctx.all_tables, ctx.config) {
+                            ctx.mapping.entry(idx).or_insert((rc.name, rc.sql_type, rc.nullable));
+                        }
+                    }
+                }
+            }
+            if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = left.as_ref() {
+                if let Some(idx) = placeholder_idx(p) {
+                    if !is_literal_expr(right) {
+                        if let Some(rc) = resolve_expr(right, ctx.alias_map, ctx.all_tables, ctx.config) {
+                            ctx.mapping.entry(idx).or_insert((rc.name, rc.sql_type, rc.nullable));
+                        }
+                    }
+                }
+            }
+            collect_params_from_expr(left, ctx);
+            collect_params_from_expr(right, ctx);
         },
         Expr::Exists { subquery, .. } => {
             collect_params_from_subquery(subquery, ctx.schema, ctx.config, ctx.mapping, ctx.query_name);
@@ -342,6 +369,28 @@ fn mark_is_null_nullable(expr: &Expr, mapping: &mut HashMap<usize, (String, SqlT
                 }
             }
             mark_is_null_nullable(inner, mapping);
+        },
+        // IS DISTINCT FROM / IS NOT DISTINCT FROM: both operands may be NULL.
+        Expr::IsDistinctFrom(left, right) | Expr::IsNotDistinctFrom(left, right) => {
+            for operand in [left.as_ref(), right.as_ref()] {
+                if let Some(idx) = placeholder_idx_in_expr(operand) {
+                    if let Some(entry) = mapping.get_mut(&idx) {
+                        entry.2 = true;
+                    }
+                }
+                mark_is_null_nullable(operand, mapping);
+            }
+        },
+        // MySQL null-safe equality <=>: both operands may be NULL.
+        Expr::BinaryOp { left, op: BinaryOperator::Spaceship, right } => {
+            for operand in [left.as_ref(), right.as_ref()] {
+                if let Some(idx) = placeholder_idx_in_expr(operand) {
+                    if let Some(entry) = mapping.get_mut(&idx) {
+                        entry.2 = true;
+                    }
+                }
+                mark_is_null_nullable(operand, mapping);
+            }
         },
         Expr::BinaryOp { left, right, .. } => {
             mark_is_null_nullable(left, mapping);

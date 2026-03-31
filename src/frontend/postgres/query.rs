@@ -186,6 +186,46 @@ mod tests {
         assert!(p.nullable, "param inside IS NULL nested in function arg must be nullable");
     }
 
+    // ─── Null-aware comparison operators ─────────────────────────────────────
+
+    #[test]
+    fn test_is_distinct_from_param_inferred_as_nullable() {
+        let sql = "-- name: Q :many\nSELECT id FROM users WHERE id IS DISTINCT FROM $1;";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        assert_eq!(q.params.len(), 1);
+        assert_eq!(q.params[0].sql_type, SqlType::BigInt);
+        assert!(q.params[0].nullable, "param in IS DISTINCT FROM must be nullable");
+    }
+
+    #[test]
+    fn test_is_not_distinct_from_param_inferred_as_nullable() {
+        let sql = "-- name: Q :many\nSELECT id FROM users WHERE id IS NOT DISTINCT FROM $1;";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        assert_eq!(q.params.len(), 1);
+        assert_eq!(q.params[0].sql_type, SqlType::BigInt);
+        assert!(q.params[0].nullable, "param in IS NOT DISTINCT FROM must be nullable");
+    }
+
+    #[test]
+    fn test_is_distinct_from_param_on_left_inferred() {
+        let sql = "-- name: Q :many\nSELECT id FROM users WHERE $1 IS DISTINCT FROM id;";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        assert_eq!(q.params.len(), 1);
+        assert_eq!(q.params[0].sql_type, SqlType::BigInt);
+        assert!(q.params[0].nullable, "left-side param in IS DISTINCT FROM must be nullable");
+    }
+
+    #[test]
+    fn test_is_distinct_from_result_type_is_boolean() {
+        // The expression `id IS DISTINCT FROM $1` must resolve to non-nullable Boolean
+        // in the projection so backends emit the correct return type.
+        let sql = "-- name: Q :one\nSELECT (id IS DISTINCT FROM $1::bigint) AS result FROM users WHERE true;";
+        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        assert_eq!(q.result_columns.len(), 1);
+        assert_eq!(q.result_columns[0].sql_type, crate::ir::SqlType::Boolean);
+        assert!(!q.result_columns[0].nullable);
+    }
+
     // ─── Bug C: list-param patterns with named params ─────────────────────────
 
     #[test]
