@@ -100,3 +100,15 @@ migrations/
 
 sqltgen loads the files in lexicographic order (which matches numeric prefixes)
 and applies all DDL statements in sequence.
+
+If each migration file contains both an "up" and a "down" section, use
+`schema_stop_marker` to tell sqltgen where the down section begins:
+
+```json
+"schema": "migrations/",
+"schema_stop_marker": "-- migrate:down"
+```
+
+Everything from the marker line onward is ignored, so only the up DDL reaches
+the schema parser. See [Migration files with up/down sections](config.md#migration-files-with-updown-sections)
+for the full list of supported tools.

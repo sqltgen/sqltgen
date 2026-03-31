@@ -11,6 +11,12 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
 ## [Unreleased]
 
 ### Added
+- **`schema_stop_marker` config field** — migration files that contain both an
+  "up" and a "down" section (e.g. dbmate, goose, golang-migrate) can now be
+  used directly as the `schema` source. Set `schema_stop_marker` to the comment
+  that begins the down section (e.g. `"-- migrate:down"`) and sqltgen will
+  discard everything from that line onward in each file, leaving only the DDL
+  that builds up the schema.
 - **Comprehensive type-overrides E2E runtime test suite** — 20 new runtime test
   projects covering all 6 backends × 3 SQL dialects (PostgreSQL, SQLite, MySQL)
   for the `type_overrides` fixture. Tests verify JSON codec round-trips

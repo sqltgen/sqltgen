@@ -148,6 +148,7 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 |---|:---:|---|
 | `engine` / `schema` / `queries` / `gen` | ✅ | Core config |
 | Schema from directory of migration files | ✅ | Loaded in lex order |
+| `schema_stop_marker` — strip down-migration sections | ✅ | Truncates each file at marker; supports dbmate, goose, golang-migrate |
 | Multiple query files (list of paths) | ✅ | Supports list of files and globs |
 | Query grouping (map form: group name → paths) | ✅ | Each group → one output file per language |
 | Glob patterns for `schema` / `queries` | ⚠️ | Queries only (schema still single file/dir) |
