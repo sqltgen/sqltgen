@@ -30,6 +30,8 @@ jobs:
           context: .
           push: true
           platforms: linux/amd64,linux/arm64
-          tags: sqltgen/sqltgen:edge
+          tags: |
+            sqltgen/sqltgen:edge
+            sqltgen/sqltgen:latest  # temporary: move to release workflow when v0.1.0 ships
           cache-from: type=gha
           cache-to: type=gha,mode=max
