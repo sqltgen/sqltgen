@@ -5,7 +5,8 @@ COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 RUN cargo build --release
 
-FROM alpine:3
-COPY --from=builder /build/target/release/sqltgen /usr/local/bin/sqltgen
+FROM scratch
+COPY --from=builder /build/target/release/sqltgen /sqltgen
+COPY --from=builder /lib/ld-musl-x86_64.so.1 /lib/ld-musl-x86_64.so.1
 WORKDIR /workspace
-ENTRYPOINT ["sqltgen"]
+ENTRYPOINT ["/sqltgen"]
