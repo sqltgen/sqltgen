@@ -1,5 +1,27 @@
 # Installation
 
+## Docker (no Rust required)
+
+The quickest way to try sqltgen without installing anything. The
+[`sqltgen/sqltgen`](https://hub.docker.com/r/sqltgen/sqltgen) image on Docker Hub
+contains only the binary and its runtime — no shell, no package manager.
+
+Run from your project root, mounting the current directory as `/workspace`:
+
+```sh
+docker run --rm -v $(pwd):/workspace sqltgen/sqltgen generate --config sqltgen.json
+```
+
+For convenience, wrap it in a shell script and put it on your `$PATH`:
+
+```sh
+#!/bin/sh
+exec docker run --rm -v "$(pwd):/workspace" sqltgen/sqltgen "$@"
+```
+
+> **Tags:** `edge` tracks the latest commit on `main` and is updated on every
+> push. Versioned tags (`v0.1.0`, etc.) will be added with each stable release.
+
 ## Build from source
 
 The simplest install method. Requires a [Rust stable toolchain](https://rustup.rs).

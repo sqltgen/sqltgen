@@ -10,10 +10,29 @@ it against a PostgreSQL database.
 
 ## 1. Install sqltgen
 
+**Docker** (no Rust required — recommended for trying sqltgen):
+
+```sh
+docker run --rm -v $(pwd):/workspace sqltgen/sqltgen generate --config sqltgen.json
+```
+
+**cargo install** (if you have Rust):
+
 ```sh
 cargo install sqltgen
-sqltgen --version
 ```
+
+**Build from source:**
+
+```sh
+git clone https://github.com/sqltgen/sqltgen.git
+cd sqltgen
+cargo build --release
+# binary at target/release/sqltgen
+```
+
+See the [installation guide](installation.md) for all options including
+pre-built binaries and Homebrew.
 
 ## 2. Write your schema
 
