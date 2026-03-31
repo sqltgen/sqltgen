@@ -11,12 +11,19 @@ use crate::ir::SqlType;
 pub struct SqltgenConfig {
     pub version: String,
     pub engine: Engine,
-    /// Path to the DDL schema file.
+    /// Path to the DDL schema file or directory of `.sql` migration files.
     pub schema: String,
     /// Path(s) to annotated query files or glob patterns.
     pub queries: QueryPaths,
     /// Map from target language to output config.
     pub gen: HashMap<Language, OutputConfig>,
+    /// Comment marker that ends the "up" section in migration files containing
+    /// both up and down sections. Lines from this marker onward are ignored.
+    ///
+    /// Examples: `"-- migrate:down"` (dbmate), `"-- +goose Down"` (goose),
+    /// `"-- +migrate Down"` (golang-migrate).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schema_stop_marker: Option<String>,
 }
 
 /// One or more glob patterns for a single named query group.
@@ -520,6 +527,7 @@ mod tests {
             schema: "schema.sql".to_string(),
             queries: QueryPaths::Many(vec!["queries/*.sql".to_string(), "more.sql".to_string()]),
             gen: HashMap::new(),
+            schema_stop_marker: None,
         };
 
         let paths: Vec<PathBuf> = cfg.expand_queries(&root).unwrap().into_iter().map(|(p, _)| p).collect();
@@ -579,6 +587,7 @@ mod tests {
             schema: "schema.sql".to_string(),
             queries: QueryPaths::Many(vec!["users.sql".to_string(), "posts.sql".to_string()]),
             gen: HashMap::new(),
+            schema_stop_marker: None,
         };
         let pairs = cfg.expand_queries(&root).unwrap();
         let groups: Vec<&str> = pairs.iter().map(|(_, g)| g.as_str()).collect();
@@ -603,6 +612,7 @@ mod tests {
             schema: "schema.sql".to_string(),
             queries: QueryPaths::Single("queries.sql".to_string()),
             gen: HashMap::new(),
+            schema_stop_marker: None,
         };
         let pairs = cfg.expand_queries(&root).unwrap();
         assert_eq!(pairs.len(), 1);
@@ -630,6 +640,7 @@ mod tests {
             schema: "schema.sql".to_string(),
             queries: QueryPaths::Grouped(map),
             gen: HashMap::new(),
+            schema_stop_marker: None,
         };
         let pairs = cfg.expand_queries(&root).unwrap();
         assert_eq!(pairs.len(), 2);

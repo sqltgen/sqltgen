@@ -31,7 +31,28 @@ fn main() -> anyhow::Result<()> {
     }
 }
 
-fn read_schema_ddl(path: &Path) -> anyhow::Result<String> {
+/// Truncates `content` at the first line that exactly matches `stop_marker`
+/// (after trimming whitespace). Used to discard the "down" section of
+/// migration files that contain both up and down DDL.
+fn strip_after_marker(content: &str, stop_marker: &str) -> String {
+    let marker = stop_marker.trim();
+    let mut out = String::new();
+    for line in content.lines() {
+        if line.trim() == marker {
+            break;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
+}
+
+fn read_schema_ddl(path: &Path, stop_marker: Option<&str>) -> anyhow::Result<String> {
+    let extract = |raw: String| match stop_marker {
+        Some(marker) => strip_after_marker(&raw, marker),
+        None => raw,
+    };
+
     if path.is_dir() {
         let mut entries: Vec<_> = std::fs::read_dir(path)
             .with_context(|| format!("reading schema directory: {}", path.display()))?
@@ -42,12 +63,14 @@ fn read_schema_ddl(path: &Path) -> anyhow::Result<String> {
         entries.sort();
         let mut ddl = String::new();
         for entry in &entries {
-            ddl.push_str(&std::fs::read_to_string(entry).with_context(|| format!("reading schema file: {}", entry.display()))?);
+            let raw = std::fs::read_to_string(entry).with_context(|| format!("reading schema file: {}", entry.display()))?;
+            ddl.push_str(&extract(raw));
             ddl.push('\n');
         }
         Ok(ddl)
     } else {
-        std::fs::read_to_string(path).with_context(|| format!("reading schema file: {}", path.display()))
+        let raw = std::fs::read_to_string(path).with_context(|| format!("reading schema file: {}", path.display()))?;
+        Ok(extract(raw))
     }
 }
 
@@ -65,7 +88,7 @@ fn run_generate(config_path: &Path) -> anyhow::Result<()> {
 
     // Read and parse schema (supports single file or directory of .sql files)
     let schema_path = base_dir.join(&cfg.schema);
-    let ddl = read_schema_ddl(&schema_path)?;
+    let ddl = read_schema_ddl(&schema_path, cfg.schema_stop_marker.as_deref())?;
     let schema = parser.parse_schema(&ddl)?;
 
     // Read and parse queries (supports multiple files / globs)
@@ -112,4 +135,33 @@ fn run_generate(config_path: &Path) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_strip_after_marker_dbmate() {
+        let input = "-- migrate:up\nCREATE TABLE t (id INT);\n-- migrate:down\nDROP TABLE t;\n";
+        let result = strip_after_marker(input, "-- migrate:down");
+        assert!(result.contains("CREATE TABLE t"));
+        assert!(!result.contains("DROP TABLE"));
+        assert!(!result.contains("migrate:down"));
+    }
+
+    #[test]
+    fn test_strip_after_marker_no_marker() {
+        let input = "CREATE TABLE t (id INT);\n";
+        let result = strip_after_marker(input, "-- migrate:down");
+        assert_eq!(result, "CREATE TABLE t (id INT);\n");
+    }
+
+    #[test]
+    fn test_strip_after_marker_trims_whitespace() {
+        let input = "CREATE TABLE t (id INT);\n  -- migrate:down  \nDROP TABLE t;\n";
+        let result = strip_after_marker(input, "-- migrate:down");
+        assert!(result.contains("CREATE TABLE t"));
+        assert!(!result.contains("DROP TABLE"));
+    }
 }

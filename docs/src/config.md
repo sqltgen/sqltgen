@@ -34,6 +34,7 @@ sqltgen generate -c path/to/sqltgen.json
 | `version` | yes | Must be `"1"`. |
 | `engine` | yes | SQL dialect. One of `"postgresql"`, `"sqlite"`, `"mysql"`. |
 | `schema` | yes | Path to a `.sql` file **or** a directory. See [Schema path](#schema-path). |
+| `schema_stop_marker` | no | Strip down-migration sections. See [Migration files with up/down sections](#migration-files-with-updown-sections). |
 | `queries` | yes | Query source(s). See [Queries field](#queries-field). |
 | `gen` | yes | Map of language key → output config. At least one entry required. |
 
@@ -61,6 +62,40 @@ The `schema` field accepts:
 
 Statements sqltgen does not recognise (`CREATE INDEX`, `CREATE FUNCTION`, etc.)
 are silently skipped.
+
+## Migration files with up/down sections
+
+Some migration tools (dbmate, goose, golang-migrate) store both the "up" and
+"down" SQL in a single file, separated by a comment marker:
+
+```sql
+-- migrate:up
+CREATE TABLE users (id BIGINT PRIMARY KEY, name TEXT NOT NULL);
+
+-- migrate:down
+DROP TABLE users;
+```
+
+Set `schema_stop_marker` to the down-section marker and sqltgen will discard
+everything from that line onward in each file:
+
+```json
+{
+  "schema": "migrations/",
+  "schema_stop_marker": "-- migrate:down"
+}
+```
+
+Common values by tool:
+
+| Tool | `schema_stop_marker` |
+|---|---|
+| dbmate | `"-- migrate:down"` |
+| goose | `"-- +goose Down"` |
+| golang-migrate / sql-migrate | `"-- +migrate Down"` |
+
+Omit the field (or set it to `null`) to read files in full — this is the
+default and preserves existing behaviour.
 
 ## Queries field
 

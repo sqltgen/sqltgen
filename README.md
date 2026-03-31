@@ -199,6 +199,20 @@ cargo install sqltgen
 The `schema` field accepts a directory; files are loaded in lexicographic order
 (ideal for numbered migration files like `001_create_users.sql`).
 
+If your migration files contain both an "up" and a "down" section, set
+`schema_stop_marker` to the comment that begins the down section. Everything
+from that line onward is ignored when building the schema:
+
+```json
+{
+  "schema": "migrations/",
+  "schema_stop_marker": "-- migrate:down"
+}
+```
+
+Common values: `"-- migrate:down"` (dbmate), `"-- +goose Down"` (goose),
+`"-- +migrate Down"` (golang-migrate).
+
 The `queries` field accepts a string (single file), an array of paths/globs, or
 a **grouped map** that names each group explicitly:
 
