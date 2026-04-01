@@ -190,6 +190,8 @@ pub(super) fn generate_core_files(schema: &Schema, queries: &[Query], contract: 
 
         writeln!(src)?;
         emit_nullable_primitive_helpers(&mut src)?;
+        writeln!(src)?;
+        emit_array_helper(&mut src)?;
         writeln!(src, "}}")?;
 
         let path = source_path(&config.out, &config.package, &class_name, "kt");
@@ -572,13 +574,27 @@ fn emit_nullable_primitive_helpers(src: &mut String) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Emit the `jdbcArrayToList` helper that isolates the unchecked JDBC array cast to one site.
+///
+/// All SQL ARRAY column reads are routed through this function so the single
+/// `@Suppress("UNCHECKED_CAST")` annotation covers every array type.
+fn emit_array_helper(src: &mut String) -> anyhow::Result<()> {
+    writeln!(src, "    @Suppress(\"UNCHECKED_CAST\")")?;
+    writeln!(src, "    private fun <T> jdbcArrayToList(arr: java.sql.Array): List<T> =")?;
+    writeln!(src, "        (arr.array as Array<T>).toList()")?;
+    Ok(())
+}
+
 /// Build a JDBC expression that reads a SQL ARRAY column and converts it to `List<T>`.
 fn jdbc_array_read_expr(inner: &SqlType, nullable: bool, idx: usize) -> String {
-    let kt = kotlin_type(inner, false);
+    // TODO: apply per-element conversion using `inner` when the element type has
+    // a type override or requires special construction (e.g. timestamps, UUIDs).
+    // For now, all array reads use a cast-based approach via jdbcArrayToList.
+    let _ = inner;
     if nullable {
-        format!("rs.getArray({idx})?.let {{ (it.array as Array<{kt}>).toList() }}")
+        format!("rs.getArray({idx})?.let {{ jdbcArrayToList(it) }}")
     } else {
-        format!("(rs.getArray({idx}).array as Array<{kt}>).toList()")
+        format!("jdbcArrayToList(rs.getArray({idx}))")
     }
 }
 

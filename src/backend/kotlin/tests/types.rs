@@ -86,13 +86,13 @@ fn test_kotlin_type_array_of_integers() {
 #[test]
 fn test_resultset_read_array_text() {
     let expr = resultset_read_expr(&SqlType::Array(Box::new(SqlType::Text)), false, 3);
-    assert_eq!(expr, "(rs.getArray(3).array as Array<String>).toList()");
+    assert_eq!(expr, "jdbcArrayToList(rs.getArray(3))");
 }
 
 #[test]
 fn test_resultset_read_array_nullable() {
     let expr = resultset_read_expr(&SqlType::Array(Box::new(SqlType::Text)), true, 5);
-    assert_eq!(expr, "rs.getArray(5)?.let { (it.array as Array<String>).toList() }");
+    assert_eq!(expr, "rs.getArray(5)?.let { jdbcArrayToList(it) }");
 }
 
 #[test]

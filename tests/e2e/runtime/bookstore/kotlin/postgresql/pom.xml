@@ -33,6 +33,9 @@
   </dependencies>
 
   <build>
+    <!-- Override the default Java source root so the Kotlin plugin does not warn
+         about a missing src/main/java directory. This project is Kotlin-only. -->
+    <sourceDirectory>${project.basedir}/src/main/kotlin</sourceDirectory>
     <plugins>
       <plugin>
         <groupId>org.jetbrains.kotlin</groupId>

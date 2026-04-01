@@ -72,7 +72,7 @@ fn test_generate_array_result_column_uses_get_array() {
     let src = get_file(&files, "Queries.kt");
     assert!(src.contains("rs.getArray(1)"), "should read array column via getArray: {src}");
     assert!(!src.contains("rs.getObject(1)"), "should not fall through to getObject for array column");
-    assert!(src.contains("rs.getArray(1).array as Array<String>"), "should cast array to Array<String>");
+    assert!(src.contains("jdbcArrayToList(rs.getArray(1))"), "should route array read through jdbcArrayToList: {src}");
 }
 
 #[test]
