@@ -730,7 +730,7 @@ object Queries {
             ps.setObject(1, id)
             ps.executeQuery().use { rs ->
                 if (!rs.next()) return null
-                return Product(rs.getObject(1, java.util.UUID::class.java), rs.getString(2), rs.getString(3), rs.getBoolean(4), getNullableFloat(rs, 5), getNullableDouble(rs, 6), (rs.getArray(7).array as Array<String>).toList(), rs.getString(8), rs.getBytes(9), rs.getObject(10, java.time.LocalDateTime::class.java), rs.getShort(11))
+                return Product(rs.getObject(1, java.util.UUID::class.java), rs.getString(2), rs.getString(3), rs.getBoolean(4), getNullableFloat(rs, 5), getNullableDouble(rs, 6), jdbcArrayToList(rs.getArray(7)), rs.getString(8), rs.getBytes(9), rs.getObject(10, java.time.LocalDateTime::class.java), rs.getShort(11))
             }
         }
     }
@@ -760,7 +760,7 @@ object Queries {
             ps.setBoolean(1, active)
             val rows = mutableListOf<ListActiveProductsRow>()
             ps.executeQuery().use { rs ->
-                while (rs.next()) rows.add(ListActiveProductsRow(rs.getObject(1, java.util.UUID::class.java), rs.getString(2), rs.getString(3), rs.getBoolean(4), getNullableFloat(rs, 5), getNullableDouble(rs, 6), (rs.getArray(7).array as Array<String>).toList(), rs.getString(8), rs.getObject(9, java.time.LocalDateTime::class.java), rs.getShort(10)))
+                while (rs.next()) rows.add(ListActiveProductsRow(rs.getObject(1, java.util.UUID::class.java), rs.getString(2), rs.getString(3), rs.getBoolean(4), getNullableFloat(rs, 5), getNullableDouble(rs, 6), jdbcArrayToList(rs.getArray(7)), rs.getString(8), rs.getObject(9, java.time.LocalDateTime::class.java), rs.getShort(10)))
             }
             return rows
         }
@@ -785,7 +785,7 @@ object Queries {
             ps.setShort(10, stockCount)
             ps.executeQuery().use { rs ->
                 if (!rs.next()) return null
-                return Product(rs.getObject(1, java.util.UUID::class.java), rs.getString(2), rs.getString(3), rs.getBoolean(4), getNullableFloat(rs, 5), getNullableDouble(rs, 6), (rs.getArray(7).array as Array<String>).toList(), rs.getString(8), rs.getBytes(9), rs.getObject(10, java.time.LocalDateTime::class.java), rs.getShort(11))
+                return Product(rs.getObject(1, java.util.UUID::class.java), rs.getString(2), rs.getString(3), rs.getBoolean(4), getNullableFloat(rs, 5), getNullableDouble(rs, 6), jdbcArrayToList(rs.getArray(7)), rs.getString(8), rs.getBytes(9), rs.getObject(10, java.time.LocalDateTime::class.java), rs.getShort(11))
             }
         }
     }
@@ -947,7 +947,7 @@ object Queries {
             ps.setShort(6, stockCount)
             ps.executeQuery().use { rs ->
                 if (!rs.next()) return null
-                return UpsertProductRow(rs.getObject(1, java.util.UUID::class.java), rs.getString(2), rs.getString(3), rs.getBoolean(4), (rs.getArray(5).array as Array<String>).toList(), rs.getShort(6))
+                return UpsertProductRow(rs.getObject(1, java.util.UUID::class.java), rs.getString(2), rs.getString(3), rs.getBoolean(4), jdbcArrayToList(rs.getArray(5)), rs.getShort(6))
             }
         }
     }
@@ -1022,4 +1022,8 @@ object Queries {
         val v = rs.getDouble(col)
         return if (rs.wasNull()) null else v
     }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun <T> jdbcArrayToList(arr: java.sql.Array): List<T> =
+        (arr.array as Array<T>).toList()
 }
