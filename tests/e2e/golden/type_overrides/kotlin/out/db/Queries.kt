@@ -198,4 +198,8 @@ object Queries {
         val v = rs.getDouble(col)
         return if (rs.wasNull()) null else v
     }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun <T> jdbcArrayToList(arr: java.sql.Array): List<T> =
+        (arr.array as Array<T>).toList()
 }
