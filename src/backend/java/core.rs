@@ -2,164 +2,35 @@ use std::collections::BTreeSet;
 use std::fmt::Write;
 use std::path::PathBuf;
 
-use crate::backend::common::{
-    emit_package, group_queries, has_inline_rows, needs_null_safe_getter, pg_array_type_name, querier_class_name, queries_class_name, row_type_name,
-};
+use crate::backend::common::{emit_package, group_queries, has_inline_rows, pg_array_type_name, querier_class_name, queries_class_name, row_type_name};
 use crate::backend::jdbc::{
-    self, collect_override_metadata, collect_table_imports, emit_dynamic_binds, emit_jdbc_binds, prepare_dynamic_sql_parts, prepare_sql_const,
-    prepare_sql_const_from, preset_gson, preset_jackson, uses_get_object, ListAction, QuerierContext,
+    self, emit_dynamic_binds, emit_jdbc_binds, prepare_dynamic_sql_parts, prepare_sql_const, prepare_sql_const_from, ListAction, QuerierContext,
 };
 use crate::backend::naming::{to_camel_case, to_pascal_case};
 use crate::backend::GeneratedFile;
-use crate::config::{resolve_type_override, ExtraField, Language, ListParamStrategy, OutputConfig, ResolvedType, TypeVariant};
-use crate::ir::{Parameter, Query, QueryCmd, Schema, SqlType};
+use crate::config::{ListParamStrategy, OutputConfig};
+use crate::ir::{Parameter, Query, QueryCmd, Schema};
 
 use super::adapter::JvmCoreContract;
-
-/// Resolve a known Java/Kotlin preset name to a [`ResolvedType`].
-///
-/// Returns `None` for unknown names (handled by [`resolve_type_ref`] instead).
-fn try_preset_java(name: &str) -> Option<ResolvedType> {
-    match name {
-        "jackson" => {
-            let mut rt = preset_jackson("JsonNode.class", "private static final ObjectMapper objectMapper = new ObjectMapper();");
-            // Java has checked exceptions: objectMapper.readValue() throws JsonProcessingException.
-            // Replace the inline read_expr with a call to a private helper that wraps the
-            // checked exception as a RuntimeException so query methods only declare SQLException.
-            rt.read_expr = Some("parseJson({raw})".to_string());
-            rt.write_expr = Some("toJson({value})".to_string());
-            rt.extra_fields.push(ExtraField {
-                declaration: concat!(
-                    "private static com.fasterxml.jackson.databind.JsonNode parseJson(String raw) {",
-                    " try { return raw == null ? null : objectMapper.readValue(raw, com.fasterxml.jackson.databind.JsonNode.class); }",
-                    " catch (com.fasterxml.jackson.core.JsonProcessingException e) { throw new RuntimeException(e); } }"
-                )
-                .to_string(),
-                import: None,
-            });
-            rt.extra_fields.push(ExtraField {
-                declaration: concat!(
-                    "private static String toJson(com.fasterxml.jackson.databind.JsonNode value) {",
-                    " if (value == null) return null;",
-                    " try { return objectMapper.writeValueAsString(value); }",
-                    " catch (com.fasterxml.jackson.core.JsonProcessingException e) { throw new RuntimeException(e); } }"
-                )
-                .to_string(),
-                import: None,
-            });
-            Some(rt)
-        },
-        "gson" => {
-            let mut rt = preset_gson("JsonElement.class", "private static final Gson gson = new Gson();");
-            // Gson returns JsonNull (not Java null) for fromJson(null, …), and toJson(null)
-            // returns the string "null". Wrap both in helpers with null guards.
-            rt.read_expr = Some("parseJson({raw})".to_string());
-            rt.write_expr = Some("toJson({value})".to_string());
-            rt.extra_fields.push(ExtraField {
-                declaration: concat!(
-                    "private static com.google.gson.JsonElement parseJson(String raw) {",
-                    " return raw == null ? null : gson.fromJson(raw, com.google.gson.JsonElement.class); }"
-                )
-                .to_string(),
-                import: None,
-            });
-            rt.extra_fields.push(ExtraField {
-                declaration: concat!(
-                    "private static String toJson(com.google.gson.JsonElement value) {",
-                    " return value == null ? null : gson.toJson(value); }"
-                )
-                .to_string(),
-                import: None,
-            });
-            Some(rt)
-        },
-        _ => None,
-    }
-}
-
-/// Resolve a type override for the given SQL type and variant, combining preset lookup
-/// with the generic [`resolve_type_ref`] fallback.
-fn get_type_override_java(sql_type: &SqlType, variant: TypeVariant, config: &OutputConfig) -> Option<ResolvedType> {
-    resolve_type_override(sql_type, variant, config, Language::Java, try_preset_java)
-}
-
-/// Return the Java field type for a SQL type, applying any configured type override first.
-pub(super) fn java_field_type(sql_type: &SqlType, nullable: bool, config: &OutputConfig) -> String {
-    if let Some(resolved) = get_type_override_java(sql_type, TypeVariant::Field, config) {
-        return apply_nullable_java(&resolved.name, nullable, false);
-    }
-    java_type(sql_type, nullable)
-}
-
-/// Return the Java parameter type, applying any configured param type override first.
-pub(super) fn java_param_type_resolved(p: &Parameter, config: &OutputConfig) -> String {
-    if p.is_list {
-        let elem =
-            if let Some(resolved) = get_type_override_java(&p.sql_type, TypeVariant::Param, config) { resolved.name } else { java_type_boxed(&p.sql_type) };
-        return format!("List<{elem}>");
-    }
-    if let Some(resolved) = get_type_override_java(&p.sql_type, TypeVariant::Param, config) {
-        return apply_nullable_java(&resolved.name, p.nullable, false);
-    }
-    java_param_type(p)
-}
-
-/// Apply Java nullability to a type name.
-///
-/// Primitive types use boxed names when nullable; reference types are always the same.
-/// `is_array` controls the `@Nullable` annotation path for List types.
-fn apply_nullable_java(name: &str, nullable: bool, is_array: bool) -> String {
-    if nullable && is_array {
-        format!("@Nullable {name}")
-    } else {
-        name.to_string()
-    }
-}
-
-/// Return the JDBC bind value expression for a parameter, applying any configured write_expr.
-///
-/// Normally this is just the camel-case param name. When a write_expr is configured,
-/// it wraps the param name (e.g. `objectMapper.writeValueAsString(payload)`).
-fn java_write_expr(p: &Parameter, config: &OutputConfig) -> String {
-    let name = to_camel_case(&p.name);
-    if let Some(resolved) = get_type_override_java(&p.sql_type, TypeVariant::Param, config) {
-        if let Some(expr) = &resolved.write_expr {
-            return expr.replace("{value}", &name);
-        }
-    }
-    name
-}
-
-/// Resolve a ResultSet read expression, applying any configured read_expr override.
-///
-/// - Override with `read_expr`: substitute `{raw}` with `rs.getString(idx)` — safe for
-///   any JDBC driver regardless of whether it knows the override type.
-/// - Override without `read_expr` on a `getObject` type: emit `rs.getObject(idx, T.class)`
-///   using the override class name instead of the hardcoded default.
-/// - No override: existing hardcoded expression.
-fn resolve_java_read_expr(sql_type: &SqlType, nullable: bool, idx: usize, config: &OutputConfig) -> String {
-    if let Some(resolved) = get_type_override_java(sql_type, TypeVariant::Field, config) {
-        if let Some(expr) = &resolved.read_expr {
-            return expr.replace("{raw}", &format!("rs.getString({idx})"));
-        }
-        if uses_get_object(sql_type) {
-            return format!("rs.getObject({idx}, {}.class)", resolved.name);
-        }
-    }
-    resultset_read_expr(sql_type, nullable, idx)
-}
+use super::typemap::JavaTypeMap;
 
 /// Per-query context computed once in the dispatcher and forwarded to all emitters.
 struct QueryContext<'a> {
     query: &'a Query,
     schema: &'a Schema,
-    config: &'a OutputConfig,
+    type_map: &'a JavaTypeMap,
     return_type: String,
     params_sig: String,
 }
 
 /// Emit all Java files for the given schema and queries.
-pub(super) fn generate_core_files(schema: &Schema, queries: &[Query], contract: &JvmCoreContract, config: &OutputConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+pub(super) fn generate_core_files(
+    schema: &Schema,
+    queries: &[Query],
+    contract: &JvmCoreContract,
+    config: &OutputConfig,
+    type_map: &JavaTypeMap,
+) -> anyhow::Result<Vec<GeneratedFile>> {
     let mut files = Vec::new();
 
     // One record class per table
@@ -167,7 +38,7 @@ pub(super) fn generate_core_files(schema: &Schema, queries: &[Query], contract: 
         let class_name = to_pascal_case(&table.name);
         let mut src = String::new();
         emit_package(&mut src, &config.package, ";");
-        let table_imports = collect_table_imports(table, config, get_type_override_java);
+        let table_imports = type_map.table_imports(table);
         for imp in &table_imports {
             writeln!(src, "import {imp};")?;
         }
@@ -175,14 +46,8 @@ pub(super) fn generate_core_files(schema: &Schema, queries: &[Query], contract: 
             writeln!(src)?;
         }
         writeln!(src, "public record {class_name}(")?;
-        let params: Vec<String> = table
-            .columns
-            .iter()
-            .map(|col| {
-                let ty = java_field_type(&col.sql_type, col.nullable, config);
-                format!("    {} {}", ty, to_camel_case(&col.name))
-            })
-            .collect();
+        let params: Vec<String> =
+            table.columns.iter().map(|col| format!("    {} {}", type_map.java_type(&col.sql_type, col.nullable), to_camel_case(&col.name))).collect();
         writeln!(src, "{}", params.join(",\n"))?;
         writeln!(src, ") {{}}")?;
 
@@ -196,7 +61,7 @@ pub(super) fn generate_core_files(schema: &Schema, queries: &[Query], contract: 
         let class_name = queries_class_name(&group);
         let querier_name = querier_class_name(&group);
 
-        let (override_imports, extra_fields) = collect_override_metadata(&group_queries, config, get_type_override_java);
+        let (override_imports, extra_fields) = type_map.query_metadata(&group_queries);
 
         let mut src = String::new();
         emit_package(&mut src, &config.package, ";");
@@ -227,10 +92,10 @@ pub(super) fn generate_core_files(schema: &Schema, queries: &[Query], contract: 
         for query in &group_queries {
             writeln!(src)?;
             if has_inline_rows(query, schema) {
-                emit_row_record(&mut src, query, config)?;
+                emit_row_record(&mut src, query, type_map)?;
                 writeln!(src)?;
             }
-            emit_java_query(&mut src, query, schema, &strategy, contract, config)?;
+            emit_java_query(&mut src, query, schema, &strategy, contract, type_map)?;
         }
 
         writeln!(src)?;
@@ -243,7 +108,7 @@ pub(super) fn generate_core_files(schema: &Schema, queries: &[Query], contract: 
         let mut src = String::new();
         emit_package(&mut src, &config.package, ";");
         let ctx = QuerierContext { class_name: &class_name, querier_name: &querier_name, override_imports: &override_imports, extra_fields: &extra_fields };
-        emit_java_querier(&mut src, &group_queries, schema, &ctx, contract, config)?;
+        emit_java_querier(&mut src, &group_queries, schema, &ctx, contract, type_map)?;
         let path = record_path(&config.out, &config.package, &querier_name);
         files.push(GeneratedFile { path, content: src });
     }
@@ -257,15 +122,15 @@ fn emit_java_query(
     schema: &Schema,
     strategy: &ListParamStrategy,
     contract: &JvmCoreContract,
-    config: &OutputConfig,
+    type_map: &JavaTypeMap,
 ) -> anyhow::Result<()> {
     let ctx = QueryContext {
         query,
         schema,
-        config,
+        type_map,
         return_type: jdbc::jdbc_return_type(query, schema, contract.fallback_type, |r| format!("Optional<{r}>"), |r| format!("List<{r}>"), "void", "long"),
         params_sig: std::iter::once("Connection conn".to_string())
-            .chain(query.params.iter().map(|p| format!("{} {}", java_param_type_resolved(p, config), to_camel_case(&p.name))))
+            .chain(query.params.iter().map(|p| format!("{} {}", type_map.java_param_type(p), to_camel_case(&p.name))))
             .collect::<Vec<_>>()
             .join(", "),
     };
@@ -306,7 +171,7 @@ fn emit_java_scalar_query(src: &mut String, ctx: &QueryContext, contract: &JvmCo
     emit_java_sql_text_block(src, &sql_const, &raw_sql)?;
     writeln!(src, "    public static {} {}({}) throws SQLException {{", ctx.return_type, to_camel_case(&ctx.query.name), ctx.params_sig)?;
     writeln!(src, "        try (PreparedStatement ps = conn.prepareStatement({sql_const})) {{")?;
-    emit_jdbc_binds(src, ctx.query, "", contract.statement_end, "toArray()", contract.json_bind, |p| java_write_expr(p, ctx.config))?;
+    emit_jdbc_binds(src, ctx.query, "", contract.statement_end, "toArray()", contract.json_bind, |p| ctx.type_map.write_expr(p))?;
     emit_java_result_block(src, ctx, contract)?;
     writeln!(src, "        }}")?;
     writeln!(src, "    }}")?;
@@ -323,7 +188,7 @@ fn emit_java_list_pg_native(src: &mut String, ctx: &QueryContext, lp: &Parameter
     let type_name = pg_array_type_name(&lp.sql_type);
     writeln!(src, "        java.sql.Array arr = conn.createArrayOf(\"{type_name}\", {lp_name}.toArray());")?;
     writeln!(src, "        try (PreparedStatement ps = conn.prepareStatement({sql_const})) {{")?;
-    emit_jdbc_binds(src, ctx.query, "arr", contract.statement_end, "toArray()", contract.json_bind, |p| java_write_expr(p, ctx.config))?;
+    emit_jdbc_binds(src, ctx.query, "arr", contract.statement_end, "toArray()", contract.json_bind, |p| ctx.type_map.write_expr(p))?;
     emit_java_result_block(src, ctx, contract)?;
     writeln!(src, "        }}")?;
     writeln!(src, "    }}")?;
@@ -363,7 +228,7 @@ fn emit_java_list_json_native(src: &mut String, ctx: &QueryContext, lp: &Paramet
     writeln!(src, "    public static {} {method_name}({}) throws SQLException {{", ctx.return_type, ctx.params_sig)?;
     emit_java_json_builder(src, lp)?;
     writeln!(src, "        try (PreparedStatement ps = conn.prepareStatement({sql_const})) {{")?;
-    emit_jdbc_binds(src, ctx.query, "json", contract.statement_end, "toArray()", contract.json_bind, |p| java_write_expr(p, ctx.config))?;
+    emit_jdbc_binds(src, ctx.query, "json", contract.statement_end, "toArray()", contract.json_bind, |p| ctx.type_map.write_expr(p))?;
     emit_java_result_block(src, ctx, contract)?;
     writeln!(src, "        }}")?;
     writeln!(src, "    }}")?;
@@ -395,28 +260,19 @@ fn emit_java_result_block(src: &mut String, ctx: &QueryContext, contract: &JvmCo
         QueryCmd::One => {
             writeln!(src, "            try (ResultSet rs = ps.executeQuery()) {{")?;
             writeln!(src, "                if (!rs.next()) return Optional.empty();")?;
-            writeln!(src, "                return Optional.of({});", emit_row_constructor(ctx.query, ctx.schema, ctx.config, contract))?;
+            writeln!(src, "                return Optional.of({});", emit_row_constructor(ctx.query, ctx.schema, ctx.type_map, contract))?;
             writeln!(src, "            }}")?;
         },
         QueryCmd::Many => {
             let row_type = result_row_type(ctx.query, ctx.schema, contract);
             writeln!(src, "            List<{row_type}> rows = new ArrayList<>();")?;
             writeln!(src, "            try (ResultSet rs = ps.executeQuery()) {{")?;
-            writeln!(src, "                while (rs.next()) rows.add({});", emit_row_constructor(ctx.query, ctx.schema, ctx.config, contract))?;
+            writeln!(src, "                while (rs.next()) rows.add({});", emit_row_constructor(ctx.query, ctx.schema, ctx.type_map, contract))?;
             writeln!(src, "            }}")?;
             writeln!(src, "            return rows;")?;
         },
     }
     Ok(())
-}
-
-/// Return the Java type for a parameter (no override), using `List<T>` for list params.
-fn java_param_type(p: &Parameter) -> String {
-    if p.is_list {
-        format!("List<{}>", java_type_boxed(&p.sql_type))
-    } else {
-        java_type(&p.sql_type, p.nullable)
-    }
 }
 
 /// Emits a DataSource-backed querier wrapper that acquires a connection
@@ -427,7 +283,7 @@ fn emit_java_querier(
     schema: &Schema,
     ctx: &QuerierContext,
     contract: &JvmCoreContract,
-    config: &OutputConfig,
+    type_map: &JavaTypeMap,
 ) -> anyhow::Result<()> {
     let has_one = queries.iter().any(|q| q.cmd == QueryCmd::One);
     let has_many = queries.iter().any(|q| q.cmd == QueryCmd::Many);
@@ -459,7 +315,7 @@ fn emit_java_querier(
 
     for query in queries {
         writeln!(src)?;
-        emit_java_querier_method(src, query, schema, ctx.class_name, contract, config)?;
+        emit_java_querier_method(src, query, schema, ctx.class_name, contract, type_map)?;
     }
 
     writeln!(src, "}}")?;
@@ -473,7 +329,7 @@ fn emit_java_querier_method(
     schema: &Schema,
     class_name: &str,
     contract: &JvmCoreContract,
-    config: &OutputConfig,
+    type_map: &JavaTypeMap,
 ) -> anyhow::Result<()> {
     let row = jdbc::ds_result_row_type(query, schema, contract.fallback_type, class_name);
     let return_type = match query.cmd {
@@ -483,8 +339,7 @@ fn emit_java_querier_method(
         QueryCmd::ExecRows => "long".to_string(),
     };
 
-    let params_sig: String =
-        query.params.iter().map(|p| format!("{} {}", java_param_type_resolved(p, config), to_camel_case(&p.name))).collect::<Vec<_>>().join(", ");
+    let params_sig: String = query.params.iter().map(|p| format!("{} {}", type_map.java_param_type(p), to_camel_case(&p.name))).collect::<Vec<_>>().join(", ");
 
     let method_name = to_camel_case(&query.name);
     let args: String = query.params.iter().map(|p| to_camel_case(&p.name)).collect::<Vec<_>>().join(", ");
@@ -505,103 +360,18 @@ fn result_row_type(query: &Query, schema: &Schema, contract: &JvmCoreContract) -
     jdbc::result_row_type(query, schema, contract.fallback_type)
 }
 
-fn emit_row_record(src: &mut String, query: &Query, config: &OutputConfig) -> anyhow::Result<()> {
+fn emit_row_record(src: &mut String, query: &Query, type_map: &JavaTypeMap) -> anyhow::Result<()> {
     let name = row_type_name(&query.name);
     writeln!(src, "    public record {name}(")?;
-    let fields: Vec<String> = query
-        .result_columns
-        .iter()
-        .map(|col| format!("        {} {}", java_field_type(&col.sql_type, col.nullable, config), to_camel_case(&col.name)))
-        .collect();
+    let fields: Vec<String> =
+        query.result_columns.iter().map(|col| format!("        {} {}", type_map.java_type(&col.sql_type, col.nullable), to_camel_case(&col.name))).collect();
     writeln!(src, "{}", fields.join(",\n"))?;
     writeln!(src, "    ) {{}}")?;
     Ok(())
 }
 
-fn emit_row_constructor(query: &Query, schema: &Schema, config: &OutputConfig, contract: &JvmCoreContract) -> String {
-    jdbc::build_row_constructor(query, schema, contract.fallback_type, "new ", |sql_type, nullable, idx| {
-        resolve_java_read_expr(sql_type, nullable, idx, config)
-    })
-}
-
-// ─── Type helpers ─────────────────────────────────────────────────────────────
-
-fn java_type(sql_type: &SqlType, nullable: bool) -> String {
-    // Each variant maps to (non_nullable_type, nullable_type). Java primitives
-    // use their boxed counterparts when nullable; reference types are the same
-    // regardless of nullability.
-    let (base, boxed) = match sql_type {
-        SqlType::Boolean => ("boolean", "Boolean"),
-        SqlType::SmallInt => ("short", "Short"),
-        SqlType::Integer => ("int", "Integer"),
-        SqlType::BigInt => ("long", "Long"),
-        SqlType::Real => ("float", "Float"),
-        SqlType::Double => ("double", "Double"),
-        SqlType::Decimal => ("java.math.BigDecimal", "java.math.BigDecimal"),
-        SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_) => ("String", "String"),
-        SqlType::Bytes => ("byte[]", "byte[]"),
-        SqlType::Date => ("java.time.LocalDate", "java.time.LocalDate"),
-        SqlType::Time => ("java.time.LocalTime", "java.time.LocalTime"),
-        SqlType::Timestamp => ("java.time.LocalDateTime", "java.time.LocalDateTime"),
-        SqlType::TimestampTz => ("java.time.OffsetDateTime", "java.time.OffsetDateTime"),
-        SqlType::Interval => ("String", "String"),
-        SqlType::Uuid => ("java.util.UUID", "java.util.UUID"),
-        SqlType::Json | SqlType::Jsonb => ("String", "String"),
-        SqlType::Array(inner) => {
-            let t = format!("java.util.List<{}>", java_type_boxed(inner));
-            return if nullable { format!("@Nullable {t}") } else { t };
-        },
-        SqlType::Custom(_) => ("Object", "Object"),
-    };
-    (if nullable { boxed } else { base }).into()
-}
-
-fn java_type_boxed(sql_type: &SqlType) -> String {
-    match sql_type {
-        SqlType::Boolean => "Boolean".into(),
-        SqlType::SmallInt => "Short".into(),
-        SqlType::Integer => "Integer".into(),
-        SqlType::BigInt => "Long".into(),
-        SqlType::Real => "Float".into(),
-        SqlType::Double => "Double".into(),
-        other => java_type(other, false),
-    }
-}
-
-fn resultset_read_expr(sql_type: &SqlType, nullable: bool, idx: usize) -> String {
-    // Primitive getters (getInt, getBoolean, …) return 0/false for SQL NULL.
-    // For nullable primitive columns we call private getNullable* helpers that
-    // use wasNull() — this is compatible with all JDBC drivers including SQLite,
-    // which does not support getObject(col, Integer.class) for NULL values.
-    if nullable && needs_null_safe_getter(sql_type) {
-        return match sql_type {
-            SqlType::Boolean => format!("getNullableBoolean(rs, {idx})"),
-            SqlType::SmallInt => format!("getNullableShort(rs, {idx})"),
-            SqlType::Integer => format!("getNullableInt(rs, {idx})"),
-            SqlType::BigInt => format!("getNullableLong(rs, {idx})"),
-            SqlType::Real => format!("getNullableFloat(rs, {idx})"),
-            SqlType::Double => format!("getNullableDouble(rs, {idx})"),
-            _ => unreachable!("needs_null_safe_getter returned true for non-primitive"),
-        };
-    }
-    match sql_type {
-        SqlType::Boolean => format!("rs.getBoolean({idx})"),
-        SqlType::SmallInt => format!("rs.getShort({idx})"),
-        SqlType::Integer => format!("rs.getInt({idx})"),
-        SqlType::BigInt => format!("rs.getLong({idx})"),
-        SqlType::Real => format!("rs.getFloat({idx})"),
-        SqlType::Double => format!("rs.getDouble({idx})"),
-        SqlType::Decimal => format!("rs.getBigDecimal({idx})"),
-        SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_) | SqlType::Json | SqlType::Jsonb | SqlType::Interval => format!("rs.getString({idx})"),
-        SqlType::Bytes => format!("rs.getBytes({idx})"),
-        SqlType::Date => format!("rs.getObject({idx}, java.time.LocalDate.class)"),
-        SqlType::Time => format!("rs.getObject({idx}, java.time.LocalTime.class)"),
-        SqlType::Timestamp => format!("rs.getObject({idx}, java.time.LocalDateTime.class)"),
-        SqlType::TimestampTz => format!("rs.getObject({idx}, java.time.OffsetDateTime.class)"),
-        SqlType::Uuid => format!("rs.getObject({idx}, java.util.UUID.class)"),
-        SqlType::Array(inner) => jdbc_array_read_expr(inner, nullable, idx),
-        _ => format!("rs.getObject({idx})"),
-    }
+fn emit_row_constructor(query: &Query, schema: &Schema, type_map: &JavaTypeMap, contract: &JvmCoreContract) -> String {
+    jdbc::build_row_constructor(query, schema, contract.fallback_type, "new ", |sql_type, nullable, idx| type_map.read_expr(sql_type, nullable, idx))
 }
 
 /// Emit private static helper methods for null-safe reads of primitive JDBC columns.
@@ -625,28 +395,6 @@ fn emit_nullable_primitive_helpers(src: &mut String) -> anyhow::Result<()> {
         writeln!(src, "    }}")?;
     }
     Ok(())
-}
-
-/// Build a JDBC expression that reads a SQL ARRAY column and converts it to `java.util.List<T>`.
-fn jdbc_array_read_expr(inner: &SqlType, nullable: bool, idx: usize) -> String {
-    let boxed = java_type_boxed(inner);
-    if nullable {
-        format!("rs.getArray({idx}) == null ? null : java.util.Arrays.asList(({boxed}[]) rs.getArray({idx}).getArray())")
-    } else {
-        format!("java.util.Arrays.asList(({boxed}[]) rs.getArray({idx}).getArray())")
-    }
-}
-
-/// Test shim: exposes `java_type` to the parent module's `#[cfg(test)]` helpers.
-#[cfg(test)]
-pub(super) fn java_type_pub(sql_type: &SqlType, nullable: bool) -> String {
-    java_type(sql_type, nullable)
-}
-
-/// Test shim: exposes `resultset_read_expr` to the parent module's `#[cfg(test)]` helpers.
-#[cfg(test)]
-pub(super) fn resultset_read_expr_pub(sql_type: &SqlType, nullable: bool, idx: usize) -> String {
-    resultset_read_expr(sql_type, nullable, idx)
 }
 
 // ─── Path helper ──────────────────────────────────────────────────────────────

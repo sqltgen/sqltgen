@@ -9,6 +9,7 @@ use crate::ir::SqlType;
 
 mod adapter;
 mod core;
+mod typemap;
 
 pub enum PythonTarget {
     /// PostgreSQL via psycopg (psycopg3).
@@ -61,10 +62,11 @@ pub struct PythonCodegen {
 impl Codegen for PythonCodegen {
     fn generate(&self, schema: &Schema, queries: &[Query], config: &OutputConfig) -> anyhow::Result<Vec<GeneratedFile>> {
         let contract = adapter::resolve_python_contract(&self.target);
+        let type_map = typemap::build_python_type_map(config, contract.sql.json_mode);
 
         let mut files = Vec::new();
         files.push(adapter::emit_helper_file(&contract, config));
-        files.extend(core::generate_core_files(schema, queries, &contract, config)?);
+        files.extend(core::generate_core_files(schema, queries, &contract, config, &type_map)?);
 
         if let Some(manifest) = build_manifest_file(
             "python",
@@ -73,8 +75,8 @@ impl Codegen for PythonCodegen {
             schema,
             queries,
             &to_snake_case,
-            &|st, nullable| core::python_field_type(st, nullable, &contract, config),
-            &|p| core::python_param_type_resolved(&p.sql_type, p.nullable, &contract, config),
+            &|st, nullable| type_map.field_type(st, nullable),
+            &|p| type_map.param_type(&p.sql_type, p.nullable),
         ) {
             files.push(manifest);
         }

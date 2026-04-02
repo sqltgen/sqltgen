@@ -1,62 +1,9 @@
 use std::collections::HashMap;
 
+use crate::backend::common::{canonical_sql_types, sql_type_key, SqlTypeKey};
 use crate::backend::jdbc::{preset_gson, preset_jackson};
 use crate::config::{resolve_type_override, ExtraField, Language, OutputConfig, ResolvedType, TypeVariant};
 use crate::ir::SqlType;
-
-// ─── Public types ─────────────────────────────────────────────────────────────
-
-/// Discriminant key for SQL types as used in [`KotlinTypeMap`].
-///
-/// Groups variants that share a Kotlin mapping (e.g. Char/VarChar/Interval all map to Text).
-/// For `Array(inner)`, callers key on the inner element type.
-#[derive(Clone, Copy, Hash, Eq, PartialEq)]
-enum SqlTypeKey {
-    Boolean,
-    SmallInt,
-    Integer,
-    BigInt,
-    Real,
-    Double,
-    Decimal,
-    Text, // covers Char, VarChar, Interval
-    Bytes,
-    Date,
-    Time,
-    Timestamp,
-    TimestampTz,
-    Uuid,
-    Json,
-    Jsonb,
-    Custom,
-}
-
-/// Map a [`SqlType`] to its [`SqlTypeKey`].
-///
-/// For `Array(inner)` the inner element type's key is returned, so array column lookups
-/// naturally retrieve the element entry (used to resolve `array_elem` and imports).
-fn sql_type_key(sql_type: &SqlType) -> SqlTypeKey {
-    match sql_type {
-        SqlType::Array(inner) => sql_type_key(inner),
-        SqlType::Boolean => SqlTypeKey::Boolean,
-        SqlType::SmallInt => SqlTypeKey::SmallInt,
-        SqlType::Integer => SqlTypeKey::Integer,
-        SqlType::BigInt => SqlTypeKey::BigInt,
-        SqlType::Real => SqlTypeKey::Real,
-        SqlType::Double => SqlTypeKey::Double,
-        SqlType::Decimal => SqlTypeKey::Decimal,
-        SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_) | SqlType::Interval => SqlTypeKey::Text,
-        SqlType::Bytes => SqlTypeKey::Bytes,
-        SqlType::Date => SqlTypeKey::Date,
-        SqlType::Time => SqlTypeKey::Time,
-        SqlType::Timestamp => SqlTypeKey::Timestamp,
-        SqlType::TimestampTz => SqlTypeKey::TimestampTz,
-        SqlType::Uuid => SqlTypeKey::Uuid,
-        SqlType::Json => SqlTypeKey::Json,
-        SqlType::Jsonb => SqlTypeKey::Jsonb,
-        SqlType::Custom(_) => SqlTypeKey::Custom,
-    }
-}
 
 /// Fully resolved code-generation entry for one SQL type in the Kotlin backend.
 ///
@@ -136,27 +83,9 @@ impl KotlinTypeMap {
 /// defaults, and stores the result. The rest of the code generator consumes the map without
 /// any further override checks.
 pub(super) fn build_kotlin_type_map(config: &OutputConfig) -> KotlinTypeMap {
-    let canonical_types = vec![
-        SqlType::Boolean,
-        SqlType::SmallInt,
-        SqlType::Integer,
-        SqlType::BigInt,
-        SqlType::Real,
-        SqlType::Double,
-        SqlType::Decimal,
-        SqlType::Text,
-        SqlType::Bytes,
-        SqlType::Date,
-        SqlType::Time,
-        SqlType::Timestamp,
-        SqlType::TimestampTz,
-        SqlType::Uuid,
-        SqlType::Json,
-        SqlType::Jsonb,
-        SqlType::Custom(String::new()),
-    ];
-    let mut map = HashMap::with_capacity(canonical_types.len());
-    for sql_type in &canonical_types {
+    let types = canonical_sql_types();
+    let mut map = HashMap::with_capacity(types.len());
+    for sql_type in &types {
         let defaults = kotlin_type_info(sql_type);
         let field_ov = get_type_override_kotlin(sql_type, TypeVariant::Field, config);
         let param_ov = get_type_override_kotlin(sql_type, TypeVariant::Param, config);

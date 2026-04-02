@@ -9,6 +9,7 @@ use crate::ir::SqlType;
 
 mod adapter;
 mod core;
+mod typemap;
 
 /// Database engine target for Go output.
 pub enum GoTarget {
@@ -60,11 +61,12 @@ pub struct GoCodegen {
 impl Codegen for GoCodegen {
     fn generate(&self, schema: &Schema, queries: &[Query], config: &OutputConfig) -> anyhow::Result<Vec<GeneratedFile>> {
         let contract = adapter::resolve_go_contract(&self.target);
+        let type_map = typemap::build_go_type_map(config, contract.json_mode);
         let pkg = core::package_name(config);
 
         let mut files = Vec::new();
         files.push(adapter::emit_helper_file(&contract, &pkg, config));
-        files.extend(core::generate_core_files(schema, queries, &contract, config)?);
+        files.extend(core::generate_core_files(schema, queries, &contract, config, &type_map)?);
 
         if let Some(manifest) = build_manifest_file(
             "go",
@@ -73,8 +75,8 @@ impl Codegen for GoCodegen {
             schema,
             queries,
             &to_pascal_case,
-            &|st, nullable| core::go_field_type(st, nullable, &contract, config),
-            &|p| core::go_param_type(&p.sql_type, p.nullable, &contract, config),
+            &|st, nullable| type_map.field_type(st, nullable),
+            &|p| type_map.param_type(&p.sql_type, p.nullable),
         ) {
             files.push(manifest);
         }
@@ -89,7 +91,7 @@ fn go_type(sql_type: &SqlType, nullable: bool, target: &GoTarget) -> String {
         GoTarget::Postgres => adapter::GoJsonMode::Bytes,
         GoTarget::Sqlite | GoTarget::Mysql => adapter::GoJsonMode::String,
     };
-    core::go_type(sql_type, nullable, json_mode)
+    typemap::build_go_type_map(&crate::config::OutputConfig::default(), json_mode).field_type(sql_type, nullable)
 }
 
 #[cfg(test)]

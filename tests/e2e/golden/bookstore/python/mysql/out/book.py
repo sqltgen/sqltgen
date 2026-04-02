@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import dataclasses
-import decimal
 import datetime
+import decimal
 
 
 @dataclasses.dataclass

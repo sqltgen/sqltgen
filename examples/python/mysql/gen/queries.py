@@ -7,8 +7,8 @@ import mysql.connector
 from collections.abc import Callable
 from contextlib import closing
 from ._sqltgen import execute, exec_stmt
-import decimal
 import datetime
+import decimal
 
 Connection = mysql.connector.MySQLConnection
 

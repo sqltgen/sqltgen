@@ -8,43 +8,21 @@ use crate::backend::common::{
 use crate::backend::naming::{to_pascal_case, to_snake_case};
 use crate::backend::sql_rewrite::{positional_bind_names, rewrite_to_anon_params, rewrite_to_percent_s, split_at_in_clause};
 use crate::backend::GeneratedFile;
-use crate::config::{resolve_type_override, Language, ListParamStrategy, OutputConfig, ResolvedType, TypeVariant};
+use crate::config::{ListParamStrategy, OutputConfig};
 use crate::ir::{NativeListBind, Parameter, Query, QueryCmd, Schema, SqlType};
 
-use super::adapter::{FieldReadConverter, PythonCoreContract, PythonJsonMode, PythonSqlNormMode};
+use super::adapter::{FieldReadConverter, PythonCoreContract, PythonSqlNormMode};
+use super::typemap::PythonTypeMap;
 
 #[cfg(test)]
 use super::PythonTarget;
-
-/// Resolve any configured type override for the given SQL type and variant.
-///
-/// Python has no preset names — only explicit and FQN string forms.
-fn get_type_override_python(sql_type: &SqlType, variant: TypeVariant, config: &OutputConfig) -> Option<ResolvedType> {
-    resolve_type_override(sql_type, variant, config, Language::Python, |_| None)
-}
-
-/// Map a SQL column type to its Python type string, applying any configured field override.
-pub(super) fn python_field_type(sql_type: &SqlType, nullable: bool, contract: &PythonCoreContract, config: &OutputConfig) -> String {
-    if let Some(resolved) = get_type_override_python(sql_type, TypeVariant::Field, config) {
-        return if nullable { format!("{} | None", resolved.name) } else { resolved.name };
-    }
-    python_type_with_json_mode(sql_type, nullable, contract.sql.json_mode)
-}
-
-/// Map a SQL parameter type to its Python type string, applying any configured param override.
-pub(super) fn python_param_type_resolved(sql_type: &SqlType, nullable: bool, contract: &PythonCoreContract, config: &OutputConfig) -> String {
-    if let Some(resolved) = get_type_override_python(sql_type, TypeVariant::Param, config) {
-        return if nullable { format!("{} | None", resolved.name) } else { resolved.name };
-    }
-    python_type_with_json_mode(sql_type, nullable, contract.sql.json_mode)
-}
 
 /// Per-query context forwarded to all emitters within a queries file.
 struct PythonQueryContext<'a> {
     query: &'a Query,
     schema: &'a Schema,
     contract: &'a PythonCoreContract,
-    config: &'a OutputConfig,
+    type_map: &'a PythonTypeMap,
 }
 
 /// Emit all Python files except the helper module.
@@ -53,6 +31,7 @@ pub(super) fn generate_core_files(
     queries: &[Query],
     contract: &PythonCoreContract,
     config: &OutputConfig,
+    type_map: &PythonTypeMap,
 ) -> anyhow::Result<Vec<GeneratedFile>> {
     let mut files = Vec::new();
 
@@ -66,7 +45,7 @@ pub(super) fn generate_core_files(
 
         let mut imports = TypeImports::default();
         for col in &table.columns {
-            imports.scan_field(&col.sql_type, config);
+            imports.add(type_map.import_for(&col.sql_type));
         }
         imports.write(&mut src)?;
 
@@ -75,7 +54,7 @@ pub(super) fn generate_core_files(
         writeln!(src, "@dataclasses.dataclass")?;
         writeln!(src, "class {class_name}:")?;
         for col in &table.columns {
-            let ty = python_field_type(&col.sql_type, col.nullable, contract, config);
+            let ty = type_map.field_type(&col.sql_type, col.nullable);
             writeln!(src, "    {}: {}", col.name, ty)?;
         }
 
@@ -88,7 +67,7 @@ pub(super) fn generate_core_files(
     for (group, group_queries) in &groups {
         let stem = queries_file_stem(group).to_string();
         group_stems.push(stem.clone());
-        let src = build_queries_file(group, group_queries, schema, contract, config)?;
+        let src = build_queries_file(group, group_queries, schema, contract, config, type_map)?;
         let path = PathBuf::from(&config.out).join(format!("{stem}.py"));
         files.push(GeneratedFile { path, content: src });
     }
@@ -109,7 +88,14 @@ pub(super) fn generate_core_files(
     Ok(files)
 }
 
-fn build_queries_file(group: &str, queries: &[Query], schema: &Schema, contract: &PythonCoreContract, config: &OutputConfig) -> anyhow::Result<String> {
+fn build_queries_file(
+    group: &str,
+    queries: &[Query],
+    schema: &Schema,
+    contract: &PythonCoreContract,
+    config: &OutputConfig,
+    type_map: &PythonTypeMap,
+) -> anyhow::Result<String> {
     let strategy = config.list_params.clone().unwrap_or_default();
     let mut src = String::new();
 
@@ -118,10 +104,10 @@ fn build_queries_file(group: &str, queries: &[Query], schema: &Schema, contract:
     let mut imports = TypeImports::default();
     for query in queries {
         for p in &query.params {
-            imports.scan_param(&p.sql_type, config);
+            imports.add(type_map.import_for(&p.sql_type));
         }
         for col in &query.result_columns {
-            imports.scan_field(&col.sql_type, config);
+            imports.add(type_map.import_for(&col.sql_type));
         }
     }
 
@@ -194,7 +180,7 @@ fn build_queries_file(group: &str, queries: &[Query], schema: &Schema, contract:
     }
 
     for query in queries {
-        let ctx = PythonQueryContext { query, schema, contract, config };
+        let ctx = PythonQueryContext { query, schema, contract, type_map };
         writeln!(src)?;
         writeln!(src)?;
         if has_inline_rows(query, schema) {
@@ -208,20 +194,13 @@ fn build_queries_file(group: &str, queries: &[Query], schema: &Schema, contract:
     if !queries.is_empty() {
         writeln!(src)?;
         writeln!(src)?;
-        emit_python_querier(&mut src, group, queries, schema, contract, config)?;
+        emit_python_querier(&mut src, group, queries, schema, type_map)?;
     }
 
     Ok(src)
 }
 
-fn emit_python_querier(
-    src: &mut String,
-    group: &str,
-    queries: &[Query],
-    schema: &Schema,
-    contract: &PythonCoreContract,
-    config: &OutputConfig,
-) -> anyhow::Result<()> {
+fn emit_python_querier(src: &mut String, group: &str, queries: &[Query], schema: &Schema, type_map: &PythonTypeMap) -> anyhow::Result<()> {
     let class_name = querier_class_name(group);
     let conn_type = "Connection";
     writeln!(src, "class {class_name}:")?;
@@ -236,11 +215,7 @@ fn emit_python_querier(
             .params
             .iter()
             .map(|p| {
-                let ty = if p.is_list {
-                    format!("list[{}]", python_param_type_resolved(&p.sql_type, false, contract, config))
-                } else {
-                    python_param_type_resolved(&p.sql_type, p.nullable, contract, config)
-                };
+                let ty = if p.is_list { format!("list[{}]", type_map.param_type(&p.sql_type, false)) } else { type_map.param_type(&p.sql_type, p.nullable) };
                 format!("{}: {ty}", to_snake_case(&p.name))
             })
             .collect::<Vec<_>>()
@@ -266,7 +241,7 @@ fn emit_row_dataclass(src: &mut String, ctx: &PythonQueryContext) -> anyhow::Res
     writeln!(src, "@dataclasses.dataclass")?;
     writeln!(src, "class {name}:")?;
     for col in &ctx.query.result_columns {
-        let ty = python_field_type(&col.sql_type, col.nullable, ctx.contract, ctx.config);
+        let ty = ctx.type_map.field_type(&col.sql_type, col.nullable);
         writeln!(src, "    {}: {}", col.name, ty)?;
     }
     Ok(())
@@ -286,12 +261,7 @@ fn emit_standard_query(src: &mut String, ctx: &PythonQueryContext) -> anyhow::Re
     let conn_type = "Connection";
 
     let params_sig: String = std::iter::once(format!("conn: {conn_type}"))
-        .chain(
-            ctx.query
-                .params
-                .iter()
-                .map(|p| format!("{}: {}", to_snake_case(&p.name), python_param_type_resolved(&p.sql_type, p.nullable, ctx.contract, ctx.config))),
-        )
+        .chain(ctx.query.params.iter().map(|p| format!("{}: {}", to_snake_case(&p.name), ctx.type_map.param_type(&p.sql_type, p.nullable))))
         .collect::<Vec<_>>()
         .join(", ");
 
@@ -316,11 +286,8 @@ fn emit_python_list_query(src: &mut String, ctx: &PythonQueryContext, strategy: 
 
     let params_sig: String = std::iter::once(format!("conn: {conn_type}"))
         .chain(ctx.query.params.iter().map(|p| {
-            let ty = if p.is_list {
-                format!("list[{}]", python_param_type_resolved(&p.sql_type, false, ctx.contract, ctx.config))
-            } else {
-                python_param_type_resolved(&p.sql_type, p.nullable, ctx.contract, ctx.config)
-            };
+            let ty =
+                if p.is_list { format!("list[{}]", ctx.type_map.param_type(&p.sql_type, false)) } else { ctx.type_map.param_type(&p.sql_type, p.nullable) };
             format!("{}: {ty}", to_snake_case(&p.name))
         }))
         .collect::<Vec<_>>()
@@ -488,96 +455,26 @@ fn cursor_return_type(query: &Query, schema: &Schema) -> String {
 #[cfg(test)]
 pub(super) fn python_type_for_target(sql_type: &SqlType, nullable: bool, target: &PythonTarget) -> String {
     let contract = super::adapter::resolve_python_contract(target);
-    python_type_with_json_mode(sql_type, nullable, contract.sql.json_mode)
+    let type_map = super::typemap::build_python_type_map(&OutputConfig::default(), contract.sql.json_mode);
+    type_map.field_type(sql_type, nullable)
 }
 
-fn python_type_with_json_mode(sql_type: &SqlType, nullable: bool, json_mode: PythonJsonMode) -> String {
-    let base = match sql_type {
-        SqlType::Boolean => "bool".to_string(),
-        SqlType::SmallInt | SqlType::Integer | SqlType::BigInt => "int".to_string(),
-        SqlType::Real | SqlType::Double => "float".to_string(),
-        SqlType::Decimal => "decimal.Decimal".to_string(),
-        SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_) => "str".to_string(),
-        SqlType::Bytes => "bytes".to_string(),
-        SqlType::Date => "datetime.date".to_string(),
-        SqlType::Time => "datetime.time".to_string(),
-        SqlType::Timestamp | SqlType::TimestampTz => "datetime.datetime".to_string(),
-        SqlType::Interval => "datetime.timedelta".to_string(),
-        SqlType::Uuid => "uuid.UUID".to_string(),
-        SqlType::Json | SqlType::Jsonb => match json_mode {
-            PythonJsonMode::Object => "object".to_string(),
-            PythonJsonMode::Text => "str".to_string(),
-        },
-        SqlType::Array(inner) => {
-            let inner_ty = python_type_with_json_mode(inner, false, json_mode);
-            let list_ty = format!("list[{inner_ty}]");
-            return if nullable { format!("{list_ty} | None") } else { list_ty };
-        },
-        SqlType::Custom(_) => "Any".to_string(),
-    };
-    if nullable {
-        format!("{base} | None")
-    } else {
-        base
-    }
-}
-
+/// Collected import lines needed for the generated file.
+///
+/// Deduplicates via a `BTreeSet` so imports are emitted in sorted order.
 #[derive(Default)]
-struct TypeImports {
-    decimal: bool,
-    datetime: bool,
-    uuid: bool,
-    any_type: bool,
-    extra: BTreeSet<String>,
-}
+struct TypeImports(BTreeSet<String>);
 
 impl TypeImports {
-    fn scan(&mut self, ty: &SqlType) {
-        match ty {
-            SqlType::Decimal => self.decimal = true,
-            SqlType::Date | SqlType::Time | SqlType::Timestamp | SqlType::TimestampTz | SqlType::Interval => self.datetime = true,
-            SqlType::Uuid => self.uuid = true,
-            SqlType::Json | SqlType::Jsonb => {},
-            SqlType::Custom(_) => self.any_type = true,
-            SqlType::Array(inner) => self.scan(inner),
-            _ => {},
-        }
-    }
-
-    fn scan_field(&mut self, sql_type: &SqlType, config: &OutputConfig) {
-        if let Some(resolved) = get_type_override_python(sql_type, TypeVariant::Field, config) {
-            if let Some(import) = resolved.import {
-                self.extra.insert(import);
-            }
-        } else {
-            self.scan(sql_type);
-        }
-    }
-
-    fn scan_param(&mut self, sql_type: &SqlType, config: &OutputConfig) {
-        if let Some(resolved) = get_type_override_python(sql_type, TypeVariant::Param, config) {
-            if let Some(import) = resolved.import {
-                self.extra.insert(import);
-            }
-        } else {
-            self.scan(sql_type);
+    /// Add an import line if present.
+    fn add(&mut self, import: Option<String>) {
+        if let Some(imp) = import {
+            self.0.insert(imp);
         }
     }
 
     fn write(&self, src: &mut String) -> anyhow::Result<()> {
-        if self.decimal {
-            writeln!(src, "import decimal")?;
-        }
-        if self.datetime {
-            writeln!(src, "import datetime")?;
-        }
-        if self.uuid {
-            writeln!(src, "import uuid")?;
-        }
-        if self.any_type {
-            writeln!(src, "from typing import Any")?;
-        }
-        for import in &self.extra {
+        for import in &self.0 {
             writeln!(src, "{import}")?;
         }
         Ok(())
