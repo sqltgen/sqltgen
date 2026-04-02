@@ -11,7 +11,9 @@ void create_author(sqlite3* db, const std::string& name, const std::optional<std
     birth_year.has_value() ? sqlite3_bind_int(stmt, 3, birth_year.value()) : sqlite3_bind_null(stmt, 3);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
-    if (rc != SQLITE_DONE) throw std::runtime_error(sqlite3_errmsg(db));
+    if (rc != SQLITE_DONE) {
+        throw std::runtime_error(sqlite3_errmsg(db));
+    }
 }
 
 std::optional<Author> get_author(sqlite3* db, const std::int32_t& id) {
@@ -20,23 +22,24 @@ std::optional<Author> get_author(sqlite3* db, const std::int32_t& id) {
         throw std::runtime_error(sqlite3_errmsg(db));
     }
     sqlite3_bind_int(stmt, 1, id);
-    int rc = sqlite3_step(stmt);
-    if (rc == SQLITE_DONE) {
-        sqlite3_finalize(stmt);
-        return std::nullopt;
+    std::vector<Author> rows;
+    int rc;
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+        rows.push_back(Author{
+            sqlite3_column_int(stmt, 0),
+            std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1))),
+            sqlite3_column_type(stmt, 2) == SQLITE_NULL ? std::nullopt : std::optional<std::string>(std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)))),
+            sqlite3_column_type(stmt, 3) == SQLITE_NULL ? std::nullopt : std::optional<std::int32_t>(sqlite3_column_int(stmt, 3))
+        });
     }
-    if (rc != SQLITE_ROW) {
-        sqlite3_finalize(stmt);
+    sqlite3_finalize(stmt);
+    if (rc != SQLITE_DONE) {
         throw std::runtime_error(sqlite3_errmsg(db));
     }
-    auto result = Author{
-        sqlite3_column_int(stmt, 0),
-        std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1))),
-        sqlite3_column_type(stmt, 2) == SQLITE_NULL ? std::nullopt : std::optional<std::string>(std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)))),
-        sqlite3_column_type(stmt, 3) == SQLITE_NULL ? std::nullopt : std::optional<std::int32_t>(sqlite3_column_int(stmt, 3))
-    };
-    sqlite3_finalize(stmt);
-    return result;
+    if (rows.size() > 1) {
+        throw std::runtime_error("query returned more than one row");
+    }
+    return rows.empty() ? std::nullopt : std::optional<Author>(std::move(rows[0]));
 }
 
 std::vector<Author> list_authors(sqlite3* db) {
@@ -45,16 +48,19 @@ std::vector<Author> list_authors(sqlite3* db) {
         throw std::runtime_error(sqlite3_errmsg(db));
     }
     std::vector<Author> rows;
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
-        auto result = Author{
+    int rc;
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+        rows.push_back(Author{
             sqlite3_column_int(stmt, 0),
             std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1))),
             sqlite3_column_type(stmt, 2) == SQLITE_NULL ? std::nullopt : std::optional<std::string>(std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2)))),
             sqlite3_column_type(stmt, 3) == SQLITE_NULL ? std::nullopt : std::optional<std::int32_t>(sqlite3_column_int(stmt, 3))
-        };
-        rows.push_back(std::move(result));
+        });
     }
     sqlite3_finalize(stmt);
+    if (rc != SQLITE_DONE) {
+        throw std::runtime_error(sqlite3_errmsg(db));
+    }
     return rows;
 }
 
@@ -70,7 +76,9 @@ void create_book(sqlite3* db, const std::int32_t& author_id, const std::string& 
     published_at.has_value() ? sqlite3_bind_text(stmt, 5, published_at.value().c_str(), -1, SQLITE_TRANSIENT) : sqlite3_bind_null(stmt, 5);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
-    if (rc != SQLITE_DONE) throw std::runtime_error(sqlite3_errmsg(db));
+    if (rc != SQLITE_DONE) {
+        throw std::runtime_error(sqlite3_errmsg(db));
+    }
 }
 
 std::optional<Book> get_book(sqlite3* db, const std::int32_t& id) {
@@ -79,25 +87,26 @@ std::optional<Book> get_book(sqlite3* db, const std::int32_t& id) {
         throw std::runtime_error(sqlite3_errmsg(db));
     }
     sqlite3_bind_int(stmt, 1, id);
-    int rc = sqlite3_step(stmt);
-    if (rc == SQLITE_DONE) {
-        sqlite3_finalize(stmt);
-        return std::nullopt;
+    std::vector<Book> rows;
+    int rc;
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+        rows.push_back(Book{
+            sqlite3_column_int(stmt, 0),
+            sqlite3_column_int(stmt, 1),
+            std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2))),
+            std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3))),
+            sqlite3_column_double(stmt, 4),
+            sqlite3_column_type(stmt, 5) == SQLITE_NULL ? std::nullopt : std::optional<std::string>(std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5))))
+        });
     }
-    if (rc != SQLITE_ROW) {
-        sqlite3_finalize(stmt);
+    sqlite3_finalize(stmt);
+    if (rc != SQLITE_DONE) {
         throw std::runtime_error(sqlite3_errmsg(db));
     }
-    auto result = Book{
-        sqlite3_column_int(stmt, 0),
-        sqlite3_column_int(stmt, 1),
-        std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2))),
-        std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3))),
-        sqlite3_column_double(stmt, 4),
-        sqlite3_column_type(stmt, 5) == SQLITE_NULL ? std::nullopt : std::optional<std::string>(std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5))))
-    };
-    sqlite3_finalize(stmt);
-    return result;
+    if (rows.size() > 1) {
+        throw std::runtime_error("query returned more than one row");
+    }
+    return rows.empty() ? std::nullopt : std::optional<Book>(std::move(rows[0]));
 }
 
 std::vector<Book> get_books_by_ids(sqlite3* db, const std::vector<std::int64_t>& ids) {
@@ -113,18 +122,21 @@ std::vector<Book> get_books_by_ids(sqlite3* db, const std::vector<std::int64_t>&
     ids_json += "]";
     sqlite3_bind_text(stmt, 1, ids_json.c_str(), -1, SQLITE_TRANSIENT);
     std::vector<Book> rows;
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
-        auto result = Book{
+    int rc;
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+        rows.push_back(Book{
             sqlite3_column_int(stmt, 0),
             sqlite3_column_int(stmt, 1),
             std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2))),
             std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3))),
             sqlite3_column_double(stmt, 4),
             sqlite3_column_type(stmt, 5) == SQLITE_NULL ? std::nullopt : std::optional<std::string>(std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5))))
-        };
-        rows.push_back(std::move(result));
+        });
     }
     sqlite3_finalize(stmt);
+    if (rc != SQLITE_DONE) {
+        throw std::runtime_error(sqlite3_errmsg(db));
+    }
     return rows;
 }
 
@@ -135,18 +147,21 @@ std::vector<Book> list_books_by_genre(sqlite3* db, const std::string& genre) {
     }
     sqlite3_bind_text(stmt, 1, genre.c_str(), -1, SQLITE_TRANSIENT);
     std::vector<Book> rows;
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
-        auto result = Book{
+    int rc;
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+        rows.push_back(Book{
             sqlite3_column_int(stmt, 0),
             sqlite3_column_int(stmt, 1),
             std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2))),
             std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3))),
             sqlite3_column_double(stmt, 4),
             sqlite3_column_type(stmt, 5) == SQLITE_NULL ? std::nullopt : std::optional<std::string>(std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5))))
-        };
-        rows.push_back(std::move(result));
+        });
     }
     sqlite3_finalize(stmt);
+    if (rc != SQLITE_DONE) {
+        throw std::runtime_error(sqlite3_errmsg(db));
+    }
     return rows;
 }
 
@@ -157,18 +172,21 @@ std::vector<Book> list_books_by_genre_or_all(sqlite3* db, const std::string& gen
     }
     sqlite3_bind_text(stmt, 1, genre.c_str(), -1, SQLITE_TRANSIENT);
     std::vector<Book> rows;
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
-        auto result = Book{
+    int rc;
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+        rows.push_back(Book{
             sqlite3_column_int(stmt, 0),
             sqlite3_column_int(stmt, 1),
             std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2))),
             std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3))),
             sqlite3_column_double(stmt, 4),
             sqlite3_column_type(stmt, 5) == SQLITE_NULL ? std::nullopt : std::optional<std::string>(std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5))))
-        };
-        rows.push_back(std::move(result));
+        });
     }
     sqlite3_finalize(stmt);
+    if (rc != SQLITE_DONE) {
+        throw std::runtime_error(sqlite3_errmsg(db));
+    }
     return rows;
 }
 
@@ -181,7 +199,9 @@ void create_customer(sqlite3* db, const std::string& name, const std::string& em
     sqlite3_bind_text(stmt, 2, email.c_str(), -1, SQLITE_TRANSIENT);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
-    if (rc != SQLITE_DONE) throw std::runtime_error(sqlite3_errmsg(db));
+    if (rc != SQLITE_DONE) {
+        throw std::runtime_error(sqlite3_errmsg(db));
+    }
 }
 
 void create_sale(sqlite3* db, const std::int32_t& customer_id) {
@@ -192,7 +212,9 @@ void create_sale(sqlite3* db, const std::int32_t& customer_id) {
     sqlite3_bind_int(stmt, 1, customer_id);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
-    if (rc != SQLITE_DONE) throw std::runtime_error(sqlite3_errmsg(db));
+    if (rc != SQLITE_DONE) {
+        throw std::runtime_error(sqlite3_errmsg(db));
+    }
 }
 
 void add_sale_item(sqlite3* db, const std::int32_t& sale_id, const std::int32_t& book_id, const std::int32_t& quantity, const double& unit_price) {
@@ -206,7 +228,9 @@ void add_sale_item(sqlite3* db, const std::int32_t& sale_id, const std::int32_t&
     sqlite3_bind_double(stmt, 4, unit_price);
     int rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
-    if (rc != SQLITE_DONE) throw std::runtime_error(sqlite3_errmsg(db));
+    if (rc != SQLITE_DONE) {
+        throw std::runtime_error(sqlite3_errmsg(db));
+    }
 }
 
 std::vector<ListBooksWithAuthorRow> list_books_with_author(sqlite3* db) {
@@ -215,8 +239,9 @@ std::vector<ListBooksWithAuthorRow> list_books_with_author(sqlite3* db) {
         throw std::runtime_error(sqlite3_errmsg(db));
     }
     std::vector<ListBooksWithAuthorRow> rows;
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
-        auto result = ListBooksWithAuthorRow{
+    int rc;
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+        rows.push_back(ListBooksWithAuthorRow{
             sqlite3_column_int(stmt, 0),
             std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1))),
             std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2))),
@@ -224,10 +249,12 @@ std::vector<ListBooksWithAuthorRow> list_books_with_author(sqlite3* db) {
             sqlite3_column_type(stmt, 4) == SQLITE_NULL ? std::nullopt : std::optional<std::string>(std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4)))),
             std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5))),
             sqlite3_column_type(stmt, 6) == SQLITE_NULL ? std::nullopt : std::optional<std::string>(std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 6))))
-        };
-        rows.push_back(std::move(result));
+        });
     }
     sqlite3_finalize(stmt);
+    if (rc != SQLITE_DONE) {
+        throw std::runtime_error(sqlite3_errmsg(db));
+    }
     return rows;
 }
 
@@ -237,18 +264,21 @@ std::vector<Book> get_books_never_ordered(sqlite3* db) {
         throw std::runtime_error(sqlite3_errmsg(db));
     }
     std::vector<Book> rows;
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
-        auto result = Book{
+    int rc;
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+        rows.push_back(Book{
             sqlite3_column_int(stmt, 0),
             sqlite3_column_int(stmt, 1),
             std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2))),
             std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3))),
             sqlite3_column_double(stmt, 4),
             sqlite3_column_type(stmt, 5) == SQLITE_NULL ? std::nullopt : std::optional<std::string>(std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 5))))
-        };
-        rows.push_back(std::move(result));
+        });
     }
     sqlite3_finalize(stmt);
+    if (rc != SQLITE_DONE) {
+        throw std::runtime_error(sqlite3_errmsg(db));
+    }
     return rows;
 }
 
@@ -258,17 +288,20 @@ std::vector<GetTopSellingBooksRow> get_top_selling_books(sqlite3* db) {
         throw std::runtime_error(sqlite3_errmsg(db));
     }
     std::vector<GetTopSellingBooksRow> rows;
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
-        auto result = GetTopSellingBooksRow{
+    int rc;
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+        rows.push_back(GetTopSellingBooksRow{
             sqlite3_column_int(stmt, 0),
             std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1))),
             std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2))),
             sqlite3_column_double(stmt, 3),
             sqlite3_column_type(stmt, 4) == SQLITE_NULL ? std::nullopt : std::optional<std::int64_t>(sqlite3_column_int64(stmt, 4))
-        };
-        rows.push_back(std::move(result));
+        });
     }
     sqlite3_finalize(stmt);
+    if (rc != SQLITE_DONE) {
+        throw std::runtime_error(sqlite3_errmsg(db));
+    }
     return rows;
 }
 
@@ -278,15 +311,18 @@ std::vector<GetBestCustomersRow> get_best_customers(sqlite3* db) {
         throw std::runtime_error(sqlite3_errmsg(db));
     }
     std::vector<GetBestCustomersRow> rows;
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
-        auto result = GetBestCustomersRow{
+    int rc;
+    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+        rows.push_back(GetBestCustomersRow{
             sqlite3_column_int(stmt, 0),
             std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1))),
             std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2))),
             sqlite3_column_type(stmt, 3) == SQLITE_NULL ? std::nullopt : std::optional<double>(sqlite3_column_double(stmt, 3))
-        };
-        rows.push_back(std::move(result));
+        });
     }
     sqlite3_finalize(stmt);
+    if (rc != SQLITE_DONE) {
+        throw std::runtime_error(sqlite3_errmsg(db));
+    }
     return rows;
 }

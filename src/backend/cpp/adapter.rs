@@ -135,53 +135,51 @@ fn emit_pqxx_body(src: &mut String, ctx: &CppQueryContext<'_>) -> anyhow::Result
 }
 
 /// Emit the function body for a sqlite3 query.
+///
+/// Two groups share structure:
+/// - Exec/ExecRows: single step expecting SQLITE_DONE, no row reading.
+/// - One/Many: row-collecting loop with identical prepare→bind→loop→finalize→check,
+///   diverging only at the tail (One asserts at-most-one, Many returns the vector).
 fn emit_sqlite3_body(src: &mut String, ctx: &CppQueryContext<'_>) -> anyhow::Result<()> {
     let query = ctx.query;
     let const_name = crate::backend::common::sql_const_name(&query.name);
+
+    // Phase 1: prepare (all 4 cases)
+    emit_sqlite3_prepare(src, &const_name)?;
+
+    // Phase 2: bind params (all 4 cases)
+    emit_sqlite3_bind_params(src, &query.params)?;
+
+    // Phase 3: execute + read
     match query.cmd {
-        QueryCmd::Exec => {
-            emit_sqlite3_prepare(src, &const_name)?;
-            emit_sqlite3_bind_params(src, &query.params)?;
+        QueryCmd::Exec | QueryCmd::ExecRows => {
             writeln!(src, "    int rc = sqlite3_step(stmt);")?;
-            writeln!(src, "    sqlite3_finalize(stmt);")?;
-            writeln!(src, "    if (rc != SQLITE_DONE) throw std::runtime_error(sqlite3_errmsg(db));")?;
+            if query.cmd == QueryCmd::ExecRows {
+                writeln!(src, "    std::int64_t affected = sqlite3_changes64(db);")?;
+            }
+            emit_sqlite3_finalize_and_check(src)?;
+            if query.cmd == QueryCmd::ExecRows {
+                writeln!(src, "    return affected;")?;
+            }
         },
-        QueryCmd::ExecRows => {
-            emit_sqlite3_prepare(src, &const_name)?;
-            emit_sqlite3_bind_params(src, &query.params)?;
-            writeln!(src, "    int rc = sqlite3_step(stmt);")?;
-            writeln!(src, "    sqlite3_finalize(stmt);")?;
-            writeln!(src, "    if (rc != SQLITE_DONE) throw std::runtime_error(sqlite3_errmsg(db));")?;
-            writeln!(src, "    return sqlite3_changes(db);")?;
-        },
-        QueryCmd::One => {
+        QueryCmd::One | QueryCmd::Many => {
             let row_type = result_row_type(query, ctx.schema);
-            emit_sqlite3_prepare(src, &const_name)?;
-            emit_sqlite3_bind_params(src, &query.params)?;
-            writeln!(src, "    int rc = sqlite3_step(stmt);")?;
-            writeln!(src, "    if (rc == SQLITE_DONE) {{")?;
-            writeln!(src, "        sqlite3_finalize(stmt);")?;
-            writeln!(src, "        return std::nullopt;")?;
-            writeln!(src, "    }}")?;
-            writeln!(src, "    if (rc != SQLITE_ROW) {{")?;
-            writeln!(src, "        sqlite3_finalize(stmt);")?;
-            writeln!(src, "        throw std::runtime_error(sqlite3_errmsg(db));")?;
-            writeln!(src, "    }}")?;
-            emit_sqlite3_row_construction(src, &row_type, &query.result_columns, "    ")?;
-            writeln!(src, "    sqlite3_finalize(stmt);")?;
-            writeln!(src, "    return result;")?;
-        },
-        QueryCmd::Many => {
-            let row_type = result_row_type(query, ctx.schema);
-            emit_sqlite3_prepare(src, &const_name)?;
-            emit_sqlite3_bind_params(src, &query.params)?;
+            // Row-collecting loop (identical for One and Many).
             writeln!(src, "    std::vector<{row_type}> rows;")?;
-            writeln!(src, "    while (sqlite3_step(stmt) == SQLITE_ROW) {{")?;
-            emit_sqlite3_row_construction(src, &row_type, &query.result_columns, "        ")?;
-            writeln!(src, "        rows.push_back(std::move(result));")?;
+            writeln!(src, "    int rc;")?;
+            writeln!(src, "    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {{")?;
+            emit_sqlite3_row_push(src, &row_type, &query.result_columns, "        ")?;
             writeln!(src, "    }}")?;
-            writeln!(src, "    sqlite3_finalize(stmt);")?;
-            writeln!(src, "    return rows;")?;
+            emit_sqlite3_finalize_and_check(src)?;
+            // Tail: only divergence between One and Many.
+            if query.cmd == QueryCmd::One {
+                writeln!(src, "    if (rows.size() > 1) {{")?;
+                writeln!(src, "        throw std::runtime_error(\"query returned more than one row\");")?;
+                writeln!(src, "    }}")?;
+                writeln!(src, "    return rows.empty() ? std::nullopt : std::optional<{row_type}>(std::move(rows[0]));")?;
+            } else {
+                writeln!(src, "    return rows;")?;
+            }
         },
     }
     Ok(())
@@ -250,15 +248,24 @@ fn sqlite3_bind_call(sql_type: &SqlType, idx: usize, name: &str, nullable: bool)
     }
 }
 
-/// Emit a row construction from sqlite3 column accessors.
-fn emit_sqlite3_row_construction(src: &mut String, row_type: &str, columns: &[ResultColumn], indent: &str) -> anyhow::Result<()> {
-    writeln!(src, "{indent}auto result = {row_type}{{")?;
+/// Emit `sqlite3_finalize(stmt)` + `SQLITE_DONE` check. Shared by all 4 cases.
+fn emit_sqlite3_finalize_and_check(src: &mut String) -> anyhow::Result<()> {
+    writeln!(src, "    sqlite3_finalize(stmt);")?;
+    writeln!(src, "    if (rc != SQLITE_DONE) {{")?;
+    writeln!(src, "        throw std::runtime_error(sqlite3_errmsg(db));")?;
+    writeln!(src, "    }}")?;
+    Ok(())
+}
+
+/// Emit `rows.push_back(RowType{ col0, col1, ... });`
+fn emit_sqlite3_row_push(src: &mut String, row_type: &str, columns: &[ResultColumn], indent: &str) -> anyhow::Result<()> {
+    writeln!(src, "{indent}rows.push_back({row_type}{{")?;
     for (i, col) in columns.iter().enumerate() {
         let expr = sqlite3_column_expr(&col.sql_type, i, col.nullable);
         let comma = if i + 1 < columns.len() { "," } else { "" };
         writeln!(src, "{indent}    {expr}{comma}")?;
     }
-    writeln!(src, "{indent}}};")?;
+    writeln!(src, "{indent}}});")?;
     Ok(())
 }
 

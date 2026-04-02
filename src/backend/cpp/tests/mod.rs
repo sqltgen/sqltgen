@@ -7,10 +7,18 @@ pub fn pg() -> CppCodegen {
     CppCodegen { target: CppTarget::Libpqxx }
 }
 
+pub fn sqlite() -> CppCodegen {
+    CppCodegen { target: CppTarget::Sqlite3 }
+}
+
 mod architecture;
 mod generate;
 mod grouping;
-mod list_params;
-mod params;
+mod postgres_bodies;
+mod postgres_list_params;
+mod postgres_params;
+mod sqlite_bodies;
+mod sqlite_list_params;
+mod sqlite_params;
 mod types;
 mod views;

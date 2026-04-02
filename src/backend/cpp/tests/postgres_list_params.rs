@@ -3,7 +3,7 @@ use crate::backend::Codegen;
 use crate::ir::{NativeListBind, Parameter, Query, ResultColumn};
 
 #[test]
-fn test_list_param_in_function_signature() {
+fn test_postgres_list_param_in_function_signature() {
     let schema = Schema::default();
     let query = Query::many(
         "GetByIds",
@@ -17,7 +17,7 @@ fn test_list_param_in_function_signature() {
 }
 
 #[test]
-fn test_list_param_native_sql_in_header_constant() {
+fn test_postgres_list_param_native_sql_in_header_constant() {
     let schema = Schema::default();
     let query = Query::many(
         "GetByIds",
@@ -32,7 +32,7 @@ fn test_list_param_native_sql_in_header_constant() {
 }
 
 #[test]
-fn test_list_param_binds_via_pqxx_params() {
+fn test_postgres_list_param_binds_via_pqxx_params() {
     let schema = Schema::default();
     let query = Query::many(
         "GetByIds",
@@ -46,7 +46,7 @@ fn test_list_param_binds_via_pqxx_params() {
 }
 
 #[test]
-fn test_scalar_then_list_param_order_is_preserved() {
+fn test_postgres_scalar_then_list_param_order_is_preserved() {
     let schema = Schema::default();
     let query = Query::many(
         "GetByIds",

@@ -3,7 +3,7 @@ use crate::backend::Codegen;
 use crate::ir::{Parameter, Query};
 
 #[test]
-fn test_multiple_params_in_signature() {
+fn test_postgres_multiple_params_in_signature() {
     let schema = Schema::default();
     let query = Query::exec(
         "UpdateUser",
@@ -17,7 +17,7 @@ fn test_multiple_params_in_signature() {
 }
 
 #[test]
-fn test_nullable_param_uses_optional_in_signature() {
+fn test_postgres_nullable_param_uses_optional_in_signature() {
     let schema = Schema::default();
     let query = Query::exec(
         "UpdateBio",
