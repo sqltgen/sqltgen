@@ -25,12 +25,7 @@ impl CppTarget {
             (Engine::Sqlite, None | Some("sqlite3")) => Ok(CppTarget::Sqlite3),
             (Engine::Mysql, None | Some("libmysqlclient")) => Ok(CppTarget::Libmysqlclient),
             (_, Some(d)) => {
-                anyhow::bail!(
-                    "driver {:?} is not supported for cpp/{}; supported drivers: {}",
-                    d,
-                    engine.as_str(),
-                    Self::supported_drivers(engine),
-                )
+                anyhow::bail!("driver {:?} is not supported for cpp/{}; supported drivers: {}", d, engine.as_str(), Self::supported_drivers(engine),)
             },
         }
     }

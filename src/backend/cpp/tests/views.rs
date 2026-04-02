@@ -19,10 +19,7 @@ fn test_query_can_reuse_view_type() {
         "ListUserSummaries",
         "SELECT id, display_name FROM user_summary",
         vec![],
-        vec![
-            ResultColumn::not_nullable("id", SqlType::BigInt),
-            ResultColumn::not_nullable("display_name", SqlType::Text),
-        ],
+        vec![ResultColumn::not_nullable("id", SqlType::BigInt), ResultColumn::not_nullable("display_name", SqlType::Text)],
     )
     .with_source_table(Some("user_summary".to_string()));
 

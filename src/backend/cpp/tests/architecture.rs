@@ -27,11 +27,7 @@ fn test_exec_query_uses_exec_with_params_and_no_rows() {
 #[test]
 fn test_execrows_query_uses_affected_rows() {
     let schema = Schema::default();
-    let query = Query::exec_rows(
-        "DeleteUsers",
-        "DELETE FROM user WHERE active = $1",
-        vec![Parameter::scalar(1, "active", SqlType::Boolean, false)],
-    );
+    let query = Query::exec_rows("DeleteUsers", "DELETE FROM user WHERE active = $1", vec![Parameter::scalar(1, "active", SqlType::Boolean, false)]);
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.cpp");
     assert!(src.contains("auto affected = txn.exec(SQL_DELETE_USERS, pqxx::params{active}).affected_rows();"));

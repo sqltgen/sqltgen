@@ -75,11 +75,7 @@ fn test_queries_header_groups_inline_row_sql_and_declaration_per_query() {
 #[test]
 fn test_queries_header_sql_constants_use_multiline_raw_strings() {
     let schema = Schema::default();
-    let query = Query::exec(
-        "DeleteUser",
-        "DELETE FROM \"user\" WHERE id = $1",
-        vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
-    );
+    let query = Query::exec("DeleteUser", "DELETE FROM \"user\" WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.hpp");
 

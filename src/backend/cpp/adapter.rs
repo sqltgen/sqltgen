@@ -1,10 +1,3 @@
-/// Engine-specific contract for C++ code generation.
-///
-/// Each engine (PostgreSQL, SQLite, MySQL) uses a different C/C++ client
-/// library with different connection types, include paths, and parameter
-/// binding styles. This contract captures those differences so the shared
-/// generation logic in `core.rs` never branches on target.
-
 /// How SQL placeholders should be rewritten for the target engine's client.
 #[derive(Clone, Copy)]
 pub(super) enum CppParamStyle {

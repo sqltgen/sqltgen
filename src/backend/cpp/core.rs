@@ -56,10 +56,19 @@ impl CppIncludes {
             SqlType::SmallInt | SqlType::Integer | SqlType::BigInt => {
                 self.set.insert("<cstdint>");
             },
-            SqlType::Decimal | 
-            SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_) | 
-            SqlType::Date | SqlType::Time | SqlType::Timestamp | SqlType::TimestampTz | SqlType::Interval |
-            SqlType::Uuid | SqlType::Json | SqlType::Jsonb | SqlType::Custom(_) => {
+            SqlType::Decimal
+            | SqlType::Text
+            | SqlType::Char(_)
+            | SqlType::VarChar(_)
+            | SqlType::Date
+            | SqlType::Time
+            | SqlType::Timestamp
+            | SqlType::TimestampTz
+            | SqlType::Interval
+            | SqlType::Uuid
+            | SqlType::Json
+            | SqlType::Jsonb
+            | SqlType::Custom(_) => {
                 self.set.insert("<string>");
             },
             SqlType::Bytes => {
@@ -182,10 +191,7 @@ pub(super) fn generate_table_files(schema: &Schema, config: &OutputConfig) -> an
     let mut files = Vec::new();
 
     for table in &schema.tables {
-        files.push(GeneratedFile {
-            path: PathBuf::from(&config.out).join(format!("{}.hpp", table.name)),
-            content: emit_table_header(table, &config.package)?,
-        });
+        files.push(GeneratedFile { path: PathBuf::from(&config.out).join(format!("{}.hpp", table.name)), content: emit_table_header(table, &config.package)? });
     }
 
     Ok(files)
@@ -216,11 +222,7 @@ fn result_row_type(query: &Query, schema: &Schema) -> String {
 fn params_signature(query: &Query, conn_type: &str) -> String {
     let mut parts = vec![format!("{conn_type} db")];
     for p in &query.params {
-        let ty = if p.is_list {
-            format!("std::vector<{}>", cpp_type(&p.sql_type, false))
-        } else {
-            cpp_type(&p.sql_type, p.nullable)
-        };
+        let ty = if p.is_list { format!("std::vector<{}>", cpp_type(&p.sql_type, false)) } else { cpp_type(&p.sql_type, p.nullable) };
         parts.push(format!("const {ty}& {}", to_snake_case(&p.name)));
     }
     parts.join(", ")
@@ -241,10 +243,7 @@ fn emit_inline_row_struct(src: &mut String, query: &Query) -> anyhow::Result<()>
 /// Emit a SQL string constant in multiline raw-string form for readability.
 fn emit_sql_constant(src: &mut String, query: &Query, param_style: CppParamStyle) -> anyhow::Result<()> {
     let const_name = sql_const_name(&query.name);
-    let raw_sql = query.params.iter()
-        .find(|p| p.is_list)
-        .and_then(|p| p.native_list_sql.as_deref())
-        .unwrap_or(&query.sql);
+    let raw_sql = query.params.iter().find(|p| p.is_list).and_then(|p| p.native_list_sql.as_deref()).unwrap_or(&query.sql);
     let sql = normalize_sql(raw_sql, param_style);
     let sql = sql.trim_end().trim_end_matches(';');
     writeln!(src, "inline const std::string {const_name} = R\"sql(")?;
@@ -264,13 +263,7 @@ fn emit_function_decl(src: &mut String, query: &Query, schema: &Schema, conn_typ
 
 /// Emit one query's header block: optional inline row struct, SQL constant,
 /// and function declaration, kept together for readability.
-fn emit_query_header_block(
-    src: &mut String,
-    query: &Query,
-    schema: &Schema,
-    param_style: CppParamStyle,
-    conn_type: &str,
-) -> anyhow::Result<()> {
+fn emit_query_header_block(src: &mut String, query: &Query, schema: &Schema, param_style: CppParamStyle, conn_type: &str) -> anyhow::Result<()> {
     if has_inline_rows(query, schema) {
         emit_inline_row_struct(src, query)?;
         writeln!(src)?;
@@ -310,10 +303,7 @@ fn pqxx_params_expr(query: &Query) -> Option<String> {
 
 /// Build the `<T1, T2, ...>` template type argument list from result columns.
 fn pqxx_query_type_args(columns: &[ResultColumn]) -> String {
-    columns.iter()
-        .map(|col| cpp_type(&col.sql_type, col.nullable))
-        .collect::<Vec<_>>()
-        .join(", ")
+    columns.iter().map(|col| cpp_type(&col.sql_type, col.nullable)).collect::<Vec<_>>().join(", ")
 }
 
 fn cpp_keyword_or_reserved(name: &str) -> bool {
@@ -478,11 +468,7 @@ fn field_bindings(query: &Query) -> String {
 
 /// Build `std::move(name_), ...` for aggregate initialisation.
 fn move_fields(query: &Query) -> String {
-    result_binding_names(query)
-        .into_iter()
-        .map(|n| format!("std::move({n})"))
-        .collect::<Vec<_>>()
-        .join(", ")
+    result_binding_names(query).into_iter().map(|n| format!("std::move({n})")).collect::<Vec<_>>().join(", ")
 }
 
 /// Emit the function body for a libpqxx (PostgreSQL) query.
@@ -621,12 +607,11 @@ fn emit_sqlite3_bind_list(src: &mut String, sql_type: &SqlType, idx: usize, name
         _ => sql_type,
     };
     let to_str = match inner_type {
-        SqlType::Boolean | SqlType::SmallInt | SqlType::Integer | SqlType::BigInt |
-        SqlType::Real | SqlType::Double =>
-            format!("{name}_json += std::to_string({name}[i]);"),
+        SqlType::Boolean | SqlType::SmallInt | SqlType::Integer | SqlType::BigInt | SqlType::Real | SqlType::Double => {
+            format!("{name}_json += std::to_string({name}[i]);")
+        },
         // String-like types: wrap each element in double quotes.
-        _ =>
-            format!("{name}_json += \"\\\"\" + {name}[i] + \"\\\"\";"),
+        _ => format!("{name}_json += \"\\\"\" + {name}[i] + \"\\\"\";"),
     };
     writeln!(src, "    std::string {name}_json = \"[\";")?;
     writeln!(src, "    for (size_t i = 0; i < {name}.size(); ++i) {{")?;
@@ -645,17 +630,12 @@ fn sqlite3_bind_call(sql_type: &SqlType, idx: usize, name: &str, nullable: bool)
         return format!("{name}.has_value() ? {inner} : sqlite3_bind_null(stmt, {idx})");
     }
     match sql_type {
-        SqlType::Boolean | SqlType::SmallInt | SqlType::Integer =>
-            format!("sqlite3_bind_int(stmt, {idx}, {name})"),
-        SqlType::BigInt =>
-            format!("sqlite3_bind_int64(stmt, {idx}, {name})"),
-        SqlType::Real | SqlType::Double =>
-            format!("sqlite3_bind_double(stmt, {idx}, {name})"),
-        SqlType::Bytes =>
-            format!("sqlite3_bind_blob(stmt, {idx}, {name}.data(), static_cast<int>({name}.size()), SQLITE_TRANSIENT)"),
+        SqlType::Boolean | SqlType::SmallInt | SqlType::Integer => format!("sqlite3_bind_int(stmt, {idx}, {name})"),
+        SqlType::BigInt => format!("sqlite3_bind_int64(stmt, {idx}, {name})"),
+        SqlType::Real | SqlType::Double => format!("sqlite3_bind_double(stmt, {idx}, {name})"),
+        SqlType::Bytes => format!("sqlite3_bind_blob(stmt, {idx}, {name}.data(), static_cast<int>({name}.size()), SQLITE_TRANSIENT)"),
         // Everything else is text (string types, dates, decimal, uuid, json, etc.)
-        _ =>
-            format!("sqlite3_bind_text(stmt, {idx}, {name}.c_str(), -1, SQLITE_TRANSIENT)"),
+        _ => format!("sqlite3_bind_text(stmt, {idx}, {name}.c_str(), -1, SQLITE_TRANSIENT)"),
     }
 }
 
@@ -790,8 +770,7 @@ fn emit_mysql_bind_params(src: &mut String, query: &Query) -> anyhow::Result<()>
     }
 
     // Build index → Parameter lookup.
-    let by_idx: std::collections::HashMap<usize, &Parameter> =
-        query.params.iter().map(|p| (p.index, p)).collect();
+    let by_idx: std::collections::HashMap<usize, &Parameter> = query.params.iter().map(|p| (p.index, p)).collect();
 
     // One entry per `?` in the rewritten SQL, in occurrence order.
     let bind_plan = parse_placeholder_indices(&query.sql);
@@ -847,12 +826,11 @@ fn emit_mysql_bind_list_vars(src: &mut String, sql_type: &SqlType, name: &str) -
         _ => sql_type,
     };
     let to_str = match inner_type {
-        SqlType::Boolean | SqlType::SmallInt | SqlType::Integer | SqlType::BigInt |
-        SqlType::Real | SqlType::Double =>
-            format!("p_{name}_json += std::to_string({name}[i]);"),
+        SqlType::Boolean | SqlType::SmallInt | SqlType::Integer | SqlType::BigInt | SqlType::Real | SqlType::Double => {
+            format!("p_{name}_json += std::to_string({name}[i]);")
+        },
         // String-like types: wrap each element in double quotes.
-        _ =>
-            format!("p_{name}_json += \"\\\"\" + {name}[i] + \"\\\"\";"),
+        _ => format!("p_{name}_json += \"\\\"\" + {name}[i] + \"\\\"\";"),
     };
     writeln!(src, "    std::string p_{name}_json = \"[\";")?;
     writeln!(src, "    for (size_t i = 0; i < {name}.size(); ++i) {{")?;
@@ -923,23 +901,15 @@ fn emit_mysql_bind_field_assign(src: &mut String, sql_type: &SqlType, slot: usiz
 /// Return (MYSQL_TYPE_*, buffer expression, needs_length) for a given SqlType.
 fn mysql_bind_info(sql_type: &SqlType, name: &str) -> (&'static str, String, bool) {
     match sql_type {
-        SqlType::Boolean =>
-            ("MYSQL_TYPE_TINY", format!("const_cast<bool*>(&{name})"), false),
-        SqlType::SmallInt =>
-            ("MYSQL_TYPE_SHORT", format!("const_cast<std::int16_t*>(&{name})"), false),
-        SqlType::Integer =>
-            ("MYSQL_TYPE_LONG", format!("const_cast<std::int32_t*>(&{name})"), false),
-        SqlType::BigInt =>
-            ("MYSQL_TYPE_LONGLONG", format!("const_cast<std::int64_t*>(&{name})"), false),
-        SqlType::Real =>
-            ("MYSQL_TYPE_FLOAT", format!("const_cast<float*>(&{name})"), false),
-        SqlType::Double =>
-            ("MYSQL_TYPE_DOUBLE", format!("const_cast<double*>(&{name})"), false),
-        SqlType::Bytes =>
-            ("MYSQL_TYPE_BLOB", format!("const_cast<char*>(reinterpret_cast<const char*>({name}.data()))"), true),
+        SqlType::Boolean => ("MYSQL_TYPE_TINY", format!("const_cast<bool*>(&{name})"), false),
+        SqlType::SmallInt => ("MYSQL_TYPE_SHORT", format!("const_cast<std::int16_t*>(&{name})"), false),
+        SqlType::Integer => ("MYSQL_TYPE_LONG", format!("const_cast<std::int32_t*>(&{name})"), false),
+        SqlType::BigInt => ("MYSQL_TYPE_LONGLONG", format!("const_cast<std::int64_t*>(&{name})"), false),
+        SqlType::Real => ("MYSQL_TYPE_FLOAT", format!("const_cast<float*>(&{name})"), false),
+        SqlType::Double => ("MYSQL_TYPE_DOUBLE", format!("const_cast<double*>(&{name})"), false),
+        SqlType::Bytes => ("MYSQL_TYPE_BLOB", format!("const_cast<char*>(reinterpret_cast<const char*>({name}.data()))"), true),
         // Everything else is a string
-        _ =>
-            ("MYSQL_TYPE_STRING", format!("const_cast<char*>({name}.c_str())"), true),
+        _ => ("MYSQL_TYPE_STRING", format!("const_cast<char*>({name}.c_str())"), true),
     }
 }
 
@@ -1078,14 +1048,14 @@ fn emit_querier_decl(src: &mut String, group: &str, queries: &[Query], schema: &
 
 /// Build the parameter list for a Querier method (same as free function, minus the db param).
 fn querier_method_params(query: &Query) -> String {
-    let parts: Vec<String> = query.params.iter().map(|p| {
-        let ty = if p.is_list {
-            format!("std::vector<{}>", cpp_type(&p.sql_type, false))
-        } else {
-            cpp_type(&p.sql_type, p.nullable)
-        };
-        format!("const {ty}& {}", to_snake_case(&p.name))
-    }).collect();
+    let parts: Vec<String> = query
+        .params
+        .iter()
+        .map(|p| {
+            let ty = if p.is_list { format!("std::vector<{}>", cpp_type(&p.sql_type, false)) } else { cpp_type(&p.sql_type, p.nullable) };
+            format!("const {ty}& {}", to_snake_case(&p.name))
+        })
+        .collect();
     parts.join(", ")
 }
 
@@ -1104,28 +1074,16 @@ pub(super) fn generate_query_files(
     for (group, group_queries) in &groups {
         let stem = queries_file_stem(group);
         let header = emit_queries_header(group, group_queries, schema, contract, config)?;
-        files.push(GeneratedFile {
-            path: PathBuf::from(&config.out).join(format!("{stem}.hpp")),
-            content: header,
-        });
+        files.push(GeneratedFile { path: PathBuf::from(&config.out).join(format!("{stem}.hpp")), content: header });
         let source = emit_queries_source(stem, group_queries, schema, contract, config)?;
-        files.push(GeneratedFile {
-            path: PathBuf::from(&config.out).join(format!("{stem}.cpp")),
-            content: source,
-        });
+        files.push(GeneratedFile { path: PathBuf::from(&config.out).join(format!("{stem}.cpp")), content: source });
     }
 
     Ok(files)
 }
 
 /// Emit the full content of a queries header file.
-fn emit_queries_header(
-    group: &str,
-    queries: &[Query],
-    schema: &Schema,
-    contract: &CppEngineContract,
-    config: &OutputConfig,
-) -> anyhow::Result<String> {
+fn emit_queries_header(group: &str, queries: &[Query], schema: &Schema, contract: &CppEngineContract, config: &OutputConfig) -> anyhow::Result<String> {
     let mut src = String::new();
 
     writeln!(src, "#pragma once")?;
@@ -1190,13 +1148,7 @@ fn emit_queries_header(
 }
 
 /// Emit the full content of a queries source (.cpp) file.
-fn emit_queries_source(
-    header_stem: &str,
-    queries: &[Query],
-    schema: &Schema,
-    contract: &CppEngineContract,
-    config: &OutputConfig,
-) -> anyhow::Result<String> {
+fn emit_queries_source(header_stem: &str, queries: &[Query], schema: &Schema, contract: &CppEngineContract, config: &OutputConfig) -> anyhow::Result<String> {
     let mut src = String::new();
 
     writeln!(src, "// Generated by sqltgen. Do not edit.")?;

@@ -1,4 +1,5 @@
 pub mod common;
+pub mod cpp;
 pub mod go;
 pub mod java;
 pub mod jdbc;
@@ -11,7 +12,6 @@ pub mod sql_rewrite;
 #[cfg(test)]
 pub mod test_helpers;
 pub mod typescript;
-pub mod cpp;
 
 use std::path::PathBuf;
 

@@ -8,10 +8,7 @@ fn test_multiple_params_in_signature() {
     let query = Query::exec(
         "UpdateUser",
         "UPDATE user SET name = $1 WHERE id = $2",
-        vec![
-            Parameter::scalar(1, "name", SqlType::Text, false),
-            Parameter::scalar(2, "id", SqlType::BigInt, false),
-        ],
+        vec![Parameter::scalar(1, "name", SqlType::Text, false), Parameter::scalar(2, "id", SqlType::BigInt, false)],
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.hpp");
@@ -25,10 +22,7 @@ fn test_nullable_param_uses_optional_in_signature() {
     let query = Query::exec(
         "UpdateBio",
         "UPDATE user SET bio = $1 WHERE id = $2",
-        vec![
-            Parameter::scalar(1, "bio", SqlType::Text, true),
-            Parameter::scalar(2, "id", SqlType::BigInt, false),
-        ],
+        vec![Parameter::scalar(1, "bio", SqlType::Text, true), Parameter::scalar(2, "id", SqlType::BigInt, false)],
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.hpp");
