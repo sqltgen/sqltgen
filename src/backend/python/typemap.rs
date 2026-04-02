@@ -136,3 +136,50 @@ fn python_default_entry(sql_type: &SqlType, json_mode: PythonJsonMode) -> Python
         SqlType::Array(_) => unreachable!("arrays are not in the canonical type list"),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{OutputConfig, TypeOverride, TypeRef};
+    use crate::ir::SqlType;
+
+    fn map_default() -> PythonTypeMap {
+        build_python_type_map(&OutputConfig::default(), PythonJsonMode::Object)
+    }
+
+    fn map_with_override(sql_name: &str, py_type: &str) -> PythonTypeMap {
+        let mut config = OutputConfig::default();
+        config.type_overrides.insert(sql_name.to_string(), TypeOverride::Same(crate::config::TypeRef::String(py_type.to_string())));
+        build_python_type_map(&config, PythonJsonMode::Object)
+    }
+
+    #[test]
+    fn test_array_timestamp_default_annotation() {
+        let map = map_default();
+        assert_eq!(map.field_type(&SqlType::Array(Box::new(SqlType::Timestamp)), false), "list[datetime.datetime]");
+    }
+
+    #[test]
+    fn test_array_uuid_default_annotation() {
+        let map = map_default();
+        assert_eq!(map.field_type(&SqlType::Array(Box::new(SqlType::Uuid)), false), "list[uuid.UUID]");
+    }
+
+    #[test]
+    fn test_array_text_default_annotation() {
+        let map = map_default();
+        assert_eq!(map.field_type(&SqlType::Array(Box::new(SqlType::Text)), false), "list[str]");
+    }
+
+    #[test]
+    fn test_array_nullable_annotation() {
+        let map = map_default();
+        assert_eq!(map.field_type(&SqlType::Array(Box::new(SqlType::Text)), true), "list[str] | None");
+    }
+
+    #[test]
+    fn test_array_element_type_respects_override() {
+        let map = map_with_override("timestamp", "MyTimestamp");
+        assert_eq!(map.field_type(&SqlType::Array(Box::new(SqlType::Timestamp)), false), "list[MyTimestamp]");
+    }
+}
