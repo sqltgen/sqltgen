@@ -1,21 +1,16 @@
 use super::*;
-use crate::backend::test_helpers::{cfg, get_file, user_table};
+use crate::backend::test_helpers::{cfg, get_file, user_summary_view, user_table};
 use crate::config::OutputConfig;
-use crate::ir::{Column, NativeListBind, Schema, SqlType, Table, TableKind};
+use crate::ir::{Schema, SqlType};
 
 pub fn pg() -> CppCodegen {
-    CppCodegen { target: CppTarget::Postgres }
+    CppCodegen { target: CppTarget::Libpqxx }
 }
 
-pub fn sqlite() -> CppCodegen {
-    CppCodegen { target: CppTarget::Sqlite }
-}
-
-pub fn mysql() -> CppCodegen {
-    CppCodegen { target: CppTarget::Mysql }
-}
-
-mod bodies;
+mod architecture;
 mod generate;
-mod queries;
+mod grouping;
+mod list_params;
+mod params;
 mod types;
+mod views;
