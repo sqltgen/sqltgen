@@ -35,7 +35,7 @@ class RuntimeGenTest {
         conn.autoCommit = true
         schema = "test_" + UUID.randomUUID().toString().replace("-", "")
         val ddl = java.nio.file.Files.readString(
-            java.nio.file.Path.of("../../../../fixtures/type_overrides/schema.sql"))
+            java.nio.file.Path.of("../../../../fixtures/type_overrides/postgresql/schema.sql"))
         conn.createStatement().use { s ->
             s.execute("""CREATE SCHEMA "$schema"""")
             s.execute("""SET search_path TO "$schema"""")

@@ -6,6 +6,7 @@ use crate::ir::{Query, Schema};
 
 mod adapter;
 mod core;
+mod typemap;
 
 /// Database engine target for Kotlin/JDBC output.
 pub use crate::backend::jdbc::JdbcTarget;
@@ -19,7 +20,8 @@ pub struct KotlinCodegen {
 impl Codegen for KotlinCodegen {
     fn generate(&self, schema: &Schema, queries: &[Query], config: &OutputConfig) -> anyhow::Result<Vec<GeneratedFile>> {
         let contract = adapter::resolve_kotlin_contract(self.target);
-        let mut files = core::generate_core_files(schema, queries, &contract, config)?;
+        let type_map = typemap::build_kotlin_type_map(config);
+        let mut files = core::generate_core_files(schema, queries, &contract, config, &type_map)?;
 
         if let Some(manifest) = build_manifest_file(
             "kotlin",
@@ -28,8 +30,8 @@ impl Codegen for KotlinCodegen {
             schema,
             queries,
             &to_camel_case,
-            &|st, nullable| core::kotlin_field_type(st, nullable, config),
-            &|p| core::kotlin_param_type_resolved(p, config),
+            &|st, nullable| type_map.kotlin_type(st, nullable),
+            &|p| core::kotlin_param_type(p, &type_map),
         ) {
             files.push(manifest);
         }
@@ -40,12 +42,13 @@ impl Codegen for KotlinCodegen {
 
 #[cfg(test)]
 fn kotlin_type(sql_type: &crate::ir::SqlType, nullable: bool) -> String {
-    core::kotlin_type_pub(sql_type, nullable)
+    typemap::build_kotlin_type_map(&crate::config::OutputConfig::default()).kotlin_type(sql_type, nullable)
 }
 
 #[cfg(test)]
-fn resultset_read_expr(sql_type: &crate::ir::SqlType, nullable: bool, idx: usize) -> String {
-    core::resultset_read_expr_pub(sql_type, nullable, idx)
+fn resultset_read_expr(sql_type: &crate::ir::SqlType, nullable: bool, idx: usize, config: &crate::config::OutputConfig) -> String {
+    let type_map = typemap::build_kotlin_type_map(config);
+    core::resultset_read_expr_pub(sql_type, nullable, idx, &type_map)
 }
 
 #[cfg(test)]

@@ -115,6 +115,16 @@ def render_value(kind: str, value: Any, engine: str, coercions: dict[str, str]) 
         return _kotlin_local_date(str(value))
     elif kind == "time":
         return _kotlin_local_time(str(value))
+    elif kind == "list":
+        if not value:
+            return "emptyList()"
+        parts = []
+        for item in value:
+            item_kind, item_val = next(iter(item.items()))
+            if item_kind is None:
+                item_kind = "null"
+            parts.append(render_value(str(item_kind), item_val, engine, coercions))
+        return f"listOf({', '.join(parts)})"
     elif kind == "var":
         return str(value)
     else:
@@ -136,6 +146,22 @@ def render_typed_arg(
 
     if kind == "null":
         return "null"
+
+    if kind == "list":
+        m = re.match(r"List<(.+)>", lang_type)
+        elem_lang_type = m.group(1) if m else ""
+        if not value:
+            stripped_elem = _strip_java_time(elem_lang_type)
+            return f"emptyList<{stripped_elem}>()"
+        elements = []
+        for item in value:
+            item_kind, item_val = next(iter(item.items()))
+            if item_kind is None:
+                item_kind = "null"
+            elements.append(
+                render_typed_arg("_", elem_lang_type, str(item_kind), item_val, engine, coercions)
+            )
+        return f"listOf({', '.join(elements)})"
 
     if kind == "json":
         if "String" in inner:

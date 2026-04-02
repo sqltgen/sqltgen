@@ -34,7 +34,7 @@ async fn gen_setup_db() -> PgPool {
         .connect(&url)
         .await
         .unwrap();
-    let ddl = include_str!("../../../../../fixtures/type_overrides/schema.sql");
+    let ddl = include_str!("../../../../../fixtures/type_overrides/postgresql/schema.sql");
     for stmt in ddl.split(';').map(str::trim).filter(|s| !s.is_empty()) {
         sqlx::query(stmt).execute(&pool).await.unwrap();
     }
