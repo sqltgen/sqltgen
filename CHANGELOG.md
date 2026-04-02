@@ -26,17 +26,17 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
 - **Python: import lines now emitted in alphabetical order** — the migration from
   a flag-based `TypeImports` struct to `BTreeSet<String>` changed import ordering
   from insertion order to alphabetical.
-- **Kotlin: array element type conversion now honours type overrides** — reads of SQL
-  `ARRAY` columns that have a per-type override (e.g. `TIMESTAMP[]` with
+- **Kotlin and Java: array element type conversion now honours type overrides** — reads of
+  SQL `ARRAY` columns that have a per-type override (e.g. `TIMESTAMP[]` with
   `"timestamp": "java.time.LocalDateTime"`) previously returned the raw JDBC element type
   (`java.sql.Timestamp`) instead of the configured override type, causing silent
-  type-mismatches and potential `ClassCastException` at call sites.  The Kotlin backend now
-  emits a per-element `.map { }` lambda for temporal types (`TIMESTAMP`, `TIMESTAMPTZ`,
+  type-mismatches and potential `ClassCastException` at call sites.  Both backends now emit
+  a per-element stream/map expression for temporal types (`TIMESTAMP`, `TIMESTAMPTZ`,
   `DATE`, `TIME`) and `UUID` arrays — applying the same conversion that scalar column reads
-  use — instead of the unchecked `jdbcArrayToList` cast.  Types with a `read_expr` override
-  have the expression applied per element, with `{raw}` substituted by the appropriate JDBC
-  element cast.  Types that need no conversion (text, numeric, boolean, …) continue to use
-  the efficient `jdbcArrayToList` path.
+  use — instead of an unchecked direct cast.  Types with a `read_expr` override have the
+  expression applied per element, with `{raw}` substituted by the appropriate JDBC element
+  cast.  Types that need no conversion (text, numeric, boolean, …) continue to use the
+  efficient `Arrays.asList` / `jdbcArrayToList` direct-cast path.
 
 ### Added
 - **`schema_stop_marker` config field** — migration files that contain both an

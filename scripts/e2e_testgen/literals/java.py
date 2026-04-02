@@ -123,6 +123,16 @@ def render_value(kind: str, value: Any, engine: str, coercions: dict[str, str]) 
         return _java_local_date(str(value))
     elif kind == "time":
         return _java_local_time(str(value))
+    elif kind == "list":
+        if not value:
+            return "List.of()"
+        parts = []
+        for item in value:
+            item_kind, item_val = next(iter(item.items()))
+            if item_kind is None:
+                item_kind = "null"
+            parts.append(render_value(str(item_kind), item_val, engine, coercions))
+        return f"List.of({', '.join(parts)})"
     elif kind == "var":
         return str(value)
     else:
@@ -144,6 +154,21 @@ def render_typed_arg(
 
     if kind == "null":
         return "null"
+
+    if kind == "list":
+        m = re.match(r"java\.util\.List<(.+)>", lang_type)
+        elem_lang_type = m.group(1) if m else ""
+        if not value:
+            return "List.of()"
+        elements = []
+        for item in value:
+            item_kind, item_val = next(iter(item.items()))
+            if item_kind is None:
+                item_kind = "null"
+            elements.append(
+                render_typed_arg("_", elem_lang_type, str(item_kind), item_val, engine, coercions)
+            )
+        return f"List.of({', '.join(elements)})"
 
     if kind == "json":
         if "String" in inner:
