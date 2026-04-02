@@ -377,11 +377,7 @@ pub(super) fn field_bindings(query: &Query) -> String {
 }
 
 pub(super) fn move_fields(query: &Query) -> String {
-    result_binding_names(query)
-        .into_iter()
-        .map(|n| format!("std::move({n})"))
-        .collect::<Vec<_>>()
-        .join(", ")
+    result_binding_names(query).into_iter().map(|n| format!("std::move({n})")).collect::<Vec<_>>().join(", ")
 }
 
 /// Build the C++ parameter list string for a query function signature.
