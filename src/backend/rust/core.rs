@@ -6,46 +6,18 @@ use crate::backend::common::{group_queries, has_inline_rows, infer_row_type_name
 use crate::backend::naming::{to_pascal_case, to_snake_case};
 use crate::backend::sql_rewrite::{positional_bind_names, rewrite_to_anon_params, split_at_in_clause};
 use crate::backend::GeneratedFile;
-use crate::config::{resolve_type_override, Language, ListParamStrategy, OutputConfig, ResolvedType, TypeVariant};
+use crate::config::{ListParamStrategy, OutputConfig};
 use crate::ir::{NativeListBind, Parameter, Query, QueryCmd, Schema, SqlType};
 
 use super::adapter::{RustBindMode, RustCoreContract, RustPlaceholderMode, RustSqlNormMode};
-
-/// Resolve a known Rust preset name to a [`ResolvedType`].
-fn try_preset_rust(name: &str) -> Option<ResolvedType> {
-    match name {
-        // sqlx implements Decode/Encode for serde_json::Value natively —
-        // no read_expr/write_expr needed; the type name alone is sufficient.
-        "serde_json" => Some(ResolvedType::simple("serde_json::Value")),
-        _ => None,
-    }
-}
-
-fn get_type_override_rust(sql_type: &SqlType, variant: TypeVariant, config: &OutputConfig) -> Option<ResolvedType> {
-    resolve_type_override(sql_type, variant, config, Language::Rust, try_preset_rust)
-}
-
-/// Return the Rust type for a SQL type, applying any configured type override first.
-pub(super) fn rust_field_type(sql_type: &SqlType, nullable: bool, config: &OutputConfig) -> String {
-    if let Some(resolved) = get_type_override_rust(sql_type, TypeVariant::Field, config) {
-        return if nullable { format!("Option<{}>", resolved.name) } else { resolved.name };
-    }
-    rust_type(sql_type, nullable)
-}
-
-/// Return the Rust parameter type, applying any configured param type override first.
-pub(super) fn rust_param_type_resolved(sql_type: &SqlType, nullable: bool, config: &OutputConfig) -> String {
-    if let Some(resolved) = get_type_override_rust(sql_type, TypeVariant::Param, config) {
-        return if nullable { format!("Option<{}>", resolved.name) } else { resolved.name };
-    }
-    rust_type(sql_type, nullable)
-}
+use super::typemap::RustTypeMap;
 
 pub(super) fn generate_core_files(
     schema: &Schema,
     queries: &[Query],
     contract: &RustCoreContract,
     config: &OutputConfig,
+    type_map: &RustTypeMap,
 ) -> anyhow::Result<Vec<GeneratedFile>> {
     let mut files = Vec::new();
 
@@ -56,7 +28,7 @@ pub(super) fn generate_core_files(
         writeln!(src, "#[derive(Debug, sqlx::FromRow)]")?;
         writeln!(src, "pub struct {struct_name} {{")?;
         for col in &table.columns {
-            writeln!(src, "    pub {}: {},", col.name, rust_field_type(&col.sql_type, col.nullable, config))?;
+            writeln!(src, "    pub {}: {},", col.name, type_map.field_type(&col.sql_type, col.nullable))?;
         }
         writeln!(src, "}}")?;
 
@@ -90,7 +62,7 @@ pub(super) fn generate_core_files(
         // Custom row structs for queries that don't return a whole table
         for query in group_queries {
             if has_inline_rows(query, schema) {
-                emit_row_struct(&mut src, query, config)?;
+                emit_row_struct(&mut src, query, type_map)?;
                 writeln!(src)?;
             }
         }
@@ -100,12 +72,12 @@ pub(super) fn generate_core_files(
             if i > 0 {
                 writeln!(src)?;
             }
-            emit_rust_query(&mut src, query, schema, "DbPool", contract, &strategy, config)?;
+            emit_rust_query(&mut src, query, schema, "DbPool", contract, &strategy, type_map)?;
         }
 
         if !group_queries.is_empty() {
             writeln!(src)?;
-            emit_rust_querier(&mut src, group, group_queries, schema, "DbPool", config)?;
+            emit_rust_querier(&mut src, group, group_queries, schema, "DbPool", type_map)?;
         }
 
         let path = PathBuf::from(&config.out).join(format!("{stem}.rs"));
@@ -131,12 +103,12 @@ pub(super) fn generate_core_files(
     Ok(files)
 }
 
-fn emit_row_struct(src: &mut String, query: &Query, config: &OutputConfig) -> anyhow::Result<()> {
+fn emit_row_struct(src: &mut String, query: &Query, type_map: &RustTypeMap) -> anyhow::Result<()> {
     let name = row_type_name(&query.name);
     writeln!(src, "#[derive(Debug, sqlx::FromRow)]")?;
     writeln!(src, "pub struct {name} {{")?;
     for col in &query.result_columns {
-        writeln!(src, "    pub {}: {},", col.name, rust_field_type(&col.sql_type, col.nullable, config))?;
+        writeln!(src, "    pub {}: {},", col.name, type_map.field_type(&col.sql_type, col.nullable))?;
     }
     writeln!(src, "}}")?;
     Ok(())
@@ -149,7 +121,7 @@ fn emit_rust_query(
     pool_type: &str,
     contract: &RustCoreContract,
     strategy: &ListParamStrategy,
-    config: &OutputConfig,
+    type_map: &RustTypeMap,
 ) -> anyhow::Result<()> {
     let fn_name = to_snake_case(&query.name);
     let row_type = result_row_type(query, schema);
@@ -162,7 +134,7 @@ fn emit_rust_query(
     };
 
     let params_sig: String =
-        std::iter::once(format!("pool: &{pool_type}")).chain(query.params.iter().map(|p| rust_param_sig(p, config))).collect::<Vec<_>>().join(", ");
+        std::iter::once(format!("pool: &{pool_type}")).chain(query.params.iter().map(|p| rust_param_sig(p, type_map))).collect::<Vec<_>>().join(", ");
 
     writeln!(src, "pub async fn {fn_name}({params_sig}) -> {return_type} {{")?;
 
@@ -177,7 +149,7 @@ fn emit_rust_query(
     Ok(())
 }
 
-fn emit_rust_querier(src: &mut String, group: &str, queries: &[Query], schema: &Schema, pool_type: &str, config: &OutputConfig) -> anyhow::Result<()> {
+fn emit_rust_querier(src: &mut String, group: &str, queries: &[Query], schema: &Schema, pool_type: &str, type_map: &RustTypeMap) -> anyhow::Result<()> {
     let struct_name = querier_class_name(group);
     writeln!(src, "pub struct {struct_name}<'a> {{")?;
     writeln!(src, "    pool: &'a {pool_type},")?;
@@ -190,14 +162,14 @@ fn emit_rust_querier(src: &mut String, group: &str, queries: &[Query], schema: &
 
     for query in queries {
         writeln!(src)?;
-        emit_rust_querier_method(src, query, schema, config)?;
+        emit_rust_querier_method(src, query, schema, type_map)?;
     }
 
     writeln!(src, "}}")?;
     Ok(())
 }
 
-fn emit_rust_querier_method(src: &mut String, query: &Query, schema: &Schema, config: &OutputConfig) -> anyhow::Result<()> {
+fn emit_rust_querier_method(src: &mut String, query: &Query, schema: &Schema, type_map: &RustTypeMap) -> anyhow::Result<()> {
     let fn_name = to_snake_case(&query.name);
     let row_type = result_row_type(query, schema);
     let return_type = match query.cmd {
@@ -206,7 +178,7 @@ fn emit_rust_querier_method(src: &mut String, query: &Query, schema: &Schema, co
         QueryCmd::Exec => "Result<(), sqlx::Error>".to_string(),
         QueryCmd::ExecRows => "Result<u64, sqlx::Error>".to_string(),
     };
-    let params_sig = query.params.iter().map(|p| rust_param_sig(p, config)).collect::<Vec<_>>().join(", ");
+    let params_sig = query.params.iter().map(|p| rust_param_sig(p, type_map)).collect::<Vec<_>>().join(", ");
     let args = query.params.iter().map(|p| to_snake_case(&p.name)).collect::<Vec<_>>().join(", ");
     let call_args = if args.is_empty() { "self.pool".to_string() } else { format!("self.pool, {args}") };
 
@@ -352,13 +324,13 @@ fn fetch_method(query: &Query) -> &'static str {
 }
 
 /// Build the `name: type` signature fragment for a single parameter.
-fn rust_param_sig(p: &Parameter, config: &OutputConfig) -> String {
+fn rust_param_sig(p: &Parameter, type_map: &RustTypeMap) -> String {
     let name = to_snake_case(&p.name);
     if p.is_list {
-        let elem_ty = rust_param_type_resolved(&p.sql_type, false, config);
+        let elem_ty = type_map.param_type(&p.sql_type, false);
         format!("{name}: &[{elem_ty}]")
     } else {
-        format!("{name}: {}", rust_param_type_resolved(&p.sql_type, p.nullable, config))
+        format!("{name}: {}", type_map.param_type(&p.sql_type, p.nullable))
     }
 }
 
@@ -430,39 +402,5 @@ fn normalize_sql_for_sqlx(sql: &str, mode: RustSqlNormMode) -> String {
     match mode {
         RustSqlNormMode::AnonParams => rewrite_to_anon_params(sql),
         RustSqlNormMode::Preserve => sql.to_string(),
-    }
-}
-
-// ─── Type mapping ─────────────────────────────────────────────────────────────
-
-pub(super) fn rust_type(sql_type: &SqlType, nullable: bool) -> String {
-    let base = match sql_type {
-        SqlType::Boolean => "bool".to_string(),
-        SqlType::SmallInt => "i16".to_string(),
-        SqlType::Integer => "i32".to_string(),
-        SqlType::BigInt => "i64".to_string(),
-        SqlType::Real => "f32".to_string(),
-        SqlType::Double => "f64".to_string(),
-        SqlType::Decimal => "rust_decimal::Decimal".to_string(),
-        SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_) => "String".to_string(),
-        SqlType::Bytes => "Vec<u8>".to_string(),
-        SqlType::Date => "time::Date".to_string(),
-        SqlType::Time => "time::Time".to_string(),
-        SqlType::Timestamp => "time::PrimitiveDateTime".to_string(),
-        SqlType::TimestampTz => "time::OffsetDateTime".to_string(),
-        SqlType::Interval => "String".to_string(),
-        SqlType::Uuid => "uuid::Uuid".to_string(),
-        SqlType::Json | SqlType::Jsonb => "serde_json::Value".to_string(),
-        SqlType::Array(inner) => {
-            let inner_ty = rust_type(inner, false);
-            let vec_ty = format!("Vec<{inner_ty}>");
-            return if nullable { format!("Option<{vec_ty}>") } else { vec_ty };
-        },
-        SqlType::Custom(_) => "serde_json::Value".to_string(),
-    };
-    if nullable {
-        format!("Option<{base}>")
-    } else {
-        base
     }
 }

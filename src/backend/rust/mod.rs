@@ -9,6 +9,7 @@ use crate::ir::SqlType;
 
 mod adapter;
 mod core;
+mod typemap;
 
 /// Database engine target for Rust/sqlx output.
 pub enum RustTarget {
@@ -59,10 +60,11 @@ pub struct RustCodegen {
 impl Codegen for RustCodegen {
     fn generate(&self, schema: &Schema, queries: &[Query], config: &OutputConfig) -> anyhow::Result<Vec<GeneratedFile>> {
         let contract = adapter::resolve_rust_contract(&self.target);
+        let type_map = typemap::build_rust_type_map(config);
 
         let mut files = Vec::new();
         files.push(adapter::emit_helper_file(&contract, config));
-        files.extend(core::generate_core_files(schema, queries, &contract, config)?);
+        files.extend(core::generate_core_files(schema, queries, &contract, config, &type_map)?);
 
         if let Some(manifest) = build_manifest_file(
             "rust",
@@ -71,8 +73,8 @@ impl Codegen for RustCodegen {
             schema,
             queries,
             &to_snake_case,
-            &|st, nullable| core::rust_field_type(st, nullable, config),
-            &|p| core::rust_param_type_resolved(&p.sql_type, p.nullable, config),
+            &|st, nullable| type_map.field_type(st, nullable),
+            &|p| type_map.param_type(&p.sql_type, p.nullable),
         ) {
             files.push(manifest);
         }
@@ -83,7 +85,7 @@ impl Codegen for RustCodegen {
 
 #[cfg(test)]
 fn rust_type(sql_type: &SqlType, nullable: bool) -> String {
-    core::rust_type(sql_type, nullable)
+    typemap::build_rust_type_map(&crate::config::OutputConfig::default()).field_type(sql_type, nullable)
 }
 
 #[cfg(test)]

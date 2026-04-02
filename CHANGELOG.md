@@ -10,7 +10,22 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
 
 ## [Unreleased]
 
+### Changed
+- **Pre-resolved type map refactor (all backends)** — each backend now builds a
+  `<Lang>TypeMap` once before codegen, with all override, preset, and default
+  resolution at construction time. Emitters are pure consumers and no longer call
+  `resolve_type_override` at the call site. New `typemap.rs` modules added for
+  Java, Rust, Python, Go, and TypeScript/JavaScript. This is a pure internal
+  refactor with no user-visible behaviour change, except two bug fixes discovered
+  during migration (see Fixed below).
+
 ### Fixed
+- **Java: array column parameter type no longer double-wraps** — a `text[]`
+  parameter was emitted as `List<java.util.List<String>>` instead of
+  `java.util.List<String>` due to a bug in `java_param_type`. Fixed.
+- **Python: import lines now emitted in alphabetical order** — the migration from
+  a flag-based `TypeImports` struct to `BTreeSet<String>` changed import ordering
+  from insertion order to alphabetical.
 - **Kotlin: array element type conversion now honours type overrides** — reads of SQL
   `ARRAY` columns that have a per-type override (e.g. `TIMESTAMP[]` with
   `"timestamp": "java.time.LocalDateTime"`) previously returned the raw JDBC element type

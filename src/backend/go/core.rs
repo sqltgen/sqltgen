@@ -8,81 +8,11 @@ use crate::backend::common::{
 use crate::backend::naming::to_pascal_case;
 use crate::backend::sql_rewrite::{parse_placeholder_indices, positional_bind_names, rewrite_to_anon_params, split_at_in_clause};
 use crate::backend::GeneratedFile;
-use crate::config::{resolve_type_override, Language, ListParamStrategy, OutputConfig, ResolvedType, TypeVariant};
+use crate::config::{ListParamStrategy, OutputConfig};
 use crate::ir::{NativeListBind, Parameter, Query, QueryCmd, ResultColumn, Schema, SqlType};
 
-use super::adapter::{GoBindMode, GoCoreContract, GoJsonMode, GoPlaceholderMode};
-
-// ─── Type mapping ─────────────────────────────────────────────────────────────
-
-/// Resolve any configured type override for Go (field or param side).
-fn get_type_override_go(sql_type: &SqlType, variant: TypeVariant, config: &OutputConfig) -> Option<ResolvedType> {
-    resolve_type_override(sql_type, variant, config, Language::Go, |_| None)
-}
-
-/// Map a SQL type to its Go type string, applying any configured override.
-pub(super) fn go_field_type(sql_type: &SqlType, nullable: bool, contract: &GoCoreContract, config: &OutputConfig) -> String {
-    if let Some(resolved) = get_type_override_go(sql_type, TypeVariant::Field, config) {
-        return if nullable { format!("*{}", resolved.name) } else { resolved.name };
-    }
-    go_type(sql_type, nullable, contract.json_mode)
-}
-
-/// Map a SQL parameter type to its Go type string, applying any configured override.
-pub(super) fn go_param_type(sql_type: &SqlType, nullable: bool, contract: &GoCoreContract, config: &OutputConfig) -> String {
-    if let Some(resolved) = get_type_override_go(sql_type, TypeVariant::Param, config) {
-        return if nullable { format!("*{}", resolved.name) } else { resolved.name };
-    }
-    go_type(sql_type, nullable, contract.json_mode)
-}
-
-/// Core Go type mapping, no overrides applied.
-pub(super) fn go_type(sql_type: &SqlType, nullable: bool, json_mode: GoJsonMode) -> String {
-    match sql_type {
-        SqlType::Boolean => nullable_type("bool", "sql.NullBool", nullable),
-        SqlType::SmallInt => nullable_type("int16", "sql.NullInt16", nullable),
-        SqlType::Integer => nullable_type("int32", "sql.NullInt32", nullable),
-        SqlType::BigInt => nullable_type("int64", "sql.NullInt64", nullable),
-        SqlType::Real => nullable_ptr("float32", nullable),
-        SqlType::Double => nullable_type("float64", "sql.NullFloat64", nullable),
-        SqlType::Decimal => nullable_type("string", "sql.NullString", nullable),
-        SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_) => nullable_type("string", "sql.NullString", nullable),
-        SqlType::Bytes => "[]byte".to_string(), // nil slice represents NULL
-        SqlType::Date | SqlType::Time | SqlType::Timestamp | SqlType::TimestampTz => nullable_type("time.Time", "sql.NullTime", nullable),
-        SqlType::Interval => nullable_type("string", "sql.NullString", nullable),
-        SqlType::Uuid => nullable_type("string", "sql.NullString", nullable),
-        SqlType::Json | SqlType::Jsonb => match json_mode {
-            GoJsonMode::Bytes => nullable_ptr("[]byte", nullable),
-            GoJsonMode::String => nullable_type("string", "sql.NullString", nullable),
-        },
-        SqlType::Array(inner) => {
-            let inner_ty = go_type(inner, false, json_mode);
-            let slice = format!("[]{inner_ty}");
-            if nullable {
-                format!("*{slice}")
-            } else {
-                slice
-            }
-        },
-        SqlType::Custom(_) => "any".to_string(),
-    }
-}
-
-fn nullable_type(non_null: &str, null_type: &str, nullable: bool) -> String {
-    if nullable {
-        null_type.to_string()
-    } else {
-        non_null.to_string()
-    }
-}
-
-fn nullable_ptr(base: &str, nullable: bool) -> String {
-    if nullable {
-        format!("*{base}")
-    } else {
-        base.to_string()
-    }
-}
+use super::adapter::{GoBindMode, GoCoreContract, GoPlaceholderMode};
+use super::typemap::GoTypeMap;
 
 // ─── Package name ─────────────────────────────────────────────────────────────
 
@@ -112,40 +42,15 @@ struct GoImports {
 }
 
 impl GoImports {
-    fn add_for_type(&mut self, sql_type: &SqlType, nullable: bool, json_mode: GoJsonMode) {
-        match sql_type {
-            SqlType::Date | SqlType::Time | SqlType::Timestamp | SqlType::TimestampTz => {
-                if nullable {
-                    self.database_sql = true;
-                } else {
-                    self.time = true;
-                }
+    /// Add a type-derived import path (as returned by `GoTypeMap::import_for`).
+    fn add_import(&mut self, imp: Option<String>) {
+        match imp.as_deref() {
+            Some("\"time\"") => self.time = true,
+            Some("\"database/sql\"") => self.database_sql = true,
+            Some(s) => {
+                self.extra.insert(s.to_string());
             },
-            SqlType::Boolean | SqlType::SmallInt | SqlType::Integer | SqlType::BigInt | SqlType::Double => {
-                if nullable {
-                    self.database_sql = true;
-                }
-            },
-            SqlType::Real => {
-                // *float32 — no special import needed
-            },
-            SqlType::Decimal | SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_) | SqlType::Interval | SqlType::Uuid => {
-                if nullable {
-                    self.database_sql = true;
-                }
-            },
-            SqlType::Json | SqlType::Jsonb => match json_mode {
-                GoJsonMode::String => {
-                    if nullable {
-                        self.database_sql = true;
-                    }
-                },
-                GoJsonMode::Bytes => {
-                    // *[]byte — no special import
-                },
-            },
-            SqlType::Array(inner) => self.add_for_type(inner, false, json_mode),
-            SqlType::Bytes | SqlType::Custom(_) => {},
+            None => {},
         }
     }
 
@@ -224,20 +129,26 @@ fn normalize_sql(sql: &str, contract: &GoCoreContract) -> String {
 // ─── Top-level file generators ────────────────────────────────────────────────
 
 /// Generate all Go source files for the given schema and queries.
-pub(super) fn generate_core_files(schema: &Schema, queries: &[Query], contract: &GoCoreContract, config: &OutputConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+pub(super) fn generate_core_files(
+    schema: &Schema,
+    queries: &[Query],
+    contract: &GoCoreContract,
+    config: &OutputConfig,
+    type_map: &GoTypeMap,
+) -> anyhow::Result<Vec<GeneratedFile>> {
     let pkg = package_name(config);
     let mut files = Vec::new();
 
     // One struct file per table
     for table in &schema.tables {
-        files.push(emit_table_file(table, contract, config, &pkg)?);
+        files.push(emit_table_file(table, contract, config, type_map, &pkg)?);
     }
 
     // One queries file per group
     let groups = group_queries(queries);
     for (group, group_queries) in &groups {
         let stem = queries_file_stem(group);
-        let content = build_queries_file(group, group_queries, schema, contract, config, &pkg)?;
+        let content = build_queries_file(group, group_queries, schema, contract, config, type_map, &pkg)?;
         let path = PathBuf::from(&config.out).join(format!("{stem}.go"));
         files.push(GeneratedFile { path, content });
     }
@@ -255,7 +166,13 @@ fn emit_mod_file(pkg: &str, config: &OutputConfig) -> GeneratedFile {
 }
 
 /// Emit one `{table_name}.go` file containing the table struct.
-fn emit_table_file(table: &crate::ir::Table, contract: &GoCoreContract, config: &OutputConfig, pkg: &str) -> anyhow::Result<GeneratedFile> {
+fn emit_table_file(
+    table: &crate::ir::Table,
+    _contract: &GoCoreContract,
+    config: &OutputConfig,
+    type_map: &GoTypeMap,
+    pkg: &str,
+) -> anyhow::Result<GeneratedFile> {
     let struct_name = to_pascal_case(&table.name);
     let mut src = String::new();
     writeln!(src, "// Code generated by sqltgen. Do not edit.")?;
@@ -264,7 +181,7 @@ fn emit_table_file(table: &crate::ir::Table, contract: &GoCoreContract, config: 
 
     let mut imports = GoImports::default();
     for col in &table.columns {
-        imports.add_for_type(&col.sql_type, col.nullable, contract.json_mode);
+        imports.add_import(type_map.import_for(&col.sql_type, col.nullable));
     }
     if imports.has_any() {
         imports.write(&mut src);
@@ -274,7 +191,7 @@ fn emit_table_file(table: &crate::ir::Table, contract: &GoCoreContract, config: 
     writeln!(src, "// {struct_name} represents a row from the {table_name} table.", table_name = table.name)?;
     writeln!(src, "type {struct_name} struct {{")?;
     for col in &table.columns {
-        let go_ty = go_field_type(&col.sql_type, col.nullable, contract, config);
+        let go_ty = type_map.field_type(&col.sql_type, col.nullable);
         writeln!(src, "\t{}\t{}", field_name(&col.name), go_ty)?;
     }
     writeln!(src, "}}")?;
@@ -292,6 +209,7 @@ pub(super) fn build_queries_file(
     schema: &Schema,
     contract: &GoCoreContract,
     config: &OutputConfig,
+    type_map: &GoTypeMap,
     pkg: &str,
 ) -> anyhow::Result<String> {
     let strategy = config.list_params.clone().unwrap_or_default();
@@ -302,7 +220,7 @@ pub(super) fn build_queries_file(
     writeln!(src)?;
 
     // Collect all needed imports across all queries
-    let imports = collect_query_imports(queries, schema, contract, config, &strategy);
+    let imports = collect_query_imports(queries, schema, contract, type_map, &strategy);
     imports.write(&mut src);
     writeln!(src)?;
 
@@ -332,7 +250,7 @@ pub(super) fn build_queries_file(
     for query in queries {
         if has_inline_rows(query, schema) {
             writeln!(src)?;
-            emit_row_struct(&mut src, query, contract, config)?;
+            emit_row_struct(&mut src, query, type_map)?;
         }
     }
 
@@ -349,20 +267,20 @@ pub(super) fn build_queries_file(
     // Query functions
     for query in queries {
         writeln!(src)?;
-        emit_query_func(&mut src, query, schema, contract, config, &strategy)?;
+        emit_query_func(&mut src, query, schema, contract, type_map, &strategy)?;
     }
 
     // Querier struct
     if !queries.is_empty() {
         writeln!(src)?;
-        emit_querier(&mut src, group, queries, schema, contract, config)?;
+        emit_querier(&mut src, group, queries, schema, contract, type_map)?;
     }
 
     Ok(src)
 }
 
 /// Collect all imports needed for the queries file.
-fn collect_query_imports(queries: &[Query], schema: &Schema, contract: &GoCoreContract, config: &OutputConfig, strategy: &ListParamStrategy) -> GoImports {
+fn collect_query_imports(queries: &[Query], _schema: &Schema, contract: &GoCoreContract, type_map: &GoTypeMap, strategy: &ListParamStrategy) -> GoImports {
     let mut imp = GoImports { context: true, database_sql: true, ..Default::default() };
 
     for query in queries {
@@ -382,34 +300,11 @@ fn collect_query_imports(queries: &[Query], schema: &Schema, contract: &GoCoreCo
         }
 
         for col in &query.result_columns {
-            imp.add_for_type(&col.sql_type, col.nullable, contract.json_mode);
-        }
-
-        if has_inline_rows(query, schema) {
-            for col in &query.result_columns {
-                imp.add_for_type(&col.sql_type, col.nullable, contract.json_mode);
-            }
+            imp.add_import(type_map.import_for(&col.sql_type, col.nullable));
         }
 
         for p in &query.params {
-            imp.add_for_type(&p.sql_type, p.nullable, contract.json_mode);
-        }
-    }
-
-    for query in queries {
-        for col in &query.result_columns {
-            if let Some(resolved) = get_type_override_go(&col.sql_type, TypeVariant::Field, config) {
-                if let Some(import) = resolved.import {
-                    imp.extra.insert(format!("\"{import}\""));
-                }
-            }
-        }
-        for p in &query.params {
-            if let Some(resolved) = get_type_override_go(&p.sql_type, TypeVariant::Param, config) {
-                if let Some(import) = resolved.import {
-                    imp.extra.insert(format!("\"{import}\""));
-                }
-            }
+            imp.add_import(type_map.import_for(&p.sql_type, p.nullable));
         }
     }
 
@@ -419,12 +314,12 @@ fn collect_query_imports(queries: &[Query], schema: &Schema, contract: &GoCoreCo
 // ─── Inline row struct ────────────────────────────────────────────────────────
 
 /// Emit a `type {Query}Row struct { ... }` for queries with custom result shapes.
-fn emit_row_struct(src: &mut String, query: &Query, contract: &GoCoreContract, config: &OutputConfig) -> anyhow::Result<()> {
+fn emit_row_struct(src: &mut String, query: &Query, type_map: &GoTypeMap) -> anyhow::Result<()> {
     let name = row_type_name(&query.name);
     writeln!(src, "// {name} is the result row type for {query_name}.", query_name = query.name)?;
     writeln!(src, "type {name} struct {{")?;
     for col in &query.result_columns {
-        let go_ty = go_field_type(&col.sql_type, col.nullable, contract, config);
+        let go_ty = type_map.field_type(&col.sql_type, col.nullable);
         writeln!(src, "\t{}\t{}", field_name(&col.name), go_ty)?;
     }
     writeln!(src, "}}")?;
@@ -439,13 +334,13 @@ fn emit_query_func(
     query: &Query,
     schema: &Schema,
     contract: &GoCoreContract,
-    config: &OutputConfig,
+    type_map: &GoTypeMap,
     strategy: &ListParamStrategy,
 ) -> anyhow::Result<()> {
     if let Some(lp) = query.params.iter().find(|p| p.is_list) {
-        return emit_list_query_func(src, query, schema, contract, config, strategy, lp);
+        return emit_list_query_func(src, query, schema, contract, type_map, strategy, lp);
     }
-    emit_standard_query_func(src, query, schema, contract, config)
+    emit_standard_query_func(src, query, schema, contract, type_map)
 }
 
 /// Return the Go return type for a query command.
@@ -470,24 +365,20 @@ fn result_row_type(query: &Query, schema: &Schema) -> String {
 }
 
 /// Build the parameter list for a query function signature.
-fn params_sig(query: &Query, contract: &GoCoreContract, config: &OutputConfig) -> String {
+fn params_sig(query: &Query, type_map: &GoTypeMap) -> String {
     let mut parts: Vec<String> = vec!["ctx context.Context".to_string(), "db *sql.DB".to_string()];
     for p in &query.params {
-        let ty = if p.is_list {
-            format!("[]{}", go_param_type(&p.sql_type, false, contract, config))
-        } else {
-            go_param_type(&p.sql_type, p.nullable, contract, config)
-        };
+        let ty = if p.is_list { format!("[]{}", type_map.param_type(&p.sql_type, false)) } else { type_map.param_type(&p.sql_type, p.nullable) };
         parts.push(format!("{} {ty}", p.name));
     }
     parts.join(", ")
 }
 
 /// Emit a standard (non-list) query function.
-fn emit_standard_query_func(src: &mut String, query: &Query, schema: &Schema, contract: &GoCoreContract, config: &OutputConfig) -> anyhow::Result<()> {
+fn emit_standard_query_func(src: &mut String, query: &Query, schema: &Schema, contract: &GoCoreContract, type_map: &GoTypeMap) -> anyhow::Result<()> {
     let fn_name = to_pascal_case(&query.name);
     let ret = query_return_type(query, schema);
-    let sig = params_sig(query, contract, config);
+    let sig = params_sig(query, type_map);
     let const_name = sql_const_name(&query.name);
 
     writeln!(src, "// {fn_name} executes the {name} query.", name = query.name)?;
@@ -517,7 +408,7 @@ fn emit_standard_query_func(src: &mut String, query: &Query, schema: &Schema, co
             } else {
                 writeln!(src, "\trow := db.QueryRowContext(ctx, {const_name}, {args})")?;
             }
-            emit_scan_one(src, query, schema, contract)?;
+            emit_scan_one(src, query, schema, contract, type_map)?;
         },
         QueryCmd::Many => {
             if args.is_empty() {
@@ -529,7 +420,7 @@ fn emit_standard_query_func(src: &mut String, query: &Query, schema: &Schema, co
             writeln!(src, "\t\treturn nil, err")?;
             writeln!(src, "\t}}")?;
             writeln!(src, "\tdefer rows.Close()")?;
-            emit_scan_many(src, query, schema, contract)?;
+            emit_scan_many(src, query, schema, contract, type_map)?;
         },
     }
 
@@ -550,9 +441,9 @@ fn build_bind_args(query: &Query, contract: &GoCoreContract) -> String {
 }
 
 /// Emit the Scan + return block for a `:one` query.
-fn emit_scan_one(src: &mut String, query: &Query, schema: &Schema, contract: &GoCoreContract) -> anyhow::Result<()> {
+fn emit_scan_one(src: &mut String, query: &Query, schema: &Schema, _contract: &GoCoreContract, type_map: &GoTypeMap) -> anyhow::Result<()> {
     let row_type = result_row_type(query, schema);
-    let plan = scan_plan(&query.result_columns, contract.json_mode);
+    let plan = scan_plan(&query.result_columns, type_map);
     writeln!(src, "\tvar r {row_type}")?;
     for line in &plan.pre_lines {
         writeln!(src, "\t{line}")?;
@@ -572,9 +463,9 @@ fn emit_scan_one(src: &mut String, query: &Query, schema: &Schema, contract: &Go
 }
 
 /// Emit the rows.Next() loop for a `:many` query.
-fn emit_scan_many(src: &mut String, query: &Query, schema: &Schema, contract: &GoCoreContract) -> anyhow::Result<()> {
+fn emit_scan_many(src: &mut String, query: &Query, schema: &Schema, _contract: &GoCoreContract, type_map: &GoTypeMap) -> anyhow::Result<()> {
     let row_type = result_row_type(query, schema);
-    let plan = scan_plan(&query.result_columns, contract.json_mode);
+    let plan = scan_plan(&query.result_columns, type_map);
     writeln!(src, "\tvar results []{row_type}")?;
     writeln!(src, "\tfor rows.Next() {{")?;
     writeln!(src, "\t\tvar r {row_type}")?;
@@ -602,7 +493,7 @@ struct ScanPlan {
     post_lines: Vec<String>,
 }
 
-fn scan_plan(cols: &[ResultColumn], json_mode: GoJsonMode) -> ScanPlan {
+fn scan_plan(cols: &[ResultColumn], type_map: &GoTypeMap) -> ScanPlan {
     let mut pre_lines = Vec::new();
     let mut scan_args = Vec::new();
     let mut post_lines = Vec::new();
@@ -612,7 +503,7 @@ fn scan_plan(cols: &[ResultColumn], json_mode: GoJsonMode) -> ScanPlan {
         match &col.sql_type {
             SqlType::Array(inner) => {
                 if col.nullable {
-                    let inner_ty = go_type(inner, false, json_mode);
+                    let inner_ty = type_map.field_type(inner, false);
                     let tmp = format!("arr{}", i + 1);
                     pre_lines.push(format!("var {tmp} []{inner_ty}"));
                     scan_args.push(format!("scanArray(&{tmp})"));
@@ -638,21 +529,21 @@ fn emit_list_query_func(
     query: &Query,
     schema: &Schema,
     contract: &GoCoreContract,
-    config: &OutputConfig,
+    type_map: &GoTypeMap,
     strategy: &ListParamStrategy,
     lp: &Parameter,
 ) -> anyhow::Result<()> {
     let fn_name = to_pascal_case(&query.name);
     let ret = query_return_type(query, schema);
-    let sig = params_sig(query, contract, config);
+    let sig = params_sig(query, type_map);
     let const_name = sql_const_name(&query.name);
 
     writeln!(src, "// {fn_name} executes the {name} query.", name = query.name)?;
     writeln!(src, "func {fn_name}({sig}) {ret} {{")?;
 
     match strategy {
-        ListParamStrategy::Native => emit_native_list_body(src, query, schema, contract, config, &const_name, lp)?,
-        ListParamStrategy::Dynamic => emit_dynamic_list_body(src, query, schema, contract, config, lp)?,
+        ListParamStrategy::Native => emit_native_list_body(src, query, schema, contract, type_map, &const_name, lp)?,
+        ListParamStrategy::Dynamic => emit_dynamic_list_body(src, query, schema, contract, type_map, lp)?,
     }
 
     writeln!(src, "}}")?;
@@ -665,7 +556,7 @@ fn emit_native_list_body(
     query: &Query,
     schema: &Schema,
     contract: &GoCoreContract,
-    config: &OutputConfig,
+    type_map: &GoTypeMap,
     const_name: &str,
     lp: &Parameter,
 ) -> anyhow::Result<()> {
@@ -675,7 +566,7 @@ fn emit_native_list_body(
         Some(NativeListBind::Array) => {
             // PostgreSQL: use pq.Array
             let args = build_native_pg_args(&scalar_params, lp);
-            emit_list_exec(src, query, schema, config, contract, const_name, &args)
+            emit_list_exec(src, query, schema, contract, type_map, const_name, &args)
         },
         Some(NativeListBind::Json) | None => {
             // SQLite / MySQL: JSON-encode the list
@@ -685,7 +576,7 @@ fn emit_native_list_body(
             writeln!(src, "\t}}")?;
             let json_expr = format!("{}JSON", lp.name);
             let args = build_native_json_args(&scalar_params, lp, &json_expr);
-            emit_list_exec(src, query, schema, config, contract, const_name, &args)
+            emit_list_exec(src, query, schema, contract, type_map, const_name, &args)
         },
     }
 }
@@ -726,7 +617,7 @@ fn emit_dynamic_list_body(
     query: &Query,
     schema: &Schema,
     contract: &GoCoreContract,
-    _config: &OutputConfig,
+    type_map: &GoTypeMap,
     lp: &Parameter,
 ) -> anyhow::Result<()> {
     let (before_raw, after_raw) = split_at_in_clause(&query.sql, lp.index).unwrap_or_else(|| (query.sql.clone(), String::new()));
@@ -783,7 +674,7 @@ fn emit_dynamic_list_body(
         },
         QueryCmd::One => {
             writeln!(src, "\trow := db.QueryRowContext(ctx, {query_sql_var}, args...)")?;
-            emit_scan_one(src, query, schema, contract)?;
+            emit_scan_one(src, query, schema, contract, type_map)?;
         },
         QueryCmd::Many => {
             writeln!(src, "\trows, err := db.QueryContext(ctx, {query_sql_var}, args...)")?;
@@ -791,7 +682,7 @@ fn emit_dynamic_list_body(
             writeln!(src, "\t\treturn nil, err")?;
             writeln!(src, "\t}}")?;
             writeln!(src, "\tdefer rows.Close()")?;
-            emit_scan_many(src, query, schema, contract)?;
+            emit_scan_many(src, query, schema, contract, type_map)?;
         },
     }
 
@@ -803,12 +694,11 @@ fn emit_list_exec(
     src: &mut String,
     query: &Query,
     schema: &Schema,
-    config: &OutputConfig,
     contract: &GoCoreContract,
+    type_map: &GoTypeMap,
     const_name: &str,
     args: &str,
 ) -> anyhow::Result<()> {
-    let _ = config;
     let _ = contract;
     match query.cmd {
         QueryCmd::Exec => {
@@ -820,7 +710,7 @@ fn emit_list_exec(
         },
         QueryCmd::One => {
             writeln!(src, "\trow := db.QueryRowContext(ctx, {const_name}, {args})")?;
-            emit_scan_one(src, query, schema, contract)?;
+            emit_scan_one(src, query, schema, contract, type_map)?;
         },
         QueryCmd::Many => {
             writeln!(src, "\trows, err := db.QueryContext(ctx, {const_name}, {args})")?;
@@ -828,7 +718,7 @@ fn emit_list_exec(
             writeln!(src, "\t\treturn nil, err")?;
             writeln!(src, "\t}}")?;
             writeln!(src, "\tdefer rows.Close()")?;
-            emit_scan_many(src, query, schema, contract)?;
+            emit_scan_many(src, query, schema, contract, type_map)?;
         },
     }
     Ok(())
@@ -837,7 +727,7 @@ fn emit_list_exec(
 // ─── Querier struct ───────────────────────────────────────────────────────────
 
 /// Emit the `Querier` struct and its constructor + methods.
-fn emit_querier(src: &mut String, group: &str, queries: &[Query], schema: &Schema, contract: &GoCoreContract, config: &OutputConfig) -> anyhow::Result<()> {
+fn emit_querier(src: &mut String, group: &str, queries: &[Query], schema: &Schema, contract: &GoCoreContract, type_map: &GoTypeMap) -> anyhow::Result<()> {
     let struct_name = querier_class_name(group);
     writeln!(src, "// {struct_name} wraps a *sql.DB and exposes named query methods.")?;
     writeln!(src, "type {struct_name} struct {{")?;
@@ -851,7 +741,7 @@ fn emit_querier(src: &mut String, group: &str, queries: &[Query], schema: &Schem
 
     for query in queries {
         writeln!(src)?;
-        emit_querier_method(src, &struct_name, query, schema, contract, config)?;
+        emit_querier_method(src, &struct_name, query, schema, contract, type_map)?;
     }
 
     Ok(())
@@ -863,8 +753,8 @@ fn emit_querier_method(
     struct_name: &str,
     query: &Query,
     schema: &Schema,
-    contract: &GoCoreContract,
-    config: &OutputConfig,
+    _contract: &GoCoreContract,
+    type_map: &GoTypeMap,
 ) -> anyhow::Result<()> {
     let fn_name = to_pascal_case(&query.name);
     let ret = query_return_type(query, schema);
@@ -872,11 +762,7 @@ fn emit_querier_method(
     // Build method params (no db, just ctx + query params)
     let mut parts: Vec<String> = vec!["ctx context.Context".to_string()];
     for p in &query.params {
-        let ty = if p.is_list {
-            format!("[]{}", go_param_type(&p.sql_type, false, contract, config))
-        } else {
-            go_param_type(&p.sql_type, p.nullable, contract, config)
-        };
+        let ty = if p.is_list { format!("[]{}", type_map.param_type(&p.sql_type, false)) } else { type_map.param_type(&p.sql_type, p.nullable) };
         parts.push(format!("{} {ty}", p.name));
     }
     let method_sig = parts.join(", ");

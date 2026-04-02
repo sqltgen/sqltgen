@@ -243,6 +243,86 @@ pub fn mysql_json_table_col_type(sql_type: &SqlType) -> &'static str {
     }
 }
 
+/// Discriminant key for SQL types as used in pre-resolved type maps.
+///
+/// Groups variants that map identically (e.g. `Char`, `VarChar`, and `Interval` all map to
+/// `Text`). For `Array(inner)`, callers should key on the inner element type.
+#[derive(Clone, Copy, Hash, Eq, PartialEq)]
+pub enum SqlTypeKey {
+    Boolean,
+    SmallInt,
+    Integer,
+    BigInt,
+    Real,
+    Double,
+    Decimal,
+    /// Covers `Char`, `VarChar`, and `Interval`.
+    Text,
+    Bytes,
+    Date,
+    Time,
+    Timestamp,
+    TimestampTz,
+    Uuid,
+    Json,
+    Jsonb,
+    Custom,
+}
+
+/// Map a [`SqlType`] to its [`SqlTypeKey`].
+///
+/// For `Array(inner)` the inner element type's key is returned, so array
+/// lookups naturally retrieve the element type's entry.
+pub fn sql_type_key(sql_type: &SqlType) -> SqlTypeKey {
+    match sql_type {
+        SqlType::Array(inner) => sql_type_key(inner),
+        SqlType::Boolean => SqlTypeKey::Boolean,
+        SqlType::SmallInt => SqlTypeKey::SmallInt,
+        SqlType::Integer => SqlTypeKey::Integer,
+        SqlType::BigInt => SqlTypeKey::BigInt,
+        SqlType::Real => SqlTypeKey::Real,
+        SqlType::Double => SqlTypeKey::Double,
+        SqlType::Decimal => SqlTypeKey::Decimal,
+        SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_) | SqlType::Interval => SqlTypeKey::Text,
+        SqlType::Bytes => SqlTypeKey::Bytes,
+        SqlType::Date => SqlTypeKey::Date,
+        SqlType::Time => SqlTypeKey::Time,
+        SqlType::Timestamp => SqlTypeKey::Timestamp,
+        SqlType::TimestampTz => SqlTypeKey::TimestampTz,
+        SqlType::Uuid => SqlTypeKey::Uuid,
+        SqlType::Json => SqlTypeKey::Json,
+        SqlType::Jsonb => SqlTypeKey::Jsonb,
+        SqlType::Custom(_) => SqlTypeKey::Custom,
+    }
+}
+
+/// The canonical list of SQL types used to build pre-resolved type maps.
+///
+/// Contains one representative per [`SqlTypeKey`] variant. Array types are
+/// handled at emit time and are not included. `Custom` is represented by
+/// `SqlType::Custom(String::new())`.
+pub fn canonical_sql_types() -> Vec<SqlType> {
+    vec![
+        SqlType::Boolean,
+        SqlType::SmallInt,
+        SqlType::Integer,
+        SqlType::BigInt,
+        SqlType::Real,
+        SqlType::Double,
+        SqlType::Decimal,
+        SqlType::Text,
+        SqlType::Bytes,
+        SqlType::Date,
+        SqlType::Time,
+        SqlType::Timestamp,
+        SqlType::TimestampTz,
+        SqlType::Uuid,
+        SqlType::Json,
+        SqlType::Jsonb,
+        SqlType::Custom(String::new()),
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

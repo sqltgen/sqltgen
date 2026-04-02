@@ -9,6 +9,7 @@ use crate::ir::SqlType;
 
 mod adapter;
 mod core;
+mod typemap;
 
 /// npm driver to target for JS/TS output.
 #[derive(Clone, Copy)]
@@ -82,9 +83,11 @@ impl Codegen for TypeScriptCodegen {
             JsOutput::JavaScript => "javascript",
         };
 
+        let type_map = typemap::build_js_type_map(config, &contract);
+
         let mut files = Vec::new();
         files.push(adapter::emit_helper_file(&contract, config, ext));
-        files.extend(core::generate_core_files(self, schema, queries, &contract, config)?);
+        files.extend(core::generate_core_files(self, schema, queries, &contract, config, &type_map)?);
 
         if let Some(manifest) = build_manifest_file(
             lang,
@@ -93,13 +96,13 @@ impl Codegen for TypeScriptCodegen {
             schema,
             queries,
             &to_camel_case,
-            &|st, nullable| core::js_type_resolved(st, nullable, &contract, config),
+            &|st, nullable| type_map.field_type(st, nullable),
             &|p| {
                 if p.is_list {
-                    let elem = core::js_type_resolved(&p.sql_type, false, &contract, config);
+                    let elem = type_map.param_type(&p.sql_type, false);
                     format!("{elem}[]")
                 } else {
-                    core::js_type_resolved(&p.sql_type, p.nullable, &contract, config)
+                    type_map.param_type(&p.sql_type, p.nullable)
                 }
             },
         ) {
