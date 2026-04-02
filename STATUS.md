@@ -201,7 +201,7 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | Frontend — MySQL (typemap + schema + query) | 39 |
 | Frontend — common (query parser, CTEs, subqueries, named params, list params, source_table) | 204 |
 | Backend — Java | 66 |
-| Backend — Kotlin | 65 |
+| Backend — Kotlin | 70 |
 | Backend — Rust | 44 |
 | Backend — Python | 53 |
 | Backend — Go | 41 |
@@ -209,7 +209,7 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | Backend — JDBC | 15 |
 | Backend — TypeScript / JavaScript | 50 |
 | Integration (snapshots + resilience) | 45 |
-| **Total** | **848** |
+| **Total** | **861** |
 
 ---
 

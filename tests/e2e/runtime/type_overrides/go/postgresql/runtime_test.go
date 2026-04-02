@@ -42,7 +42,7 @@ func setupDB(t *testing.T) (*sql.DB, context.Context) {
 		t.Fatal(err)
 	}
 
-	ddl, err := os.ReadFile("../../../../fixtures/type_overrides/schema.sql")
+	ddl, err := os.ReadFile("../../../../fixtures/type_overrides/postgresql/schema.sql")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -14,7 +14,7 @@ import pytest
 
 from gen import queries
 
-_FIXTURES = pathlib.Path(__file__).parent / "../../../../fixtures/type_overrides"
+_FIXTURES = pathlib.Path(__file__).parent / "../../../../fixtures/type_overrides/postgresql"
 _DB_URL = os.environ.get(
     "DATABASE_URL",
     "postgresql://sqltgen:sqltgen@localhost:15432/sqltgen_e2e",

@@ -1,8 +1,8 @@
 {
     "version": "1",
     "engine": "postgresql",
-    "schema": "../../../../fixtures/type_overrides/schema.sql",
-    "queries": "../../../../fixtures/type_overrides/queries.sql",
+    "schema": "../../../../fixtures/type_overrides/postgresql/schema.sql",
+    "queries": "../../../../fixtures/type_overrides/postgresql/queries.sql",
     "gen": {
         "kotlin": {
             "out": "src/main/kotlin",

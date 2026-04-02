@@ -85,14 +85,49 @@ fn test_kotlin_type_array_of_integers() {
 
 #[test]
 fn test_resultset_read_array_text() {
-    let expr = resultset_read_expr(&SqlType::Array(Box::new(SqlType::Text)), false, 3);
+    let cfg = OutputConfig::default();
+    let expr = resultset_read_expr(&SqlType::Array(Box::new(SqlType::Text)), false, 3, &cfg);
     assert_eq!(expr, "jdbcArrayToList(rs.getArray(3))");
 }
 
 #[test]
 fn test_resultset_read_array_nullable() {
-    let expr = resultset_read_expr(&SqlType::Array(Box::new(SqlType::Text)), true, 5);
+    let cfg = OutputConfig::default();
+    let expr = resultset_read_expr(&SqlType::Array(Box::new(SqlType::Text)), true, 5, &cfg);
     assert_eq!(expr, "rs.getArray(5)?.let { jdbcArrayToList(it) }");
+}
+
+#[test]
+fn test_resultset_read_array_timestamp_default() {
+    // TIMESTAMP[] with no override: emit per-element Timestamp→LocalDateTime conversion.
+    let cfg = OutputConfig::default();
+    let expr = resultset_read_expr(&SqlType::Array(Box::new(SqlType::Timestamp)), false, 3, &cfg);
+    assert_eq!(expr, "(rs.getArray(3).array as Array<*>).map { (it as java.sql.Timestamp).toLocalDateTime() }.toList()");
+}
+
+#[test]
+fn test_resultset_read_array_timestamp_nullable_default() {
+    let cfg = OutputConfig::default();
+    let expr = resultset_read_expr(&SqlType::Array(Box::new(SqlType::Timestamp)), true, 4, &cfg);
+    assert_eq!(expr, "rs.getArray(4)?.let { a -> (a.array as Array<*>).map { (it as java.sql.Timestamp).toLocalDateTime() }.toList() }");
+}
+
+#[test]
+fn test_resultset_read_array_timestamp_with_override() {
+    // TIMESTAMP[] with an override to java.time.LocalDateTime: same conversion as default.
+    let mut cfg = OutputConfig::default();
+    cfg.type_overrides
+        .insert("timestamp".to_string(), crate::config::TypeOverride::Same(crate::config::TypeRef::String("java.time.LocalDateTime".to_string())));
+    let expr = resultset_read_expr(&SqlType::Array(Box::new(SqlType::Timestamp)), false, 2, &cfg);
+    assert_eq!(expr, "(rs.getArray(2).array as Array<*>).map { (it as java.sql.Timestamp).toLocalDateTime() }.toList()");
+}
+
+#[test]
+fn test_resultset_read_array_uuid_default() {
+    // UUID[] with no override: emit explicit cast for type clarity.
+    let cfg = OutputConfig::default();
+    let expr = resultset_read_expr(&SqlType::Array(Box::new(SqlType::Uuid)), false, 1, &cfg);
+    assert_eq!(expr, "(rs.getArray(1).array as Array<*>).map { (it as java.util.UUID) }.toList()");
 }
 
 #[test]

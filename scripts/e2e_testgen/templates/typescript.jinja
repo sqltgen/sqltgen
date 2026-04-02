@@ -21,7 +21,7 @@ import mysql from 'mysql2/promise';
 import * as queries from './gen/queries';
 
 {% if engine == "postgresql" %}
-const FIXTURES = join(__dirname, '../../../../fixtures/{{ spec.fixture }}');
+const FIXTURES = join(__dirname, '../../../../fixtures/{{ spec.fixture }}/postgresql');
 const DATABASE_URL = process.env['DATABASE_URL']
   ?? 'postgresql://sqltgen:sqltgen@localhost:15432/sqltgen_e2e';
 

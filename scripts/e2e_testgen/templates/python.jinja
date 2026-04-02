@@ -21,7 +21,7 @@ import pytest
 from gen import queries
 
 {% if engine == "postgresql" %}
-_FIXTURES = pathlib.Path(__file__).parent / "../../../../fixtures/type_overrides"
+_FIXTURES = pathlib.Path(__file__).parent / "../../../../fixtures/{{ spec.fixture }}/postgresql"
 _DB_URL = os.environ.get(
     "DATABASE_URL",
     "postgresql://sqltgen:sqltgen@localhost:15432/sqltgen_e2e",
@@ -41,7 +41,7 @@ def conn():
         yield c
         c.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
 {% elif engine == "sqlite" %}
-_FIXTURES = pathlib.Path(__file__).parent / "../../../../fixtures/type_overrides/sqlite"
+_FIXTURES = pathlib.Path(__file__).parent / "../../../../fixtures/{{ spec.fixture }}/sqlite"
 
 
 @pytest.fixture()
@@ -53,7 +53,7 @@ def conn():
     yield c
     c.close()
 {% elif engine == "mysql" %}
-_FIXTURES = pathlib.Path(__file__).parent / "../../../../fixtures/type_overrides/mysql"
+_FIXTURES = pathlib.Path(__file__).parent / "../../../../fixtures/{{ spec.fixture }}/mysql"
 _DB_HOST = os.environ.get("MYSQL_HOST", "127.0.0.1")
 _DB_PORT = int(os.environ.get("MYSQL_PORT", "13306"))
 _DB_USER = os.environ.get("MYSQL_USER", "sqltgen")
