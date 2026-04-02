@@ -6,17 +6,40 @@ mod adapter;
 mod core;
 
 pub enum CppTarget {
-    Postgres,
-    Sqlite,
-    Mysql,
+    /// PostgreSQL via libpqxx.
+    Libpqxx,
+    /// SQLite via sqlite3.
+    Sqlite3,
+    /// MySQL via libmysqlclient.
+    Libmysqlclient,
 }
 
-impl From<Engine> for CppTarget {
-    fn from(engine: Engine) -> Self {
+impl CppTarget {
+    /// Resolve the target from an engine and optional driver string.
+    ///
+    /// `driver: None` selects the default for the engine. An explicit driver name
+    /// must match a supported driver for that engine; anything else is a fatal error.
+    pub fn from_engine_and_driver(engine: Engine, driver: Option<&str>) -> anyhow::Result<Self> {
+        match (engine, driver) {
+            (Engine::Postgresql, None | Some("libpqxx")) => Ok(CppTarget::Libpqxx),
+            (Engine::Sqlite, None | Some("sqlite3")) => Ok(CppTarget::Sqlite3),
+            (Engine::Mysql, None | Some("libmysqlclient")) => Ok(CppTarget::Libmysqlclient),
+            (_, Some(d)) => {
+                anyhow::bail!(
+                    "driver {:?} is not supported for cpp/{}; supported drivers: {}",
+                    d,
+                    engine.as_str(),
+                    Self::supported_drivers(engine),
+                )
+            },
+        }
+    }
+
+    fn supported_drivers(engine: Engine) -> &'static str {
         match engine {
-            Engine::Postgresql => CppTarget::Postgres,
-            Engine::Sqlite => CppTarget::Sqlite,
-            Engine::Mysql => CppTarget::Mysql,
+            Engine::Postgresql => "libpqxx",
+            Engine::Sqlite => "sqlite3",
+            Engine::Mysql => "libmysqlclient",
         }
     }
 }

@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -11,18 +12,135 @@
 #include "author.hpp"
 #include "book.hpp"
 
+inline const std::string SQL_CREATE_AUTHOR = R"sql(
+INSERT INTO author (name, bio, birth_year)
+VALUES ($1, $2, $3)
+RETURNING *
+)sql";
+
+std::optional<Author> create_author(pqxx::connection& db, const std::string& name, const std::optional<std::string>& bio, const std::optional<std::int32_t>& birth_year);
+
+
+inline const std::string SQL_GET_AUTHOR = R"sql(
+SELECT id, name, bio, birth_year
+FROM author
+WHERE id = $1
+)sql";
+
+std::optional<Author> get_author(pqxx::connection& db, const std::int64_t& id);
+
+
+inline const std::string SQL_LIST_AUTHORS = R"sql(
+SELECT id, name, bio, birth_year
+FROM author
+ORDER BY name
+)sql";
+
+std::vector<Author> list_authors(pqxx::connection& db);
+
+
+inline const std::string SQL_UPDATE_AUTHOR_BIO = R"sql(
+UPDATE author SET bio = $1 WHERE id = $2
+RETURNING *
+)sql";
+
+std::optional<Author> update_author_bio(pqxx::connection& db, const std::optional<std::string>& bio, const std::int64_t& id);
+
+
 struct DeleteAuthorRow {
     std::int64_t id;
     std::string name;
 };
 
+inline const std::string SQL_DELETE_AUTHOR = R"sql(
+DELETE FROM author WHERE id = $1
+RETURNING id, name
+)sql";
+
+std::optional<DeleteAuthorRow> delete_author(pqxx::connection& db, const std::int64_t& id);
+
+
+inline const std::string SQL_CREATE_BOOK = R"sql(
+INSERT INTO book (author_id, title, genre, price, published_at)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING *
+)sql";
+
+std::optional<Book> create_book(pqxx::connection& db, const std::int64_t& author_id, const std::string& title, const std::string& genre, const std::string& price, const std::optional<std::string>& published_at);
+
+
+inline const std::string SQL_GET_BOOK = R"sql(
+SELECT id, author_id, title, genre, price, published_at
+FROM book
+WHERE id = $1
+)sql";
+
+std::optional<Book> get_book(pqxx::connection& db, const std::int64_t& id);
+
+
+inline const std::string SQL_GET_BOOKS_BY_IDS = R"sql(
+SELECT id, author_id, title, genre, price, published_at
+FROM book
+WHERE id = ANY($1)
+ORDER BY title
+)sql";
+
+std::vector<Book> get_books_by_ids(pqxx::connection& db, const std::vector<std::int64_t>& ids);
+
+
+inline const std::string SQL_LIST_BOOKS_BY_GENRE = R"sql(
+SELECT id, author_id, title, genre, price, published_at
+FROM book
+WHERE genre = $1
+ORDER BY title
+)sql";
+
+std::vector<Book> list_books_by_genre(pqxx::connection& db, const std::string& genre);
+
+
+inline const std::string SQL_LIST_BOOKS_BY_GENRE_OR_ALL = R"sql(
+SELECT id, author_id, title, genre, price, published_at
+FROM book
+WHERE $1 = 'all' OR genre = $1
+ORDER BY title
+)sql";
+
+std::vector<Book> list_books_by_genre_or_all(pqxx::connection& db, const std::string& genre);
+
+
 struct CreateCustomerRow {
     std::int64_t id;
 };
 
+inline const std::string SQL_CREATE_CUSTOMER = R"sql(
+INSERT INTO customer (name, email)
+VALUES ($1, $2)
+RETURNING id
+)sql";
+
+std::optional<CreateCustomerRow> create_customer(pqxx::connection& db, const std::string& name, const std::string& email);
+
+
 struct CreateSaleRow {
     std::int64_t id;
 };
+
+inline const std::string SQL_CREATE_SALE = R"sql(
+INSERT INTO sale (customer_id)
+VALUES ($1)
+RETURNING id
+)sql";
+
+std::optional<CreateSaleRow> create_sale(pqxx::connection& db, const std::int64_t& customer_id);
+
+
+inline const std::string SQL_ADD_SALE_ITEM = R"sql(
+INSERT INTO sale_item (sale_id, book_id, quantity, unit_price)
+VALUES ($1, $2, $3, $4)
+)sql";
+
+void add_sale_item(pqxx::connection& db, const std::int64_t& sale_id, const std::int64_t& book_id, const std::int32_t& quantity, const std::string& unit_price);
+
 
 struct ListBooksWithAuthorRow {
     std::int64_t id;
@@ -34,6 +152,28 @@ struct ListBooksWithAuthorRow {
     std::optional<std::string> author_bio;
 };
 
+inline const std::string SQL_LIST_BOOKS_WITH_AUTHOR = R"sql(
+SELECT b.id, b.title, b.genre, b.price, b.published_at,
+       a.name AS author_name, a.bio AS author_bio
+FROM book b
+JOIN author a ON a.id = b.author_id
+ORDER BY b.title
+)sql";
+
+std::vector<ListBooksWithAuthorRow> list_books_with_author(pqxx::connection& db);
+
+
+inline const std::string SQL_GET_BOOKS_NEVER_ORDERED = R"sql(
+SELECT b.id, b.author_id, b.title, b.genre, b.price, b.published_at
+FROM book b
+LEFT JOIN sale_item si ON si.book_id = b.id
+WHERE si.id IS NULL
+ORDER BY b.title
+)sql";
+
+std::vector<Book> get_books_never_ordered(pqxx::connection& db);
+
+
 struct GetTopSellingBooksRow {
     std::int64_t id;
     std::string title;
@@ -42,63 +182,8 @@ struct GetTopSellingBooksRow {
     std::optional<std::int64_t> units_sold;
 };
 
-struct GetBestCustomersRow {
-    std::int64_t id;
-    std::string name;
-    std::string email;
-    std::optional<std::string> total_spent;
-};
-
-inline const std::string SQL_CREATE_AUTHOR = R"sql(INSERT INTO author (name, bio, birth_year)
-VALUES ($1, $2, $3)
-RETURNING *)sql";
-inline const std::string SQL_GET_AUTHOR = R"sql(SELECT id, name, bio, birth_year
-FROM author
-WHERE id = $1)sql";
-inline const std::string SQL_LIST_AUTHORS = R"sql(SELECT id, name, bio, birth_year
-FROM author
-ORDER BY name)sql";
-inline const std::string SQL_UPDATE_AUTHOR_BIO = R"sql(UPDATE author SET bio = $1 WHERE id = $2
-RETURNING *)sql";
-inline const std::string SQL_DELETE_AUTHOR = R"sql(DELETE FROM author WHERE id = $1
-RETURNING id, name)sql";
-inline const std::string SQL_CREATE_BOOK = R"sql(INSERT INTO book (author_id, title, genre, price, published_at)
-VALUES ($1, $2, $3, $4, $5)
-RETURNING *)sql";
-inline const std::string SQL_GET_BOOK = R"sql(SELECT id, author_id, title, genre, price, published_at
-FROM book
-WHERE id = $1)sql";
-inline const std::string SQL_GET_BOOKS_BY_IDS = R"sql(SELECT id, author_id, title, genre, price, published_at
-FROM book
-WHERE id = ANY($1)
-ORDER BY title)sql";
-inline const std::string SQL_LIST_BOOKS_BY_GENRE = R"sql(SELECT id, author_id, title, genre, price, published_at
-FROM book
-WHERE genre = $1
-ORDER BY title)sql";
-inline const std::string SQL_LIST_BOOKS_BY_GENRE_OR_ALL = R"sql(SELECT id, author_id, title, genre, price, published_at
-FROM book
-WHERE $1 = 'all' OR genre = $1
-ORDER BY title)sql";
-inline const std::string SQL_CREATE_CUSTOMER = R"sql(INSERT INTO customer (name, email)
-VALUES ($1, $2)
-RETURNING id)sql";
-inline const std::string SQL_CREATE_SALE = R"sql(INSERT INTO sale (customer_id)
-VALUES ($1)
-RETURNING id)sql";
-inline const std::string SQL_ADD_SALE_ITEM = R"sql(INSERT INTO sale_item (sale_id, book_id, quantity, unit_price)
-VALUES ($1, $2, $3, $4))sql";
-inline const std::string SQL_LIST_BOOKS_WITH_AUTHOR = R"sql(SELECT b.id, b.title, b.genre, b.price, b.published_at,
-       a.name AS author_name, a.bio AS author_bio
-FROM book b
-JOIN author a ON a.id = b.author_id
-ORDER BY b.title)sql";
-inline const std::string SQL_GET_BOOKS_NEVER_ORDERED = R"sql(SELECT b.id, b.author_id, b.title, b.genre, b.price, b.published_at
-FROM book b
-LEFT JOIN sale_item si ON si.book_id = b.id
-WHERE si.id IS NULL
-ORDER BY b.title)sql";
-inline const std::string SQL_GET_TOP_SELLING_BOOKS = R"sql(WITH book_sales AS (
+inline const std::string SQL_GET_TOP_SELLING_BOOKS = R"sql(
+WITH book_sales AS (
     SELECT book_id,
            SUM(quantity) AS units_sold
     FROM sale_item
@@ -108,8 +193,21 @@ SELECT b.id, b.title, b.genre, b.price,
        bs.units_sold
 FROM book b
 JOIN book_sales bs ON bs.book_id = b.id
-ORDER BY bs.units_sold DESC)sql";
-inline const std::string SQL_GET_BEST_CUSTOMERS = R"sql(WITH customer_spend AS (
+ORDER BY bs.units_sold DESC
+)sql";
+
+std::vector<GetTopSellingBooksRow> get_top_selling_books(pqxx::connection& db);
+
+
+struct GetBestCustomersRow {
+    std::int64_t id;
+    std::string name;
+    std::string email;
+    std::optional<std::string> total_spent;
+};
+
+inline const std::string SQL_GET_BEST_CUSTOMERS = R"sql(
+WITH customer_spend AS (
     SELECT s.customer_id,
            SUM(si.quantity * si.unit_price) AS total_spent
     FROM sale s
@@ -120,39 +218,8 @@ SELECT c.id, c.name, c.email,
        cs.total_spent
 FROM customer c
 JOIN customer_spend cs ON cs.customer_id = c.id
-ORDER BY cs.total_spent DESC)sql";
-
-std::optional<Author> create_author(pqxx::connection& db, const std::string& name, const std::optional<std::string>& bio, const std::optional<std::int32_t>& birth_year);
-
-std::optional<Author> get_author(pqxx::connection& db, const std::int64_t& id);
-
-std::vector<Author> list_authors(pqxx::connection& db);
-
-std::optional<Author> update_author_bio(pqxx::connection& db, const std::optional<std::string>& bio, const std::int64_t& id);
-
-std::optional<DeleteAuthorRow> delete_author(pqxx::connection& db, const std::int64_t& id);
-
-std::optional<Book> create_book(pqxx::connection& db, const std::int64_t& author_id, const std::string& title, const std::string& genre, const std::string& price, const std::optional<std::string>& published_at);
-
-std::optional<Book> get_book(pqxx::connection& db, const std::int64_t& id);
-
-std::vector<Book> get_books_by_ids(pqxx::connection& db, const std::vector<std::int64_t>& ids);
-
-std::vector<Book> list_books_by_genre(pqxx::connection& db, const std::string& genre);
-
-std::vector<Book> list_books_by_genre_or_all(pqxx::connection& db, const std::string& genre);
-
-std::optional<CreateCustomerRow> create_customer(pqxx::connection& db, const std::string& name, const std::string& email);
-
-std::optional<CreateSaleRow> create_sale(pqxx::connection& db, const std::int64_t& customer_id);
-
-void add_sale_item(pqxx::connection& db, const std::int64_t& sale_id, const std::int64_t& book_id, const std::int32_t& quantity, const std::string& unit_price);
-
-std::vector<ListBooksWithAuthorRow> list_books_with_author(pqxx::connection& db);
-
-std::vector<Book> get_books_never_ordered(pqxx::connection& db);
-
-std::vector<GetTopSellingBooksRow> get_top_selling_books(pqxx::connection& db);
+ORDER BY cs.total_spent DESC
+)sql";
 
 std::vector<GetBestCustomersRow> get_best_customers(pqxx::connection& db);
 

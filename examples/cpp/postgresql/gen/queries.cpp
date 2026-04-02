@@ -3,278 +3,158 @@
 
 std::optional<Author> create_author(pqxx::connection& db, const std::string& name, const std::optional<std::string>& bio, const std::optional<std::int32_t>& birth_year) {
     pqxx::work txn(db);
-    pqxx::result r = txn.exec_params(SQL_CREATE_AUTHOR, name, bio, birth_year);
+    auto opt = txn.query01<std::int64_t, std::string, std::optional<std::string>, std::optional<std::int32_t>>(SQL_CREATE_AUTHOR, pqxx::params{name, bio, birth_year});
     txn.commit();
-    if (r.empty()) return std::nullopt;
-    const auto& row = r[0];
-    auto result = Author{
-        row[0].as<std::int64_t>(),
-        row[1].as<std::string>(),
-        row[2].is_null() ? std::nullopt : std::optional<std::string>(row[2].as<std::string>()),
-        row[3].is_null() ? std::nullopt : std::optional<std::int32_t>(row[3].as<std::int32_t>())
-    };
-    return result;
+    if (!opt) return std::nullopt;
+    auto& [f0, f1, f2, f3] = *opt;
+    return Author{std::move(f0), std::move(f1), std::move(f2), std::move(f3)};
 }
 
 std::optional<Author> get_author(pqxx::connection& db, const std::int64_t& id) {
     pqxx::work txn(db);
-    pqxx::result r = txn.exec_params(SQL_GET_AUTHOR, id);
+    auto opt = txn.query01<std::int64_t, std::string, std::optional<std::string>, std::optional<std::int32_t>>(SQL_GET_AUTHOR, pqxx::params{id});
     txn.commit();
-    if (r.empty()) return std::nullopt;
-    const auto& row = r[0];
-    auto result = Author{
-        row[0].as<std::int64_t>(),
-        row[1].as<std::string>(),
-        row[2].is_null() ? std::nullopt : std::optional<std::string>(row[2].as<std::string>()),
-        row[3].is_null() ? std::nullopt : std::optional<std::int32_t>(row[3].as<std::int32_t>())
-    };
-    return result;
+    if (!opt) return std::nullopt;
+    auto& [f0, f1, f2, f3] = *opt;
+    return Author{std::move(f0), std::move(f1), std::move(f2), std::move(f3)};
 }
 
 std::vector<Author> list_authors(pqxx::connection& db) {
     pqxx::work txn(db);
-    pqxx::result r = txn.exec(SQL_LIST_AUTHORS);
-    txn.commit();
     std::vector<Author> rows;
-    rows.reserve(r.size());
-    for (const auto& row : r) {
-        auto result = Author{
-            row[0].as<std::int64_t>(),
-            row[1].as<std::string>(),
-            row[2].is_null() ? std::nullopt : std::optional<std::string>(row[2].as<std::string>()),
-            row[3].is_null() ? std::nullopt : std::optional<std::int32_t>(row[3].as<std::int32_t>())
-        };
-        rows.push_back(std::move(result));
+    for (auto [f0, f1, f2, f3] : txn.query<std::int64_t, std::string, std::optional<std::string>, std::optional<std::int32_t>>(SQL_LIST_AUTHORS)) {
+        rows.push_back(Author{std::move(f0), std::move(f1), std::move(f2), std::move(f3)});
     }
+    txn.commit();
     return rows;
 }
 
 std::optional<Author> update_author_bio(pqxx::connection& db, const std::optional<std::string>& bio, const std::int64_t& id) {
     pqxx::work txn(db);
-    pqxx::result r = txn.exec_params(SQL_UPDATE_AUTHOR_BIO, bio, id);
+    auto opt = txn.query01<std::int64_t, std::string, std::optional<std::string>, std::optional<std::int32_t>>(SQL_UPDATE_AUTHOR_BIO, pqxx::params{bio, id});
     txn.commit();
-    if (r.empty()) return std::nullopt;
-    const auto& row = r[0];
-    auto result = Author{
-        row[0].as<std::int64_t>(),
-        row[1].as<std::string>(),
-        row[2].is_null() ? std::nullopt : std::optional<std::string>(row[2].as<std::string>()),
-        row[3].is_null() ? std::nullopt : std::optional<std::int32_t>(row[3].as<std::int32_t>())
-    };
-    return result;
+    if (!opt) return std::nullopt;
+    auto& [f0, f1, f2, f3] = *opt;
+    return Author{std::move(f0), std::move(f1), std::move(f2), std::move(f3)};
 }
 
 std::optional<DeleteAuthorRow> delete_author(pqxx::connection& db, const std::int64_t& id) {
     pqxx::work txn(db);
-    pqxx::result r = txn.exec_params(SQL_DELETE_AUTHOR, id);
+    auto opt = txn.query01<std::int64_t, std::string>(SQL_DELETE_AUTHOR, pqxx::params{id});
     txn.commit();
-    if (r.empty()) return std::nullopt;
-    const auto& row = r[0];
-    auto result = DeleteAuthorRow{
-        row[0].as<std::int64_t>(),
-        row[1].as<std::string>()
-    };
-    return result;
+    if (!opt) return std::nullopt;
+    auto& [f0, f1] = *opt;
+    return DeleteAuthorRow{std::move(f0), std::move(f1)};
 }
 
 std::optional<Book> create_book(pqxx::connection& db, const std::int64_t& author_id, const std::string& title, const std::string& genre, const std::string& price, const std::optional<std::string>& published_at) {
     pqxx::work txn(db);
-    pqxx::result r = txn.exec_params(SQL_CREATE_BOOK, author_id, title, genre, price, published_at);
+    auto opt = txn.query01<std::int64_t, std::int64_t, std::string, std::string, std::string, std::optional<std::string>>(SQL_CREATE_BOOK, pqxx::params{author_id, title, genre, price, published_at});
     txn.commit();
-    if (r.empty()) return std::nullopt;
-    const auto& row = r[0];
-    auto result = Book{
-        row[0].as<std::int64_t>(),
-        row[1].as<std::int64_t>(),
-        row[2].as<std::string>(),
-        row[3].as<std::string>(),
-        row[4].as<std::string>(),
-        row[5].is_null() ? std::nullopt : std::optional<std::string>(row[5].as<std::string>())
-    };
-    return result;
+    if (!opt) return std::nullopt;
+    auto& [f0, f1, f2, f3, f4, f5] = *opt;
+    return Book{std::move(f0), std::move(f1), std::move(f2), std::move(f3), std::move(f4), std::move(f5)};
 }
 
 std::optional<Book> get_book(pqxx::connection& db, const std::int64_t& id) {
     pqxx::work txn(db);
-    pqxx::result r = txn.exec_params(SQL_GET_BOOK, id);
+    auto opt = txn.query01<std::int64_t, std::int64_t, std::string, std::string, std::string, std::optional<std::string>>(SQL_GET_BOOK, pqxx::params{id});
     txn.commit();
-    if (r.empty()) return std::nullopt;
-    const auto& row = r[0];
-    auto result = Book{
-        row[0].as<std::int64_t>(),
-        row[1].as<std::int64_t>(),
-        row[2].as<std::string>(),
-        row[3].as<std::string>(),
-        row[4].as<std::string>(),
-        row[5].is_null() ? std::nullopt : std::optional<std::string>(row[5].as<std::string>())
-    };
-    return result;
+    if (!opt) return std::nullopt;
+    auto& [f0, f1, f2, f3, f4, f5] = *opt;
+    return Book{std::move(f0), std::move(f1), std::move(f2), std::move(f3), std::move(f4), std::move(f5)};
 }
 
 std::vector<Book> get_books_by_ids(pqxx::connection& db, const std::vector<std::int64_t>& ids) {
     pqxx::work txn(db);
-    pqxx::result r = txn.exec_params(SQL_GET_BOOKS_BY_IDS, ids);
-    txn.commit();
     std::vector<Book> rows;
-    rows.reserve(r.size());
-    for (const auto& row : r) {
-        auto result = Book{
-            row[0].as<std::int64_t>(),
-            row[1].as<std::int64_t>(),
-            row[2].as<std::string>(),
-            row[3].as<std::string>(),
-            row[4].as<std::string>(),
-            row[5].is_null() ? std::nullopt : std::optional<std::string>(row[5].as<std::string>())
-        };
-        rows.push_back(std::move(result));
+    for (auto [f0, f1, f2, f3, f4, f5] : txn.query<std::int64_t, std::int64_t, std::string, std::string, std::string, std::optional<std::string>>(SQL_GET_BOOKS_BY_IDS, pqxx::params{ids})) {
+        rows.push_back(Book{std::move(f0), std::move(f1), std::move(f2), std::move(f3), std::move(f4), std::move(f5)});
     }
+    txn.commit();
     return rows;
 }
 
 std::vector<Book> list_books_by_genre(pqxx::connection& db, const std::string& genre) {
     pqxx::work txn(db);
-    pqxx::result r = txn.exec_params(SQL_LIST_BOOKS_BY_GENRE, genre);
-    txn.commit();
     std::vector<Book> rows;
-    rows.reserve(r.size());
-    for (const auto& row : r) {
-        auto result = Book{
-            row[0].as<std::int64_t>(),
-            row[1].as<std::int64_t>(),
-            row[2].as<std::string>(),
-            row[3].as<std::string>(),
-            row[4].as<std::string>(),
-            row[5].is_null() ? std::nullopt : std::optional<std::string>(row[5].as<std::string>())
-        };
-        rows.push_back(std::move(result));
+    for (auto [f0, f1, f2, f3, f4, f5] : txn.query<std::int64_t, std::int64_t, std::string, std::string, std::string, std::optional<std::string>>(SQL_LIST_BOOKS_BY_GENRE, pqxx::params{genre})) {
+        rows.push_back(Book{std::move(f0), std::move(f1), std::move(f2), std::move(f3), std::move(f4), std::move(f5)});
     }
+    txn.commit();
     return rows;
 }
 
 std::vector<Book> list_books_by_genre_or_all(pqxx::connection& db, const std::string& genre) {
     pqxx::work txn(db);
-    pqxx::result r = txn.exec_params(SQL_LIST_BOOKS_BY_GENRE_OR_ALL, genre);
-    txn.commit();
     std::vector<Book> rows;
-    rows.reserve(r.size());
-    for (const auto& row : r) {
-        auto result = Book{
-            row[0].as<std::int64_t>(),
-            row[1].as<std::int64_t>(),
-            row[2].as<std::string>(),
-            row[3].as<std::string>(),
-            row[4].as<std::string>(),
-            row[5].is_null() ? std::nullopt : std::optional<std::string>(row[5].as<std::string>())
-        };
-        rows.push_back(std::move(result));
+    for (auto [f0, f1, f2, f3, f4, f5] : txn.query<std::int64_t, std::int64_t, std::string, std::string, std::string, std::optional<std::string>>(SQL_LIST_BOOKS_BY_GENRE_OR_ALL, pqxx::params{genre})) {
+        rows.push_back(Book{std::move(f0), std::move(f1), std::move(f2), std::move(f3), std::move(f4), std::move(f5)});
     }
+    txn.commit();
     return rows;
 }
 
 std::optional<CreateCustomerRow> create_customer(pqxx::connection& db, const std::string& name, const std::string& email) {
     pqxx::work txn(db);
-    pqxx::result r = txn.exec_params(SQL_CREATE_CUSTOMER, name, email);
+    auto opt = txn.query01<std::int64_t>(SQL_CREATE_CUSTOMER, pqxx::params{name, email});
     txn.commit();
-    if (r.empty()) return std::nullopt;
-    const auto& row = r[0];
-    auto result = CreateCustomerRow{
-        row[0].as<std::int64_t>()
-    };
-    return result;
+    if (!opt) return std::nullopt;
+    auto& [f0] = *opt;
+    return CreateCustomerRow{std::move(f0)};
 }
 
 std::optional<CreateSaleRow> create_sale(pqxx::connection& db, const std::int64_t& customer_id) {
     pqxx::work txn(db);
-    pqxx::result r = txn.exec_params(SQL_CREATE_SALE, customer_id);
+    auto opt = txn.query01<std::int64_t>(SQL_CREATE_SALE, pqxx::params{customer_id});
     txn.commit();
-    if (r.empty()) return std::nullopt;
-    const auto& row = r[0];
-    auto result = CreateSaleRow{
-        row[0].as<std::int64_t>()
-    };
-    return result;
+    if (!opt) return std::nullopt;
+    auto& [f0] = *opt;
+    return CreateSaleRow{std::move(f0)};
 }
 
 void add_sale_item(pqxx::connection& db, const std::int64_t& sale_id, const std::int64_t& book_id, const std::int32_t& quantity, const std::string& unit_price) {
     pqxx::work txn(db);
-    txn.exec_params(SQL_ADD_SALE_ITEM, sale_id, book_id, quantity, unit_price);
+    txn.exec(SQL_ADD_SALE_ITEM, pqxx::params{sale_id, book_id, quantity, unit_price}).no_rows();
     txn.commit();
 }
 
 std::vector<ListBooksWithAuthorRow> list_books_with_author(pqxx::connection& db) {
     pqxx::work txn(db);
-    pqxx::result r = txn.exec(SQL_LIST_BOOKS_WITH_AUTHOR);
-    txn.commit();
     std::vector<ListBooksWithAuthorRow> rows;
-    rows.reserve(r.size());
-    for (const auto& row : r) {
-        auto result = ListBooksWithAuthorRow{
-            row[0].as<std::int64_t>(),
-            row[1].as<std::string>(),
-            row[2].as<std::string>(),
-            row[3].as<std::string>(),
-            row[4].is_null() ? std::nullopt : std::optional<std::string>(row[4].as<std::string>()),
-            row[5].as<std::string>(),
-            row[6].is_null() ? std::nullopt : std::optional<std::string>(row[6].as<std::string>())
-        };
-        rows.push_back(std::move(result));
+    for (auto [f0, f1, f2, f3, f4, f5, f6] : txn.query<std::int64_t, std::string, std::string, std::string, std::optional<std::string>, std::string, std::optional<std::string>>(SQL_LIST_BOOKS_WITH_AUTHOR)) {
+        rows.push_back(ListBooksWithAuthorRow{std::move(f0), std::move(f1), std::move(f2), std::move(f3), std::move(f4), std::move(f5), std::move(f6)});
     }
+    txn.commit();
     return rows;
 }
 
 std::vector<Book> get_books_never_ordered(pqxx::connection& db) {
     pqxx::work txn(db);
-    pqxx::result r = txn.exec(SQL_GET_BOOKS_NEVER_ORDERED);
-    txn.commit();
     std::vector<Book> rows;
-    rows.reserve(r.size());
-    for (const auto& row : r) {
-        auto result = Book{
-            row[0].as<std::int64_t>(),
-            row[1].as<std::int64_t>(),
-            row[2].as<std::string>(),
-            row[3].as<std::string>(),
-            row[4].as<std::string>(),
-            row[5].is_null() ? std::nullopt : std::optional<std::string>(row[5].as<std::string>())
-        };
-        rows.push_back(std::move(result));
+    for (auto [f0, f1, f2, f3, f4, f5] : txn.query<std::int64_t, std::int64_t, std::string, std::string, std::string, std::optional<std::string>>(SQL_GET_BOOKS_NEVER_ORDERED)) {
+        rows.push_back(Book{std::move(f0), std::move(f1), std::move(f2), std::move(f3), std::move(f4), std::move(f5)});
     }
+    txn.commit();
     return rows;
 }
 
 std::vector<GetTopSellingBooksRow> get_top_selling_books(pqxx::connection& db) {
     pqxx::work txn(db);
-    pqxx::result r = txn.exec(SQL_GET_TOP_SELLING_BOOKS);
-    txn.commit();
     std::vector<GetTopSellingBooksRow> rows;
-    rows.reserve(r.size());
-    for (const auto& row : r) {
-        auto result = GetTopSellingBooksRow{
-            row[0].as<std::int64_t>(),
-            row[1].as<std::string>(),
-            row[2].as<std::string>(),
-            row[3].as<std::string>(),
-            row[4].is_null() ? std::nullopt : std::optional<std::int64_t>(row[4].as<std::int64_t>())
-        };
-        rows.push_back(std::move(result));
+    for (auto [f0, f1, f2, f3, f4] : txn.query<std::int64_t, std::string, std::string, std::string, std::optional<std::int64_t>>(SQL_GET_TOP_SELLING_BOOKS)) {
+        rows.push_back(GetTopSellingBooksRow{std::move(f0), std::move(f1), std::move(f2), std::move(f3), std::move(f4)});
     }
+    txn.commit();
     return rows;
 }
 
 std::vector<GetBestCustomersRow> get_best_customers(pqxx::connection& db) {
     pqxx::work txn(db);
-    pqxx::result r = txn.exec(SQL_GET_BEST_CUSTOMERS);
-    txn.commit();
     std::vector<GetBestCustomersRow> rows;
-    rows.reserve(r.size());
-    for (const auto& row : r) {
-        auto result = GetBestCustomersRow{
-            row[0].as<std::int64_t>(),
-            row[1].as<std::string>(),
-            row[2].as<std::string>(),
-            row[3].is_null() ? std::nullopt : std::optional<std::string>(row[3].as<std::string>())
-        };
-        rows.push_back(std::move(result));
+    for (auto [f0, f1, f2, f3] : txn.query<std::int64_t, std::string, std::string, std::optional<std::string>>(SQL_GET_BEST_CUSTOMERS)) {
+        rows.push_back(GetBestCustomersRow{std::move(f0), std::move(f1), std::move(f2), std::move(f3)});
     }
+    txn.commit();
     return rows;
 }

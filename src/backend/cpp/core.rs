@@ -238,7 +238,7 @@ fn emit_inline_row_struct(src: &mut String, query: &Query) -> anyhow::Result<()>
     Ok(())
 }
 
-/// Emit a SQL string constant: `inline constexpr const char* SQL_GET_USER = "...";`
+/// Emit a SQL string constant in multiline raw-string form for readability.
 fn emit_sql_constant(src: &mut String, query: &Query, param_style: CppParamStyle) -> anyhow::Result<()> {
     let const_name = sql_const_name(&query.name);
     let raw_sql = query.params.iter()
@@ -247,8 +247,9 @@ fn emit_sql_constant(src: &mut String, query: &Query, param_style: CppParamStyle
         .unwrap_or(&query.sql);
     let sql = normalize_sql(raw_sql, param_style);
     let sql = sql.trim_end().trim_end_matches(';');
-    // Use raw string literal R"sql(...)sql" to avoid escaping issues.
-    writeln!(src, "inline const std::string {const_name} = R\"sql({sql})sql\";")?;
+    writeln!(src, "inline const std::string {const_name} = R\"sql(")?;
+    writeln!(src, "{sql}")?;
+    writeln!(src, ")sql\";")?;
     Ok(())
 }
 
@@ -258,6 +259,25 @@ fn emit_function_decl(src: &mut String, query: &Query, schema: &Schema, conn_typ
     let ret = query_return_type(query, schema);
     let params = params_signature(query, conn_type);
     writeln!(src, "{ret} {fn_name}({params});")?;
+    Ok(())
+}
+
+/// Emit one query's header block: optional inline row struct, SQL constant,
+/// and function declaration, kept together for readability.
+fn emit_query_header_block(
+    src: &mut String,
+    query: &Query,
+    schema: &Schema,
+    param_style: CppParamStyle,
+    conn_type: &str,
+) -> anyhow::Result<()> {
+    if has_inline_rows(query, schema) {
+        emit_inline_row_struct(src, query)?;
+        writeln!(src)?;
+    }
+    emit_sql_constant(src, query, param_style)?;
+    writeln!(src)?;
+    emit_function_decl(src, query, schema, conn_type)?;
     Ok(())
 }
 
@@ -278,68 +298,84 @@ fn emit_function_def(src: &mut String, query: &Query, schema: &Schema, contract:
 
 // ─── Engine-specific body emitters ────────────────────────────────────────────
 
+/// Build the `pqxx::params{...}` expression, or `None` if the query has no parameters.
+fn pqxx_params_expr(query: &Query) -> Option<String> {
+    if query.params.is_empty() {
+        None
+    } else {
+        let names: Vec<String> = query.params.iter().map(|p| to_snake_case(&p.name)).collect();
+        Some(format!("pqxx::params{{{}}}", names.join(", ")))
+    }
+}
+
+/// Build the `<T1, T2, ...>` template type argument list from result columns.
+fn pqxx_query_type_args(columns: &[ResultColumn]) -> String {
+    columns.iter()
+        .map(|col| cpp_type(&col.sql_type, col.nullable))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Build structured-binding names: `f0, f1, f2, ...`
+fn pqxx_field_bindings(n: usize) -> String {
+    (0..n).map(|i| format!("f{i}")).collect::<Vec<_>>().join(", ")
+}
+
+/// Build `std::move(f0), std::move(f1), ...` for aggregate initialisation.
+fn pqxx_move_fields(n: usize) -> String {
+    (0..n).map(|i| format!("std::move(f{i})")).collect::<Vec<_>>().join(", ")
+}
+
 /// Emit the function body for a libpqxx (PostgreSQL) query.
+///
+/// Uses the idiomatic libpqxx 8 API:
+/// - `exec(sql, pqxx::params{...})` for commands (Exec, ExecRows)
+/// - `query01<T...>(sql, pqxx::params{...})` for single-row queries (One)
+/// - `query<T...>(sql, pqxx::params{...})` for multi-row queries (Many)
 fn emit_pqxx_body(src: &mut String, query: &Query, schema: &Schema) -> anyhow::Result<()> {
     let const_name = sql_const_name(&query.name);
-    let param_names: Vec<String> = query.params.iter().map(|p| to_snake_case(&p.name)).collect();
-
-    // Emit the common execute preamble: txn + exec/exec_params.
-    let emit_exec = |src: &mut String, capture: &str| -> anyhow::Result<()> {
-        writeln!(src, "    pqxx::work txn(db);")?;
-        if param_names.is_empty() {
-            writeln!(src, "    {capture}txn.exec({const_name});")?;
-        } else {
-            writeln!(src, "    {capture}txn.exec_params({const_name}, {});", param_names.join(", "))?;
-        }
-        writeln!(src, "    txn.commit();")?;
-        Ok(())
+    let params_expr = pqxx_params_expr(query);
+    let call_args = match &params_expr {
+        Some(p) => format!("{const_name}, {p}"),
+        None => const_name.clone(),
     };
+
+    writeln!(src, "    pqxx::work txn(db);")?;
 
     match query.cmd {
         QueryCmd::Exec => {
-            emit_exec(src, "")?;
+            writeln!(src, "    txn.exec({call_args}).no_rows();")?;
+            writeln!(src, "    txn.commit();")?;
         },
         QueryCmd::ExecRows => {
-            emit_exec(src, "pqxx::result r = ")?;
-            writeln!(src, "    return r.affected_rows();")?;
+            writeln!(src, "    auto affected = txn.exec({call_args}).affected_rows();")?;
+            writeln!(src, "    txn.commit();")?;
+            writeln!(src, "    return static_cast<std::int64_t>(affected);")?;
         },
         QueryCmd::One => {
             let row_type = result_row_type(query, schema);
-            emit_exec(src, "pqxx::result r = ")?;
-            writeln!(src, "    if (r.empty()) return std::nullopt;")?;
-            writeln!(src, "    const auto& row = r[0];")?;
-            emit_pqxx_row_construction(src, &row_type, &query.result_columns, "    ")?;
-            writeln!(src, "    return result;")?;
+            let type_args = pqxx_query_type_args(&query.result_columns);
+            writeln!(src, "    auto opt = txn.query01<{type_args}>({call_args});")?;
+            writeln!(src, "    txn.commit();")?;
+            writeln!(src, "    if (!opt) return std::nullopt;")?;
+            let bindings = pqxx_field_bindings(query.result_columns.len());
+            writeln!(src, "    auto& [{bindings}] = *opt;")?;
+            let moved = pqxx_move_fields(query.result_columns.len());
+            writeln!(src, "    return {row_type}{{{moved}}};")?;
         },
         QueryCmd::Many => {
             let row_type = result_row_type(query, schema);
-            emit_exec(src, "pqxx::result r = ")?;
+            let type_args = pqxx_query_type_args(&query.result_columns);
+            let bindings = pqxx_field_bindings(query.result_columns.len());
             writeln!(src, "    std::vector<{row_type}> rows;")?;
-            writeln!(src, "    rows.reserve(r.size());")?;
-            writeln!(src, "    for (const auto& row : r) {{")?;
-            emit_pqxx_row_construction(src, &row_type, &query.result_columns, "        ")?;
-            writeln!(src, "        rows.push_back(std::move(result));")?;
+            writeln!(src, "    for (auto [{bindings}] : txn.query<{type_args}>({call_args})) {{")?;
+            let moved = pqxx_move_fields(query.result_columns.len());
+            writeln!(src, "        rows.push_back({row_type}{{{moved}}});")?;
             writeln!(src, "    }}")?;
+            writeln!(src, "    txn.commit();")?;
             writeln!(src, "    return rows;")?;
         },
     }
-    Ok(())
-}
-
-/// Emit a row construction: `auto result = RowType{ row[0].as<T>(), ... };`
-fn emit_pqxx_row_construction(src: &mut String, row_type: &str, columns: &[crate::ir::ResultColumn], indent: &str) -> anyhow::Result<()> {
-    writeln!(src, "{indent}auto result = {row_type}{{")?;
-    for (i, col) in columns.iter().enumerate() {
-        let base_type = cpp_type(&col.sql_type, false);
-        let expr = if col.nullable {
-            format!("row[{i}].is_null() ? std::nullopt : std::optional<{base_type}>(row[{i}].as<{base_type}>())")
-        } else {
-            format!("row[{i}].as<{base_type}>()")
-        };
-        let comma = if i + 1 < columns.len() { "," } else { "" };
-        writeln!(src, "{indent}    {expr}{comma}")?;
-    }
-    writeln!(src, "{indent}}};")?;
     Ok(())
 }
 
@@ -970,28 +1006,13 @@ fn emit_queries_header(
         writeln!(src)?;
     }
 
-    // Inline row structs for queries that don't map to a table.
-    for query in queries {
-        if has_inline_rows(query, schema) {
-            emit_inline_row_struct(&mut src, query)?;
-            writeln!(src)?;
-        }
-    }
-
-    // SQL string constants.
-    for query in queries {
-        emit_sql_constant(&mut src, query, contract.param_style)?;
-    }
-    if !queries.is_empty() {
-        writeln!(src)?;
-    }
-
-    // Function declarations.
+    // Per-query blocks: inline row struct (if any), SQL constant, and declaration.
     for (i, query) in queries.iter().enumerate() {
         if i > 0 {
             writeln!(src)?;
+            writeln!(src)?;
         }
-        emit_function_decl(&mut src, query, schema, contract.conn_type)?;
+        emit_query_header_block(&mut src, query, schema, contract.param_style, contract.conn_type)?;
     }
 
     // Querier class.

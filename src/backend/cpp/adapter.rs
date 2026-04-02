@@ -40,19 +40,19 @@ pub(super) struct CppEngineContract {
 
 pub(super) fn resolve_contract(target: &super::CppTarget) -> CppEngineContract {
     match target {
-        super::CppTarget::Postgres => CppEngineContract {
+        super::CppTarget::Libpqxx => CppEngineContract {
             db_include: "<pqxx/pqxx>",
             conn_type: "pqxx::connection&",
             param_style: CppParamStyle::Dollar,
             body_emitter: CppBodyEmitter::Pqxx,
         },
-        super::CppTarget::Sqlite => CppEngineContract {
+        super::CppTarget::Sqlite3 => CppEngineContract {
             db_include: "<sqlite3.h>",
             conn_type: "sqlite3*",
             param_style: CppParamStyle::QuestionNumbered,
             body_emitter: CppBodyEmitter::Sqlite3,
         },
-        super::CppTarget::Mysql => CppEngineContract {
+        super::CppTarget::Libmysqlclient => CppEngineContract {
             db_include: "<mysql/mysql.h>",
             conn_type: "MYSQL*",
             param_style: CppParamStyle::QuestionAnon,
