@@ -1,0 +1,76 @@
+{
+  "language": "java",
+  "engine": "postgresql",
+  "package": "com.example.db",
+  "models": [
+    {
+      "name": "Record",
+      "fields": [
+        {
+          "name": "id",
+          "lang_type": "long",
+          "sql_type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "label",
+          "lang_type": "String",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "timestamps",
+          "lang_type": "java.util.List<LocalDateTime>",
+          "sql_type": "timestamp[]",
+          "nullable": false
+        },
+        {
+          "name": "uuids",
+          "lang_type": "java.util.List<UUID>",
+          "sql_type": "uuid[]",
+          "nullable": false
+        }
+      ]
+    }
+  ],
+  "functions": [
+    {
+      "name": "insertRecord",
+      "command": "exec",
+      "params": [
+        {
+          "name": "label",
+          "lang_type": "String",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "timestamps",
+          "lang_type": "java.util.List<LocalDateTime>",
+          "sql_type": "timestamp[]",
+          "nullable": false
+        },
+        {
+          "name": "uuids",
+          "lang_type": "java.util.List<UUID>",
+          "sql_type": "uuid[]",
+          "nullable": false
+        }
+      ],
+      "returns": null
+    },
+    {
+      "name": "getRecord",
+      "command": "one",
+      "params": [
+        {
+          "name": "id",
+          "lang_type": "long",
+          "sql_type": "bigint",
+          "nullable": false
+        }
+      ],
+      "returns": "Record"
+    }
+  ]
+}

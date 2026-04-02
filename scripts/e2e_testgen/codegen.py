@@ -200,7 +200,10 @@ def _render_step(
     elif step.kind == "assert_len":
         tv = TypedValue.parse(step.data["value"])
         length = lit.render_value(tv.kind, tv.value, engine, eo.type_coercions)
-        result = lit.render_assert_len(step.data["var"], length)
+        var_expr = step.data["var"]
+        if hasattr(lit, "transform_field_expr"):
+            var_expr = lit.transform_field_expr(var_expr)
+        result = lit.render_assert_len(var_expr, length)
         return _as_lines(indent, result)
 
     return [f"{indent}# Unknown step: {step.kind}"]

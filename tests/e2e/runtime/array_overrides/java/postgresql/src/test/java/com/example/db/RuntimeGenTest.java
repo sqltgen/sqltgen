@@ -5,10 +5,12 @@ package com.example.db;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Statement;
-import java.time.LocalDateTime;
+import java.time.*;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -19,6 +21,7 @@ import org.junit.jupiter.api.Test;
 
 class RuntimeGenTest {
 
+    private static final ObjectMapper GEN_MAPPER = new ObjectMapper();
     private static final String URL =
         System.getenv().getOrDefault("DATABASE_URL",
             "jdbc:postgresql://localhost:15432/sqltgen_e2e");
@@ -52,16 +55,24 @@ class RuntimeGenTest {
         }
     }
 
+    private static JsonNode genJson(String raw) {
+        try {
+            return GEN_MAPPER.readTree(raw);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
 // ─── scenarios ────────────────────────────────────────────────────────────────
+
+    // ─── :one queries ────────────────────────────────────────────────────────────
 
     @Test
     void testInsertAndGetRecordGen() throws Exception {
         var uid1 = UUID.randomUUID();
         var uid2 = UUID.randomUUID();
-        Queries.insertRecord(conn, "test",
-            List.of(LocalDateTime.of(2024, 1, 15, 10, 30, 0), LocalDateTime.of(2024, 6, 1, 12, 0, 0)),
-            List.of(uid1, uid2));
-        var row = Queries.getRecord(conn, 1L).orElseThrow();
+        Queries.insertRecord(conn, "test", List.of(LocalDateTime.of(2024, 1, 15, 10, 30, 0), LocalDateTime.of(2024, 6, 1, 12, 0, 0)), List.of(uid1, uid2));
+        var row = Queries.getRecord(conn, 1).orElseThrow();
         assertNotNull(row);
         assertEquals("test", row.label());
         assertEquals(2, row.timestamps().size());
@@ -74,14 +85,14 @@ class RuntimeGenTest {
 
     @Test
     void testGetRecordNotFoundGen() throws Exception {
-        var result = Queries.getRecord(conn, 999L);
+        var result = Queries.getRecord(conn, 999);
         assertTrue(result.isEmpty());
     }
 
     @Test
     void testEmptyArraysGen() throws Exception {
         Queries.insertRecord(conn, "empty", List.of(), List.of());
-        var row = Queries.getRecord(conn, 1L).orElseThrow();
+        var row = Queries.getRecord(conn, 1).orElseThrow();
         assertNotNull(row);
         assertEquals(0, row.timestamps().size());
         assertEquals(0, row.uuids().size());
