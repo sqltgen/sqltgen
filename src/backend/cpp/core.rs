@@ -316,14 +316,173 @@ fn pqxx_query_type_args(columns: &[ResultColumn]) -> String {
         .join(", ")
 }
 
-/// Build structured-binding names: `f0, f1, f2, ...`
-fn pqxx_field_bindings(n: usize) -> String {
-    (0..n).map(|i| format!("f{i}")).collect::<Vec<_>>().join(", ")
+fn cpp_keyword_or_reserved(name: &str) -> bool {
+    matches!(
+        name,
+        "alignas"
+            | "alignof"
+            | "and"
+            | "and_eq"
+            | "asm"
+            | "auto"
+            | "bitand"
+            | "bitor"
+            | "bool"
+            | "break"
+            | "case"
+            | "catch"
+            | "char"
+            | "class"
+            | "compl"
+            | "concept"
+            | "const"
+            | "consteval"
+            | "constexpr"
+            | "constinit"
+            | "const_cast"
+            | "continue"
+            | "co_await"
+            | "co_return"
+            | "co_yield"
+            | "decltype"
+            | "default"
+            | "delete"
+            | "do"
+            | "double"
+            | "dynamic_cast"
+            | "else"
+            | "enum"
+            | "explicit"
+            | "export"
+            | "extern"
+            | "false"
+            | "float"
+            | "for"
+            | "friend"
+            | "goto"
+            | "if"
+            | "inline"
+            | "int"
+            | "long"
+            | "mutable"
+            | "namespace"
+            | "new"
+            | "noexcept"
+            | "not"
+            | "not_eq"
+            | "nullptr"
+            | "operator"
+            | "or"
+            | "or_eq"
+            | "private"
+            | "protected"
+            | "public"
+            | "register"
+            | "reinterpret_cast"
+            | "requires"
+            | "return"
+            | "short"
+            | "signed"
+            | "sizeof"
+            | "static"
+            | "static_assert"
+            | "static_cast"
+            | "struct"
+            | "switch"
+            | "template"
+            | "this"
+            | "thread_local"
+            | "throw"
+            | "true"
+            | "try"
+            | "typedef"
+            | "typeid"
+            | "typename"
+            | "union"
+            | "unsigned"
+            | "using"
+            | "virtual"
+            | "void"
+            | "volatile"
+            | "wchar_t"
+            | "while"
+            | "xor"
+            | "xor_eq"
+    )
 }
 
-/// Build `std::move(f0), std::move(f1), ...` for aggregate initialisation.
-fn pqxx_move_fields(n: usize) -> String {
-    (0..n).map(|i| format!("std::move(f{i})")).collect::<Vec<_>>().join(", ")
+fn sanitize_cpp_local_base(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    let mut prev_us = false;
+
+    for ch in name.chars() {
+        let ch = ch.to_ascii_lowercase();
+        let mapped = if ch.is_ascii_alphanumeric() || ch == '_' { ch } else { '_' };
+        if mapped == '_' {
+            if !prev_us {
+                out.push('_');
+            }
+            prev_us = true;
+        } else {
+            out.push(mapped);
+            prev_us = false;
+        }
+    }
+
+    let trimmed = out.trim_matches('_');
+    let mut base = if trimmed.is_empty() { "col".to_string() } else { trimmed.to_string() };
+
+    if base.as_bytes().first().is_some_and(|b| b.is_ascii_digit()) {
+        base = format!("col_{base}");
+    }
+
+    if cpp_keyword_or_reserved(&base) {
+        base.push_str("_kw");
+    }
+
+    base
+}
+
+/// Build safe local binding names from result column names, with trailing underscores.
+fn result_binding_names(query: &Query) -> Vec<String> {
+    use std::collections::HashSet;
+
+    let mut taken: HashSet<String> = query.params.iter().map(|p| to_snake_case(&p.name)).collect();
+    for fixed in ["db", "txn", "opt", "rows", "affected", "result"] {
+        taken.insert(fixed.to_string());
+    }
+
+    let mut out = Vec::with_capacity(query.result_columns.len());
+    for col in &query.result_columns {
+        let base = sanitize_cpp_local_base(&col.name);
+        let mut candidate = format!("{base}_");
+        if !taken.insert(candidate.clone()) {
+            let mut i = 2;
+            loop {
+                candidate = format!("{base}_{i}_");
+                if taken.insert(candidate.clone()) {
+                    break;
+                }
+                i += 1;
+            }
+        }
+        out.push(candidate);
+    }
+    out
+}
+
+/// Build structured-binding names from result columns.
+fn field_bindings(query: &Query) -> String {
+    result_binding_names(query).join(", ")
+}
+
+/// Build `std::move(name_), ...` for aggregate initialisation.
+fn move_fields(query: &Query) -> String {
+    result_binding_names(query)
+        .into_iter()
+        .map(|n| format!("std::move({n})"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Emit the function body for a libpqxx (PostgreSQL) query.
@@ -358,18 +517,18 @@ fn emit_pqxx_body(src: &mut String, query: &Query, schema: &Schema) -> anyhow::R
             writeln!(src, "    auto opt = txn.query01<{type_args}>({call_args});")?;
             writeln!(src, "    txn.commit();")?;
             writeln!(src, "    if (!opt) return std::nullopt;")?;
-            let bindings = pqxx_field_bindings(query.result_columns.len());
+            let bindings = field_bindings(query);
             writeln!(src, "    auto& [{bindings}] = *opt;")?;
-            let moved = pqxx_move_fields(query.result_columns.len());
+            let moved = move_fields(query);
             writeln!(src, "    return {row_type}{{{moved}}};")?;
         },
         QueryCmd::Many => {
             let row_type = result_row_type(query, schema);
             let type_args = pqxx_query_type_args(&query.result_columns);
-            let bindings = pqxx_field_bindings(query.result_columns.len());
+            let bindings = field_bindings(query);
             writeln!(src, "    std::vector<{row_type}> rows;")?;
             writeln!(src, "    for (auto [{bindings}] : txn.query<{type_args}>({call_args})) {{")?;
-            let moved = pqxx_move_fields(query.result_columns.len());
+            let moved = move_fields(query);
             writeln!(src, "        rows.push_back({row_type}{{{moved}}});")?;
             writeln!(src, "    }}")?;
             writeln!(src, "    txn.commit();")?;

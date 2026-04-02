@@ -76,6 +76,8 @@ fn test_many_query_uses_query_not_manual_result_walking() {
     .with_source_table(Some("user".to_string()));
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.cpp");
-    assert!(src.contains("for (auto [f0, f1, f2] : txn.query<std::int64_t, std::string, std::optional<std::string>>(SQL_LIST_USERS)) {"));
+    assert!(src.contains("for (auto [id_, name_, bio_] : txn.query<std::int64_t, std::string, std::optional<std::string>>(SQL_LIST_USERS)) {"));
+    assert!(src.contains("rows.push_back(User{std::move(id_), std::move(name_), std::move(bio_)});"));
     assert!(!src.contains("for (const auto& row : r)"));
+    assert!(!src.contains("[f0, f1, f2]"));
 }
