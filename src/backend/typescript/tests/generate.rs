@@ -32,8 +32,9 @@ fn test_ts_index_file_with_queries() {
     let schema = schema_with_users();
     let gen = TypeScriptCodegen { target: JsTarget::Pg, output: JsOutput::TypeScript };
     let content = gen.emit_index_file(&schema, &["queries".to_string()]).unwrap();
-    assert!(content.contains("export * from './users';"));
+    assert!(content.contains("export * from './models';"));
     assert!(content.contains("export * from './queries';"));
+    assert!(content.contains("export * from './sqltgen';"));
 }
 
 #[test]
@@ -41,7 +42,8 @@ fn test_js_index_file_no_queries() {
     let schema = schema_with_users();
     let gen = TypeScriptCodegen { target: JsTarget::Pg, output: JsOutput::JavaScript };
     let content = gen.emit_index_file(&schema, &[]).unwrap();
-    assert!(content.contains("export * from './users.js';"));
+    assert!(content.contains("export * from './models/index.js';"));
+    assert!(content.contains("export * from './sqltgen.js';"));
     assert!(!content.contains("queries"));
 }
 
@@ -53,9 +55,9 @@ fn test_pg_ts_one_query() {
     let queries = vec![get_user_query()];
     let gen = TypeScriptCodegen { target: JsTarget::Pg, output: JsOutput::TypeScript };
     let content = build_queries_file("", &queries, &schema, &gen.target, &gen.output, &config()).unwrap();
-    assert!(content.contains("import type { ConnectFn, Db } from './_sqltgen';"));
-    assert!(content.contains("import { releaseDb } from './_sqltgen';"));
-    assert!(content.contains("import type { Users } from './users';"));
+    assert!(content.contains("import type { ConnectFn, Db } from '../sqltgen';"));
+    assert!(content.contains("import { releaseDb } from '../sqltgen';"));
+    assert!(content.contains("import type { Users } from '../models/users';"));
     assert!(content.contains("async function getUser(db: Db, id: number): Promise<Users | null>"));
     assert!(content.contains("db.query<Users>"));
     assert!(content.contains("result.rows[0] ?? null"));
@@ -88,8 +90,8 @@ fn test_pg_js_one_query() {
     let queries = vec![get_user_query()];
     let gen = TypeScriptCodegen { target: JsTarget::Pg, output: JsOutput::JavaScript };
     let content = build_queries_file("", &queries, &schema, &gen.target, &gen.output, &config()).unwrap();
-    assert!(content.contains("@typedef {import('./_sqltgen.js').Db} Db"));
-    assert!(content.contains("@typedef {import('./_sqltgen.js').ConnectFn} ConnectFn"));
+    assert!(content.contains("@typedef {import('../sqltgen.js').Db} Db"));
+    assert!(content.contains("@typedef {import('../sqltgen.js').ConnectFn} ConnectFn"));
     assert!(content.contains("@param {Db} db"));
     assert!(content.contains("@param {number} id"));
     assert!(content.contains("@returns {Promise<Users | null>}"));
@@ -106,7 +108,7 @@ fn test_sqlite_ts_one_query() {
     let queries = vec![get_user_query()];
     let gen = TypeScriptCodegen { target: JsTarget::BetterSqlite3, output: JsOutput::TypeScript };
     let content = build_queries_file("", &queries, &schema, &gen.target, &gen.output, &config()).unwrap();
-    assert!(content.contains("import type { ConnectFn, Db } from './_sqltgen';"));
+    assert!(content.contains("import type { ConnectFn, Db } from '../sqltgen';"));
     assert!(content.contains("db: Db"));
     assert!(content.contains(".get(id) as Users | undefined"));
     assert!(content.contains("row ?? null"));
@@ -127,7 +129,7 @@ fn test_sqlite_js_one_query() {
     let queries = vec![get_user_query()];
     let gen = TypeScriptCodegen { target: JsTarget::BetterSqlite3, output: JsOutput::JavaScript };
     let content = build_queries_file("", &queries, &schema, &gen.target, &gen.output, &config()).unwrap();
-    assert!(content.contains("@typedef {import('./_sqltgen.js').Db} Db"));
+    assert!(content.contains("@typedef {import('../sqltgen.js').Db} Db"));
     assert!(content.contains("export async function getUser(db, id)"));
     assert!(!content.contains("as Users")); // no casts in JS
     assert!(content.contains("row ?? null"));
@@ -141,7 +143,7 @@ fn test_mysql_ts_one_query() {
     let queries = vec![get_user_query()];
     let gen = TypeScriptCodegen { target: JsTarget::Mysql2, output: JsOutput::TypeScript };
     let content = build_queries_file("", &queries, &schema, &gen.target, &gen.output, &config()).unwrap();
-    assert!(content.contains("import type { ConnectFn, Db } from './_sqltgen';"));
+    assert!(content.contains("import type { ConnectFn, Db } from '../sqltgen';"));
     assert!(content.contains("db: Db"));
     assert!(content.contains("query<RowDataPacket[]>"));
     assert!(content.contains("as Users | undefined"));
