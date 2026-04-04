@@ -9,8 +9,6 @@ import java.time.LocalTime
 import java.time.OffsetDateTime
 import java.util.UUID
 import db.models.Event
-import db.models.Event
-import db.models.Event
 
 object Queries {
     private val objectMapper = ObjectMapper()

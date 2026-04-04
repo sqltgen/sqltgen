@@ -33,6 +33,8 @@ pub struct QuerierContext<'a> {
     pub querier_name: &'a str,
     /// Type-override imports that the querier file must include.
     pub override_imports: &'a BTreeSet<String>,
+    /// Model class imports (e.g. `com.example.db.models.Author`) for method signatures.
+    pub model_imports: &'a BTreeSet<String>,
     /// Extra fields declared in the querier class (from config).
     pub extra_fields: &'a [ExtraField],
 }

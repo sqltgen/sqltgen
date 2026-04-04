@@ -1,5 +1,7 @@
 package com.example.db.queries;
 
+import com.example.db.models.Author;
+import com.example.db.models.Book;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.List;

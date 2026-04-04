@@ -91,16 +91,20 @@ pub(super) fn generate_core_files(
         let mpkg = models_package(&config.package);
         let mut src = String::new();
         emit_package(&mut src, &qpkg, "");
+        let mut model_imports: BTreeSet<String> = BTreeSet::new();
+        for query in &group_queries {
+            if let Some(table_name) = infer_table(query, schema) {
+                let model_class = to_pascal_case(table_name);
+                model_imports.insert(format!("{mpkg}.{model_class}"));
+            }
+        }
         // Emit override-specific imports (standard import is just Connection)
         writeln!(src, "import java.sql.Connection")?;
         for imp in &override_imports {
             writeln!(src, "import {imp}")?;
         }
-        for query in &group_queries {
-            if let Some(table_name) = infer_table(query, schema) {
-                let model_class = to_pascal_case(table_name);
-                writeln!(src, "import {mpkg}.{model_class}")?;
-            }
+        for imp in &model_imports {
+            writeln!(src, "import {imp}")?;
         }
         writeln!(src)?;
         writeln!(src, "object {class_name} {{")?;
@@ -128,7 +132,13 @@ pub(super) fn generate_core_files(
 
         let mut src = String::new();
         emit_package(&mut src, &qpkg, "");
-        let ctx = QuerierContext { class_name: &class_name, querier_name: &querier_name, override_imports: &override_imports, extra_fields: &extra_fields };
+        let ctx = QuerierContext {
+            class_name: &class_name,
+            querier_name: &querier_name,
+            override_imports: &override_imports,
+            model_imports: &model_imports,
+            extra_fields: &extra_fields,
+        };
         emit_kotlin_querier(&mut src, &group_queries, schema, &ctx, contract, type_map)?;
         let path = source_path(&config.out, &qpkg, &querier_name, "kt");
         files.push(GeneratedFile { path, content: src });
@@ -328,9 +338,10 @@ fn emit_kotlin_querier(
     contract: &JvmCoreContract,
     type_map: &KotlinTypeMap,
 ) -> anyhow::Result<()> {
-    // Emit all imports: standard + any type-override imports, sorted.
+    // Emit all imports: standard + model imports + any type-override imports, sorted.
     let mut all_imports: BTreeSet<String> = ["javax.sql.DataSource".to_string()].into();
     all_imports.extend(ctx.override_imports.iter().cloned());
+    all_imports.extend(ctx.model_imports.iter().cloned());
     for imp in &all_imports {
         writeln!(src, "import {imp}")?;
     }

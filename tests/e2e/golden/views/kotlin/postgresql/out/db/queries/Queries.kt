@@ -2,7 +2,6 @@ package db.queries
 
 import java.sql.Connection
 import db.models.BookSummaries
-import db.models.BookSummaries
 import db.models.SciFiBooks
 
 object Queries {

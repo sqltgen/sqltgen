@@ -1,5 +1,7 @@
 package com.example.db.queries
 
+import com.example.db.models.Author
+import com.example.db.models.Book
 import javax.sql.DataSource
 
 class Querier(private val dataSource: DataSource) {

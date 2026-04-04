@@ -2,20 +2,9 @@ package db.queries
 
 import java.sql.Connection
 import db.models.Author
-import db.models.Author
-import db.models.Author
-import db.models.Author
-import db.models.Book
-import db.models.Book
-import db.models.Book
-import db.models.Book
 import db.models.Book
 import db.models.BookSummaries
-import db.models.Book
-import db.models.Book
 import db.models.Product
-import db.models.Product
-import db.models.Author
 
 object Queries {
 

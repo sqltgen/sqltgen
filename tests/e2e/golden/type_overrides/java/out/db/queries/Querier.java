@@ -2,6 +2,7 @@ package db.queries;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import db.models.Event;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.time.LocalDate;

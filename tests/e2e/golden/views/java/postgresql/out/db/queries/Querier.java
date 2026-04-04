@@ -1,5 +1,7 @@
 package db.queries;
 
+import db.models.BookSummaries;
+import db.models.SciFiBooks;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.List;

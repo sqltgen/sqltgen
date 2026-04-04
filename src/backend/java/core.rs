@@ -83,13 +83,15 @@ pub(super) fn generate_core_files(
         .iter()
         .map(|s| s.to_string())
         .collect();
-        all_imports.extend(override_imports.iter().cloned());
+        let mut model_imports: BTreeSet<String> = BTreeSet::new();
         for query in &group_queries {
             if let Some(table_name) = infer_table(query, schema) {
                 let model_class = to_pascal_case(table_name);
-                all_imports.insert(format!("{mpkg}.{model_class}"));
+                model_imports.insert(format!("{mpkg}.{model_class}"));
             }
         }
+        all_imports.extend(override_imports.iter().cloned());
+        all_imports.extend(model_imports.iter().cloned());
         for imp in &all_imports {
             writeln!(src, "import {imp};")?;
         }
@@ -118,7 +120,13 @@ pub(super) fn generate_core_files(
 
         let mut src = String::new();
         emit_package(&mut src, &qpkg, ";");
-        let ctx = QuerierContext { class_name: &class_name, querier_name: &querier_name, override_imports: &override_imports, extra_fields: &extra_fields };
+        let ctx = QuerierContext {
+            class_name: &class_name,
+            querier_name: &querier_name,
+            override_imports: &override_imports,
+            model_imports: &model_imports,
+            extra_fields: &extra_fields,
+        };
         emit_java_querier(&mut src, &group_queries, schema, &ctx, contract, type_map)?;
         let path = record_path(&config.out, &qpkg, &querier_name);
         files.push(GeneratedFile { path, content: src });
@@ -299,7 +307,7 @@ fn emit_java_querier(
     let has_one = queries.iter().any(|q| q.cmd == QueryCmd::One);
     let has_many = queries.iter().any(|q| q.cmd == QueryCmd::Many);
 
-    // Emit all imports: standard JDBC + any type-override imports, sorted.
+    // Emit all imports: standard JDBC + model imports + any type-override imports, sorted.
     let mut all_imports: BTreeSet<String> = ["java.sql.Connection", "java.sql.SQLException", "javax.sql.DataSource"].iter().map(|s| s.to_string()).collect();
     if has_many {
         all_imports.insert("java.util.List".to_string());
@@ -308,6 +316,7 @@ fn emit_java_querier(
         all_imports.insert("java.util.Optional".to_string());
     }
     all_imports.extend(ctx.override_imports.iter().cloned());
+    all_imports.extend(ctx.model_imports.iter().cloned());
     for imp in &all_imports {
         writeln!(src, "import {imp};")?;
     }

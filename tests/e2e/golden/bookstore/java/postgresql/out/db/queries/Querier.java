@@ -1,5 +1,9 @@
 package db.queries;
 
+import db.models.Author;
+import db.models.Book;
+import db.models.BookSummaries;
+import db.models.Product;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.List;

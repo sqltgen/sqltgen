@@ -2,11 +2,6 @@ package com.example.db.queries
 
 import java.sql.Connection
 import com.example.db.models.Author
-import com.example.db.models.Author
-import com.example.db.models.Book
-import com.example.db.models.Book
-import com.example.db.models.Book
-import com.example.db.models.Book
 import com.example.db.models.Book
 
 object Queries {
