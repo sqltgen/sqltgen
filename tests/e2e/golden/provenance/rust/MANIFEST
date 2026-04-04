@@ -1,4 +1,6 @@
-out/_sqltgen.rs
 out/mod.rs
-out/queries.rs
-out/users.rs
+out/models/mod.rs
+out/models/users.rs
+out/queries/mod.rs
+out/queries/queries.rs
+out/sqltgen.rs

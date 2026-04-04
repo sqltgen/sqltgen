@@ -1,7 +1,9 @@
-out/_sqltgen.rs
-out/author.rs
-out/book.rs
-out/book_summaries.rs
 out/mod.rs
-out/queries.rs
-out/sci_fi_books.rs
+out/models/author.rs
+out/models/book.rs
+out/models/book_summaries.rs
+out/models/mod.rs
+out/models/sci_fi_books.rs
+out/queries/mod.rs
+out/queries/queries.rs
+out/sqltgen.rs

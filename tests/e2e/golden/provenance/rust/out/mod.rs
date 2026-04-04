@@ -1,5 +1,5 @@
 #![allow(dead_code)]
 
-pub mod _sqltgen;
-pub mod users;
+pub mod sqltgen;
+pub mod models;
 pub mod queries;
