@@ -85,7 +85,9 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | One file per table | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Nullable fields | ✅ | ✅ | ✅ `Option<T>` | ✅ `*T` / `sql.NullX` | ✅ `T \| None` | ✅ `T \| null` | ✅ `T \| null` |
 | Array fields | ✅ `List<T>` | ✅ `List<T>` | ✅ `Vec<T>` | ✅ `pq.Array` / `[]T` | ✅ `list[T]` | ✅ `T[]` | ✅ `T[]` |
-| Package / namespace / module | ✅ | ✅ | ✅ `mod.rs` generated | ✅ `mod.go` generated | ✅ `__init__.py` generated | ✅ `index.ts` barrel | ✅ `index.js` barrel |
+| Package / namespace / module | ✅ `.models` + `.queries` subpackages | ✅ `.models` + `.queries` subpackages | ✅ `mod.rs` at root; `models/mod.rs` + `queries/mod.rs` | ✅ `models/models.go` + `queries/queries_{group}.go` | ✅ `models/__init__.py` + `queries/__init__.py` | ✅ `models/index.ts` + `queries/index.ts` barrel | ✅ `models/index.js` + `queries/index.js` barrel |
+| Output subdirectory layout (models/ + queries/) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Helper file (`sqltgen.*` at output root, no `_` prefix) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Enum types (aliased string / sealed class) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | JSON serialization tags / annotations | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Struct embedding (nested row types) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |

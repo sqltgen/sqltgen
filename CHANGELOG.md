@@ -10,6 +10,16 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
 
 ## [Unreleased]
 
+### Breaking Changes
+- **Output layout restructured** (all backends): model files are now emitted under
+  `{out}/models/`, query files under `{out}/queries/`, and the shared helper is
+  renamed from `_sqltgen.*` to `sqltgen.*`. Barrel/index/mod files at the output
+  root re-export from both subdirectories. Java and Kotlin emit models in a
+  `{package}.models` subpackage and queries in `{package}.queries` subpackage.
+  Go consolidates all table structs into a single `models.go` and names query
+  files `queries_{group}.go`. This eliminates a silent file overwrite that
+  occurred when a table name matched a query group name.
+
 ### Changed
 - **Pre-resolved type map refactor (all backends)** — each backend now builds a
   `<Lang>TypeMap` once before codegen, with all override, preset, and default
