@@ -1,6 +1,6 @@
-use super::_sqltgen::DbPool;
+use super::super::sqltgen::DbPool;
 
-use super::event::Event;
+use super::super::models::event::Event;
 
 #[derive(Debug, sqlx::FromRow)]
 pub struct FindByDateRow {

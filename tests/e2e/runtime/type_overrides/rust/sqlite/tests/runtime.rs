@@ -5,7 +5,7 @@
 ///  - DATETIME columns map to `time::PrimitiveDateTime`.
 ///  - DATE / TIME columns use the `time` crate via sqlx's SQLite driver.
 ///  - doc_id (UUID stored as TEXT) is a plain `String`.
-use e2e_type_overrides_rust_sqlite::db::queries;
+use e2e_type_overrides_rust_sqlite::db::queries::queries;
 use serde_json::json;
 use sqlx::SqlitePool;
 use time::macros::{date, time as t};

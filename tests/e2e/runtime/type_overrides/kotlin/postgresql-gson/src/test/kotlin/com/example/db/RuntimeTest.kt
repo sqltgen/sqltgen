@@ -1,5 +1,7 @@
 package com.example.db
 
+import com.example.db.queries.Queries
+
 import com.google.gson.JsonElement
 import com.google.gson.JsonParser
 import org.junit.jupiter.api.AfterEach

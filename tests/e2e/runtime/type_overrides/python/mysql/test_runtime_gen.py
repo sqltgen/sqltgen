@@ -12,7 +12,7 @@ import uuid
 import mysql.connector
 import pytest
 
-from gen import queries
+from gen.queries import queries
 
 _FIXTURES = pathlib.Path(__file__).parent / "../../../../fixtures/type_overrides/mysql"
 _DB_HOST = os.environ.get("MYSQL_HOST", "127.0.0.1")

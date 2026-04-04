@@ -13,7 +13,7 @@ import uuid
 import psycopg
 import pytest
 
-from gen import queries
+from gen.queries import queries
 
 _FIXTURES = pathlib.Path(__file__).parent / "../../../../fixtures/type_overrides"
 _DB_URL = os.environ.get(
