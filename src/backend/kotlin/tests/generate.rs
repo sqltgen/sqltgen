@@ -18,9 +18,18 @@ fn test_generate_package_declaration() {
     let schema = Schema::with_tables(vec![user_table()]);
     let files = pg().generate(&schema, &[], &cfg_pkg()).unwrap();
     let src = get_file(&files, "User.kt");
-    // Kotlin package has no semicolon
-    assert!(src.contains("package com.example.db\n"));
-    assert!(!src.contains("package com.example.db;"));
+    // Kotlin package has no semicolon; models go into the .models subpackage
+    assert!(src.contains("package com.example.db.models\n"));
+    assert!(!src.contains("package com.example.db.models;"));
+}
+
+#[test]
+fn test_generate_queries_package_declaration() {
+    let schema = Schema::default();
+    let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
+    let files = pg().generate(&schema, &[query], &cfg_pkg()).unwrap();
+    let src = get_file(&files, "Queries.kt");
+    assert!(src.contains("package com.example.db.queries\n"));
 }
 
 #[test]
