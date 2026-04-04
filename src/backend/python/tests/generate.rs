@@ -28,9 +28,11 @@ fn test_generate_init_file_exports_tables_and_queries() {
         ],
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
-    let src = get_file(&files, "__init__.py");
-    assert!(src.contains("from .user import User"));
-    assert!(src.contains("from . import queries"));
+    let root_init = get_file_by_path(&files, "out/__init__.py");
+    assert!(root_init.contains("from . import models"));
+    assert!(root_init.contains("from . import queries"));
+    let models_init = get_file_by_path(&files, "models/__init__.py");
+    assert!(models_init.contains("from .user import User"));
 }
 
 // ─── generate: driver import ────────────────────────────────────────────
@@ -58,7 +60,7 @@ fn test_generate_sqlite_imports_sqlite3() {
 #[test]
 fn test_generate_postgres_emits_cursor_helper_module() {
     let files = pg().generate(&Schema::default(), &[], &cfg()).unwrap();
-    let src = get_file(&files, "_sqltgen.py");
+    let src = get_file(&files, "sqltgen.py");
     assert!(src.contains("with conn.cursor() as cur:"));
     assert!(!src.contains("yield conn.execute(sql, params)"));
 }
@@ -66,7 +68,7 @@ fn test_generate_postgres_emits_cursor_helper_module() {
 #[test]
 fn test_generate_sqlite_emits_sqlite_helper_module() {
     let files = sq().generate(&Schema::default(), &[], &cfg()).unwrap();
-    let src = get_file(&files, "_sqltgen.py");
+    let src = get_file(&files, "sqltgen.py");
     assert!(src.contains("yield conn.execute(sql, params)"));
     assert!(!src.contains("with conn.cursor() as cur:"));
 }

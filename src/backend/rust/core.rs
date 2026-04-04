@@ -32,7 +32,7 @@ pub(super) fn generate_core_files(
         }
         writeln!(src, "}}")?;
 
-        let path = PathBuf::from(&config.out).join(format!("{}.rs", table.name));
+        let path = PathBuf::from(&config.out).join("models").join(format!("{}.rs", table.name));
         files.push(GeneratedFile { path, content: src });
     }
 
@@ -45,7 +45,7 @@ pub(super) fn generate_core_files(
         group_stems.push(stem.clone());
 
         let mut src = String::new();
-        writeln!(src, "use super::_sqltgen::DbPool;")?;
+        writeln!(src, "use super::super::sqltgen::DbPool;")?;
         writeln!(src)?;
 
         // Import only table structs that are actually used as return types
@@ -53,7 +53,7 @@ pub(super) fn generate_core_files(
         let mut needed_sorted: Vec<&str> = needed.iter().copied().collect();
         needed_sorted.sort();
         for name in &needed_sorted {
-            writeln!(src, "use super::{}::{};", name, to_pascal_case(name))?;
+            writeln!(src, "use super::super::models::{}::{};", name, to_pascal_case(name))?;
         }
         if !needed.is_empty() {
             writeln!(src)?;
@@ -80,23 +80,43 @@ pub(super) fn generate_core_files(
             emit_rust_querier(&mut src, group, group_queries, schema, "DbPool", type_map)?;
         }
 
-        let path = PathBuf::from(&config.out).join(format!("{stem}.rs"));
+        let path = PathBuf::from(&config.out).join("queries").join(format!("{stem}.rs"));
         files.push(GeneratedFile { path, content: src });
     }
 
-    // mod.rs
+    // Root mod.rs
     {
         let mut src = String::new();
         writeln!(src, "#![allow(dead_code)]")?;
         writeln!(src)?;
-        writeln!(src, "pub mod _sqltgen;")?;
+        writeln!(src, "pub mod sqltgen;")?;
+        if !schema.tables.is_empty() {
+            writeln!(src, "pub mod models;")?;
+        }
+        if !group_stems.is_empty() {
+            writeln!(src, "pub mod queries;")?;
+        }
+        let path = PathBuf::from(&config.out).join("mod.rs");
+        files.push(GeneratedFile { path, content: src });
+    }
+
+    // models/mod.rs
+    if !schema.tables.is_empty() {
+        let mut src = String::new();
         for table in &schema.tables {
             writeln!(src, "pub mod {};", table.name)?;
         }
+        let path = PathBuf::from(&config.out).join("models").join("mod.rs");
+        files.push(GeneratedFile { path, content: src });
+    }
+
+    // queries/mod.rs
+    if !group_stems.is_empty() {
+        let mut src = String::new();
         for stem in &group_stems {
             writeln!(src, "pub mod {stem};")?;
         }
-        let path = PathBuf::from(&config.out).join("mod.rs");
+        let path = PathBuf::from(&config.out).join("queries").join("mod.rs");
         files.push(GeneratedFile { path, content: src });
     }
 

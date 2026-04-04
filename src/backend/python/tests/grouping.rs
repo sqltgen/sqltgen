@@ -41,7 +41,9 @@ fn test_generate_grouped_init_imports_all_groups() {
     let mut posts_q = Query::exec("delete_post", "DELETE FROM posts WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     posts_q.group = "posts".to_string();
     let files = pg().generate(&schema, &[users_q, posts_q], &cfg()).unwrap();
-    let init_src = get_file(&files, "__init__.py");
-    assert!(init_src.contains("from . import users"), "__init__.py must import users");
-    assert!(init_src.contains("from . import posts"), "__init__.py must import posts");
+    let root_init = get_file_by_path(&files, "out/__init__.py");
+    assert!(root_init.contains("from . import queries"), "__init__.py must import queries");
+    let queries_init = get_file_by_path(&files, "queries/__init__.py");
+    assert!(queries_init.contains("from . import users"), "queries/__init__.py must import users");
+    assert!(queries_init.contains("from . import posts"), "queries/__init__.py must import posts");
 }

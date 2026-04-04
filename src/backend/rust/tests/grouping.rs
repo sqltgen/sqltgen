@@ -41,7 +41,7 @@ fn test_generate_grouped_mod_lists_all_groups() {
     let mut posts_q = Query::exec("delete_post", "DELETE FROM posts WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     posts_q.group = "posts".to_string();
     let files = pg().generate(&schema, &[users_q, posts_q], &cfg()).unwrap();
-    let mod_src = get_file(&files, "mod.rs");
-    assert!(mod_src.contains("pub mod users"), "mod.rs must declare pub mod users");
-    assert!(mod_src.contains("pub mod posts"), "mod.rs must declare pub mod posts");
+    let mod_src = get_file_by_path(&files, "queries/mod.rs");
+    assert!(mod_src.contains("pub mod users"), "queries/mod.rs must declare pub mod users");
+    assert!(mod_src.contains("pub mod posts"), "queries/mod.rs must declare pub mod posts");
 }

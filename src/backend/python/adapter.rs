@@ -123,5 +123,5 @@ pub(super) fn resolve_python_contract(target: &PythonTarget) -> PythonCoreContra
 
 /// Emit the engine-specific helper module selected by the contract.
 pub(super) fn emit_helper_file(contract: &PythonCoreContract, config: &OutputConfig) -> GeneratedFile {
-    GeneratedFile { path: PathBuf::from(&config.out).join("_sqltgen.py"), content: contract.helper_source.to_string() }
+    GeneratedFile { path: PathBuf::from(&config.out).join("sqltgen.py"), content: contract.helper_source.to_string() }
 }
