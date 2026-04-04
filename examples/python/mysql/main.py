@@ -6,7 +6,7 @@ from pathlib import Path
 import mysql.connector
 import pymysql
 
-from gen import queries
+from gen.queries import queries
 
 _HOST      = os.environ.get("MYSQL_HOST",     "127.0.0.1")
 _PORT      = int(os.environ.get("MYSQL_PORT", "3307"))

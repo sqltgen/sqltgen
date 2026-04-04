@@ -1,6 +1,6 @@
 package com.example;
 
-import com.example.db.Querier;
+import com.example.db.queries.Querier;
 
 import java.nio.file.Files;
 import java.nio.file.Path;

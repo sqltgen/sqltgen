@@ -1,6 +1,6 @@
 mod db;
 
-use db::queries as q;
+use db::queries::queries as q;
 
 const M1: &str = include_str!("../../../common/sqlite/migrations/001_authors.sql");
 const M2: &str = include_str!("../../../common/sqlite/migrations/002_books.sql");

@@ -1,6 +1,6 @@
 mod db;
 
-use db::queries as q;
+use db::queries::queries as q;
 use rust_decimal::Decimal;
 
 fn d(s: &str) -> Decimal {

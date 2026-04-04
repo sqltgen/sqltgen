@@ -4,7 +4,7 @@ import { fileURLToPath } from 'url';
 
 import Database from 'better-sqlite3';
 
-import * as queries from './gen/queries.js';
+import * as queries from './gen/queries/index.js';
 
 const MIGRATIONS_DIR = path.join(
   path.dirname(fileURLToPath(import.meta.url)),

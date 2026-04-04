@@ -4,7 +4,7 @@ import * as path from 'path';
 
 import mysql from 'mysql2/promise';
 
-import * as queries from './gen/queries.js';
+import * as queries from './gen/queries/index.js';
 
 const HOST      = process.env['MYSQL_HOST']     ?? '127.0.0.1';
 const PORT      = parseInt(process.env['MYSQL_PORT'] ?? '3307', 10);

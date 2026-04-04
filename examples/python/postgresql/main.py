@@ -5,7 +5,7 @@ from pathlib import Path
 
 import psycopg
 
-from gen import queries
+from gen.queries import queries
 
 _HOST = "localhost"
 _PORT = 5433
