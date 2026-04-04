@@ -1,7 +1,4 @@
-out/author.go
-out/book.go
-out/book_summaries.go
 out/mod.go
+out/models.go
 out/queries.go
-out/sci_fi_books.go
 out/sqltgen.go

@@ -13,6 +13,7 @@ import java.sql.Statement;
 import java.time.*;
 import java.util.List;
 import java.util.UUID;
+import com.example.db.queries.Queries;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

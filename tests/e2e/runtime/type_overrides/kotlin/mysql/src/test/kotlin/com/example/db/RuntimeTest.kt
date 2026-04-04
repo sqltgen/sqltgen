@@ -1,5 +1,7 @@
 package com.example.db
 
+import com.example.db.queries.Queries
+
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import org.junit.jupiter.api.AfterEach

@@ -6,7 +6,7 @@
 ///
 /// Each test creates an isolated MySQL database for isolation.
 /// Requires the docker-compose MySQL service on port 13306.
-use e2e_type_overrides_rust_mysql::db::queries;
+use e2e_type_overrides_rust_mysql::db::queries::queries;
 use serde_json::json;
 use sqlx::mysql::MySqlPoolOptions;
 use sqlx::MySqlPool;

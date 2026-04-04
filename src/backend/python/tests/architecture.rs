@@ -11,7 +11,7 @@ fn test_generate_queries_module_uses_only_helper_db_api() {
         my().generate(&schema, std::slice::from_ref(&query), &cfg()).unwrap(),
     ] {
         let src = get_file(&files, "queries.py");
-        assert!(src.contains("from ._sqltgen import execute, exec_stmt"));
+        assert!(src.contains("from ..sqltgen import execute, exec_stmt"));
         assert!(!src.contains("with conn.cursor() as cur:"));
         assert!(!src.contains("conn.execute("));
     }

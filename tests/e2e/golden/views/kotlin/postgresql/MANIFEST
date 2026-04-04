@@ -1,6 +1,6 @@
-out/db/Author.kt
-out/db/Book.kt
-out/db/BookSummaries.kt
-out/db/Querier.kt
-out/db/Queries.kt
-out/db/SciFiBooks.kt
+out/db/models/Author.kt
+out/db/models/Book.kt
+out/db/models/BookSummaries.kt
+out/db/models/SciFiBooks.kt
+out/db/queries/Querier.kt
+out/db/queries/Queries.kt

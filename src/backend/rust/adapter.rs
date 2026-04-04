@@ -71,7 +71,7 @@ pub(super) fn resolve_rust_contract(target: &RustTarget) -> RustCoreContract {
 
 /// Emit the engine-specific helper module selected by the contract.
 pub(super) fn emit_helper_file(contract: &RustCoreContract, config: &OutputConfig) -> GeneratedFile {
-    GeneratedFile { path: PathBuf::from(&config.out).join("_sqltgen.rs"), content: contract.helper_source.clone() }
+    GeneratedFile { path: PathBuf::from(&config.out).join("sqltgen.rs"), content: contract.helper_source.clone() }
 }
 
 fn build_helper_file(pool_type: &str) -> String {

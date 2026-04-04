@@ -10,7 +10,7 @@
 mod chrono_db_crate;
 
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
-use chrono_db_crate::db::queries;
+use chrono_db_crate::db::queries::queries;
 use serde_json::json;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;

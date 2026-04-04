@@ -1,7 +1,9 @@
-out/_sqltgen.ts
-out/author.ts
-out/book.ts
-out/book_summaries.ts
 out/index.ts
-out/queries.ts
-out/sci_fi_books.ts
+out/models/author.ts
+out/models/book.ts
+out/models/book_summaries.ts
+out/models/index.ts
+out/models/sci_fi_books.ts
+out/queries/index.ts
+out/queries/queries.ts
+out/sqltgen.ts

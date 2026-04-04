@@ -1,4 +1,4 @@
-use e2e_rust_postgresql::db::queries;
+use e2e_rust_postgresql::db::queries::queries;
 use rust_decimal::Decimal;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;

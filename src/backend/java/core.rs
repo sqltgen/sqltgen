@@ -2,7 +2,9 @@ use std::collections::BTreeSet;
 use std::fmt::Write;
 use std::path::PathBuf;
 
-use crate::backend::common::{emit_package, group_queries, has_inline_rows, pg_array_type_name, querier_class_name, queries_class_name, row_type_name};
+use crate::backend::common::{
+    emit_package, group_queries, has_inline_rows, infer_table, pg_array_type_name, querier_class_name, queries_class_name, row_type_name,
+};
 use crate::backend::jdbc::{
     self, emit_dynamic_binds, emit_jdbc_binds, prepare_dynamic_sql_parts, prepare_sql_const, prepare_sql_const_from, ListAction, QuerierContext,
 };
@@ -37,7 +39,8 @@ pub(super) fn generate_core_files(
     for table in &schema.tables {
         let class_name = to_pascal_case(&table.name);
         let mut src = String::new();
-        emit_package(&mut src, &config.package, ";");
+        let mpkg = models_package(&config.package);
+        emit_package(&mut src, &mpkg, ";");
         let table_imports = type_map.table_imports(table);
         for imp in &table_imports {
             writeln!(src, "import {imp};")?;
@@ -51,7 +54,7 @@ pub(super) fn generate_core_files(
         writeln!(src, "{}", params.join(",\n"))?;
         writeln!(src, ") {{}}")?;
 
-        let path = record_path(&config.out, &config.package, &class_name);
+        let path = record_path(&config.out, &mpkg, &class_name);
         files.push(GeneratedFile { path, content: src });
     }
 
@@ -63,8 +66,10 @@ pub(super) fn generate_core_files(
 
         let (override_imports, extra_fields) = type_map.query_metadata(&group_queries);
 
+        let qpkg = queries_package(&config.package);
+        let mpkg = models_package(&config.package);
         let mut src = String::new();
-        emit_package(&mut src, &config.package, ";");
+        emit_package(&mut src, &qpkg, ";");
         // Standard JDBC imports + any override-specific imports, all sorted
         let mut all_imports: BTreeSet<String> = [
             "java.sql.Connection",
@@ -78,7 +83,15 @@ pub(super) fn generate_core_files(
         .iter()
         .map(|s| s.to_string())
         .collect();
+        let mut model_imports: BTreeSet<String> = BTreeSet::new();
+        for query in &group_queries {
+            if let Some(table_name) = infer_table(query, schema) {
+                let model_class = to_pascal_case(table_name);
+                model_imports.insert(format!("{mpkg}.{model_class}"));
+            }
+        }
         all_imports.extend(override_imports.iter().cloned());
+        all_imports.extend(model_imports.iter().cloned());
         for imp in &all_imports {
             writeln!(src, "import {imp};")?;
         }
@@ -102,14 +115,20 @@ pub(super) fn generate_core_files(
         emit_nullable_primitive_helpers(&mut src)?;
         writeln!(src, "}}")?;
 
-        let path = record_path(&config.out, &config.package, &class_name);
+        let path = record_path(&config.out, &qpkg, &class_name);
         files.push(GeneratedFile { path, content: src });
 
         let mut src = String::new();
-        emit_package(&mut src, &config.package, ";");
-        let ctx = QuerierContext { class_name: &class_name, querier_name: &querier_name, override_imports: &override_imports, extra_fields: &extra_fields };
+        emit_package(&mut src, &qpkg, ";");
+        let ctx = QuerierContext {
+            class_name: &class_name,
+            querier_name: &querier_name,
+            override_imports: &override_imports,
+            model_imports: &model_imports,
+            extra_fields: &extra_fields,
+        };
         emit_java_querier(&mut src, &group_queries, schema, &ctx, contract, type_map)?;
-        let path = record_path(&config.out, &config.package, &querier_name);
+        let path = record_path(&config.out, &qpkg, &querier_name);
         files.push(GeneratedFile { path, content: src });
     }
 
@@ -288,7 +307,7 @@ fn emit_java_querier(
     let has_one = queries.iter().any(|q| q.cmd == QueryCmd::One);
     let has_many = queries.iter().any(|q| q.cmd == QueryCmd::Many);
 
-    // Emit all imports: standard JDBC + any type-override imports, sorted.
+    // Emit all imports: standard JDBC + model imports + any type-override imports, sorted.
     let mut all_imports: BTreeSet<String> = ["java.sql.Connection", "java.sql.SQLException", "javax.sql.DataSource"].iter().map(|s| s.to_string()).collect();
     if has_many {
         all_imports.insert("java.util.List".to_string());
@@ -297,6 +316,7 @@ fn emit_java_querier(
         all_imports.insert("java.util.Optional".to_string());
     }
     all_imports.extend(ctx.override_imports.iter().cloned());
+    all_imports.extend(ctx.model_imports.iter().cloned());
     for imp in &all_imports {
         writeln!(src, "import {imp};")?;
     }
@@ -402,4 +422,20 @@ fn emit_nullable_primitive_helpers(src: &mut String) -> anyhow::Result<()> {
 fn record_path(out: &str, package: &str, class_name: &str) -> PathBuf {
     let pkg_path = package.replace('.', "/");
     PathBuf::from(out).join(pkg_path).join(format!("{class_name}.java"))
+}
+
+fn models_package(base: &str) -> String {
+    if base.is_empty() {
+        "models".to_string()
+    } else {
+        format!("{base}.models")
+    }
+}
+
+fn queries_package(base: &str) -> String {
+    if base.is_empty() {
+        "queries".to_string()
+    } else {
+        format!("{base}.queries")
+    }
 }

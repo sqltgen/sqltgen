@@ -1,6 +1,6 @@
 package com.example
 
-import com.example.db.Querier
+import com.example.db.queries.Querier
 import java.math.BigDecimal
 import com.mysql.cj.jdbc.MysqlDataSource
 

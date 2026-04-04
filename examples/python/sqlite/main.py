@@ -2,7 +2,7 @@ import decimal
 import pathlib
 import sqlite3
 
-from gen import queries
+from gen.queries import queries
 
 
 def apply_migrations(conn: sqlite3.Connection) -> None:

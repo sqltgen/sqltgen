@@ -1,4 +1,4 @@
-use e2e_rust_sqlite::db::queries;
+use e2e_rust_sqlite::db::queries::queries;
 use sqlx::SqlitePool;
 use time;
 

@@ -1,6 +1,6 @@
-out/db/Author.java
-out/db/Book.java
-out/db/BookSummaries.java
-out/db/Querier.java
-out/db/Queries.java
-out/db/SciFiBooks.java
+out/db/models/Author.java
+out/db/models/Book.java
+out/db/models/BookSummaries.java
+out/db/models/SciFiBooks.java
+out/db/queries/Querier.java
+out/db/queries/Queries.java

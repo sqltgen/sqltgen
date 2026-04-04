@@ -6,7 +6,7 @@ use super::*;
 fn test_generate_table_struct() {
     let schema = Schema::with_tables(vec![user_table()]);
     let files = pg().generate(&schema, &[], &cfg()).unwrap();
-    let src = get_file(&files, "user.go");
+    let src = get_file(&files, "models.go");
     assert!(src.contains("type User struct {"));
     assert!(src.contains("Id\tint64"));
     assert!(src.contains("Name\tstring"));

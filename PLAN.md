@@ -123,6 +123,7 @@ sqltgen aims for excellent JSON support across all backends. Current state and g
 
 1. ~~**Go backend** — generate structs + `database/sql` functions~~ ✅
 2. ~~**Two-layer backend architecture rollout** — all non-stub backends (Java, Kotlin, Rust, Python, TypeScript/JavaScript) now follow the compile-time adapter + engine-agnostic core pattern~~ ✅
+3. ~~**Output layout restructured** — model files emitted under `{out}/models/`, query files under `{out}/queries/`, helper renamed from `_sqltgen.*` to `sqltgen.*`; eliminates silent file overwrite when a table name matches a query group name~~ ✅
 
 ### Medium priority
 

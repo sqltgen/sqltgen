@@ -1,7 +1,9 @@
-out/_sqltgen.js
-out/author.js
-out/book.js
-out/book_summaries.js
 out/index.js
-out/queries.js
-out/sci_fi_books.js
+out/models/author.js
+out/models/book.js
+out/models/book_summaries.js
+out/models/index.js
+out/models/sci_fi_books.js
+out/queries/index.js
+out/queries/queries.js
+out/sqltgen.js

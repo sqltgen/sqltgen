@@ -62,7 +62,7 @@ pub(super) fn resolve_ts_contract(target: JsTarget, output: JsOutput) -> TsCoreC
 }
 
 pub(super) fn emit_helper_file(contract: &TsCoreContract, config: &OutputConfig, ext: &str) -> GeneratedFile {
-    GeneratedFile { path: PathBuf::from(&config.out).join(format!("_sqltgen.{ext}")), content: contract.helper_content.clone() }
+    GeneratedFile { path: PathBuf::from(&config.out).join(format!("sqltgen.{ext}")), content: contract.helper_content.clone() }
 }
 
 fn build_helper_file(target: JsTarget, output: JsOutput) -> String {

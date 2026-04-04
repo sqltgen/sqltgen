@@ -1,7 +1,9 @@
 out/__init__.py
-out/_sqltgen.py
-out/author.py
-out/book.py
-out/book_summaries.py
-out/queries.py
-out/sci_fi_books.py
+out/models/__init__.py
+out/models/author.py
+out/models/book.py
+out/models/book_summaries.py
+out/models/sci_fi_books.py
+out/queries/__init__.py
+out/queries/queries.py
+out/sqltgen.py

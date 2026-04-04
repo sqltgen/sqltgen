@@ -4,7 +4,7 @@ import * as path from 'path';
 
 import pg from 'pg';
 
-import * as queries from './gen/queries.js';
+import * as queries from './gen/queries/index.js';
 
 // Parse BIGINT (OID 20) and BIGSERIAL as JS numbers rather than strings.
 pg.types.setTypeParser(20, (val) => parseInt(val, 10));

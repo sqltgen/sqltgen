@@ -1,9 +1,4 @@
-out/author.go
-out/book.go
-out/customer.go
 out/mod.go
-out/product.go
+out/models.go
 out/queries.go
-out/sale.go
-out/sale_item.go
 out/sqltgen.go

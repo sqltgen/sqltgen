@@ -1,4 +1,4 @@
-use e2e_rust_mysql::db::queries;
+use e2e_rust_mysql::db::queries::queries;
 use rust_decimal::Decimal;
 use sqlx::mysql::MySqlPoolOptions;
 use sqlx::MySqlPool;

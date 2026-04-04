@@ -2,7 +2,7 @@
 ///
 /// Each test creates an isolated PostgreSQL schema so tests can run in parallel.
 /// Requires the docker-compose postgres service on port 15432.
-use e2e_type_overrides_rust_postgresql::db::queries;
+use e2e_type_overrides_rust_postgresql::db::queries::queries;
 use serde_json::json;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;

@@ -28,10 +28,14 @@ fn test_generate_mod_file() {
         ],
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
-    let src = get_file(&files, "mod.rs");
-    assert!(src.contains("pub mod _sqltgen;"));
-    assert!(src.contains("pub mod user;"));
-    assert!(src.contains("pub mod queries;"));
+    let root = get_file_by_path(&files, "mod.rs");
+    assert!(root.contains("pub mod sqltgen;"));
+    assert!(root.contains("pub mod models;"));
+    assert!(root.contains("pub mod queries;"));
+    let models_mod = get_file_by_path(&files, "models/mod.rs");
+    assert!(models_mod.contains("pub mod user;"));
+    let queries_mod = get_file_by_path(&files, "queries/mod.rs");
+    assert!(queries_mod.contains("pub mod queries;"));
 }
 
 // ─── generate: pool type ────────────────────────────────────────────────
@@ -41,9 +45,9 @@ fn test_generate_postgres_uses_pg_pool() {
     let schema = Schema::default();
     let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
-    let helper = get_file(&files, "_sqltgen.rs");
+    let helper = get_file(&files, "sqltgen.rs");
     let src = get_file(&files, "queries.rs");
-    assert!(src.contains("use super::_sqltgen::DbPool;"));
+    assert!(src.contains("use super::super::sqltgen::DbPool;"));
     assert!(helper.contains("pub type DbPool = sqlx::PgPool;"));
     assert!(src.contains("pool: &DbPool"));
 }
@@ -53,9 +57,9 @@ fn test_generate_sqlite_uses_sqlite_pool() {
     let schema = Schema::default();
     let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = ?1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
-    let helper = get_file(&files, "_sqltgen.rs");
+    let helper = get_file(&files, "sqltgen.rs");
     let src = get_file(&files, "queries.rs");
-    assert!(src.contains("use super::_sqltgen::DbPool;"));
+    assert!(src.contains("use super::super::sqltgen::DbPool;"));
     assert!(helper.contains("pub type DbPool = sqlx::SqlitePool;"));
     assert!(src.contains("pool: &DbPool"));
 }
@@ -145,9 +149,9 @@ fn test_generate_mysql_exec_query() {
     let schema = Schema::default();
     let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = mysql().generate(&schema, &[query], &cfg()).unwrap();
-    let helper = get_file(&files, "_sqltgen.rs");
+    let helper = get_file(&files, "sqltgen.rs");
     let src = get_file(&files, "queries.rs");
-    assert!(src.contains("use super::_sqltgen::DbPool;"));
+    assert!(src.contains("use super::super::sqltgen::DbPool;"));
     assert!(helper.contains("pub type DbPool = sqlx::MySqlPool;"));
     // MySQL rewrites $1 → ? (JDBC style); SQL is in a raw string binding
     assert!(src.contains("DELETE FROM user WHERE id = ?"));
@@ -168,9 +172,9 @@ fn test_generate_sqlite_one_query() {
         ],
     );
     let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
-    let helper = get_file(&files, "_sqltgen.rs");
+    let helper = get_file(&files, "sqltgen.rs");
     let src = get_file(&files, "queries.rs");
-    assert!(src.contains("use super::_sqltgen::DbPool;"));
+    assert!(src.contains("use super::super::sqltgen::DbPool;"));
     assert!(helper.contains("pub type DbPool = sqlx::SqlitePool;"), "SQLite helper aliases SqlitePool");
     assert!(src.contains("Result<Option<User>, sqlx::Error>"), "One returns Option");
     assert!(src.contains(".fetch_optional(pool)"));

@@ -11,6 +11,10 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
 
+import com.example.db.models.Author;
+import com.example.db.models.Book;
+import com.example.db.queries.Queries;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

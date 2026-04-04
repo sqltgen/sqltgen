@@ -1,5 +1,5 @@
 use super::*;
-use crate::backend::test_helpers::{cfg, get_file, user_summary_view, user_table};
+use crate::backend::test_helpers::{cfg, get_file, get_file_by_path, user_summary_view, user_table};
 use crate::config::OutputConfig;
 use crate::ir::{Column, NativeListBind, Parameter, Query, ResultColumn, Schema, SqlType, Table};
 
