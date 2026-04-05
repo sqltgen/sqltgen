@@ -32,7 +32,7 @@ SQLTGEN := ./target/debug/sqltgen
        e2e-runtime-type-overrides-go-mysql \
        e2e-db-up e2e-db-down \
        e2e-testgen-setup e2e-testgen-generate e2e-testgen-generate-python \
-       ci-fmt ci-clippy ci-test ci-check-suite ci-examples-drift ci-testgen-mypy ci-testgen-drift ci-runtime-sqlite ci-runtime-db
+       ci-fmt ci-clippy ci-test ci-check-suite ci-examples-drift ci-testgen-mypy ci-testgen-drift ci-runtime-sqlite ci-runtime-postgresql ci-runtime-mysql ci-runtime-db
 
 all: build test
 
@@ -366,34 +366,39 @@ ci-runtime-sqlite: build
 	$(MAKE) e2e-runtime-type-overrides-kotlin-sqlite
 	$(MAKE) e2e-runtime-type-overrides-go-sqlite
 
-ci-runtime-db: build
-	pip install --quiet pytest "psycopg[binary]" mysql-connector-python
+ci-runtime-postgresql: build
+	pip install --quiet pytest "psycopg[binary]"
 	$(MAKE) e2e-runtime-rust-postgresql
-	$(MAKE) e2e-runtime-rust-mysql
 	$(MAKE) e2e-runtime-java-postgresql
-	$(MAKE) e2e-runtime-java-mysql
 	$(MAKE) e2e-runtime-kotlin-postgresql
-	$(MAKE) e2e-runtime-kotlin-mysql
 	$(MAKE) e2e-runtime-python-postgresql
-	$(MAKE) e2e-runtime-python-mysql
 	$(MAKE) e2e-runtime-typescript-postgresql
-	$(MAKE) e2e-runtime-typescript-mysql
 	$(MAKE) e2e-runtime-go-postgresql
-	$(MAKE) e2e-runtime-go-mysql
 	$(MAKE) e2e-runtime-type-overrides-rust-postgresql
-	$(MAKE) e2e-runtime-type-overrides-rust-mysql
 	$(MAKE) e2e-runtime-type-overrides-java-postgresql
 	$(MAKE) e2e-runtime-type-overrides-java-postgresql-gson
-	$(MAKE) e2e-runtime-type-overrides-java-mysql
 	$(MAKE) e2e-runtime-type-overrides-kotlin-postgresql
 	$(MAKE) e2e-runtime-type-overrides-kotlin-postgresql-gson
-	$(MAKE) e2e-runtime-type-overrides-kotlin-mysql
 	$(MAKE) e2e-runtime-type-overrides-python-postgresql
-	$(MAKE) e2e-runtime-type-overrides-python-mysql
 	$(MAKE) e2e-runtime-type-overrides-typescript-postgresql
-	$(MAKE) e2e-runtime-type-overrides-typescript-mysql
 	$(MAKE) e2e-runtime-type-overrides-go-postgresql
+
+ci-runtime-mysql: build
+	pip install --quiet pytest mysql-connector-python
+	$(MAKE) e2e-runtime-rust-mysql
+	$(MAKE) e2e-runtime-java-mysql
+	$(MAKE) e2e-runtime-kotlin-mysql
+	$(MAKE) e2e-runtime-python-mysql
+	$(MAKE) e2e-runtime-typescript-mysql
+	$(MAKE) e2e-runtime-go-mysql
+	$(MAKE) e2e-runtime-type-overrides-rust-mysql
+	$(MAKE) e2e-runtime-type-overrides-java-mysql
+	$(MAKE) e2e-runtime-type-overrides-kotlin-mysql
+	$(MAKE) e2e-runtime-type-overrides-python-mysql
+	$(MAKE) e2e-runtime-type-overrides-typescript-mysql
 	$(MAKE) e2e-runtime-type-overrides-go-mysql
+
+ci-runtime-db: ci-runtime-postgresql ci-runtime-mysql
 
 # ── PostgreSQL database ───────────────────────────────────────────────────────
 
