@@ -10,7 +10,8 @@ use crate::ir::SqlType;
 pub(crate) fn map(dt: &DataType) -> SqlType {
     // Dialect-specific arms first
     match dt {
-        // TINYINT is 1-byte signed; map to SmallInt (use BOOLEAN/BOOL for booleans)
+        // TINYINT(1) is MySQL's boolean convention; any other width is a small integer
+        DataType::TinyInt(Some(1)) => SqlType::Boolean,
         DataType::TinyInt(_) => SqlType::SmallInt,
 
         DataType::MediumInt(_) => SqlType::Integer,
@@ -80,6 +81,7 @@ mod tests {
         assert_eq!(map(&DataType::BigInt(None)), SqlType::BigInt);
         assert_eq!(map(&DataType::SmallInt(None)), SqlType::SmallInt);
         assert_eq!(map(&DataType::TinyInt(None)), SqlType::SmallInt);
+        assert_eq!(map(&DataType::TinyInt(Some(4))), SqlType::SmallInt);
         assert_eq!(map(&DataType::MediumInt(None)), SqlType::Integer);
     }
 
@@ -131,6 +133,7 @@ mod tests {
     fn boolean_type() {
         assert_eq!(map(&DataType::Boolean), SqlType::Boolean);
         assert_eq!(map(&DataType::Bool), SqlType::Boolean);
+        assert_eq!(map(&DataType::TinyInt(Some(1))), SqlType::Boolean);
     }
 
     #[test]

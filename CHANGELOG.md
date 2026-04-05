@@ -30,6 +30,11 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
   during migration (see Fixed below).
 
 ### Fixed
+- **MySQL: `TINYINT(1)` now maps to `Boolean`** — previously mapped to `SmallInt`
+  (same as any other `TINYINT`), producing `short`/`i16`/`bool` instead of
+  `boolean`/`Boolean`/`bool` in every backend. `TINYINT` without a display width,
+  or with width > 1, continues to map to `SmallInt`. `BOOL`/`BOOLEAN` were already
+  correct and are unchanged.
 - **Java: array column parameter type no longer double-wraps** — a `text[]`
   parameter was emitted as `List<java.util.List<String>>` instead of
   `java.util.List<String>` due to a bug in `java_param_type`. Fixed.
