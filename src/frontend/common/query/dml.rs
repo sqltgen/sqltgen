@@ -14,10 +14,10 @@ use sqlparser::ast::{
 use crate::frontend::common::{ident_to_str, obj_name_to_str};
 use crate::ir::{Query, Schema, SqlType, Table};
 
-use super::params::{collect_params_from_expr, collect_select_params, placeholder_idx_in_expr};
+use super::params::{collect_join_params_list, collect_params_from_expr, collect_select_params, placeholder_idx_in_expr};
 use super::{
-    build_alias_map, build_params, collect_cte_params, count_params, delete_table_name, insert_table_name, resolve_returning, unresolved_query,
-    QueryAnnotation, ResolverConfig, ResolverContext,
+    build_alias_map, build_params, collect_cte_params, collect_table_list, count_params, delete_table_name, insert_table_name, resolve_returning,
+    unresolved_query, update_from_tables, QueryAnnotation, ResolverConfig, ResolverContext,
 };
 
 // ─── RETURNING params ────────────────────────────────────────────────────────
@@ -192,7 +192,7 @@ pub(super) fn build_update(ann: &QueryAnnotation, sql: &str, u: &sqlparser::ast:
     };
 
     let mut mapping: HashMap<usize, (String, SqlType, bool)> = HashMap::new();
-    collect_update_params(&u.table, &u.assignments, u.selection.as_ref(), schema, config, &mut mapping, &ann.name);
+    collect_update_params(&u.table, &u.assignments, u.selection.as_ref(), update_from_tables(&u.from), schema, config, &mut mapping, &ann.name);
     if let Some(items) = u.returning.as_deref() {
         collect_returning_params(items, table, config, &mut mapping, &ann.name);
     }
@@ -216,7 +216,7 @@ pub(super) fn build_query_from_update(
     };
     let mut mapping = HashMap::new();
     collect_cte_params(q.with.as_ref(), schema, config, &mut mapping, &ann.name);
-    collect_update_params(&u.table, &u.assignments, u.selection.as_ref(), schema, config, &mut mapping, &ann.name);
+    collect_update_params(&u.table, &u.assignments, u.selection.as_ref(), update_from_tables(&u.from), schema, config, &mut mapping, &ann.name);
     if let Some(table) = schema.tables.iter().find(|t| t.name == table_name) {
         if let Some(items) = u.returning.as_deref() {
             collect_returning_params(items, table, config, &mut mapping, &ann.name);
@@ -232,13 +232,21 @@ pub(super) fn build_query_from_update(
     Query::new(ann.name.clone(), ann.cmd.clone(), sql, params, result_columns)
 }
 
-/// Collect typed parameter mappings from an UPDATE statement's SET and WHERE clauses.
+/// Collect typed parameter mappings from an UPDATE statement's SET, FROM, and WHERE clauses.
+///
+/// `from` is the `UPDATE … FROM` clause (`u.from`); pass `&[]` for plain updates.
+/// Tables in the FROM clause are included in the resolver context so that WHERE
+/// conditions that reference them (e.g. `WHERE t.id = other.id AND other.status = $1`)
+/// can type their parameters correctly. JOIN ON conditions within the FROM clause
+/// are also walked.
 ///
 /// Shared by `build_update` (standalone UPDATE) and `build_query_from_update` (CTE-wrapped UPDATE).
+#[allow(clippy::too_many_arguments)]
 pub(super) fn collect_update_params(
     table_with_joins: &TableWithJoins,
     assignments: &[Assignment],
     selection: Option<&Expr>,
+    from: &[TableWithJoins],
     schema: &Schema,
     config: &ResolverConfig,
     mapping: &mut HashMap<usize, (String, SqlType, bool)>,
@@ -251,7 +259,9 @@ pub(super) fn collect_update_params(
     let Some(table) = schema.tables.iter().find(|t| t.name == table_name) else {
         return;
     };
-    let all_tables = vec![(table.clone(), None)];
+
+    let mut all_tables = vec![(table.clone(), None)];
+    all_tables.extend(collect_table_list(from, schema, &[], config));
     let alias_map = build_alias_map(&all_tables);
 
     // Parameters from SET clause: col = $N
@@ -269,10 +279,11 @@ pub(super) fn collect_update_params(
         }
     }
 
-    // Parameters from WHERE
+    let ctx = &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping, query_name };
     if let Some(expr) = selection {
-        collect_params_from_expr(expr, &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping, query_name });
+        collect_params_from_expr(expr, ctx);
     }
+    collect_join_params_list(from, ctx);
 }
 
 // ─── DELETE ──────────────────────────────────────────────────────────────────

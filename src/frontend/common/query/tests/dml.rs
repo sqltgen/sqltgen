@@ -187,3 +187,43 @@ fn on_duplicate_key_update_collects_params() {
     assert_eq!(q.params[1].sql_type, SqlType::Integer, "$2 (count)");
     assert_eq!(q.params[2].sql_type, SqlType::Integer, "$3 (count increment)");
 }
+
+// ─── UPDATE ... FROM ─────────────────────────────────────────────────────────
+
+#[test]
+fn update_from_where_param_typed_from_source_table() {
+    // UPDATE users SET name = $1 FROM posts WHERE users.id = posts.user_id AND posts.id = $2
+    // $1 comes from users.name (Text), $2 comes from posts.id (BigInt)
+    let schema = make_join_schema();
+    let sql = "-- name: UpdateUserFromPost :exec\n\
+        UPDATE users SET name = $1 FROM posts WHERE users.id = posts.user_id AND posts.id = $2;";
+    let q = &parse_queries(sql, &schema).unwrap()[0];
+    assert_eq!(q.params.len(), 2);
+    assert_eq!(q.params[0].name, "name");
+    assert_eq!(q.params[0].sql_type, SqlType::Text, "$1 (name)");
+    assert_eq!(q.params[1].name, "id");
+    assert_eq!(q.params[1].sql_type, SqlType::BigInt, "$2 (posts.id)");
+}
+
+#[test]
+fn update_from_returning_produces_result_columns() {
+    let schema = make_join_schema();
+    let sql = "-- name: UpdateUserFromPost :one\n\
+        UPDATE users SET name = $1 FROM posts WHERE users.id = posts.user_id AND posts.id = $2 RETURNING users.id, users.name;";
+    let q = &parse_queries(sql, &schema).unwrap()[0];
+    assert_eq!(q.params.len(), 2);
+    assert_eq!(q.result_columns.len(), 2);
+    assert_eq!(q.result_columns[0].name, "id");
+    assert_eq!(q.result_columns[1].name, "name");
+}
+
+#[test]
+fn plain_update_unaffected_by_from_change() {
+    // Regression: plain UPDATE with no FROM clause must still work
+    let schema = make_join_schema();
+    let sql = "-- name: UpdateUser :exec\nUPDATE users SET name = $1 WHERE id = $2;";
+    let q = &parse_queries(sql, &schema).unwrap()[0];
+    assert_eq!(q.params.len(), 2);
+    assert_eq!(q.params[0].sql_type, SqlType::Text);
+    assert_eq!(q.params[1].sql_type, SqlType::BigInt);
+}
