@@ -3,14 +3,17 @@ include ../../../common.mk
 .PHONY: generate test clean db-up db-down
 
 generate:
-	rm -rf gen
+	rm -rf src/db src_chrono/db
 	$(SQLTGEN) generate --config sqltgen.json
+	$(SQLTGEN) generate --config sqltgen-chrono.json
 
 test: generate
-	go test -v -count=1 ./...
+	cargo test --test runtime
+	cargo test --test chrono_runtime
 
 clean:
-	rm -rf gen
+	cargo clean
+	rm -rf src/db src_chrono/db
 
 db-up:
 	docker compose -f $(COMPOSE) up -d postgres

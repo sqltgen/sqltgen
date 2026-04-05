@@ -6,6 +6,7 @@ install:
 	npm install
 
 generate:
+	rm -rf gen
 	$(SQLTGEN) generate --config sqltgen.json
 
 test: generate

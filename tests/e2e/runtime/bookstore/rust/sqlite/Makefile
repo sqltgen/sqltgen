@@ -3,11 +3,12 @@ include ../../../common.mk
 .PHONY: generate test clean
 
 generate:
-	rm -rf gen
+	rm -rf src/db
 	$(SQLTGEN) generate --config sqltgen.json
 
 test: generate
-	python3 -m pytest test_runtime.py -v
+	cargo test
 
 clean:
-	rm -rf gen __pycache__ .pytest_cache
+	cargo clean
+	rm -rf src/db

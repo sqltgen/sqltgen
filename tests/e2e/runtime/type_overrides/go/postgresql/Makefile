@@ -3,6 +3,7 @@ include ../../../common.mk
 .PHONY: generate test clean db-up db-down
 
 generate:
+	rm -rf gen
 	$(SQLTGEN) generate --config sqltgen.json
 
 test: generate

@@ -149,8 +149,7 @@ e2e-runtime: \
 
 # SQLite-only (no Docker needed)
 e2e-runtime-type-overrides-rust-sqlite: $(SQLTGEN)
-	cd $(E2E_TYPE_OVERRIDES)/rust/sqlite && $(abspath $(SQLTGEN)) generate --config sqltgen.json
-	cd $(E2E_TYPE_OVERRIDES)/rust/sqlite && cargo test
+	$(MAKE) -C $(E2E_TYPE_OVERRIDES)/rust/sqlite test
 
 e2e-runtime-type-overrides-python-sqlite: $(SQLTGEN)
 	$(MAKE) -C $(E2E_TYPE_OVERRIDES)/python/sqlite test
@@ -169,14 +168,10 @@ e2e-runtime-type-overrides-go-sqlite: $(SQLTGEN)
 
 # Docker-based (PostgreSQL + MySQL)
 e2e-runtime-type-overrides-rust-postgresql: $(SQLTGEN) e2e-db-up
-	cd $(E2E_TYPE_OVERRIDES)/rust/postgresql && $(abspath $(SQLTGEN)) generate --config sqltgen.json
-	cd $(E2E_TYPE_OVERRIDES)/rust/postgresql && cargo test --test runtime
-	cd $(E2E_TYPE_OVERRIDES)/rust/postgresql && $(abspath $(SQLTGEN)) generate --config sqltgen-chrono.json
-	cd $(E2E_TYPE_OVERRIDES)/rust/postgresql && cargo test --test chrono_runtime
+	$(MAKE) -C $(E2E_TYPE_OVERRIDES)/rust/postgresql test
 
 e2e-runtime-type-overrides-rust-mysql: $(SQLTGEN) e2e-db-up
-	cd $(E2E_TYPE_OVERRIDES)/rust/mysql && $(abspath $(SQLTGEN)) generate --config sqltgen.json
-	cd $(E2E_TYPE_OVERRIDES)/rust/mysql && cargo test
+	$(MAKE) -C $(E2E_TYPE_OVERRIDES)/rust/mysql test
 
 e2e-runtime-type-overrides-java-postgresql: $(SQLTGEN) e2e-db-up
 	$(MAKE) -C $(E2E_TYPE_OVERRIDES)/java/postgresql test
@@ -240,8 +235,7 @@ e2e-runtime-type-overrides: \
 # ── No-Docker runtime tests (SQLite) ─────────────────────────────────────────
 
 e2e-runtime-rust-sqlite: $(SQLTGEN)
-	cd $(E2E_RUNTIME)/rust/sqlite && $(abspath $(SQLTGEN)) generate --config sqltgen.json
-	cd $(E2E_RUNTIME)/rust/sqlite && cargo test
+	$(MAKE) -C $(E2E_RUNTIME)/rust/sqlite test
 
 e2e-runtime-python-sqlite: $(SQLTGEN)
 	$(MAKE) -C $(E2E_RUNTIME)/python/sqlite test
@@ -261,12 +255,10 @@ e2e-runtime-go-sqlite: $(SQLTGEN)
 # ── Docker-based runtime tests (PostgreSQL + MySQL) ───────────────────────────
 
 e2e-runtime-rust-postgresql: $(SQLTGEN) e2e-db-up
-	cd $(E2E_RUNTIME)/rust/postgresql && $(abspath $(SQLTGEN)) generate --config sqltgen.json
-	cd $(E2E_RUNTIME)/rust/postgresql && cargo test
+	$(MAKE) -C $(E2E_RUNTIME)/rust/postgresql test
 
 e2e-runtime-rust-mysql: $(SQLTGEN) e2e-db-up
-	cd $(E2E_RUNTIME)/rust/mysql && $(abspath $(SQLTGEN)) generate --config sqltgen.json
-	cd $(E2E_RUNTIME)/rust/mysql && cargo test
+	$(MAKE) -C $(E2E_RUNTIME)/rust/mysql test
 
 e2e-runtime-java-postgresql: $(SQLTGEN) e2e-db-up
 	$(MAKE) -C $(E2E_RUNTIME)/java/postgresql test
