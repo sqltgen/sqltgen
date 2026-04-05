@@ -148,6 +148,16 @@ fn expr_case_without_else_is_nullable() {
 }
 
 #[test]
+fn expr_case_nullable_branch_makes_result_nullable() {
+    // bio is nullable → CASE result is nullable even though ELSE is a literal
+    let schema = make_schema();
+    let sql = "-- name: Label :one\nSELECT CASE WHEN id > 5 THEN bio ELSE 'none' END AS label FROM users;";
+    let q = &parse_queries(sql, &schema).unwrap()[0];
+    assert_eq!(q.result_columns[0].sql_type, SqlType::Text);
+    assert!(q.result_columns[0].nullable, "nullable THEN branch makes CASE nullable");
+}
+
+#[test]
 fn expr_coalesce_non_nullable_first() {
     let schema = make_schema();
     let sql = "-- name: CoalName :one\nSELECT COALESCE(name, 'fallback') AS n FROM users;";
