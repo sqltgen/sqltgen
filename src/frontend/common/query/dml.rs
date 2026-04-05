@@ -88,10 +88,13 @@ pub(super) fn build_query_from_insert(ann: &QueryAnnotation, sql: &str, q: &SqlQ
     Query::new(ann.name.clone(), ann.cmd.clone(), sql, params, result_columns)
 }
 
-/// Collect typed parameter mappings from an `ON CONFLICT DO UPDATE` clause.
+/// Collect typed parameter mappings from an `ON CONFLICT DO UPDATE` or
+/// `ON DUPLICATE KEY UPDATE` clause.
 ///
-/// The `excluded` pseudo-table is treated as an alias for the target table,
-/// so `excluded.col + $N` correctly types `$N` from `col`'s schema type.
+/// The target table is exposed both directly (for unqualified column refs such as
+/// `count = count + $N`) and under the `excluded` pseudo-alias used by PostgreSQL
+/// and SQLite (for `excluded.col + $N`). MySQL `ON DUPLICATE KEY UPDATE` uses
+/// unqualified references, so only the direct exposure matters there.
 fn collect_on_conflict_params(
     insert: &Insert,
     table: &Table,
@@ -99,22 +102,29 @@ fn collect_on_conflict_params(
     mapping: &mut HashMap<usize, (String, SqlType, bool)>,
     query_name: &str,
 ) {
-    let Some(OnInsert::OnConflict(on_conflict)) = &insert.on else { return };
-    let OnConflictAction::DoUpdate(do_update) = &on_conflict.action else { return };
-
-    // Expose the target table under the "excluded" pseudo-alias so that
-    // expressions like `excluded.col + $N` resolve correctly.
-    let excluded_table = (table.clone(), Some("excluded".to_string()));
-    let all_tables = [excluded_table];
+    // Expose the target table both unaliased (for unqualified refs) and under
+    // the "excluded" pseudo-alias (for PostgreSQL/SQLite `excluded.col` refs).
+    let all_tables = [(table.clone(), None), (table.clone(), Some("excluded".to_string()))];
     let alias_map = build_alias_map(&all_tables);
     let ctx =
         &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema: &Schema::with_tables(vec![table.clone()]), config, mapping, query_name };
 
-    for assignment in &do_update.assignments {
-        collect_params_from_expr(&assignment.value, ctx);
-    }
-    if let Some(selection) = &do_update.selection {
-        collect_params_from_expr(selection, ctx);
+    match &insert.on {
+        Some(OnInsert::OnConflict(on_conflict)) => {
+            let OnConflictAction::DoUpdate(do_update) = &on_conflict.action else { return };
+            for assignment in &do_update.assignments {
+                collect_params_from_expr(&assignment.value, ctx);
+            }
+            if let Some(selection) = &do_update.selection {
+                collect_params_from_expr(selection, ctx);
+            }
+        },
+        Some(OnInsert::DuplicateKeyUpdate(assignments)) => {
+            for assignment in assignments {
+                collect_params_from_expr(&assignment.value, ctx);
+            }
+        },
+        _ => {},
     }
 }
 

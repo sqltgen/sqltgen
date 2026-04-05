@@ -30,6 +30,17 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
   during migration (see Fixed below).
 
 ### Fixed
+- **`INSERT ... SELECT` parameters now collected** — parameters in the `SELECT`
+  body of an `INSERT INTO t (cols) SELECT … FROM … WHERE …` statement are now
+  typed and collected. Projection placeholders are typed from the INSERT target
+  columns; `WHERE`/`JOIN ON`/`HAVING` placeholders are typed from the source
+  tables. Works across all three dialects. `RETURNING` (PostgreSQL) on
+  `INSERT...SELECT` produces the expected result type.
+- **MySQL `ON DUPLICATE KEY UPDATE` parameters now collected** — parameters in
+  the `SET` clause of `ON DUPLICATE KEY UPDATE` are typed from the target table
+  columns. Unqualified column references in `ON CONFLICT DO UPDATE SET` (e.g.
+  `count = count + $N`) are also now resolved correctly; previously only
+  `excluded.col` qualified references were resolved.
 - **MySQL: `TINYINT(1)` now maps to `Boolean`** — previously mapped to `SmallInt`
   (same as any other `TINYINT`), producing `short`/`i16`/`bool` instead of
   `boolean`/`Boolean`/`bool` in every backend. `TINYINT` without a display width,

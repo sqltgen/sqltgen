@@ -1,4 +1,5 @@
 use super::*;
+use sqlparser::dialect::GenericDialect;
 
 #[test]
 fn resolves_insert_params_from_column_list() {
@@ -109,4 +110,80 @@ fn delete_returning_columns() {
     assert_eq!(q.result_columns[0].sql_type, SqlType::BigInt);
     assert_eq!(q.result_columns[1].name, "name");
     assert_eq!(q.result_columns[1].sql_type, SqlType::Text);
+}
+
+// ─── INSERT ... SELECT ────────────────────────────────────────────────────────
+
+#[test]
+fn insert_select_projection_params_typed_from_target_columns() {
+    // $1 in the SELECT projection position 0 maps to posts.user_id (BigInt)
+    // $2 in position 1 maps to posts.title (Text)
+    let schema = make_join_schema();
+    let sql = "-- name: ImportPosts :exec\nINSERT INTO posts (user_id, title) SELECT $1, $2 FROM users;";
+    let q = &parse_queries(sql, &schema).unwrap()[0];
+    assert_eq!(q.params.len(), 2);
+    assert_eq!(q.params[0].name, "user_id");
+    assert_eq!(q.params[0].sql_type, SqlType::BigInt);
+    assert_eq!(q.params[1].name, "title");
+    assert_eq!(q.params[1].sql_type, SqlType::Text);
+}
+
+#[test]
+fn insert_select_where_params_typed_from_source_table() {
+    // $1 in the WHERE clause is typed from the source table (users.id = BigInt)
+    let schema = make_join_schema();
+    let sql = "-- name: CopyUserPosts :exec\nINSERT INTO posts (user_id, title) SELECT id, name FROM users WHERE id = $1;";
+    let q = &parse_queries(sql, &schema).unwrap()[0];
+    assert_eq!(q.params.len(), 1);
+    assert_eq!(q.params[0].name, "id");
+    assert_eq!(q.params[0].sql_type, SqlType::BigInt);
+}
+
+#[test]
+fn insert_select_returning_produces_result_columns() {
+    // RETURNING on INSERT...SELECT (PostgreSQL) produces result columns from RETURNING list
+    let schema = make_join_schema();
+    let sql = "-- name: CopyUserPost :one\nINSERT INTO posts (user_id, title) SELECT id, name FROM users WHERE id = $1 RETURNING id, title;";
+    let q = &parse_queries(sql, &schema).unwrap()[0];
+    assert_eq!(q.params.len(), 1);
+    assert_eq!(q.params[0].sql_type, SqlType::BigInt);
+    assert_eq!(q.result_columns.len(), 2);
+    assert_eq!(q.result_columns[0].name, "id");
+    assert_eq!(q.result_columns[1].name, "title");
+}
+
+// ─── ON CONFLICT / ON DUPLICATE KEY UPDATE ───────────────────────────────────
+
+#[test]
+fn on_conflict_do_nothing_collects_no_extra_params() {
+    let schema = make_upsert_schema();
+    let sql = "-- name: InsertItem :exec\nINSERT INTO item (id) VALUES ($1) ON CONFLICT (id) DO NOTHING;";
+    let q = &parse_queries(sql, &schema).unwrap()[0];
+    assert_eq!(q.params.len(), 1);
+    assert_eq!(q.params[0].sql_type, SqlType::BigInt);
+}
+
+#[test]
+fn on_conflict_do_update_unqualified_ref_types_param() {
+    // count = count + $3: unqualified `count` resolves from the target table
+    let schema = make_upsert_schema();
+    let sql = "-- name: UpsertItem :exec\nINSERT INTO item (id, count) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET count = count + $3;";
+    let q = &parse_queries(sql, &schema).unwrap()[0];
+    assert_eq!(q.params.len(), 3);
+    assert_eq!(q.params[0].sql_type, SqlType::BigInt, "$1 (id)");
+    assert_eq!(q.params[1].sql_type, SqlType::Integer, "$2 (count)");
+    assert_eq!(q.params[2].sql_type, SqlType::Integer, "$3 (count increment via unqualified ref)");
+}
+
+#[test]
+fn on_duplicate_key_update_collects_params() {
+    // MySQL ON DUPLICATE KEY UPDATE syntax (GenericDialect, $N placeholders)
+    let schema = make_upsert_schema();
+    let sql = "-- name: UpsertItem :exec\nINSERT INTO item (id, count) VALUES ($1, $2) ON DUPLICATE KEY UPDATE count = count + $3;";
+    let qs = parse_queries_with_config(&GenericDialect {}, sql, &schema, &ResolverConfig::default()).unwrap();
+    let q = &qs[0];
+    assert_eq!(q.params.len(), 3);
+    assert_eq!(q.params[0].sql_type, SqlType::BigInt, "$1 (id)");
+    assert_eq!(q.params[1].sql_type, SqlType::Integer, "$2 (count)");
+    assert_eq!(q.params[2].sql_type, SqlType::Integer, "$3 (count increment)");
 }
