@@ -158,6 +158,16 @@ fn expr_coalesce_non_nullable_first() {
 }
 
 #[test]
+fn expr_coalesce_nullable_col_with_literal_fallback_is_non_nullable() {
+    // bio is nullable, but 'fallback' is a non-null literal → result is non-nullable
+    let schema = make_schema();
+    let sql = "-- name: CoalBioFb :one\nSELECT COALESCE(bio, 'fallback') AS b FROM users;";
+    let q = &parse_queries(sql, &schema).unwrap()[0];
+    assert_eq!(q.result_columns[0].sql_type, SqlType::Text);
+    assert!(!q.result_columns[0].nullable, "COALESCE with non-null fallback is non-nullable");
+}
+
+#[test]
 fn expr_coalesce_all_nullable() {
     let schema = make_schema();
     let sql = "-- name: CoalBio :one\nSELECT COALESCE(bio, NULL) AS b FROM users;";
