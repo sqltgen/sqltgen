@@ -1,5 +1,21 @@
 use super::*;
 
+// ── COUNT ─────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_aggregate_count_is_non_nullable_bigint() {
+    let schema = make_numeric_schema();
+    for config in [pg_config(), mysql_config(), sqlite_config()] {
+        let (t, n) = agg_col("COUNT(*) AS c", &schema, &config, "c");
+        assert_eq!(t, SqlType::BigInt, "COUNT(*) must be BigInt");
+        assert!(!n, "COUNT(*) is never nullable");
+
+        let (t, n) = agg_col("COUNT(int_val) AS c", &schema, &config, "c");
+        assert_eq!(t, SqlType::BigInt, "COUNT(expr) must be BigInt");
+        assert!(!n, "COUNT(expr) is never nullable");
+    }
+}
+
 // Rules:
 //   MIN / MAX  — always same type as argument, always nullable (no rows case)
 //   SUM        — preserves type, except integer inputs are widened to avoid
