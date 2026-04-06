@@ -245,6 +245,74 @@ fn expr_row_number_returns_bigint() {
     let q = &parse_queries(sql, &schema).unwrap()[0];
     assert_eq!(q.result_columns[1].name, "rn");
     assert_eq!(q.result_columns[1].sql_type, SqlType::BigInt);
+    assert!(!q.result_columns[1].nullable, "ROW_NUMBER is never null");
+}
+
+#[test]
+fn expr_rank_dense_rank_ntile_return_bigint_non_nullable() {
+    let schema = make_schema();
+    for (func, alias) in [("RANK()", "r"), ("DENSE_RANK()", "dr"), ("NTILE(4)", "nt")] {
+        let sql = format!("-- name: Q :many\nSELECT id, {func} OVER (ORDER BY id) AS {alias} FROM users;");
+        let q = &parse_queries(&sql, &schema).unwrap()[0];
+        assert_eq!(q.result_columns[1].sql_type, SqlType::BigInt, "{func} should be BigInt");
+        assert!(!q.result_columns[1].nullable, "{func} should be non-nullable");
+    }
+}
+
+#[test]
+fn expr_cume_dist_percent_rank_return_double_non_nullable() {
+    let schema = make_schema();
+    for (func, alias) in [("CUME_DIST()", "cd"), ("PERCENT_RANK()", "pr")] {
+        let sql = format!("-- name: Q :many\nSELECT id, {func} OVER (ORDER BY id) AS {alias} FROM users;");
+        let q = &parse_queries(&sql, &schema).unwrap()[0];
+        assert_eq!(q.result_columns[1].sql_type, SqlType::Double, "{func} should be Double");
+        assert!(!q.result_columns[1].nullable, "{func} should be non-nullable");
+    }
+}
+
+#[test]
+fn expr_lag_lead_return_column_type_nullable() {
+    let schema = make_schema();
+    for func in ["LAG", "LEAD"] {
+        let sql = format!(
+            "-- name: Q :many\nSELECT id, {func}(id) OVER (ORDER BY id) AS val FROM users;"
+        );
+        let q = &parse_queries(&sql, &schema).unwrap()[0];
+        assert_eq!(q.result_columns[1].sql_type, SqlType::BigInt, "{func}(id) should inherit BigInt");
+        assert!(q.result_columns[1].nullable, "{func} can go out of bounds → nullable");
+    }
+}
+
+#[test]
+fn expr_first_value_last_value_nth_value_return_column_type_nullable() {
+    let schema = make_schema();
+    for func in ["FIRST_VALUE", "LAST_VALUE", "NTH_VALUE"] {
+        let arg = if func == "NTH_VALUE" { "name, 2" } else { "name" };
+        let sql = format!(
+            "-- name: Q :many\nSELECT id, {func}({arg}) OVER (ORDER BY id) AS val FROM users;"
+        );
+        let q = &parse_queries(&sql, &schema).unwrap()[0];
+        assert_eq!(q.result_columns[1].sql_type, SqlType::Text, "{func}(name) should inherit Text");
+        assert!(q.result_columns[1].nullable, "{func} should be nullable");
+    }
+}
+
+#[test]
+fn expr_sum_over_window_returns_nullable_widened_type() {
+    let schema = make_schema();
+    let sql = "-- name: Q :many\nSELECT id, SUM(id) OVER (ORDER BY id) AS running FROM users;";
+    let q = &parse_queries(sql, &schema).unwrap()[0];
+    // SUM(BigInt) is widened per dialect config; default test config uses BigInt→Decimal
+    assert!(q.result_columns[1].nullable, "SUM window should be nullable");
+}
+
+#[test]
+fn expr_count_over_window_returns_non_nullable_bigint() {
+    let schema = make_schema();
+    let sql = "-- name: Q :many\nSELECT id, COUNT(*) OVER (PARTITION BY id) AS cnt FROM users;";
+    let q = &parse_queries(sql, &schema).unwrap()[0];
+    assert_eq!(q.result_columns[1].sql_type, SqlType::BigInt);
+    assert!(!q.result_columns[1].nullable, "COUNT is never null, even as window function");
 }
 
 #[test]
