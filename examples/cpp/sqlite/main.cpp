@@ -8,7 +8,7 @@
 
 #include <sqlite3.h>
 
-#include "gen/queries.hpp"
+#include "gen/queries/queries.hpp"
 
 namespace fs = std::filesystem;
 

@@ -25,7 +25,7 @@ fn test_query_can_reuse_view_type() {
 
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let header = get_file(&files, "queries.hpp");
-    assert!(header.contains("#include \"user_summary.hpp\""));
+    assert!(header.contains("#include \"../models/user_summary.hpp\""));
     assert!(header.contains("std::vector<UserSummary> list_user_summaries(pqxx::connection& db);"));
     assert!(!header.contains("struct ListUserSummariesRow"));
 }

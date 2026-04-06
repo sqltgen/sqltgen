@@ -100,7 +100,7 @@ fn test_queries_header_includes_table_header_for_reused_result_type() {
     .with_source_table(Some("user".to_string()));
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.hpp");
-    assert!(src.contains("#include \"user.hpp\""));
+    assert!(src.contains("#include \"../models/user.hpp\""));
     assert!(src.contains("std::optional<User> get_user(pqxx::connection& db, const std::int64_t& id);"));
 }
 

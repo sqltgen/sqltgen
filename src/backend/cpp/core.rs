@@ -191,7 +191,10 @@ pub(super) fn generate_table_files(schema: &Schema, config: &OutputConfig) -> an
     let mut files = Vec::new();
 
     for table in &schema.tables {
-        files.push(GeneratedFile { path: PathBuf::from(&config.out).join(format!("{}.hpp", table.name)), content: emit_table_header(table, &config.package)? });
+        files.push(GeneratedFile {
+            path: PathBuf::from(&config.out).join("models").join(format!("{}.hpp", table.name)),
+            content: emit_table_header(table, &config.package)?,
+        });
     }
 
     Ok(files)
@@ -502,9 +505,9 @@ pub(super) fn generate_query_files(
     for (group, group_queries) in &groups {
         let stem = queries_file_stem(group);
         let header = emit_queries_header(group, group_queries, schema, contract, config)?;
-        files.push(GeneratedFile { path: PathBuf::from(&config.out).join(format!("{stem}.hpp")), content: header });
+        files.push(GeneratedFile { path: PathBuf::from(&config.out).join("queries").join(format!("{stem}.hpp")), content: header });
         let source = emit_queries_source(stem, group_queries, schema, contract, config)?;
-        files.push(GeneratedFile { path: PathBuf::from(&config.out).join(format!("{stem}.cpp")), content: source });
+        files.push(GeneratedFile { path: PathBuf::from(&config.out).join("queries").join(format!("{stem}.cpp")), content: source });
     }
 
     Ok(files)
@@ -539,7 +542,7 @@ fn emit_queries_header(group: &str, queries: &[Query], schema: &Schema, contract
         }
     }
     for table_name in &needed_tables {
-        writeln!(src, "#include \"{table_name}.hpp\"")?;
+        writeln!(src, "#include \"../models/{table_name}.hpp\"")?;
     }
     if !needed_tables.is_empty() {
         writeln!(src)?;

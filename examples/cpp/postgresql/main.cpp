@@ -9,7 +9,7 @@
 
 #include <pqxx/pqxx>
 
-#include "gen/queries.hpp"
+#include "gen/queries/queries.hpp"
 
 namespace fs = std::filesystem;
 

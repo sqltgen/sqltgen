@@ -24,7 +24,7 @@ WORKDIR /app
 COPY gen/ gen/
 COPY main.cpp .
 
-RUN g++ -std=c++20 -O2 -o demo main.cpp gen/queries.cpp -lpqxx -lpq
+RUN g++ -std=c++20 -O2 -o demo main.cpp gen/queries/queries.cpp -lpqxx -lpq
 
 ENV MIGRATIONS_DIR=/app/migrations
 # migrations/ is mounted as a read-only volume at runtime

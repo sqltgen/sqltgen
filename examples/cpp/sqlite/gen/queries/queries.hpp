@@ -9,8 +9,8 @@
 
 #include <sqlite3.h>
 
-#include "author.hpp"
-#include "book.hpp"
+#include "../models/author.hpp"
+#include "../models/book.hpp"
 
 inline const std::string SQL_CREATE_AUTHOR = R"sql(
 INSERT INTO author (name, bio, birth_year)

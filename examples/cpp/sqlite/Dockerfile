@@ -11,7 +11,7 @@ WORKDIR /app
 COPY gen/ gen/
 COPY main.cpp .
 
-RUN g++ -std=c++20 -O2 -o demo main.cpp gen/queries.cpp -lsqlite3
+RUN g++ -std=c++20 -O2 -o demo main.cpp gen/queries/queries.cpp -lsqlite3
 
 ENV MIGRATIONS_DIR=/app/migrations
 CMD ["./demo"]

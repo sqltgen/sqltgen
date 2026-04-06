@@ -9,8 +9,8 @@
 
 #include <mysql/mysql.h>
 
-#include "author.hpp"
-#include "book.hpp"
+#include "../models/author.hpp"
+#include "../models/book.hpp"
 
 struct ListBooksWithAuthorRow {
     std::int64_t id;

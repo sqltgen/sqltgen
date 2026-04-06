@@ -9,7 +9,7 @@
 
 #include <mysql/mysql.h>
 
-#include "gen/queries.hpp"
+#include "gen/queries/queries.hpp"
 
 namespace fs = std::filesystem;
 
