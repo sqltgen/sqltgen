@@ -30,6 +30,13 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
   during migration (see Fixed below).
 
 ### Fixed
+- **Recursive CTE (`WITH RECURSIVE`) parameters now collected** — parameters in
+  both the anchor term and the recursive term of a `WITH RECURSIVE … UNION ALL …`
+  CTE are now typed and collected. The CTE's virtual table is registered with
+  column types derived from the anchor term's projection, so the outer SELECT and
+  any moldeds referencing the CTE also resolve correctly. The recursive
+  self-reference is safe: the CTE name is not yet in scope when the body is
+  processed, so it is simply ignored without infinite recursion.
 - **`UPDATE … FROM` parameters now collected (PostgreSQL)** — parameters in the
   `FROM` clause and the `WHERE` conditions that reference FROM tables in
   `UPDATE t SET col = $1 FROM other WHERE t.id = other.id AND other.status = $2`

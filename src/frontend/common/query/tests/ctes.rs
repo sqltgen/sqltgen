@@ -188,3 +188,129 @@ fn execrows_cte_with_params_keeps_method_params_when_type_inference_fails() {
     assert_eq!(q.sql.matches("$1").count(), 1);
     assert_eq!(q.sql.matches("$2").count(), 2);
 }
+
+// ─── Recursive CTEs ───────────────────────────────────────────────────────────
+
+#[test]
+fn recursive_cte_anchor_param_is_collected() {
+    // $1 is in the anchor term's WHERE — must be typed from the schema table.
+    let schema = make_join_schema();
+    let sql = "-- name: GetTree :many\n\
+        WITH RECURSIVE tree AS (\n\
+            SELECT id, user_id FROM posts WHERE id = $1\n\
+            UNION ALL\n\
+            SELECT p.id, p.user_id FROM posts p JOIN tree ON p.user_id = tree.user_id\n\
+        )\n\
+        SELECT id, user_id FROM tree;";
+    let q = &parse_queries(sql, &schema).unwrap()[0];
+    assert_eq!(q.params.len(), 1);
+    assert_eq!(q.params[0].name, "id");
+    assert_eq!(q.params[0].sql_type, SqlType::BigInt);
+}
+
+#[test]
+fn recursive_cte_recursive_term_param_is_collected() {
+    // $1 is only in the recursive term's WHERE — must still be collected.
+    let schema = make_join_schema();
+    let sql = "-- name: GetFilteredTree :many\n\
+        WITH RECURSIVE tree AS (\n\
+            SELECT id, user_id FROM posts WHERE user_id = 1\n\
+            UNION ALL\n\
+            SELECT p.id, p.user_id FROM posts p JOIN tree ON p.user_id = tree.user_id WHERE p.id > $1\n\
+        )\n\
+        SELECT id, user_id FROM tree;";
+    let q = &parse_queries(sql, &schema).unwrap()[0];
+    assert_eq!(q.params.len(), 1);
+    assert_eq!(q.params[0].name, "id");
+    assert_eq!(q.params[0].sql_type, SqlType::BigInt);
+}
+
+#[test]
+fn recursive_cte_params_in_both_terms_are_collected() {
+    // $1 in anchor, $2 in recursive term — both must be collected.
+    let schema = make_join_schema();
+    let sql = "-- name: GetTree :many\n\
+        WITH RECURSIVE tree AS (\n\
+            SELECT id, user_id FROM posts WHERE user_id = $1\n\
+            UNION ALL\n\
+            SELECT p.id, p.user_id FROM posts p JOIN tree ON p.user_id = tree.user_id WHERE p.id > $2\n\
+        )\n\
+        SELECT id, user_id FROM tree;";
+    let q = &parse_queries(sql, &schema).unwrap()[0];
+    assert_eq!(q.params.len(), 2);
+    assert_eq!(q.params[0].name, "user_id");
+    assert_eq!(q.params[0].sql_type, SqlType::BigInt);
+    assert_eq!(q.params[1].name, "id");
+    assert_eq!(q.params[1].sql_type, SqlType::BigInt);
+}
+
+#[test]
+fn recursive_cte_recursive_term_param_via_self_reference_is_typed() {
+    // $1 is typed via `tree.id` in the recursive term. If the current CTE is not
+    // in scope while collecting recursive-term params, this can fall back to Text.
+    let schema = make_join_schema();
+    let sql = "-- name: GetTreeBySelfRef :many\n\
+        WITH RECURSIVE tree AS (\n\
+            SELECT id, user_id FROM posts WHERE user_id = 1\n\
+            UNION ALL\n\
+            SELECT p.id, p.user_id FROM posts p JOIN tree ON p.user_id = tree.user_id WHERE tree.id > $1\n\
+        )\n\
+        SELECT id, user_id FROM tree;";
+    let q = &parse_queries(sql, &schema).unwrap()[0];
+    assert_eq!(q.params.len(), 1);
+    assert_eq!(q.params[0].name, "id");
+    assert_eq!(q.params[0].sql_type, SqlType::BigInt);
+}
+
+#[test]
+fn recursive_cte_column_alias_list_is_used_for_self_reference_typing() {
+    // CTE exposes (node_id, owner_id) via alias list; recursive-term references
+    // should resolve through those exposed names, not the anchor projection names.
+    let schema = make_join_schema();
+    let sql = "-- name: GetTreeAliasCols :many\n\
+        WITH RECURSIVE tree(node_id, owner_id) AS (\n\
+            SELECT id, user_id FROM posts WHERE user_id = 1\n\
+            UNION ALL\n\
+            SELECT p.id, p.user_id FROM posts p JOIN tree ON p.user_id = tree.owner_id WHERE tree.node_id > $1\n\
+        )\n\
+        SELECT node_id, owner_id FROM tree;";
+    let q = &parse_queries(sql, &schema).unwrap()[0];
+    assert_eq!(q.params.len(), 1);
+    assert_eq!(q.params[0].name, "node_id");
+    assert_eq!(q.params[0].sql_type, SqlType::BigInt);
+}
+
+#[test]
+fn recursive_cte_literal_anchor_self_reference_param_is_typed() {
+    // Anchor is literal-only (no base table). Recursive-term self-reference
+    // should still expose n as Integer for typing `$1`.
+    let schema = make_join_schema();
+    let sql = "-- name: GetNums :many\n\
+        WITH RECURSIVE nums(n) AS (\n\
+            SELECT 1\n\
+            UNION ALL\n\
+            SELECT n + 1 FROM nums WHERE n < $1\n\
+        )\n\
+        SELECT n FROM nums;";
+    let q = &parse_queries(sql, &schema).unwrap()[0];
+    assert_eq!(q.params.len(), 1);
+    assert_eq!(q.params[0].name, "n");
+    assert_eq!(q.params[0].sql_type, SqlType::Integer);
+}
+
+#[test]
+fn recursive_cte_expression_alias_self_reference_param_is_typed() {
+    // Recursive term references renamed output columns from anchor projection.
+    let schema = make_join_schema();
+    let sql = "-- name: GetTreeAliasedProjection :many\n\
+        WITH RECURSIVE tree AS (\n\
+            SELECT id AS node_id, user_id AS owner_id FROM posts WHERE user_id = 1\n\
+            UNION ALL\n\
+            SELECT p.id AS node_id, p.user_id AS owner_id FROM posts p JOIN tree ON p.user_id = tree.owner_id WHERE tree.node_id > $1\n\
+        )\n\
+        SELECT node_id, owner_id FROM tree;";
+    let q = &parse_queries(sql, &schema).unwrap()[0];
+    assert_eq!(q.params.len(), 1);
+    assert_eq!(q.params[0].name, "node_id");
+    assert_eq!(q.params[0].sql_type, SqlType::BigInt);
+}

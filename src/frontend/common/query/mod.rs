@@ -6,8 +6,8 @@ mod select;
 use std::collections::HashMap;
 
 use sqlparser::ast::{
-    Delete, Insert, JoinOperator, Query as SqlQuery, Select, SelectItem, SetExpr, Statement, TableFactor, TableObject, TableWithJoins, UpdateTableFromKind,
-    With,
+    Delete, Insert, JoinOperator, Query as SqlQuery, Select, SelectItem, SetExpr, Statement, TableAliasColumnDef, TableFactor, TableObject, TableWithJoins,
+    UpdateTableFromKind, With,
 };
 use sqlparser::dialect::Dialect;
 use sqlparser::parser::Parser;
@@ -27,7 +27,7 @@ type NativeListSqlFn = fn(&Parameter, &str) -> Option<(String, NativeListBind)>;
 use dml::{
     build_delete, build_insert, build_update, collect_delete_where_params, collect_insert_value_params, collect_returning_params, collect_update_params,
 };
-use params::{collect_join_params, collect_limit_offset_params, collect_params_from_expr};
+use params::{collect_limit_offset_params, collect_set_expr_params};
 use resolve::{resolve_expr, resolve_projection};
 use select::build_select;
 
@@ -301,25 +301,21 @@ pub(super) fn collect_cte_params(
                     }
                 }
             },
-            SetExpr::Select(select) => {
-                let all_tables = collect_from_tables(select, schema, &local_ctes, config);
-                if !all_tables.is_empty() {
-                    let alias_map = build_alias_map(&all_tables);
-                    let ctx = &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping, query_name };
-                    if let Some(expr) = &select.selection {
-                        collect_params_from_expr(expr, ctx);
-                    }
-                    collect_join_params(select, ctx);
-                    if let Some(expr) = &select.having {
-                        collect_params_from_expr(expr, ctx);
-                    }
-                    collect_limit_offset_params(&cte.query, ctx.mapping);
+            // SELECT bodies and set operations (UNION ALL for recursive CTEs).
+            // Seed scope with this CTE's derived columns so recursive-term
+            // self-references (e.g. `tree.id > $1`) can infer parameter types.
+            _ => {
+                let cols = apply_cte_alias_columns(derived_cols(&cte.query, schema, &local_ctes, config), &cte.alias.columns);
+                let mut ctes_for_params = local_ctes.clone();
+                if !cols.is_empty() {
+                    ctes_for_params.push(Table::new(cte.alias.name.value.clone(), cols));
                 }
+                collect_set_expr_params(cte.query.body.as_ref(), schema, config, &ctes_for_params, mapping, query_name);
+                collect_limit_offset_params(&cte.query, mapping);
             },
-            _ => {},
         }
         // Register this CTE's output shape so later CTEs can reference it.
-        let cols = derived_cols(&cte.query, schema, &local_ctes, config);
+        let cols = apply_cte_alias_columns(derived_cols(&cte.query, schema, &local_ctes, config), &cte.alias.columns);
         if !cols.is_empty() {
             local_ctes.push(Table::new(cte.alias.name.value.clone(), cols));
         }
@@ -480,25 +476,44 @@ pub(super) fn derived_cols(subquery: &SqlQuery, schema: &Schema, ctes: &[Table],
         _ => {},
     }
 
-    let SetExpr::Select(select) = subquery.body.as_ref() else {
-        return vec![];
+    // For set operations (UNION ALL in recursive CTEs), derive columns from the
+    // anchor term (left branch). SQL requires that all branches have compatible
+    // types, so the anchor is authoritative.
+    let select = match subquery.body.as_ref() {
+        SetExpr::Select(s) => s,
+        SetExpr::SetOperation { left, .. } => {
+            let mut body = left.as_ref();
+            while let SetExpr::SetOperation { left, .. } = body {
+                body = left.as_ref();
+            }
+            let SetExpr::Select(s) = body else { return vec![] };
+            s
+        },
+        _ => return vec![],
     };
 
     let inner_tables = collect_from_tables(select, schema, ctes, config);
-    if inner_tables.is_empty() {
-        return vec![];
-    }
     let alias_map = build_alias_map(&inner_tables);
 
     // Reuse resolve_projection and convert ResultColumn → Column (no PK flag for derived tables).
     resolve_projection(select, &alias_map, &inner_tables, config, schema).into_iter().map(Column::from).collect()
 }
 
+pub(super) fn apply_cte_alias_columns(mut cols: Vec<Column>, aliases: &[TableAliasColumnDef]) -> Vec<Column> {
+    if aliases.is_empty() {
+        return cols;
+    }
+    for (col, alias) in cols.iter_mut().zip(aliases.iter()) {
+        col.name = alias.name.value.clone();
+    }
+    cols
+}
+
 pub(super) fn build_cte_scope(with: Option<&With>, schema: &Schema, config: &ResolverConfig) -> Vec<Table> {
     let Some(with) = with else { return vec![] };
     let mut ctes: Vec<Table> = Vec::new();
     for cte in &with.cte_tables {
-        let cols = derived_cols(&cte.query, schema, &ctes, config);
+        let cols = apply_cte_alias_columns(derived_cols(&cte.query, schema, &ctes, config), &cte.alias.columns);
         if !cols.is_empty() {
             ctes.push(Table::new(ident_to_str(&cte.alias.name), cols));
         }

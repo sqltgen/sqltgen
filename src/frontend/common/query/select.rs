@@ -15,8 +15,8 @@ use super::dml::{build_query_from_insert, build_query_from_update};
 use super::params::{collect_limit_offset_params, collect_order_by_params, collect_select_params, collect_set_expr_params};
 use super::resolve::resolve_projection;
 use super::{
-    build_alias_map, build_cte_scope, build_params, collect_cte_params, collect_from_tables, count_params, derived_cols, unresolved_query, QueryAnnotation,
-    ResolverConfig, ResolverContext,
+    apply_cte_alias_columns, build_alias_map, build_cte_scope, build_params, collect_cte_params, collect_from_tables, count_params, derived_cols,
+    unresolved_query, QueryAnnotation, ResolverConfig, ResolverContext,
 };
 
 /// Build a [`Query`] from a `Statement::Query` node (SELECT, set operation, or
@@ -136,7 +136,7 @@ pub(super) fn build_source_provenance(
                 }
             }
             // Extend the local CTE list so subsequent CTEs can reference this one.
-            let cols = derived_cols(&cte.query, schema, &cte_tables, config);
+            let cols = apply_cte_alias_columns(derived_cols(&cte.query, schema, &cte_tables, config), &cte.alias.columns);
             if !cols.is_empty() {
                 cte_tables.push(Table::new(cte_name, cols));
             }
