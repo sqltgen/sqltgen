@@ -3,13 +3,15 @@ use sqlparser::dialect::Dialect;
 use sqlparser::parser::Parser;
 use sqlparser::tokenizer::{Token, Tokenizer};
 
-use super::{apply_alter_table, apply_drop_tables, build_column, build_create_table, obj_name_to_str, DdlDialect};
+use super::{apply_alter_table, apply_drop_tables, build_column, build_create_table, obj_name_to_str, obj_schema_to_str, DdlDialect};
 use crate::frontend::common::query::{resolve_view_columns, ResolverConfig};
+use crate::ir::schema_matches;
 use crate::ir::{ScalarFunction, Schema, SqlType, Table};
 
 /// A `CREATE VIEW` statement collected during pass 1 for resolution in pass 2.
 struct PendingView {
     name: String,
+    schema: Option<String>,
     query: Box<sqlparser::ast::Query>,
 }
 
@@ -66,7 +68,9 @@ pub(crate) fn parse_schema_impl(ddl: &str, sql_dialect: &dyn Dialect, ddl_dialec
     // view can reference an earlier one.
     for view in pending_views {
         let columns = resolve_view_columns(&view.query, &schema, resolver_config);
-        schema.tables.push(Table::view(view.name, columns));
+        let mut table = Table::view(view.name, columns);
+        table.schema = view.schema;
+        schema.tables.push(table);
     }
 
     Ok(schema)
@@ -83,12 +87,13 @@ fn process_statement(stmt: &Statement, schema: &mut Schema, dialect: DdlDialect,
         Statement::Drop { object_type: ObjectType::Table, names, .. } => apply_drop_tables(names, &mut schema.tables, default_schema),
         Statement::CreateView(v) => {
             let name = obj_name_to_str(&v.name);
+            let schema_name = obj_schema_to_str(&v.name);
             if v.or_replace {
-                pending_views.retain(|view| view.name != name);
+                pending_views.retain(|view| !(view.name == name && schema_matches(schema_name.as_deref(), view.schema.as_deref(), default_schema)));
             }
-            pending_views.push(PendingView { name, query: v.query.clone() });
+            pending_views.push(PendingView { name, schema: schema_name, query: v.query.clone() });
         },
-        Statement::Drop { object_type: ObjectType::View, names, .. } => apply_drop_views(names, pending_views),
+        Statement::Drop { object_type: ObjectType::View, names, .. } => apply_drop_views(names, pending_views, default_schema),
         Statement::CreateFunction(f) => {
             let name = obj_name_to_str(&f.name);
             match &f.return_type {
@@ -128,10 +133,11 @@ fn process_statement(stmt: &Statement, schema: &mut Schema, dialect: DdlDialect,
 }
 
 /// Remove every pending view named in `names` from the pass-1 view list.
-fn apply_drop_views(names: &[sqlparser::ast::ObjectName], pending_views: &mut Vec<PendingView>) {
+fn apply_drop_views(names: &[sqlparser::ast::ObjectName], pending_views: &mut Vec<PendingView>, default_schema: Option<&str>) {
     for name in names {
-        let name = obj_name_to_str(name);
-        pending_views.retain(|view| view.name != name);
+        let view_name = obj_name_to_str(name);
+        let view_schema = obj_schema_to_str(name);
+        pending_views.retain(|view| !(view.name == view_name && schema_matches(view_schema.as_deref(), view.schema.as_deref(), default_schema)));
     }
 }
 

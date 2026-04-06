@@ -723,4 +723,37 @@ mod tests {
         assert!(schema.tables.iter().any(|t| t.name == "users" && !t.is_view()));
         assert!(schema.tables.iter().all(|t| t.name != "user_names"));
     }
+
+    #[test]
+    fn test_drop_schema_qualified_view_does_not_remove_other_schema_view() {
+        let ddl = r#"
+            CREATE TABLE users (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL);
+            CREATE VIEW public.user_names AS SELECT id FROM users;
+            CREATE VIEW internal.user_names AS SELECT name FROM users;
+            DROP VIEW public.user_names;
+        "#;
+        let schema = parse_schema(ddl, None).unwrap();
+
+        let views: Vec<_> = schema.tables.iter().filter(|t| t.is_view() && t.name == "user_names").collect();
+        assert_eq!(views.len(), 1, "dropping public.user_names should preserve internal.user_names");
+        assert_eq!(views[0].columns.len(), 1);
+        assert_eq!(views[0].columns[0].name, "name");
+    }
+
+    #[test]
+    fn test_or_replace_schema_qualified_view_does_not_replace_other_schema_view() {
+        let ddl = r#"
+            CREATE TABLE users (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL);
+            CREATE VIEW public.user_names AS SELECT id FROM users;
+            CREATE VIEW internal.user_names AS SELECT name FROM users;
+            CREATE OR REPLACE VIEW public.user_names AS SELECT id, name FROM users;
+        "#;
+        let schema = parse_schema(ddl, None).unwrap();
+
+        let views: Vec<_> = schema.tables.iter().filter(|t| t.is_view() && t.name == "user_names").collect();
+        assert_eq!(views.len(), 2, "replacing public.user_names should not remove internal.user_names");
+
+        assert!(views.iter().any(|v| v.columns.len() == 1 && v.columns[0].name == "name"));
+        assert!(views.iter().any(|v| v.columns.len() == 2 && v.columns[0].name == "id" && v.columns[1].name == "name"));
+    }
 }
