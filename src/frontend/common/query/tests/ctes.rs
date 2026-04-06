@@ -89,6 +89,50 @@ fn cte_update_body_result_columns_from_insert_returning() {
 }
 
 #[test]
+fn cte_update_body_can_type_params_from_prior_cte_in_from_where() {
+    // Regression: while walking CTEs left-to-right, UPDATE CTE bodies should be
+    // able to resolve FROM sources from earlier CTEs.
+    let sql = "-- name: UpdateViaCte :many\n\
+        WITH src AS (SELECT id, user_id FROM posts),\n\
+             upd AS (\n\
+                 UPDATE users\n\
+                 SET name = $1\n\
+                 FROM src\n\
+                 WHERE users.id = src.user_id AND src.id = $2\n\
+                 RETURNING users.id\n\
+             )\n\
+        SELECT id FROM upd;";
+    let q = &parse_queries(sql, &make_join_schema()).unwrap()[0];
+    assert_eq!(q.params.len(), 2);
+    assert_eq!(q.params[0].name, "name");
+    assert_eq!(q.params[0].sql_type, SqlType::Text, "$1 should come from users.name");
+    assert_eq!(q.params[1].name, "id");
+    assert_eq!(q.params[1].sql_type, SqlType::BigInt, "$2 should come from src.id");
+}
+
+#[test]
+fn cte_update_body_can_type_join_on_params_from_prior_cte() {
+    // Regression: JOIN ON conditions inside UPDATE ... FROM should also resolve
+    // prior CTE columns while collecting CTE-body params.
+    let sql = "-- name: UpdateViaCteJoin :many\n\
+        WITH src AS (SELECT id, user_id FROM posts),\n\
+             upd AS (\n\
+                 UPDATE users\n\
+                 SET name = $1\n\
+                 FROM src JOIN posts p ON src.id = $2 AND p.user_id = src.user_id\n\
+                 WHERE users.id = src.user_id\n\
+                 RETURNING users.id\n\
+             )\n\
+        SELECT id FROM upd;";
+    let q = &parse_queries(sql, &make_join_schema()).unwrap()[0];
+    assert_eq!(q.params.len(), 2);
+    assert_eq!(q.params[0].name, "name");
+    assert_eq!(q.params[0].sql_type, SqlType::Text, "$1 should come from users.name");
+    assert_eq!(q.params[1].name, "id");
+    assert_eq!(q.params[1].sql_type, SqlType::BigInt, "$2 should come from src.id");
+}
+
+#[test]
 fn cte_insert_returning_columns_flow_to_outer_select() {
     // WITH inserted AS (INSERT … RETURNING …) SELECT * FROM inserted
     // The outer SELECT * should expand to the RETURNING columns.

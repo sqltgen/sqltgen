@@ -16,8 +16,8 @@ use crate::ir::{Query, Schema, SqlType, Table};
 
 use super::params::{collect_join_params_list, collect_params_from_expr, collect_select_params, placeholder_idx_in_expr};
 use super::{
-    build_alias_map, build_params, collect_cte_params, collect_table_list, count_params, delete_table_name, insert_table_name, resolve_returning,
-    unresolved_query, update_from_tables, QueryAnnotation, ResolverConfig, ResolverContext,
+    build_alias_map, build_cte_scope, build_params, collect_cte_params, collect_table_list, count_params, delete_table_name, insert_table_name,
+    resolve_returning, unresolved_query, update_from_tables, QueryAnnotation, ResolverConfig, ResolverContext,
 };
 
 // ─── RETURNING params ────────────────────────────────────────────────────────
@@ -192,7 +192,7 @@ pub(super) fn build_update(ann: &QueryAnnotation, sql: &str, u: &sqlparser::ast:
     };
 
     let mut mapping: HashMap<usize, (String, SqlType, bool)> = HashMap::new();
-    collect_update_params(&u.table, &u.assignments, u.selection.as_ref(), update_from_tables(&u.from), schema, config, &mut mapping, &ann.name);
+    collect_update_params(&u.table, &u.assignments, u.selection.as_ref(), update_from_tables(&u.from), &[], schema, config, &mut mapping, &ann.name);
     if let Some(items) = u.returning.as_deref() {
         collect_returning_params(items, table, config, &mut mapping, &ann.name);
     }
@@ -216,7 +216,8 @@ pub(super) fn build_query_from_update(
     };
     let mut mapping = HashMap::new();
     collect_cte_params(q.with.as_ref(), schema, config, &mut mapping, &ann.name);
-    collect_update_params(&u.table, &u.assignments, u.selection.as_ref(), update_from_tables(&u.from), schema, config, &mut mapping, &ann.name);
+    let ctes = build_cte_scope(q.with.as_ref(), schema, config);
+    collect_update_params(&u.table, &u.assignments, u.selection.as_ref(), update_from_tables(&u.from), &ctes, schema, config, &mut mapping, &ann.name);
     if let Some(table) = schema.tables.iter().find(|t| t.name == table_name) {
         if let Some(items) = u.returning.as_deref() {
             collect_returning_params(items, table, config, &mut mapping, &ann.name);
@@ -240,6 +241,9 @@ pub(super) fn build_query_from_update(
 /// can type their parameters correctly. JOIN ON conditions within the FROM clause
 /// are also walked.
 ///
+/// `ctes` contains CTE tables visible at this UPDATE site so `FROM cte_name` can
+/// resolve column types from CTE output shapes.
+///
 /// Shared by `build_update` (standalone UPDATE) and `build_query_from_update` (CTE-wrapped UPDATE).
 #[allow(clippy::too_many_arguments)]
 pub(super) fn collect_update_params(
@@ -247,6 +251,7 @@ pub(super) fn collect_update_params(
     assignments: &[Assignment],
     selection: Option<&Expr>,
     from: &[TableWithJoins],
+    ctes: &[Table],
     schema: &Schema,
     config: &ResolverConfig,
     mapping: &mut HashMap<usize, (String, SqlType, bool)>,
@@ -261,7 +266,7 @@ pub(super) fn collect_update_params(
     };
 
     let mut all_tables = vec![(table.clone(), None)];
-    all_tables.extend(collect_table_list(from, schema, &[], config));
+    all_tables.extend(collect_table_list(from, schema, ctes, config));
     let alias_map = build_alias_map(&all_tables);
 
     // Parameters from SET clause: col = $N

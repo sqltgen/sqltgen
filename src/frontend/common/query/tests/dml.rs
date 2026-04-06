@@ -227,3 +227,38 @@ fn plain_update_unaffected_by_from_change() {
     assert_eq!(q.params[0].sql_type, SqlType::Text);
     assert_eq!(q.params[1].sql_type, SqlType::BigInt);
 }
+
+#[test]
+fn update_from_cte_where_param_typed_from_cte_column() {
+    // Regression: UPDATE ... FROM should type params using columns from CTE sources.
+    // $1 comes from users.name (Text), $2 should come from src.id (BigInt).
+    let schema = make_join_schema();
+    let sql = "-- name: UpdateUserFromCte :exec\n\
+        WITH src AS (SELECT id, user_id FROM posts)\n\
+        UPDATE users SET name = $1 FROM src\n\
+        WHERE users.id = src.user_id AND src.id = $2;";
+    let q = &parse_queries(sql, &schema).unwrap()[0];
+    assert_eq!(q.params.len(), 2);
+    assert_eq!(q.params[0].name, "name");
+    assert_eq!(q.params[0].sql_type, SqlType::Text, "$1 (users.name)");
+    assert_eq!(q.params[1].name, "id");
+    assert_eq!(q.params[1].sql_type, SqlType::BigInt, "$2 (src.id)");
+}
+
+#[test]
+fn update_from_cte_join_on_param_typed_from_cte_column() {
+    // Regression: JOIN ON params inside UPDATE ... FROM should resolve CTE columns.
+    // $1 comes from users.name (Text), $2 should come from src.id (BigInt).
+    let schema = make_join_schema();
+    let sql = "-- name: UpdateUserFromCteJoin :exec\n\
+        WITH src AS (SELECT id, user_id FROM posts)\n\
+        UPDATE users SET name = $1\n\
+        FROM src JOIN posts p ON src.id = $2 AND p.user_id = src.user_id\n\
+        WHERE users.id = src.user_id;";
+    let q = &parse_queries(sql, &schema).unwrap()[0];
+    assert_eq!(q.params.len(), 2);
+    assert_eq!(q.params[0].name, "name");
+    assert_eq!(q.params[0].sql_type, SqlType::Text, "$1 (users.name)");
+    assert_eq!(q.params[1].name, "id");
+    assert_eq!(q.params[1].sql_type, SqlType::BigInt, "$2 (src.id/p.id)");
+}

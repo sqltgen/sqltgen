@@ -263,7 +263,17 @@ pub(super) fn collect_cte_params(
         collect_cte_params(cte.query.with.as_ref(), schema, config, mapping, query_name);
         match cte.query.body.as_ref() {
             SetExpr::Update(Statement::Update(u)) => {
-                collect_update_params(&u.table, &u.assignments, u.selection.as_ref(), update_from_tables(&u.from), schema, config, mapping, query_name);
+                collect_update_params(
+                    &u.table,
+                    &u.assignments,
+                    u.selection.as_ref(),
+                    update_from_tables(&u.from),
+                    &local_ctes,
+                    schema,
+                    config,
+                    mapping,
+                    query_name,
+                );
                 if let TableFactor::Table { name, .. } = &u.table.relation {
                     let table_name = obj_name_to_str(name);
                     if let Some(table) = schema.tables.iter().find(|t| t.name == table_name) {
