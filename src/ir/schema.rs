@@ -9,6 +9,9 @@ use super::types::SqlType;
 #[derive(Debug, Clone)]
 pub struct ScalarFunction {
     pub name: String,
+    /// The schema this function belongs to (e.g. `"public"`).
+    /// `None` for unqualified function names.
+    pub schema: Option<String>,
     pub return_type: SqlType,
     /// Positional types of `IN` parameters (OUT/INOUT parameters are excluded
     /// because they are return values, not inputs).

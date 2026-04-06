@@ -532,6 +532,29 @@ mod tests {
     }
 
     #[test]
+    fn test_drop_schema_qualified_function_does_not_remove_other_schema_function() {
+        let ddl = "\
+            CREATE FUNCTION public.fetch_name(resource_id bigint) RETURNS text LANGUAGE sql AS $$ SELECT '' $$;\
+            CREATE FUNCTION internal.fetch_name(resource_id bigint) RETURNS bigint LANGUAGE sql AS $$ SELECT 1 $$;\
+            DROP FUNCTION public.fetch_name(bigint);";
+        let schema = parse_schema(ddl, None).unwrap();
+        assert_eq!(schema.functions.len(), 1, "dropping public.fetch_name should preserve internal.fetch_name");
+        assert_eq!(schema.functions[0].return_type, SqlType::BigInt);
+    }
+
+    #[test]
+    fn test_or_replace_schema_qualified_function_does_not_replace_other_schema_function() {
+        let ddl = "\
+            CREATE FUNCTION public.fetch_name(resource_id bigint) RETURNS text LANGUAGE sql AS $$ SELECT '' $$;\
+            CREATE FUNCTION internal.fetch_name(resource_id bigint) RETURNS bigint LANGUAGE sql AS $$ SELECT 1 $$;\
+            CREATE OR REPLACE FUNCTION public.fetch_name(resource_id bigint) RETURNS integer LANGUAGE sql AS $$ SELECT 2 $$;";
+        let schema = parse_schema(ddl, None).unwrap();
+        assert_eq!(schema.functions.len(), 2, "replacing public.fetch_name should not remove internal.fetch_name");
+        assert!(schema.functions.iter().any(|f| f.return_type == SqlType::Integer));
+        assert!(schema.functions.iter().any(|f| f.return_type == SqlType::BigInt));
+    }
+
+    #[test]
     fn test_create_function_table_returning_not_scalar() {
         let ddl = "CREATE FUNCTION get_users() RETURNS TABLE(id bigint, name text) LANGUAGE sql AS $$ SELECT id, name FROM users $$;";
         let schema = parse_schema(ddl, None).unwrap();
@@ -564,6 +587,19 @@ mod tests {
         let schema = parse_schema(ddl, None).unwrap();
         assert_eq!(schema.tables.len(), 1, "OR REPLACE must not duplicate the TVF");
         assert_eq!(schema.tables[0].columns.len(), 2, "OR REPLACE must update columns");
+    }
+
+    #[test]
+    fn test_or_replace_schema_qualified_tvf_does_not_replace_other_schema_tvf() {
+        let ddl = "\
+            CREATE FUNCTION public.get_users() RETURNS TABLE(id BIGINT) LANGUAGE sql AS $$ SELECT 1 $$;\
+            CREATE FUNCTION internal.get_users() RETURNS TABLE(name TEXT) LANGUAGE sql AS $$ SELECT '' $$;\
+            CREATE OR REPLACE FUNCTION public.get_users() RETURNS TABLE(id BIGINT, name TEXT) LANGUAGE sql AS $$ SELECT 1, '' $$;";
+        let schema = parse_schema(ddl, None).unwrap();
+        let tvfs: Vec<_> = schema.tables.iter().filter(|t| t.is_view() && t.name == "get_users").collect();
+        assert_eq!(tvfs.len(), 2, "replacing public.get_users should not remove internal.get_users");
+        assert!(tvfs.iter().any(|t| t.columns.len() == 1 && t.columns[0].name == "name"));
+        assert!(tvfs.iter().any(|t| t.columns.len() == 2 && t.columns[0].name == "id" && t.columns[1].name == "name"));
     }
 
     #[test]

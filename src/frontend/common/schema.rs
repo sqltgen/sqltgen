@@ -96,14 +96,19 @@ fn process_statement(stmt: &Statement, schema: &mut Schema, dialect: DdlDialect,
         Statement::Drop { object_type: ObjectType::View, names, .. } => apply_drop_views(names, pending_views, default_schema),
         Statement::CreateFunction(f) => {
             let name = obj_name_to_str(&f.name);
+            let schema_name = obj_schema_to_str(&f.name);
             match &f.return_type {
                 // Table-valued function: RETURNS TABLE(col1 type, col2 type, ...)
                 Some(DataType::Table(Some(col_defs))) => {
                     let columns = col_defs.iter().map(|cd| build_column(cd, dialect.map_type)).collect();
                     if f.or_replace {
-                        schema.tables.retain(|t| t.name != name);
+                        schema
+                            .tables
+                            .retain(|t| !(t.is_view() && t.name == name && schema_matches(schema_name.as_deref(), t.schema.as_deref(), default_schema)));
                     }
-                    schema.tables.push(Table::view(name, columns));
+                    let mut tvf = Table::view(name, columns);
+                    tvf.schema = schema_name;
+                    schema.tables.push(tvf);
                 },
                 // RETURNS TABLE without column list — skip.
                 Some(DataType::Table(None)) => {},
@@ -119,15 +124,19 @@ fn process_statement(stmt: &Statement, schema: &mut Schema, dialect: DdlDialect,
                         .map(|a| (dialect.map_type)(&a.data_type))
                         .collect();
                     if f.or_replace {
-                        schema.functions.retain(|g| g.name != name || g.param_types.len() != param_types.len());
+                        schema.functions.retain(|g| {
+                            g.name != name
+                                || g.param_types.len() != param_types.len()
+                                || !schema_matches(schema_name.as_deref(), g.schema.as_deref(), default_schema)
+                        });
                     }
-                    schema.functions.push(ScalarFunction { name, return_type, param_types });
+                    schema.functions.push(ScalarFunction { name, schema: schema_name, return_type, param_types });
                 },
                 // No return type — skip.
                 None => {},
             }
         },
-        Statement::DropFunction(DropFunction { func_desc, .. }) => apply_drop_functions(func_desc, &mut schema.functions),
+        Statement::DropFunction(DropFunction { func_desc, .. }) => apply_drop_functions(func_desc, &mut schema.functions, default_schema),
         _ => {},
     }
 }
@@ -142,9 +151,10 @@ fn apply_drop_views(names: &[sqlparser::ast::ObjectName], pending_views: &mut Ve
 }
 
 /// Remove every function named in `func_desc` from the in-progress function list.
-fn apply_drop_functions(func_desc: &[sqlparser::ast::FunctionDesc], functions: &mut Vec<ScalarFunction>) {
+fn apply_drop_functions(func_desc: &[sqlparser::ast::FunctionDesc], functions: &mut Vec<ScalarFunction>, default_schema: Option<&str>) {
     for desc in func_desc {
         let name = obj_name_to_str(&desc.name);
-        functions.retain(|f| f.name != name);
+        let schema = obj_schema_to_str(&desc.name);
+        functions.retain(|f| f.name != name || !schema_matches(schema.as_deref(), f.schema.as_deref(), default_schema));
     }
 }

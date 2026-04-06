@@ -477,7 +477,7 @@ mod tests {
         use crate::ir::ScalarFunction;
         Schema {
             tables: make_schema().tables,
-            functions: vec![ScalarFunction { name: "fetch_payload".into(), return_type: SqlType::Text, param_types: vec![SqlType::BigInt] }],
+            functions: vec![ScalarFunction { name: "fetch_payload".into(), schema: None, return_type: SqlType::Text, param_types: vec![SqlType::BigInt] }],
         }
     }
 
@@ -498,6 +498,7 @@ mod tests {
                 tables: make_schema().tables,
                 functions: vec![ScalarFunction {
                     name: "fetch_payload".into(),
+                    schema: None,
                     return_type: SqlType::Text,
                     param_types: vec![SqlType::BigInt, SqlType::BigInt],
                 }],
