@@ -12,7 +12,7 @@ use sqlparser::ast::{
 use sqlparser::dialect::Dialect;
 use sqlparser::parser::Parser;
 
-use crate::frontend::common::{ident_to_str, named_params, obj_name_to_str};
+use crate::frontend::common::{ident_to_str, named_params, obj_name_to_str, obj_schema_to_str};
 use crate::ir::{Column, NativeListBind, Parameter, Query, QueryCmd, ResultColumn, Schema, SqlType, Table};
 
 type UserFunctions = HashMap<String, Vec<(Vec<SqlType>, SqlType)>>;
@@ -61,6 +61,9 @@ pub(crate) struct ResolverConfig {
     /// pairs in declaration order. PostgreSQL supports overloading by param type/count;
     /// MySQL does not; SQLite has no DDL functions.
     pub user_functions: UserFunctions,
+    /// Schema name to use when matching unqualified table references against
+    /// schema-qualified tables. Set from config, falling back to engine default.
+    pub default_schema: Option<String>,
 }
 
 impl Default for ResolverConfig {
@@ -72,6 +75,7 @@ impl Default for ResolverConfig {
             typemap: crate::frontend::common::typemap::map_common_or_custom,
             native_list_sql: None,
             user_functions: HashMap::new(),
+            default_schema: None,
         }
     }
 }
@@ -88,19 +92,21 @@ pub(super) struct ResolverContext<'a> {
     pub query_name: &'a str,
 }
 
-pub(super) fn insert_table_name(ins: &Insert) -> String {
+/// Returns `(schema, table_name)` for an INSERT statement's target table.
+pub(super) fn insert_table_ref(ins: &Insert) -> (Option<String>, String) {
     match &ins.table {
-        TableObject::TableName(name) => obj_name_to_str(name),
-        _ => String::new(),
+        TableObject::TableName(name) => (obj_schema_to_str(name), obj_name_to_str(name)),
+        _ => (None, String::new()),
     }
 }
 
-pub(super) fn delete_table_name(del: &Delete) -> Option<String> {
+/// Returns `(schema, table_name)` for a DELETE statement's target table.
+pub(super) fn delete_table_ref(del: &Delete) -> Option<(Option<String>, String)> {
     let tables = match &del.from {
         sqlparser::ast::FromTable::WithFromKeyword(t) | sqlparser::ast::FromTable::WithoutKeyword(t) => t,
     };
     tables.first().and_then(|twj| match &twj.relation {
-        TableFactor::Table { name, .. } => Some(obj_name_to_str(name)),
+        TableFactor::Table { name, .. } => Some((obj_schema_to_str(name), obj_name_to_str(name))),
         _ => None,
     })
 }
@@ -275,8 +281,7 @@ pub(super) fn collect_cte_params(
                     query_name,
                 );
                 if let TableFactor::Table { name, .. } = &u.table.relation {
-                    let table_name = obj_name_to_str(name);
-                    if let Some(table) = schema.tables.iter().find(|t| t.name == table_name) {
+                    if let Some(table) = schema.find_table(obj_schema_to_str(name).as_deref(), &obj_name_to_str(name), config.default_schema.as_deref()) {
                         if let Some(items) = u.returning.as_deref() {
                             collect_returning_params(items, table, config, mapping, query_name);
                         }
@@ -285,8 +290,8 @@ pub(super) fn collect_cte_params(
             },
             SetExpr::Delete(Statement::Delete(del)) => {
                 collect_delete_where_params(del, schema, config, mapping, query_name);
-                if let Some(table_name) = delete_table_name(del) {
-                    if let Some(table) = schema.tables.iter().find(|t| t.name == table_name) {
+                if let Some((del_schema, del_name)) = delete_table_ref(del) {
+                    if let Some(table) = schema.find_table(del_schema.as_deref(), &del_name, config.default_schema.as_deref()) {
                         if let Some(items) = del.returning.as_deref() {
                             collect_returning_params(items, table, config, mapping, query_name);
                         }
@@ -295,7 +300,8 @@ pub(super) fn collect_cte_params(
             },
             SetExpr::Insert(Statement::Insert(ins)) => {
                 collect_insert_value_params(ins, schema, config, mapping, query_name);
-                if let Some(table) = schema.tables.iter().find(|t| t.name == insert_table_name(ins)) {
+                let (ins_schema, ins_name) = insert_table_ref(ins);
+                if let Some(table) = schema.find_table(ins_schema.as_deref(), &ins_name, config.default_schema.as_deref()) {
                     if let Some(items) = ins.returning.as_deref() {
                         collect_returning_params(items, table, config, mapping, query_name);
                     }
@@ -397,7 +403,11 @@ fn collect_table_factor(factor: &TableFactor, schema: &Schema, ctes: &[Table], o
     match factor {
         TableFactor::Table { name, alias, .. } => {
             let table_name = obj_name_to_str(name);
-            let found = ctes.iter().find(|t| t.name == table_name).or_else(|| schema.tables.iter().find(|t| t.name == table_name));
+            let table_schema = obj_schema_to_str(name);
+            let found = ctes
+                .iter()
+                .find(|t| t.name == table_name)
+                .or_else(|| schema.find_table(table_schema.as_deref(), &table_name, config.default_schema.as_deref()));
             if let Some(t) = found {
                 let alias_str = alias.as_ref().map(|a| ident_to_str(&a.name));
                 out.push((t.clone(), alias_str));
@@ -434,7 +444,8 @@ fn returning_to_columns(returning: &[SelectItem], table: &Table, config: &Resolv
 
 /// Resolve RETURNING columns for an INSERT CTE body.
 fn returning_cols_for_insert(ins: &Insert, schema: &Schema, config: &ResolverConfig) -> Vec<Column> {
-    let Some(table) = schema.tables.iter().find(|t| t.name == insert_table_name(ins)) else { return vec![] };
+    let (ins_schema, ins_name) = insert_table_ref(ins);
+    let Some(table) = schema.find_table(ins_schema.as_deref(), &ins_name, config.default_schema.as_deref()) else { return vec![] };
     let Some(returning) = &ins.returning else { return vec![] };
     returning_to_columns(returning, table, config)
 }
@@ -442,15 +453,15 @@ fn returning_cols_for_insert(ins: &Insert, schema: &Schema, config: &ResolverCon
 /// Resolve RETURNING columns for an UPDATE CTE body.
 fn returning_cols_for_update(u: &sqlparser::ast::Update, schema: &Schema, config: &ResolverConfig) -> Vec<Column> {
     let TableFactor::Table { name, .. } = &u.table.relation else { return vec![] };
-    let Some(table) = schema.tables.iter().find(|t| t.name == obj_name_to_str(name)) else { return vec![] };
+    let Some(table) = schema.find_table(obj_schema_to_str(name).as_deref(), &obj_name_to_str(name), config.default_schema.as_deref()) else { return vec![] };
     let Some(returning) = &u.returning else { return vec![] };
     returning_to_columns(returning, table, config)
 }
 
 /// Resolve RETURNING columns for a DELETE CTE body.
 fn returning_cols_for_delete(del: &Delete, schema: &Schema, config: &ResolverConfig) -> Vec<Column> {
-    let Some(table_name) = delete_table_name(del) else { return vec![] };
-    let Some(table) = schema.tables.iter().find(|t| t.name == table_name) else { return vec![] };
+    let Some((del_schema, del_name)) = delete_table_ref(del) else { return vec![] };
+    let Some(table) = schema.find_table(del_schema.as_deref(), &del_name, config.default_schema.as_deref()) else { return vec![] };
     let Some(returning) = &del.returning else { return vec![] };
     returning_to_columns(returning, table, config)
 }

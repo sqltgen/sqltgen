@@ -11,12 +11,12 @@ use sqlparser::ast::{
     TableFactor, TableWithJoins, Values,
 };
 
-use crate::frontend::common::{ident_to_str, obj_name_to_str};
+use crate::frontend::common::{ident_to_str, obj_name_to_str, obj_schema_to_str};
 use crate::ir::{Query, Schema, SqlType, Table};
 
 use super::params::{collect_join_params_list, collect_params_from_expr, collect_select_params, placeholder_idx_in_expr};
 use super::{
-    build_alias_map, build_cte_scope, build_params, collect_cte_params, collect_table_list, count_params, delete_table_name, insert_table_name,
+    build_alias_map, build_cte_scope, build_params, collect_cte_params, collect_table_list, count_params, delete_table_ref, insert_table_ref,
     resolve_returning, unresolved_query, update_from_tables, QueryAnnotation, ResolverConfig, ResolverContext,
 };
 
@@ -51,8 +51,8 @@ pub(super) fn collect_returning_params(
 
 /// Build a [`Query`] from a top-level `INSERT` statement.
 pub(super) fn build_insert(ann: &QueryAnnotation, sql: &str, insert: &Insert, schema: &Schema, config: &ResolverConfig) -> Query {
-    let table_name = insert_table_name(insert);
-    let Some(table) = schema.tables.iter().find(|t| t.name == table_name) else {
+    let (ins_schema, table_name) = insert_table_ref(insert);
+    let Some(table) = schema.find_table(ins_schema.as_deref(), &table_name, config.default_schema.as_deref()) else {
         return unresolved_query(ann, sql);
     };
 
@@ -70,19 +70,19 @@ pub(super) fn build_insert(ann: &QueryAnnotation, sql: &str, insert: &Insert, sc
 
 /// Handle `Statement::Query` where the body is `INSERT … RETURNING` (data-modifying CTE pattern).
 pub(super) fn build_query_from_insert(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, ins: &Insert, schema: &Schema, config: &ResolverConfig) -> Query {
+    let (ins_schema, ins_name) = insert_table_ref(ins);
+    let ds = config.default_schema.as_deref();
     let mut mapping = HashMap::new();
     collect_cte_params(q.with.as_ref(), schema, config, &mut mapping, &ann.name);
     collect_insert_value_params(ins, schema, config, &mut mapping, &ann.name);
-    if let Some(table) = schema.tables.iter().find(|t| t.name == insert_table_name(ins)) {
+    if let Some(table) = schema.find_table(ins_schema.as_deref(), &ins_name, ds) {
         if let Some(items) = ins.returning.as_deref() {
             collect_returning_params(items, table, config, &mut mapping, &ann.name);
         }
     }
     let params = build_params(mapping, count_params(sql));
     let result_columns = schema
-        .tables
-        .iter()
-        .find(|t| t.name == insert_table_name(ins))
+        .find_table(ins_schema.as_deref(), &ins_name, ds)
         .and_then(|t| ins.returning.as_deref().map(|items| resolve_returning(items, t, config)))
         .unwrap_or_default();
     Query::new(ann.name.clone(), ann.cmd.clone(), sql, params, result_columns)
@@ -142,8 +142,8 @@ pub(super) fn collect_insert_value_params(
     mapping: &mut HashMap<usize, (String, SqlType, bool)>,
     query_name: &str,
 ) {
-    let table_name = insert_table_name(ins);
-    let Some(table) = schema.tables.iter().find(|t| t.name == table_name) else { return };
+    let (ins_schema, table_name) = insert_table_ref(ins);
+    let Some(table) = schema.find_table(ins_schema.as_deref(), &table_name, config.default_schema.as_deref()) else { return };
     let col_names: Vec<String> = ins.columns.iter().map(ident_to_str).collect();
     let Some(source) = &ins.source else { return };
 
@@ -183,11 +183,11 @@ pub(super) fn collect_insert_value_params(
 
 /// Build a [`Query`] from a top-level `UPDATE` statement.
 pub(super) fn build_update(ann: &QueryAnnotation, sql: &str, u: &sqlparser::ast::Update, schema: &Schema, config: &ResolverConfig) -> Query {
-    let table_name = match &u.table.relation {
-        TableFactor::Table { name, .. } => obj_name_to_str(name),
+    let (table_schema, table_name) = match &u.table.relation {
+        TableFactor::Table { name, .. } => (obj_schema_to_str(name), obj_name_to_str(name)),
         _ => return unresolved_query(ann, sql),
     };
-    let Some(table) = schema.tables.iter().find(|t| t.name == table_name) else {
+    let Some(table) = schema.find_table(table_schema.as_deref(), &table_name, config.default_schema.as_deref()) else {
         return unresolved_query(ann, sql);
     };
 
@@ -210,24 +210,23 @@ pub(super) fn build_query_from_update(
     schema: &Schema,
     config: &ResolverConfig,
 ) -> Query {
-    let table_name = match &u.table.relation {
-        TableFactor::Table { name, .. } => obj_name_to_str(name),
+    let (table_schema, table_name) = match &u.table.relation {
+        TableFactor::Table { name, .. } => (obj_schema_to_str(name), obj_name_to_str(name)),
         _ => return unresolved_query(ann, sql),
     };
+    let ds = config.default_schema.as_deref();
     let mut mapping = HashMap::new();
     collect_cte_params(q.with.as_ref(), schema, config, &mut mapping, &ann.name);
     let ctes = build_cte_scope(q.with.as_ref(), schema, config);
     collect_update_params(&u.table, &u.assignments, u.selection.as_ref(), update_from_tables(&u.from), &ctes, schema, config, &mut mapping, &ann.name);
-    if let Some(table) = schema.tables.iter().find(|t| t.name == table_name) {
+    if let Some(table) = schema.find_table(table_schema.as_deref(), &table_name, ds) {
         if let Some(items) = u.returning.as_deref() {
             collect_returning_params(items, table, config, &mut mapping, &ann.name);
         }
     }
     let params = build_params(mapping, count_params(sql));
     let result_columns = schema
-        .tables
-        .iter()
-        .find(|t| t.name == table_name)
+        .find_table(table_schema.as_deref(), &table_name, ds)
         .and_then(|t| u.returning.as_deref().map(|items| resolve_returning(items, t, config)))
         .unwrap_or_default();
     Query::new(ann.name.clone(), ann.cmd.clone(), sql, params, result_columns)
@@ -257,11 +256,11 @@ pub(super) fn collect_update_params(
     mapping: &mut HashMap<usize, (String, SqlType, bool)>,
     query_name: &str,
 ) {
-    let (table_name, target_alias) = match &table_with_joins.relation {
-        TableFactor::Table { name, alias, .. } => (obj_name_to_str(name), alias.as_ref().map(|a| ident_to_str(&a.name))),
+    let (table_schema, table_name, target_alias) = match &table_with_joins.relation {
+        TableFactor::Table { name, alias, .. } => (obj_schema_to_str(name), obj_name_to_str(name), alias.as_ref().map(|a| ident_to_str(&a.name))),
         _ => return,
     };
-    let Some(table) = schema.tables.iter().find(|t| t.name == table_name) else {
+    let Some(table) = schema.find_table(table_schema.as_deref(), &table_name, config.default_schema.as_deref()) else {
         return;
     };
 
@@ -298,15 +297,15 @@ pub(super) fn build_delete(ann: &QueryAnnotation, sql: &str, delete: &Delete, sc
     let tables = match &delete.from {
         FromTable::WithFromKeyword(t) | FromTable::WithoutKeyword(t) => t,
     };
-    let table_name = tables.first().and_then(|twj| match &twj.relation {
-        TableFactor::Table { name, .. } => Some(obj_name_to_str(name)),
+    let table_ref = tables.first().and_then(|twj| match &twj.relation {
+        TableFactor::Table { name, .. } => Some((obj_schema_to_str(name), obj_name_to_str(name))),
         _ => None,
     });
 
-    let Some(table_name) = table_name else {
+    let Some((table_schema, table_name)) = table_ref else {
         return unresolved_query(ann, sql);
     };
-    let Some(table) = schema.tables.iter().find(|t| t.name == table_name) else {
+    let Some(table) = schema.find_table(table_schema.as_deref(), &table_name, config.default_schema.as_deref()) else {
         return unresolved_query(ann, sql);
     };
 
@@ -338,8 +337,8 @@ pub(super) fn collect_delete_where_params(
     mapping: &mut HashMap<usize, (String, SqlType, bool)>,
     query_name: &str,
 ) {
-    let Some(table_name) = delete_table_name(del) else { return };
-    let Some(table) = schema.tables.iter().find(|t| t.name == table_name) else { return };
+    let Some((del_schema, del_name)) = delete_table_ref(del) else { return };
+    let Some(table) = schema.find_table(del_schema.as_deref(), &del_name, config.default_schema.as_deref()) else { return };
     let Some(expr) = &del.selection else { return };
     let all_tables = vec![(table.clone(), None)];
     let alias_map = build_alias_map(&all_tables);

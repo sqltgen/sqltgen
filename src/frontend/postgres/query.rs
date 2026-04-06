@@ -15,6 +15,7 @@ pub(crate) fn parse_queries(sql: &str, schema: &Schema) -> anyhow::Result<Vec<Qu
             sum_bigint_type: SqlType::Decimal,
             avg_integer_type: SqlType::Decimal,
             native_list_sql: Some(pg_native_list_sql),
+            default_schema: Some("public".into()),
             ..ResolverConfig::default()
         },
     )

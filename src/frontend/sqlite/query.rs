@@ -9,7 +9,12 @@ pub(crate) fn parse_queries(sql: &str, schema: &Schema) -> anyhow::Result<Vec<Qu
         &SQLiteDialect {},
         sql,
         schema,
-        &ResolverConfig { typemap: crate::frontend::sqlite::typemap::map, native_list_sql: Some(sqlite_native_list_sql), ..ResolverConfig::default() },
+        &ResolverConfig {
+            typemap: crate::frontend::sqlite::typemap::map,
+            native_list_sql: Some(sqlite_native_list_sql),
+            default_schema: Some("main".into()),
+            ..ResolverConfig::default()
+        },
     )
 }
 

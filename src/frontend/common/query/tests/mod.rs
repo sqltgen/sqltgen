@@ -115,6 +115,7 @@ mod dml;
 mod expr;
 mod joins;
 mod params;
+mod schema_qualified;
 mod select;
 mod set_ops;
 mod source_table;

@@ -52,7 +52,8 @@ impl AlterCaps {
 pub(crate) fn apply_drop_tables(names: &[ObjectName], tables: &mut Vec<Table>) {
     for name in names {
         let table_name = obj_name_to_str(name);
-        tables.retain(|t| t.name != table_name);
+        let table_schema = obj_schema_to_str(name);
+        tables.retain(|t| !(t.name == table_name && t.schema.as_deref() == table_schema.as_deref()));
     }
 }
 
@@ -63,7 +64,8 @@ pub(crate) fn apply_drop_tables(names: &[ObjectName], tables: &mut Vec<Table>) {
 /// the target dialect does not actually support.
 pub(crate) fn apply_alter_table(name: &ObjectName, operations: &[AlterTableOperation], tables: &mut [Table], dialect: DdlDialect) {
     let table_name = obj_name_to_str(name);
-    let Some(idx) = tables.iter().position(|t| t.name == table_name) else {
+    let table_schema = obj_schema_to_str(name);
+    let Some(idx) = tables.iter().position(|t| t.name == table_name && t.schema.as_deref() == table_schema.as_deref()) else {
         return;
     };
 
@@ -103,6 +105,7 @@ pub(crate) fn apply_alter_table(name: &ObjectName, operations: &[AlterTableOpera
                     RenameTableNameKind::As(n) | RenameTableNameKind::To(n) => n,
                 };
                 table.name = obj_name_to_str(obj_name);
+                table.schema = obj_schema_to_str(obj_name);
             },
             AlterTableOperation::AddConstraint { constraint, .. } if caps.add_constraint => {
                 let pk_cols = pk_columns_from_constraint(constraint);
@@ -133,6 +136,17 @@ pub(crate) fn ident_to_str(ident: &Ident) -> String {
 /// Returns the last component of a dotted name (e.g. `schema.table` → `table`).
 pub(crate) fn obj_name_to_str(name: &ObjectName) -> String {
     name.0.last().and_then(|p| if let ObjectNamePart::Identifier(i) = p { Some(ident_to_str(i)) } else { None }).unwrap_or_default()
+}
+
+/// Returns the schema component of a dotted name (e.g. `schema.table` → `Some("schema")`).
+///
+/// For a simple name (single component), returns `None`.
+/// For `catalog.schema.table`, returns the second-to-last component (`schema`).
+pub(crate) fn obj_schema_to_str(name: &ObjectName) -> Option<String> {
+    if name.0.len() < 2 {
+        return None;
+    }
+    name.0.get(name.0.len() - 2).and_then(|p| if let ObjectNamePart::Identifier(i) = p { Some(ident_to_str(i)) } else { None })
 }
 
 /// Extracts PRIMARY KEY column names from a table-level constraint, if any.
@@ -178,6 +192,7 @@ pub(crate) fn build_column(col_def: &ColumnDef, map_type: fn(&DataType) -> SqlTy
 /// Builds a [`Table`] from a `CREATE TABLE` AST node.
 pub(crate) fn build_create_table(name: &ObjectName, column_defs: &[ColumnDef], constraints: &[TableConstraint], dialect: DdlDialect) -> Table {
     let table_name = obj_name_to_str(name);
+    let table_schema = obj_schema_to_str(name);
 
     // Collect table-level PRIMARY KEY column names
     let mut pk_cols: Vec<String> = Vec::new();
@@ -195,7 +210,9 @@ pub(crate) fn build_create_table(name: &ObjectName, column_defs: &[ColumnDef], c
         }
     }
 
-    Table::new(table_name, columns)
+    let mut table = Table::new(table_name, columns);
+    table.schema = table_schema;
+    table
 }
 
 #[cfg(test)]
@@ -267,6 +284,26 @@ mod tests {
         assert_eq!(obj_name_to_str(&name), "");
     }
 
+    // ─── obj_schema_to_str ──────────────────────────────────────────────
+
+    #[test]
+    fn test_obj_schema_to_str_simple_name_returns_none() {
+        let name = ObjectName::from(vec![Ident::new("users")]);
+        assert!(obj_schema_to_str(&name).is_none());
+    }
+
+    #[test]
+    fn test_obj_schema_to_str_dotted_returns_schema() {
+        let name = ObjectName::from(vec![Ident::new("Public"), Ident::new("users")]);
+        assert_eq!(obj_schema_to_str(&name).as_deref(), Some("public"));
+    }
+
+    #[test]
+    fn test_obj_schema_to_str_triple_dotted_returns_second_to_last() {
+        let name = ObjectName::from(vec![Ident::new("mydb"), Ident::new("Public"), Ident::new("users")]);
+        assert_eq!(obj_schema_to_str(&name).as_deref(), Some("public"));
+    }
+
     // ─── build_column ────────────────────────────────────────────────────────
 
     #[test]
@@ -319,6 +356,45 @@ mod tests {
     fn test_build_create_table_name_lowercased() {
         let t = parse_create_table("CREATE TABLE MyTable (id INTEGER PRIMARY KEY);");
         assert_eq!(t.name, "mytable");
+    }
+
+    #[test]
+    fn test_build_create_table_schema_qualified() {
+        let t = parse_create_table("CREATE TABLE public.users (id INTEGER PRIMARY KEY);");
+        assert_eq!(t.schema.as_deref(), Some("public"));
+        assert_eq!(t.name, "users");
+    }
+
+    #[test]
+    fn test_build_create_table_unqualified_has_no_schema() {
+        let t = parse_create_table("CREATE TABLE users (id INTEGER PRIMARY KEY);");
+        assert!(t.schema.is_none());
+        assert_eq!(t.name, "users");
+    }
+
+    // ─── apply_drop_tables (schema-qualified) ───────────────────────────────
+
+    #[test]
+    fn test_apply_drop_tables_schema_qualified() {
+        let mut tables = vec![Table::with_schema("s1", "t", vec![]), Table::with_schema("s2", "t", vec![])];
+        let names = vec![ObjectName::from(vec![Ident::new("s1"), Ident::new("t")])];
+        apply_drop_tables(&names, &mut tables);
+        assert_eq!(tables.len(), 1);
+        assert_eq!(tables[0].schema.as_deref(), Some("s2"));
+    }
+
+    // ─── apply_alter_table (schema-qualified) ───────────────────────────────
+
+    #[test]
+    fn test_apply_alter_table_schema_qualified() {
+        let mut tables =
+            vec![Table::with_schema("s1", "t", vec![Column::new("a", SqlType::Text)]), Table::with_schema("s2", "t", vec![Column::new("b", SqlType::Text)])];
+        let stmts = Parser::parse_sql(&GenericDialect {}, "ALTER TABLE s1.t ADD COLUMN c INTEGER;").unwrap();
+        if let sqlparser::ast::Statement::AlterTable(a) = &stmts[0] {
+            apply_alter_table(&a.name, &a.operations, &mut tables, test_dialect());
+        }
+        assert_eq!(tables[0].columns.len(), 2); // s1.t got new column
+        assert_eq!(tables[1].columns.len(), 1); // s2.t unchanged
     }
 
     // ─── pk_columns_from_constraint ──────────────────────────────────────────

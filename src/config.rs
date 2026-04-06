@@ -24,6 +24,11 @@ pub struct SqltgenConfig {
     /// `"-- +migrate Down"` (golang-migrate).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub schema_stop_marker: Option<String>,
+    /// Schema name to use when matching unqualified table references against
+    /// schema-qualified tables (and vice versa). Falls back to the engine
+    /// default (`"public"` for PostgreSQL, `"main"` for SQLite) when omitted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_schema: Option<String>,
 }
 
 /// One or more glob patterns for a single named query group.
@@ -281,6 +286,18 @@ impl Engine {
             Engine::Mysql => "mysql",
         }
     }
+
+    /// The conventional default schema for this engine.
+    ///
+    /// Returns `Some("public")` for PostgreSQL, `Some("main")` for SQLite,
+    /// and `None` for MySQL (schema = database, no single default).
+    pub fn default_schema(&self) -> Option<&'static str> {
+        match self {
+            Engine::Postgresql => Some("public"),
+            Engine::Sqlite => Some("main"),
+            Engine::Mysql => None,
+        }
+    }
 }
 
 /// Target language for code generation.
@@ -528,6 +545,7 @@ mod tests {
             queries: QueryPaths::Many(vec!["queries/*.sql".to_string(), "more.sql".to_string()]),
             gen: HashMap::new(),
             schema_stop_marker: None,
+            default_schema: None,
         };
 
         let paths: Vec<PathBuf> = cfg.expand_queries(&root).unwrap().into_iter().map(|(p, _)| p).collect();
@@ -588,6 +606,7 @@ mod tests {
             queries: QueryPaths::Many(vec!["users.sql".to_string(), "posts.sql".to_string()]),
             gen: HashMap::new(),
             schema_stop_marker: None,
+            default_schema: None,
         };
         let pairs = cfg.expand_queries(&root).unwrap();
         let groups: Vec<&str> = pairs.iter().map(|(_, g)| g.as_str()).collect();
@@ -613,6 +632,7 @@ mod tests {
             queries: QueryPaths::Single("queries.sql".to_string()),
             gen: HashMap::new(),
             schema_stop_marker: None,
+            default_schema: None,
         };
         let pairs = cfg.expand_queries(&root).unwrap();
         assert_eq!(pairs.len(), 1);
@@ -641,6 +661,7 @@ mod tests {
             queries: QueryPaths::Grouped(map),
             gen: HashMap::new(),
             schema_stop_marker: None,
+            default_schema: None,
         };
         let pairs = cfg.expand_queries(&root).unwrap();
         assert_eq!(pairs.len(), 2);
@@ -887,5 +908,32 @@ mod tests {
         assert_eq!(Engine::Postgresql.as_str(), "postgresql");
         assert_eq!(Engine::Sqlite.as_str(), "sqlite");
         assert_eq!(Engine::Mysql.as_str(), "mysql");
+    }
+
+    #[test]
+    fn test_engine_default_schema() {
+        assert_eq!(Engine::Postgresql.default_schema(), Some("public"));
+        assert_eq!(Engine::Sqlite.default_schema(), Some("main"));
+        assert_eq!(Engine::Mysql.default_schema(), None);
+    }
+
+    #[test]
+    fn test_default_schema_deserialized_when_present() {
+        let json = r#"{
+            "version": "1",
+            "engine": "postgresql",
+            "schema": "schema.sql",
+            "queries": "queries.sql",
+            "default_schema": "myschema",
+            "gen": { "java": { "out": "gen", "package": "com.example" } }
+        }"#;
+        let cfg = SqltgenConfig::from_json(json).unwrap();
+        assert_eq!(cfg.default_schema.as_deref(), Some("myschema"));
+    }
+
+    #[test]
+    fn test_default_schema_none_when_omitted() {
+        let cfg = SqltgenConfig::from_json(SAMPLE).unwrap();
+        assert!(cfg.default_schema.is_none());
     }
 }
