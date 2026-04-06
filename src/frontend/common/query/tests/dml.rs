@@ -1,5 +1,5 @@
 use super::*;
-use sqlparser::dialect::GenericDialect;
+use sqlparser::dialect::{GenericDialect, SnowflakeDialect};
 
 #[test]
 fn resolves_insert_params_from_column_list() {
@@ -261,4 +261,93 @@ fn update_from_cte_join_on_param_typed_from_cte_column() {
     assert_eq!(q.params[0].sql_type, SqlType::Text, "$1 (users.name)");
     assert_eq!(q.params[1].name, "id");
     assert_eq!(q.params[1].sql_type, SqlType::BigInt, "$2 (src.id/p.id)");
+}
+
+#[test]
+fn update_from_target_alias_in_where_types_param() {
+    let schema = make_join_schema();
+    let sql = "-- name: UpdateUserAlias :exec\n\
+        UPDATE users u SET name = $1 FROM posts p\n\
+        WHERE u.id = p.user_id AND u.id = $2;";
+    let q = &parse_queries(sql, &schema).unwrap()[0];
+    assert_eq!(q.params.len(), 2);
+    assert_eq!(q.params[0].name, "name");
+    assert_eq!(q.params[0].sql_type, SqlType::Text);
+    assert_eq!(q.params[1].name, "id");
+    assert_eq!(q.params[1].sql_type, SqlType::BigInt, "$2 should be typed from u.id");
+}
+
+#[test]
+fn update_from_cte_nullable_column_preserves_nullable_param() {
+    // src.title is nullable because src is built from a LEFT JOIN's right side.
+    let schema = make_join_schema();
+    let sql = "-- name: UpdateFromNullableCte :exec\n\
+        WITH src AS (\n\
+            SELECT u.id AS user_id, p.title\n\
+            FROM users u LEFT JOIN posts p ON p.user_id = u.id\n\
+        )\n\
+        UPDATE users SET name = $1 FROM src\n\
+        WHERE users.id = src.user_id AND src.title = $2;";
+    let q = &parse_queries(sql, &schema).unwrap()[0];
+    assert_eq!(q.params.len(), 2);
+    assert_eq!(q.params[1].name, "title");
+    assert_eq!(q.params[1].sql_type, SqlType::Text);
+    assert!(q.params[1].nullable, "$2 should inherit nullability from src.title");
+}
+
+#[test]
+fn update_from_cte_is_not_distinct_from_types_param() {
+    let schema = make_join_schema();
+    let sql = "-- name: UpdateUserFromCteDistinct :exec\n\
+        WITH src AS (SELECT id, user_id FROM posts)\n\
+        UPDATE users SET name = $1 FROM src\n\
+        WHERE users.id = src.user_id AND src.id IS NOT DISTINCT FROM $2;";
+    let q = &parse_queries(sql, &schema).unwrap()[0];
+    assert_eq!(q.params.len(), 2);
+    assert_eq!(q.params[1].name, "id");
+    assert_eq!(q.params[1].sql_type, SqlType::BigInt);
+}
+
+#[test]
+fn update_from_cte_reused_placeholder_in_join_and_where_stays_typed() {
+    let schema = make_join_schema();
+    let sql = "-- name: UpdateUserFromCteReused :exec\n\
+        WITH src AS (SELECT id, user_id FROM posts)\n\
+        UPDATE users SET name = $1\n\
+        FROM src JOIN posts p ON p.id = $2 AND p.user_id = src.user_id\n\
+        WHERE users.id = src.user_id AND src.id = $2;";
+    let q = &parse_queries(sql, &schema).unwrap()[0];
+    assert_eq!(q.params.len(), 2);
+    assert_eq!(q.params[1].name, "id");
+    assert_eq!(q.params[1].sql_type, SqlType::BigInt);
+    assert_eq!(q.sql.matches("$2").count(), 2);
+}
+
+#[test]
+fn update_from_derived_table_alias_types_param() {
+    let schema = make_join_schema();
+    let sql = "-- name: UpdateUserFromDerived :exec\n\
+        UPDATE users SET name = $1\n\
+        FROM (SELECT id, user_id FROM posts) s\n\
+        WHERE users.id = s.user_id AND s.id = $2;";
+    let q = &parse_queries(sql, &schema).unwrap()[0];
+    assert_eq!(q.params.len(), 2);
+    assert_eq!(q.params[1].name, "id");
+    assert_eq!(q.params[1].sql_type, SqlType::BigInt);
+}
+
+#[test]
+fn update_from_before_set_snowflake_variant_types_params() {
+    let schema = make_join_schema();
+    let sql = "-- name: UpdateUserSnowflake :exec\n\
+        UPDATE users FROM posts\n\
+        SET name = @name\n\
+        WHERE users.id = posts.user_id AND posts.id = @post_id;";
+    let qs = parse_queries_with_config(&SnowflakeDialect {}, sql, &schema, &ResolverConfig::default()).unwrap();
+    let q = &qs[0];
+    assert_eq!(q.params.len(), 2);
+    assert_eq!(q.params[0].name, "name");
+    assert_eq!(q.params[0].sql_type, SqlType::Text);
+    assert_eq!(q.params[1].name, "post_id");
+    assert_eq!(q.params[1].sql_type, SqlType::BigInt);
 }

@@ -257,15 +257,15 @@ pub(super) fn collect_update_params(
     mapping: &mut HashMap<usize, (String, SqlType, bool)>,
     query_name: &str,
 ) {
-    let table_name = match &table_with_joins.relation {
-        TableFactor::Table { name, .. } => obj_name_to_str(name),
+    let (table_name, target_alias) = match &table_with_joins.relation {
+        TableFactor::Table { name, alias, .. } => (obj_name_to_str(name), alias.as_ref().map(|a| ident_to_str(&a.name))),
         _ => return,
     };
     let Some(table) = schema.tables.iter().find(|t| t.name == table_name) else {
         return;
     };
 
-    let mut all_tables = vec![(table.clone(), None)];
+    let mut all_tables = vec![(table.clone(), target_alias)];
     all_tables.extend(collect_table_list(from, schema, ctes, config));
     let alias_map = build_alias_map(&all_tables);
 
