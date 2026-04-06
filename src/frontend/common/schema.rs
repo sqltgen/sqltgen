@@ -3,13 +3,15 @@ use sqlparser::dialect::Dialect;
 use sqlparser::parser::Parser;
 use sqlparser::tokenizer::{Token, Tokenizer};
 
-use super::{apply_alter_table, apply_drop_tables, build_column, build_create_table, obj_name_to_str, DdlDialect};
+use super::{apply_alter_table, apply_drop_tables, build_column, build_create_table, obj_name_to_str, obj_schema_to_str, DdlDialect};
 use crate::frontend::common::query::{resolve_view_columns, ResolverConfig};
+use crate::ir::schema_matches;
 use crate::ir::{ScalarFunction, Schema, SqlType, Table};
 
 /// A `CREATE VIEW` statement collected during pass 1 for resolution in pass 2.
 struct PendingView {
     name: String,
+    schema: Option<String>,
     query: Box<sqlparser::ast::Query>,
 }
 
@@ -48,7 +50,7 @@ pub(crate) fn parse_schema_impl(ddl: &str, sql_dialect: &dyn Dialect, ddl_dialec
         }
 
         match parser.parse_statement() {
-            Ok(stmt) => process_statement(&stmt, &mut schema, ddl_dialect, &mut pending_views),
+            Ok(stmt) => process_statement(&stmt, &mut schema, ddl_dialect, &mut pending_views, resolver_config.default_schema.as_deref()),
             Err(_) => {
                 // Skip to the next semicolon so we can recover and continue.
                 loop {
@@ -66,7 +68,9 @@ pub(crate) fn parse_schema_impl(ddl: &str, sql_dialect: &dyn Dialect, ddl_dialec
     // view can reference an earlier one.
     for view in pending_views {
         let columns = resolve_view_columns(&view.query, &schema, resolver_config);
-        schema.tables.push(Table::view(view.name, columns));
+        let mut table = Table::view(view.name, columns);
+        table.schema = view.schema;
+        schema.tables.push(table);
     }
 
     Ok(schema)
@@ -76,29 +80,35 @@ pub(crate) fn parse_schema_impl(ddl: &str, sql_dialect: &dyn Dialect, ddl_dialec
 ///
 /// `CREATE VIEW` statements are not applied here; they are stored in
 /// `pending_views` for resolution in pass 2.
-fn process_statement(stmt: &Statement, schema: &mut Schema, dialect: DdlDialect, pending_views: &mut Vec<PendingView>) {
+fn process_statement(stmt: &Statement, schema: &mut Schema, dialect: DdlDialect, pending_views: &mut Vec<PendingView>, default_schema: Option<&str>) {
     match stmt {
         Statement::CreateTable(ct) => schema.tables.push(build_create_table(&ct.name, &ct.columns, &ct.constraints, dialect)),
-        Statement::AlterTable(a) => apply_alter_table(&a.name, &a.operations, &mut schema.tables, dialect),
-        Statement::Drop { object_type: ObjectType::Table, names, .. } => apply_drop_tables(names, &mut schema.tables),
+        Statement::AlterTable(a) => apply_alter_table(&a.name, &a.operations, &mut schema.tables, dialect, default_schema),
+        Statement::Drop { object_type: ObjectType::Table, names, .. } => apply_drop_tables(names, &mut schema.tables, default_schema),
         Statement::CreateView(v) => {
             let name = obj_name_to_str(&v.name);
+            let schema_name = obj_schema_to_str(&v.name);
             if v.or_replace {
-                pending_views.retain(|view| view.name != name);
+                pending_views.retain(|view| !(view.name == name && schema_matches(schema_name.as_deref(), view.schema.as_deref(), default_schema)));
             }
-            pending_views.push(PendingView { name, query: v.query.clone() });
+            pending_views.push(PendingView { name, schema: schema_name, query: v.query.clone() });
         },
-        Statement::Drop { object_type: ObjectType::View, names, .. } => apply_drop_views(names, pending_views),
+        Statement::Drop { object_type: ObjectType::View, names, .. } => apply_drop_views(names, pending_views, default_schema),
         Statement::CreateFunction(f) => {
             let name = obj_name_to_str(&f.name);
+            let schema_name = obj_schema_to_str(&f.name);
             match &f.return_type {
                 // Table-valued function: RETURNS TABLE(col1 type, col2 type, ...)
                 Some(DataType::Table(Some(col_defs))) => {
                     let columns = col_defs.iter().map(|cd| build_column(cd, dialect.map_type)).collect();
                     if f.or_replace {
-                        schema.tables.retain(|t| t.name != name);
+                        schema
+                            .tables
+                            .retain(|t| !(t.is_view() && t.name == name && schema_matches(schema_name.as_deref(), t.schema.as_deref(), default_schema)));
                     }
-                    schema.tables.push(Table::view(name, columns));
+                    let mut tvf = Table::view(name, columns);
+                    tvf.schema = schema_name;
+                    schema.tables.push(tvf);
                 },
                 // RETURNS TABLE without column list — skip.
                 Some(DataType::Table(None)) => {},
@@ -114,31 +124,37 @@ fn process_statement(stmt: &Statement, schema: &mut Schema, dialect: DdlDialect,
                         .map(|a| (dialect.map_type)(&a.data_type))
                         .collect();
                     if f.or_replace {
-                        schema.functions.retain(|g| g.name != name || g.param_types.len() != param_types.len());
+                        schema.functions.retain(|g| {
+                            g.name != name
+                                || g.param_types.len() != param_types.len()
+                                || !schema_matches(schema_name.as_deref(), g.schema.as_deref(), default_schema)
+                        });
                     }
-                    schema.functions.push(ScalarFunction { name, return_type, param_types });
+                    schema.functions.push(ScalarFunction { name, schema: schema_name, return_type, param_types });
                 },
                 // No return type — skip.
                 None => {},
             }
         },
-        Statement::DropFunction(DropFunction { func_desc, .. }) => apply_drop_functions(func_desc, &mut schema.functions),
+        Statement::DropFunction(DropFunction { func_desc, .. }) => apply_drop_functions(func_desc, &mut schema.functions, default_schema),
         _ => {},
     }
 }
 
 /// Remove every pending view named in `names` from the pass-1 view list.
-fn apply_drop_views(names: &[sqlparser::ast::ObjectName], pending_views: &mut Vec<PendingView>) {
+fn apply_drop_views(names: &[sqlparser::ast::ObjectName], pending_views: &mut Vec<PendingView>, default_schema: Option<&str>) {
     for name in names {
-        let name = obj_name_to_str(name);
-        pending_views.retain(|view| view.name != name);
+        let view_name = obj_name_to_str(name);
+        let view_schema = obj_schema_to_str(name);
+        pending_views.retain(|view| !(view.name == view_name && schema_matches(view_schema.as_deref(), view.schema.as_deref(), default_schema)));
     }
 }
 
 /// Remove every function named in `func_desc` from the in-progress function list.
-fn apply_drop_functions(func_desc: &[sqlparser::ast::FunctionDesc], functions: &mut Vec<ScalarFunction>) {
+fn apply_drop_functions(func_desc: &[sqlparser::ast::FunctionDesc], functions: &mut Vec<ScalarFunction>, default_schema: Option<&str>) {
     for desc in func_desc {
         let name = obj_name_to_str(&desc.name);
-        functions.retain(|f| f.name != name);
+        let schema = obj_schema_to_str(&desc.name);
+        functions.retain(|f| f.name != name || !schema_matches(schema.as_deref(), f.schema.as_deref(), default_schema));
     }
 }

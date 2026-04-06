@@ -86,17 +86,20 @@ fn run_generate(config_path: &Path) -> anyhow::Result<()> {
         Engine::Mysql => Box::new(MysqlParser),
     };
 
+    // Effective default schema: user override > engine default
+    let default_schema = cfg.default_schema.as_deref().or(cfg.engine.default_schema());
+
     // Read and parse schema (supports single file or directory of .sql files)
     let schema_path = base_dir.join(&cfg.schema);
     let ddl = read_schema_ddl(&schema_path, cfg.schema_stop_marker.as_deref())?;
-    let schema = parser.parse_schema(&ddl)?;
+    let schema = parser.parse_schema(&ddl, default_schema)?;
 
     // Read and parse queries (supports multiple files / globs)
     let query_paths = cfg.expand_queries(base_dir)?;
     let mut queries = Vec::new();
     for (query_path, group) in query_paths {
         let queries_sql = std::fs::read_to_string(&query_path).with_context(|| format!("reading queries file: {}", query_path.display()))?;
-        let mut parsed = parser.parse_queries(&queries_sql, &schema)?;
+        let mut parsed = parser.parse_queries(&queries_sql, &schema, default_schema)?;
         for q in &mut parsed {
             q.group = group.clone();
         }
@@ -140,6 +143,9 @@ fn run_generate(config_path: &Path) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sqltgen::config::SqltgenConfig;
+    use sqltgen::ir::SqlType;
+    use sqltgen::{frontend::postgres::PostgresParser, frontend::DialectParser};
 
     #[test]
     fn test_strip_after_marker_dbmate() {
@@ -163,5 +169,38 @@ mod tests {
         let result = strip_after_marker(input, "-- migrate:down");
         assert!(result.contains("CREATE TABLE t"));
         assert!(!result.contains("DROP TABLE"));
+    }
+
+    #[test]
+    fn test_default_schema_from_config_is_applied_to_query_resolution() {
+        let cfg = SqltgenConfig::from_json(
+            r#"{
+            "version": "1",
+            "engine": "postgresql",
+            "schema": "schema.sql",
+            "queries": "queries.sql",
+            "default_schema": "internal",
+            "gen": {}
+        }"#,
+        )
+        .unwrap();
+
+        let parser = PostgresParser;
+        let default_schema = cfg.default_schema.as_deref().or(cfg.engine.default_schema());
+        let schema = parser
+            .parse_schema(
+                r#"
+                CREATE TABLE public.users (id INTEGER PRIMARY KEY);
+                CREATE TABLE internal.users (id BIGINT PRIMARY KEY);
+                "#,
+                default_schema,
+            )
+            .unwrap();
+
+        let sql = "-- name: GetUser :one\nSELECT id FROM users WHERE id = $1;";
+
+        let queries_from_runtime = parser.parse_queries(sql, &schema, default_schema).unwrap();
+        assert_eq!(cfg.default_schema.as_deref(), Some("internal"));
+        assert_eq!(queries_from_runtime[0].result_columns[0].sql_type, SqlType::BigInt);
     }
 }

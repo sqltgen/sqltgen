@@ -274,9 +274,7 @@ fn expr_cume_dist_percent_rank_return_double_non_nullable() {
 fn expr_lag_lead_return_column_type_nullable() {
     let schema = make_schema();
     for func in ["LAG", "LEAD"] {
-        let sql = format!(
-            "-- name: Q :many\nSELECT id, {func}(id) OVER (ORDER BY id) AS val FROM users;"
-        );
+        let sql = format!("-- name: Q :many\nSELECT id, {func}(id) OVER (ORDER BY id) AS val FROM users;");
         let q = &parse_queries(&sql, &schema).unwrap()[0];
         assert_eq!(q.result_columns[1].sql_type, SqlType::BigInt, "{func}(id) should inherit BigInt");
         assert!(q.result_columns[1].nullable, "{func} can go out of bounds → nullable");
@@ -288,9 +286,7 @@ fn expr_first_value_last_value_nth_value_return_column_type_nullable() {
     let schema = make_schema();
     for func in ["FIRST_VALUE", "LAST_VALUE", "NTH_VALUE"] {
         let arg = if func == "NTH_VALUE" { "name, 2" } else { "name" };
-        let sql = format!(
-            "-- name: Q :many\nSELECT id, {func}({arg}) OVER (ORDER BY id) AS val FROM users;"
-        );
+        let sql = format!("-- name: Q :many\nSELECT id, {func}({arg}) OVER (ORDER BY id) AS val FROM users;");
         let q = &parse_queries(&sql, &schema).unwrap()[0];
         assert_eq!(q.result_columns[1].sql_type, SqlType::Text, "{func}(name) should inherit Text");
         assert!(q.result_columns[1].nullable, "{func} should be nullable");
