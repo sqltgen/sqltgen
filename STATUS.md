@@ -70,7 +70,7 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | `UNION` / `INTERSECT` / `EXCEPT` result columns | ✅ | ✅ | ✅ |
 | `CAST(x AS type)` result type | ✅ | ✅ | ✅ |
 | `HAVING` parameters | ✅ | ✅ | ✅ |
-| Schema-qualified table refs (`schema.table`) | ❌ | ❌ | ❌ |
+| Schema-qualified table refs (`schema.table`) | ✅ | ✅ | ✅ |
 | `CREATE VIEW` (column type inference) | ✅ | ✅ | ✅ |
 | `DROP VIEW [IF EXISTS]` | ✅ | ✅ | ✅ |
 | `CREATE TYPE … AS ENUM` | ❌ | — | — |

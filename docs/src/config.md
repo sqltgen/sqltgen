@@ -35,6 +35,7 @@ sqltgen generate -c path/to/sqltgen.json
 | `engine` | yes | SQL dialect. One of `"postgresql"`, `"sqlite"`, `"mysql"`. |
 | `schema` | yes | Path to a `.sql` file **or** a directory. See [Schema path](#schema-path). |
 | `schema_stop_marker` | no | Strip down-migration sections. See [Migration files with up/down sections](#migration-files-with-updown-sections). |
+| `default_schema` | no | Default schema for unqualified table references. See [Default schema](#default-schema). |
 | `queries` | yes | Query source(s). See [Queries field](#queries-field). |
 | `gen` | yes | Map of language key → output config. At least one entry required. |
 
@@ -96,6 +97,33 @@ Common values by tool:
 
 Omit the field (or set it to `null`) to read files in full — this is the
 default and preserves existing behaviour.
+
+## Default schema
+
+When your DDL uses schema-qualified table names (e.g. `CREATE TABLE public.users`),
+unqualified references in queries (e.g. `SELECT * FROM users`) need to know which
+schema to match against. Set `default_schema` to control this:
+
+```json
+{
+  "engine": "postgresql",
+  "default_schema": "public"
+}
+```
+
+If omitted, sqltgen uses the engine's conventional default:
+
+| Engine | Default |
+|---|---|
+| `postgresql` | `"public"` |
+| `sqlite` | `"main"` |
+| `mysql` | none (schema = database; specify explicitly if needed) |
+
+This also applies to DDL operations: `ALTER TABLE users` will match
+`public.users` when the default schema is `"public"`.
+
+Most projects can omit this field entirely. Set it only if your DDL uses a
+non-standard schema (e.g. a custom PostgreSQL `search_path`).
 
 ## Queries field
 

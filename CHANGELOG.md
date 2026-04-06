@@ -10,6 +10,13 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
 
 ## [Unreleased]
 
+### Added
+- **Schema-qualified table references** — queries and DDL can now use
+  `schema.table` syntax (e.g. `SELECT * FROM public.users`). Two tables with the
+  same name in different schemas are correctly treated as distinct. Unqualified
+  references resolve via a configurable `default_schema` (falls back to `"public"`
+  for PostgreSQL, `"main"` for SQLite). New config field: `default_schema`.
+
 ### Breaking Changes
 - **Output layout restructured** (all backends): model files are now emitted under
   `{out}/models/`, query files under `{out}/queries/`, and the shared helper is

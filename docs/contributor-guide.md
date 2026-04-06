@@ -156,7 +156,12 @@ recognize. Backends should emit a reasonable language-specific fallback
 
 ```rust
 pub struct Schema { pub tables: Vec<Table> }
-pub struct Table  { pub name: String, pub columns: Vec<Column> }
+pub struct Table  {
+    pub name: String,
+    pub schema: Option<String>,  // e.g. Some("public") for public.users
+    pub columns: Vec<Column>,
+    pub kind: TableKind,         // Table or View
+}
 pub struct Column {
     pub name: String,
     pub sql_type: SqlType,
@@ -167,6 +172,11 @@ pub struct Column {
 
 Tables are stored in declaration order. Column order matches the DDL (important:
 backends emit positional field accessors for Python, so order must be stable).
+
+When looking up a table by name, use `Schema::find_table(query_schema, table_name,
+default_schema)` rather than searching `schema.tables` directly. This method
+handles the four matching cases for qualified/unqualified references with a
+configurable default schema.
 
 ### `Query` and friends (`src/ir/query.rs`)
 
@@ -208,13 +218,17 @@ per-query row struct. When `None`, backends emit an inline `{QueryName}Row` type
 
 ```rust
 pub trait DialectParser {
-    fn parse_schema(&self, ddl: &str) -> anyhow::Result<Schema>;
-    fn parse_queries(&self, sql: &str, schema: &Schema) -> anyhow::Result<Vec<Query>>;
+    fn parse_schema(&self, ddl: &str, default_schema: Option<&str>) -> anyhow::Result<Schema>;
+    fn parse_queries(&self, sql: &str, schema: &Schema, default_schema: Option<&str>) -> anyhow::Result<Vec<Query>>;
 }
 ```
 
 Each dialect (PostgreSQL, SQLite, MySQL) provides one struct that implements
 this trait. The struct is stateless and constructed in `main.rs`.
+
+The `default_schema` parameter controls how unqualified table references match
+schema-qualified tables (and vice versa). Pass `None` to use the engine default
+(`"public"` for PostgreSQL, `"main"` for SQLite, `None` for MySQL).
 
 ### Dialect structure
 
@@ -748,11 +762,22 @@ Create `src/frontend/{dialect}/schema.rs`:
 
 ```rust
 use sqlparser::dialect::YourDialect;
-use crate::frontend::common::{schema::parse_schema_impl, AlterCaps};
+use crate::frontend::common::{schema::parse_schema_impl, AlterCaps, DdlDialect};
+use crate::frontend::common::query::ResolverConfig;
 use crate::ir::Schema;
 
-pub(crate) fn parse_schema(ddl: &str) -> anyhow::Result<Schema> {
-    parse_schema_impl(ddl, &YourDialect {}, super::typemap::map, AlterCaps::your_caps())
+pub(crate) fn parse_schema(ddl: &str, default_schema: Option<&str>) -> anyhow::Result<Schema> {
+    let ds = default_schema.unwrap_or("your_default"); // e.g. "public" for PG
+    parse_schema_impl(
+        ddl,
+        &YourDialect {},
+        DdlDialect { map_type: super::typemap::map, alter_caps: AlterCaps::ALL },
+        &ResolverConfig {
+            typemap: super::typemap::map,
+            default_schema: Some(ds.to_string()),
+            ..ResolverConfig::default()
+        },
+    )
 }
 ```
 
@@ -763,6 +788,7 @@ operations; restrict to what your dialect actually supports.
 ### Step 4 — Implement `mod.rs`
 
 ```rust
+pub mod query;
 pub mod schema;
 pub mod typemap;
 
@@ -772,16 +798,12 @@ use crate::ir::{Query, Schema};
 pub struct YourParser;
 
 impl DialectParser for YourParser {
-    fn parse_schema(&self, ddl: &str) -> anyhow::Result<Schema> {
-        schema::parse_schema(ddl)
+    fn parse_schema(&self, ddl: &str, default_schema: Option<&str>) -> anyhow::Result<Schema> {
+        schema::parse_schema(ddl, default_schema)
     }
 
-    fn parse_queries(&self, sql: &str, schema: &Schema) -> anyhow::Result<Vec<Query>> {
-        // Most dialects delegate directly to the common query parser:
-        crate::frontend::common::query::parse_queries(sql, schema,
-            &sqlparser::dialect::YourDialect {},
-            super::typemap::map,
-            /* pg_style_params: */ false)
+    fn parse_queries(&self, sql: &str, schema: &Schema, default_schema: Option<&str>) -> anyhow::Result<Vec<Query>> {
+        query::parse_queries(sql, schema, default_schema)
     }
 }
 ```

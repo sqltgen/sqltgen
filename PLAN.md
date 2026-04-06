@@ -139,7 +139,7 @@ sqltgen aims for excellent JSON support across all backends. Current state and g
 1. **Querier interface** — emit an interface/protocol/ABC for the generated Querier type (testability)
 2. **Enum support** — `CREATE TYPE foo AS ENUM` → typed enum / sealed class / string alias
 3. **`:execresult` / `:execlastid`** — return driver result object or last insert ID
-4. **Schema-qualified tables** — handle `schema.table` references in queries
+4. ~~**Schema-qualified tables**~~ ✅ — `schema.table` references in queries
 5. **Table-valued functions** — TVF support in frontend + backends
 6. **Field renaming config** — `rename: { db_col: "FieldName" }` map in config
 7. **JSON tags / serialization annotations** — emit Jackson/serde/dataclasses-json annotations
