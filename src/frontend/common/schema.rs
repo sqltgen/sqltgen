@@ -48,7 +48,7 @@ pub(crate) fn parse_schema_impl(ddl: &str, sql_dialect: &dyn Dialect, ddl_dialec
         }
 
         match parser.parse_statement() {
-            Ok(stmt) => process_statement(&stmt, &mut schema, ddl_dialect, &mut pending_views),
+            Ok(stmt) => process_statement(&stmt, &mut schema, ddl_dialect, &mut pending_views, resolver_config.default_schema.as_deref()),
             Err(_) => {
                 // Skip to the next semicolon so we can recover and continue.
                 loop {
@@ -76,11 +76,11 @@ pub(crate) fn parse_schema_impl(ddl: &str, sql_dialect: &dyn Dialect, ddl_dialec
 ///
 /// `CREATE VIEW` statements are not applied here; they are stored in
 /// `pending_views` for resolution in pass 2.
-fn process_statement(stmt: &Statement, schema: &mut Schema, dialect: DdlDialect, pending_views: &mut Vec<PendingView>) {
+fn process_statement(stmt: &Statement, schema: &mut Schema, dialect: DdlDialect, pending_views: &mut Vec<PendingView>, default_schema: Option<&str>) {
     match stmt {
         Statement::CreateTable(ct) => schema.tables.push(build_create_table(&ct.name, &ct.columns, &ct.constraints, dialect)),
-        Statement::AlterTable(a) => apply_alter_table(&a.name, &a.operations, &mut schema.tables, dialect),
-        Statement::Drop { object_type: ObjectType::Table, names, .. } => apply_drop_tables(names, &mut schema.tables),
+        Statement::AlterTable(a) => apply_alter_table(&a.name, &a.operations, &mut schema.tables, dialect, default_schema),
+        Statement::Drop { object_type: ObjectType::Table, names, .. } => apply_drop_tables(names, &mut schema.tables, default_schema),
         Statement::CreateView(v) => {
             let name = obj_name_to_str(&v.name);
             if v.or_replace {

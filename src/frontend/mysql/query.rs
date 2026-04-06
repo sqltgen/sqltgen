@@ -13,7 +13,7 @@ use crate::ir::{NativeListBind, Parameter, Query, Schema, SqlType};
 /// rejects will fall back to a bare query (no typed params / result columns).
 ///
 /// Future work: switch to proper bare `?` and named param (`:name` / `@name`) support.
-pub(crate) fn parse_queries(sql: &str, schema: &Schema) -> anyhow::Result<Vec<Query>> {
+pub(crate) fn parse_queries(sql: &str, schema: &Schema, default_schema: Option<&str>) -> anyhow::Result<Vec<Query>> {
     parse_queries_with_config(
         &GenericDialect {},
         sql,
@@ -25,6 +25,7 @@ pub(crate) fn parse_queries(sql: &str, schema: &Schema) -> anyhow::Result<Vec<Qu
             avg_integer_type: SqlType::Decimal,
             typemap: crate::frontend::mysql::typemap::map,
             native_list_sql: Some(mysql_native_list_sql),
+            default_schema: default_schema.map(String::from),
             ..Default::default()
         },
     )
@@ -64,7 +65,7 @@ mod tests {
     #[test]
     fn parses_select_one() {
         let sql = "-- name: GetUser :one\nSELECT id, name FROM users WHERE id = $1;";
-        let queries = parse_queries(sql, &make_schema()).unwrap();
+        let queries = parse_queries(sql, &make_schema(), None).unwrap();
         assert_eq!(queries.len(), 1);
         assert_eq!(queries[0].name, "GetUser");
         assert_eq!(queries[0].cmd, crate::ir::QueryCmd::One);
@@ -77,7 +78,7 @@ mod tests {
     #[test]
     fn parses_select_many() {
         let sql = "-- name: ListUsers :many\nSELECT id, name, email FROM users;";
-        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let q = &parse_queries(sql, &make_schema(), None).unwrap()[0];
         assert_eq!(q.cmd, crate::ir::QueryCmd::Many);
         assert_eq!(q.result_columns.len(), 3);
         assert_eq!(q.params.len(), 0);
@@ -86,7 +87,7 @@ mod tests {
     #[test]
     fn parses_insert() {
         let sql = "-- name: CreateUser :exec\nINSERT INTO users (name, email) VALUES ($1, $2);";
-        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let q = &parse_queries(sql, &make_schema(), None).unwrap()[0];
         assert_eq!(q.cmd, crate::ir::QueryCmd::Exec);
         assert_eq!(q.params.len(), 2);
         assert_eq!(q.params[0].name, "name");
@@ -97,7 +98,7 @@ mod tests {
     #[test]
     fn parses_update() {
         let sql = "-- name: UpdateUser :exec\nUPDATE users SET name = $1, email = $2 WHERE id = $3;";
-        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let q = &parse_queries(sql, &make_schema(), None).unwrap()[0];
         assert_eq!(q.params.len(), 3);
         assert_eq!(q.params[0].name, "name");
         assert_eq!(q.params[1].name, "email");
@@ -107,7 +108,7 @@ mod tests {
     #[test]
     fn parses_delete() {
         let sql = "-- name: DeleteUser :exec\nDELETE FROM users WHERE id = $1;";
-        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let q = &parse_queries(sql, &make_schema(), None).unwrap()[0];
         assert_eq!(q.cmd, crate::ir::QueryCmd::Exec);
         assert_eq!(q.params.len(), 1);
         assert_eq!(q.params[0].name, "id");
@@ -119,7 +120,7 @@ mod tests {
     #[test]
     fn test_spaceship_param_on_right_inferred_as_nullable() {
         let sql = "-- name: Q :many\nSELECT id FROM users WHERE id <=> $1;";
-        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let q = &parse_queries(sql, &make_schema(), None).unwrap()[0];
         assert_eq!(q.params.len(), 1);
         assert_eq!(q.params[0].sql_type, SqlType::BigInt);
         assert!(q.params[0].nullable, "param in <=> must be nullable");
@@ -128,7 +129,7 @@ mod tests {
     #[test]
     fn test_spaceship_param_on_left_inferred_as_nullable() {
         let sql = "-- name: Q :many\nSELECT id FROM users WHERE $1 <=> id;";
-        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let q = &parse_queries(sql, &make_schema(), None).unwrap()[0];
         assert_eq!(q.params.len(), 1);
         assert_eq!(q.params[0].sql_type, SqlType::BigInt);
         assert!(q.params[0].nullable, "left-side param in <=> must be nullable");
@@ -137,7 +138,7 @@ mod tests {
     #[test]
     fn strips_trailing_semicolons() {
         let sql = "-- name: ListUsers :many\nSELECT id, name FROM users;";
-        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let q = &parse_queries(sql, &make_schema(), None).unwrap()[0];
         assert!(!q.sql.ends_with(';'));
     }
 
@@ -147,7 +148,7 @@ mod tests {
             -- name: GetUser :one\nSELECT id FROM users WHERE id = $1;\n\n\
             -- name: ListUsers :many\nSELECT id, name FROM users;\n\n\
             -- name: DeleteUser :exec\nDELETE FROM users WHERE id = $1;";
-        let queries = parse_queries(sql, &make_schema()).unwrap();
+        let queries = parse_queries(sql, &make_schema(), None).unwrap();
         assert_eq!(queries.len(), 3);
         let names: Vec<_> = queries.iter().map(|q| q.name.as_str()).collect();
         assert_eq!(names, ["GetUser", "ListUsers", "DeleteUser"]);

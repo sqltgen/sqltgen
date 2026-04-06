@@ -12,12 +12,19 @@ use crate::ir::{Schema, SqlType};
 /// `DROP FUNCTION`, and `CREATE VIEW` statements. Delegates to the shared
 /// [`parse_schema_impl`] with the PostgreSQL dialect, full `ALTER TABLE`
 /// capabilities, and the PostgreSQL type mapper and resolver config.
-pub(crate) fn parse_schema(ddl: &str) -> anyhow::Result<Schema> {
+pub(crate) fn parse_schema(ddl: &str, default_schema: Option<&str>) -> anyhow::Result<Schema> {
+    let ds = default_schema.unwrap_or("public");
     parse_schema_impl(
         ddl,
         &PostgreSqlDialect {},
         DdlDialect { map_type: typemap::map, alter_caps: AlterCaps::ALL },
-        &ResolverConfig { typemap: typemap::map, sum_bigint_type: SqlType::Decimal, avg_integer_type: SqlType::Decimal, ..ResolverConfig::default() },
+        &ResolverConfig {
+            typemap: typemap::map,
+            sum_bigint_type: SqlType::Decimal,
+            avg_integer_type: SqlType::Decimal,
+            default_schema: Some(ds.to_string()),
+            ..ResolverConfig::default()
+        },
     )
 }
 
@@ -37,7 +44,7 @@ mod tests {
             );
         "#;
 
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         assert_eq!(schema.tables.len(), 1);
 
         let t = &schema.tables[0];
@@ -72,7 +79,7 @@ mod tests {
             );
         "#;
 
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         let t = &schema.tables[0];
 
         let col = |n: &str| t.columns.iter().find(|c| c.name == n).unwrap();
@@ -92,7 +99,7 @@ mod tests {
             );
         "#;
 
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         assert_eq!(schema.tables.len(), 2);
         assert_eq!(schema.tables[0].name, "users");
         assert_eq!(schema.tables[1].name, "posts");
@@ -107,7 +114,7 @@ mod tests {
             CREATE SEQUENCE things_seq;
         "#;
 
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         assert_eq!(schema.tables.len(), 1);
         assert_eq!(schema.tables[0].name, "things");
     }
@@ -121,7 +128,7 @@ mod tests {
             );
         "#;
 
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         assert_eq!(schema.tables.len(), 1);
         assert_eq!(schema.tables[0].name, "tags");
     }
@@ -136,7 +143,7 @@ mod tests {
             );
         "#;
 
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         let t = &schema.tables[0];
 
         let col = |n: &str| t.columns.iter().find(|c| c.name == n).unwrap();
@@ -153,7 +160,7 @@ mod tests {
             );
         "#;
 
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         let col = &schema.tables[0].columns[0];
         assert!(!col.nullable);
     }
@@ -166,7 +173,7 @@ mod tests {
             CREATE TABLE users (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL);
             ALTER TABLE users ADD COLUMN email TEXT NOT NULL;
         "#;
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         let t = &schema.tables[0];
         assert_eq!(t.columns.len(), 3);
         let email = &t.columns[2];
@@ -176,12 +183,35 @@ mod tests {
     }
 
     #[test]
+    fn alter_unqualified_matches_public_qualified_table() {
+        let ddl = r#"
+            CREATE TABLE public.users (id BIGSERIAL PRIMARY KEY);
+            ALTER TABLE users ADD COLUMN email TEXT;
+        "#;
+        let schema = parse_schema(ddl, None).unwrap();
+        let t = &schema.tables[0];
+        assert_eq!(t.schema.as_deref(), Some("public"));
+        assert_eq!(t.columns.len(), 2);
+        assert_eq!(t.columns[1].name, "email");
+    }
+
+    #[test]
+    fn drop_unqualified_matches_public_qualified_table() {
+        let ddl = r#"
+            CREATE TABLE public.users (id BIGSERIAL PRIMARY KEY);
+            DROP TABLE users;
+        "#;
+        let schema = parse_schema(ddl, None).unwrap();
+        assert!(schema.tables.is_empty());
+    }
+
+    #[test]
     fn alter_add_column_if_not_exists() {
         let ddl = r#"
             CREATE TABLE users (id BIGSERIAL PRIMARY KEY);
             ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT;
         "#;
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         let t = &schema.tables[0];
         assert_eq!(t.columns.len(), 2);
         assert_eq!(t.columns[1].name, "bio");
@@ -194,7 +224,7 @@ mod tests {
             CREATE TABLE users (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL, bio TEXT);
             ALTER TABLE users DROP COLUMN bio;
         "#;
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         let t = &schema.tables[0];
         assert_eq!(t.columns.len(), 2);
         assert!(t.columns.iter().all(|c| c.name != "bio"));
@@ -206,7 +236,7 @@ mod tests {
             CREATE TABLE users (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL);
             ALTER TABLE users DROP COLUMN IF EXISTS ghost;
         "#;
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         // ghost never existed — table unchanged
         assert_eq!(schema.tables[0].columns.len(), 2);
     }
@@ -217,7 +247,7 @@ mod tests {
             CREATE TABLE users (id BIGSERIAL PRIMARY KEY, bio TEXT);
             ALTER TABLE users ALTER COLUMN bio SET NOT NULL;
         "#;
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         let col = schema.tables[0].columns.iter().find(|c| c.name == "bio").unwrap();
         assert!(!col.nullable);
     }
@@ -228,7 +258,7 @@ mod tests {
             CREATE TABLE users (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL);
             ALTER TABLE users ALTER COLUMN name DROP NOT NULL;
         "#;
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         let col = schema.tables[0].columns.iter().find(|c| c.name == "name").unwrap();
         assert!(col.nullable);
     }
@@ -239,7 +269,7 @@ mod tests {
             CREATE TABLE events (id SERIAL PRIMARY KEY, payload TEXT NOT NULL);
             ALTER TABLE events ALTER COLUMN payload TYPE JSONB;
         "#;
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         let col = schema.tables[0].columns.iter().find(|c| c.name == "payload").unwrap();
         assert_eq!(col.sql_type, SqlType::Jsonb);
     }
@@ -250,7 +280,7 @@ mod tests {
             CREATE TABLE items (id SERIAL PRIMARY KEY, amount TEXT NOT NULL);
             ALTER TABLE items ALTER COLUMN amount SET DATA TYPE NUMERIC USING amount::numeric;
         "#;
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         let col = schema.tables[0].columns.iter().find(|c| c.name == "amount").unwrap();
         assert_eq!(col.sql_type, SqlType::Decimal);
     }
@@ -261,7 +291,7 @@ mod tests {
             CREATE TABLE users (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL);
             ALTER TABLE users RENAME COLUMN name TO full_name;
         "#;
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         let t = &schema.tables[0];
         assert!(t.columns.iter().any(|c| c.name == "full_name"));
         assert!(t.columns.iter().all(|c| c.name != "name"));
@@ -273,7 +303,7 @@ mod tests {
             CREATE TABLE users (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL);
             ALTER TABLE users RENAME TO accounts;
         "#;
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         assert_eq!(schema.tables.len(), 1);
         assert_eq!(schema.tables[0].name, "accounts");
     }
@@ -284,7 +314,7 @@ mod tests {
             CREATE TABLE orders (user_id BIGINT NOT NULL, item_id BIGINT NOT NULL);
             ALTER TABLE orders ADD CONSTRAINT orders_pkey PRIMARY KEY (user_id, item_id);
         "#;
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         let t = &schema.tables[0];
         let col = |n: &str| t.columns.iter().find(|c| c.name == n).unwrap();
         assert!(col("user_id").is_primary_key);
@@ -301,7 +331,7 @@ mod tests {
                 ADD COLUMN email TEXT NOT NULL,
                 ALTER COLUMN name SET NOT NULL;
         "#;
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         let t = &schema.tables[0];
         assert!(t.columns.iter().all(|c| c.name != "bio"));
         assert!(t.columns.iter().any(|c| c.name == "email" && !c.nullable));
@@ -313,7 +343,7 @@ mod tests {
             CREATE TABLE users (id BIGSERIAL PRIMARY KEY);
             ALTER TABLE ghost ADD COLUMN x TEXT;
         "#;
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         assert_eq!(schema.tables[0].columns.len(), 1);
     }
 
@@ -324,7 +354,7 @@ mod tests {
             CREATE TABLE posts (id BIGSERIAL PRIMARY KEY, title TEXT NOT NULL);
             DROP TABLE users;
         "#;
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         assert_eq!(schema.tables.len(), 1);
         assert_eq!(schema.tables[0].name, "posts");
     }
@@ -336,7 +366,7 @@ mod tests {
             DROP TABLE IF EXISTS users;
             DROP TABLE IF EXISTS ghost;
         "#;
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         assert_eq!(schema.tables.len(), 0);
     }
 
@@ -348,7 +378,7 @@ mod tests {
             CREATE TABLE c (id BIGSERIAL PRIMARY KEY);
             DROP TABLE a, b;
         "#;
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         assert_eq!(schema.tables.len(), 1);
         assert_eq!(schema.tables[0].name, "c");
     }
@@ -362,7 +392,7 @@ mod tests {
                 OWNER TO admin;
         "#;
         // Should parse without error; table is unchanged
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         assert_eq!(schema.tables[0].columns.len(), 2);
     }
 
@@ -376,7 +406,7 @@ mod tests {
             );
         "#;
 
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         assert_eq!(schema.tables[0].columns.len(), 3);
     }
 
@@ -406,7 +436,7 @@ mod tests {
             );
         "#;
 
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         assert_eq!(schema.tables.len(), 1);
         assert_eq!(schema.tables[0].name, "things");
     }
@@ -424,7 +454,7 @@ mod tests {
             CREATE TABLE after_tbl (id BIGINT PRIMARY KEY, val TEXT NOT NULL);
         "#;
 
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         assert_eq!(schema.tables.len(), 2);
         assert_eq!(schema.tables[0].name, "before_tbl");
         assert_eq!(schema.tables[1].name, "after_tbl");
@@ -447,7 +477,7 @@ mod tests {
             CREATE TABLE real_table (id BIGINT PRIMARY KEY, data TEXT);
         "#;
 
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         assert_eq!(schema.tables.len(), 1);
         assert_eq!(schema.tables[0].name, "real_table");
     }
@@ -455,7 +485,7 @@ mod tests {
     #[test]
     fn test_create_function_return_type_parsed() {
         let ddl = "CREATE FUNCTION fetch_name(resource_id bigint) RETURNS text LANGUAGE sql AS $$ SELECT name FROM users WHERE id = resource_id $$;";
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         assert_eq!(schema.functions.len(), 1);
         let f = &schema.functions[0];
         assert_eq!(f.name, "fetch_name");
@@ -466,7 +496,7 @@ mod tests {
     #[test]
     fn test_create_function_multiple_params_parsed() {
         let ddl = "CREATE FUNCTION add_score(user_id bigint, delta integer) RETURNS bigint LANGUAGE sql AS $$ SELECT $1 $$;";
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         assert_eq!(schema.functions.len(), 1);
         let f = &schema.functions[0];
         assert_eq!(f.param_types, vec![SqlType::BigInt, SqlType::Integer]);
@@ -476,7 +506,7 @@ mod tests {
     #[test]
     fn test_create_function_out_params_excluded_from_param_types() {
         let ddl = "CREATE FUNCTION stats(IN user_id bigint, OUT count bigint) RETURNS bigint LANGUAGE sql AS $$ SELECT 1 $$;";
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         assert_eq!(schema.functions.len(), 1);
         // OUT params are return values, not inputs
         assert_eq!(schema.functions[0].param_types, vec![SqlType::BigInt]);
@@ -487,7 +517,7 @@ mod tests {
         let ddl = "\
             CREATE FUNCTION fetch_name(resource_id bigint) RETURNS text LANGUAGE sql AS $$ SELECT '' $$;\
             CREATE OR REPLACE FUNCTION fetch_name(resource_id bigint) RETURNS bigint LANGUAGE sql AS $$ SELECT 1 $$;";
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         assert_eq!(schema.functions.len(), 1, "OR REPLACE must not duplicate the function");
         assert_eq!(schema.functions[0].return_type, SqlType::BigInt, "OR REPLACE must update the return type");
     }
@@ -497,14 +527,14 @@ mod tests {
         let ddl = "\
             CREATE FUNCTION fetch_name(resource_id bigint) RETURNS text LANGUAGE sql AS $$ SELECT '' $$;\
             DROP FUNCTION fetch_name(bigint);";
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         assert_eq!(schema.functions.len(), 0, "DROP FUNCTION should remove the function");
     }
 
     #[test]
     fn test_create_function_table_returning_not_scalar() {
         let ddl = "CREATE FUNCTION get_users() RETURNS TABLE(id bigint, name text) LANGUAGE sql AS $$ SELECT id, name FROM users $$;";
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         // Table-valued functions are not scalar functions.
         assert_eq!(schema.functions.len(), 0);
     }
@@ -514,7 +544,7 @@ mod tests {
     #[test]
     fn test_tvf_returns_table_registers_as_view() {
         let ddl = "CREATE FUNCTION get_users() RETURNS TABLE(id BIGINT, name TEXT) LANGUAGE sql AS $$ SELECT id, name FROM users $$;";
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         assert_eq!(schema.tables.len(), 1);
         let t = &schema.tables[0];
         assert_eq!(t.name, "get_users");
@@ -531,7 +561,7 @@ mod tests {
         let ddl = "\
             CREATE FUNCTION get_users() RETURNS TABLE(id BIGINT) LANGUAGE sql AS $$ SELECT 1 $$;\
             CREATE OR REPLACE FUNCTION get_users() RETURNS TABLE(id BIGINT, name TEXT) LANGUAGE sql AS $$ SELECT 1, '' $$;";
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         assert_eq!(schema.tables.len(), 1, "OR REPLACE must not duplicate the TVF");
         assert_eq!(schema.tables[0].columns.len(), 2, "OR REPLACE must update columns");
     }
@@ -543,7 +573,7 @@ mod tests {
             CREATE FUNCTION user_count() RETURNS bigint LANGUAGE sql AS $$ SELECT COUNT(*) FROM users $$;
             CREATE FUNCTION get_active() RETURNS TABLE(id BIGINT, name TEXT) LANGUAGE sql AS $$ SELECT id, name FROM users $$;
         "#;
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         // 1 base table + 1 TVF (registered as view)
         assert_eq!(schema.tables.len(), 2);
         assert!(!schema.tables[0].is_view());
@@ -560,7 +590,7 @@ mod tests {
             CREATE TABLE users (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL);
             CREATE FUNCTION active_users() RETURNS TABLE(id BIGINT, name TEXT) LANGUAGE sql AS $$ SELECT id, name FROM users $$;
         "#;
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         let tvf = schema.tables.iter().find(|t| t.name == "active_users").unwrap();
         assert_eq!(tvf.columns.len(), 2);
         assert_eq!(tvf.columns[0].sql_type, SqlType::BigInt);
@@ -575,7 +605,7 @@ mod tests {
             CREATE FUNCTION get_users() RETURNS SETOF users LANGUAGE sql AS $$ SELECT * FROM users $$;
             CREATE TABLE users (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL);
         "#;
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         // The RETURNS SETOF function is skipped; only the table is parsed.
         assert_eq!(schema.tables.len(), 1);
         assert_eq!(schema.tables[0].name, "users");
@@ -589,7 +619,7 @@ mod tests {
             CREATE TABLE users (id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL);
             CREATE VIEW user_names AS SELECT id, name FROM users;
         "#;
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         // One base table, one view — both appear in schema.tables.
         assert_eq!(schema.tables.len(), 2);
         let view = schema.tables.iter().find(|t| t.name == "user_names").unwrap();
@@ -608,7 +638,7 @@ mod tests {
             );
             CREATE VIEW active_users AS SELECT id, name FROM users;
         "#;
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         let view = schema.tables.iter().find(|t| t.name == "active_users").unwrap();
         assert_eq!(view.columns.len(), 2);
         assert_eq!(view.columns[0].name, "id");
@@ -629,7 +659,7 @@ mod tests {
             );
             CREATE VIEW all_products AS SELECT * FROM products;
         "#;
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         let view = schema.tables.iter().find(|t| t.name == "all_products").unwrap();
         assert_eq!(view.columns.len(), 3);
         assert_eq!(view.columns[0].name, "id");
@@ -648,7 +678,7 @@ mod tests {
             CREATE VIEW base_view AS SELECT id, amount FROM orders;
             CREATE VIEW derived_view AS SELECT id FROM base_view;
         "#;
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         let derived = schema.tables.iter().find(|t| t.name == "derived_view").unwrap();
         assert!(derived.is_view());
         assert_eq!(derived.columns.len(), 1);
@@ -663,7 +693,7 @@ mod tests {
         let ddl = r#"
             CREATE VIEW orphan_view AS SELECT id, name FROM nonexistent_table;
         "#;
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         let view = schema.tables.iter().find(|t| t.name == "orphan_view").unwrap();
         assert!(view.is_view());
         assert!(view.columns.is_empty(), "view with unknown source table must have no inferred columns");
@@ -676,7 +706,7 @@ mod tests {
             CREATE FUNCTION user_count() RETURNS bigint LANGUAGE sql AS $$ SELECT COUNT(*) FROM users $$;
             CREATE VIEW user_names AS SELECT id, name FROM users;
         "#;
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         assert_eq!(schema.tables.iter().filter(|t| !t.is_view()).count(), 1);
         assert_eq!(schema.tables.iter().filter(|t| t.is_view()).count(), 1);
         assert_eq!(schema.functions.len(), 1);
@@ -689,7 +719,7 @@ mod tests {
             CREATE VIEW user_names AS SELECT id, name FROM users;
             DROP VIEW user_names;
         "#;
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         assert!(schema.tables.iter().any(|t| t.name == "users" && !t.is_view()));
         assert!(schema.tables.iter().all(|t| t.name != "user_names"));
     }

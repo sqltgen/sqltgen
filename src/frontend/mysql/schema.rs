@@ -12,7 +12,7 @@ use crate::ir::{Schema, SqlType};
 /// `DROP FUNCTION`, and `CREATE VIEW` statements. Delegates to the shared
 /// [`parse_schema_impl`] with the MySQL dialect, full `ALTER TABLE`
 /// capabilities, and the MySQL type mapper and resolver config.
-pub(crate) fn parse_schema(ddl: &str) -> anyhow::Result<Schema> {
+pub(crate) fn parse_schema(ddl: &str, default_schema: Option<&str>) -> anyhow::Result<Schema> {
     parse_schema_impl(
         ddl,
         &MySqlDialect {},
@@ -22,6 +22,7 @@ pub(crate) fn parse_schema(ddl: &str) -> anyhow::Result<Schema> {
             sum_integer_type: SqlType::Decimal,
             sum_bigint_type: SqlType::Decimal,
             avg_integer_type: SqlType::Decimal,
+            default_schema: default_schema.map(String::from),
             ..ResolverConfig::default()
         },
     )
@@ -42,7 +43,7 @@ mod tests {
                 bio   TEXT
             );
         ";
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         let t = &schema.tables[0];
         assert_eq!(t.name, "users");
         assert_eq!(t.columns.len(), 4);
@@ -63,7 +64,7 @@ mod tests {
                 PRIMARY KEY (id)
             );
         ";
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         let id = &schema.tables[0].columns[0];
         assert!(id.is_primary_key);
         assert!(!id.nullable);
@@ -79,7 +80,7 @@ mod tests {
                 PRIMARY KEY (k)
             );
         ";
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         let t = &schema.tables[0];
         assert!(t.columns[0].is_primary_key);
         assert!(!t.columns[1].is_primary_key);
@@ -95,7 +96,7 @@ mod tests {
                 title   VARCHAR(255) NOT NULL
             );
         ";
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         assert_eq!(schema.tables.len(), 2);
         assert_eq!(schema.tables[0].name, "users");
         assert_eq!(schema.tables[1].name, "posts");
@@ -104,7 +105,7 @@ mod tests {
     #[test]
     fn parses_if_not_exists() {
         let ddl = "CREATE TABLE IF NOT EXISTS tags (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, name VARCHAR(100) NOT NULL);";
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         assert_eq!(schema.tables[0].name, "tags");
     }
 
@@ -115,7 +116,7 @@ mod tests {
             CREATE TABLE posts (id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY, title VARCHAR(255) NOT NULL);
             DROP TABLE users;
         ";
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         assert_eq!(schema.tables.len(), 1);
         assert_eq!(schema.tables[0].name, "posts");
     }
@@ -127,7 +128,7 @@ mod tests {
             DROP TABLE IF EXISTS users;
             DROP TABLE IF EXISTS ghost;
         ";
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         assert_eq!(schema.tables.len(), 0);
     }
 
@@ -137,7 +138,7 @@ mod tests {
             CREATE INDEX idx_name ON users(name);
             CREATE TABLE things (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, label TEXT NOT NULL);
         ";
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         assert_eq!(schema.tables.len(), 1);
         assert_eq!(schema.tables[0].name, "things");
     }
@@ -161,7 +162,7 @@ mod tests {
                 m  BOOLEAN     NOT NULL
             );
         ";
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         let t = &schema.tables[0];
         let col = |name: &str| t.columns.iter().find(|c| c.name == name).unwrap();
         assert_eq!(col("a").sql_type, SqlType::SmallInt);
@@ -185,7 +186,7 @@ mod tests {
             CREATE TABLE users (id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) NOT NULL);
             ALTER TABLE users ADD COLUMN bio TEXT;
         ";
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         assert_eq!(schema.tables[0].columns.len(), 3);
         assert_eq!(schema.tables[0].columns[2].name, "bio");
         assert!(schema.tables[0].columns[2].nullable);
@@ -197,7 +198,7 @@ mod tests {
             CREATE TABLE users (id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) NOT NULL, bio TEXT);
             ALTER TABLE users DROP COLUMN bio;
         ";
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         assert_eq!(schema.tables[0].columns.len(), 2);
         assert!(schema.tables[0].columns.iter().all(|c| c.name != "bio"));
     }
@@ -208,7 +209,7 @@ mod tests {
             CREATE TABLE users (id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) NOT NULL);
             ALTER TABLE users RENAME COLUMN name TO full_name;
         ";
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         let t = &schema.tables[0];
         assert!(t.columns.iter().any(|c| c.name == "full_name"));
         assert!(t.columns.iter().all(|c| c.name != "name"));
@@ -220,7 +221,7 @@ mod tests {
             CREATE TABLE users (id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY);
             ALTER TABLE users RENAME TO accounts;
         ";
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         assert_eq!(schema.tables[0].name, "accounts");
     }
 
@@ -230,7 +231,7 @@ mod tests {
             CREATE TABLE users (id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY);
             ALTER TABLE ghost ADD COLUMN x TEXT;
         ";
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         assert_eq!(schema.tables[0].columns.len(), 1);
     }
 
@@ -242,7 +243,7 @@ mod tests {
             CREATE TABLE c (id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY);
             DROP TABLE a, b;
         ";
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         assert_eq!(schema.tables.len(), 1);
         assert_eq!(schema.tables[0].name, "c");
     }
@@ -256,7 +257,7 @@ mod tests {
                 status     VARCHAR(50) NOT NULL DEFAULT 'active'
             );
         ";
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         assert_eq!(schema.tables[0].columns.len(), 3);
     }
 
@@ -266,7 +267,7 @@ mod tests {
             CREATE TABLE orders (user_id BIGINT NOT NULL, item_id BIGINT NOT NULL);
             ALTER TABLE orders ADD CONSTRAINT orders_pkey PRIMARY KEY (user_id, item_id);
         ";
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         let t = &schema.tables[0];
         let col = |n: &str| t.columns.iter().find(|c| c.name == n).unwrap();
         assert!(col("user_id").is_primary_key);
@@ -282,7 +283,7 @@ mod tests {
             CREATE TABLE users (id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) NOT NULL);
             CREATE VIEW user_names AS SELECT id, name FROM users;
         ";
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         assert_eq!(schema.tables.len(), 2);
         let view = schema.tables.iter().find(|t| t.name == "user_names").unwrap();
         assert!(view.is_view());
@@ -295,7 +296,7 @@ mod tests {
             CREATE TABLE users (id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) NOT NULL);
             CREATE VIEW user_names AS SELECT id, name FROM users;
         ";
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         let view = schema.tables.iter().find(|t| t.name == "user_names").unwrap();
         assert_eq!(view.columns.len(), 2);
         assert_eq!(view.columns[0].name, "id");
@@ -305,7 +306,7 @@ mod tests {
     #[test]
     fn test_create_view_unknown_table_fallback() {
         let ddl = "CREATE VIEW orphan AS SELECT id FROM ghost;";
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         let view = schema.tables.iter().find(|t| t.name == "orphan").unwrap();
         assert!(view.is_view());
         assert!(view.columns.is_empty());
@@ -318,7 +319,7 @@ mod tests {
             CREATE VIEW base AS SELECT id, qty FROM items;
             CREATE VIEW derived AS SELECT id FROM base;
         ";
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         let derived = schema.tables.iter().find(|t| t.name == "derived").unwrap();
         assert!(derived.is_view());
         assert_eq!(derived.columns.len(), 1);
@@ -333,7 +334,7 @@ mod tests {
             CREATE VIEW user_names AS SELECT id, name FROM users;
             DROP VIEW user_names;
         ";
-        let schema = parse_schema(ddl).unwrap();
+        let schema = parse_schema(ddl, None).unwrap();
         assert!(schema.tables.iter().any(|t| t.name == "users" && !t.is_view()));
         assert!(schema.tables.iter().all(|t| t.name != "user_names"));
     }

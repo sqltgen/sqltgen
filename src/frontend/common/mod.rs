@@ -7,7 +7,7 @@ use sqlparser::ast::{
     AlterColumnOperation, AlterTableOperation, ColumnDef, ColumnOption, DataType, Expr, Ident, ObjectName, ObjectNamePart, RenameTableNameKind, TableConstraint,
 };
 
-use crate::ir::{Column, SqlType, Table};
+use crate::ir::{schema_matches, Column, SqlType, Table};
 
 // ─── Dialect DDL configuration ───────────────────────────────────────────────
 
@@ -49,11 +49,11 @@ impl AlterCaps {
 }
 
 /// Removes tables named in a `DROP TABLE` statement.
-pub(crate) fn apply_drop_tables(names: &[ObjectName], tables: &mut Vec<Table>) {
+pub(crate) fn apply_drop_tables(names: &[ObjectName], tables: &mut Vec<Table>, default_schema: Option<&str>) {
     for name in names {
         let table_name = obj_name_to_str(name);
-        let table_schema = obj_schema_to_str(name);
-        tables.retain(|t| !(t.name == table_name && t.schema.as_deref() == table_schema.as_deref()));
+        let ref_schema = obj_schema_to_str(name);
+        tables.retain(|t| !(t.name == table_name && schema_matches(ref_schema.as_deref(), t.schema.as_deref(), default_schema)));
     }
 }
 
@@ -62,10 +62,16 @@ pub(crate) fn apply_drop_tables(names: &[ObjectName], tables: &mut Vec<Table>) {
 /// Only operations enabled in `dialect.alter_caps` are applied; the rest are
 /// silently skipped. This prevents the handler from applying operations that
 /// the target dialect does not actually support.
-pub(crate) fn apply_alter_table(name: &ObjectName, operations: &[AlterTableOperation], tables: &mut [Table], dialect: DdlDialect) {
+pub(crate) fn apply_alter_table(
+    name: &ObjectName,
+    operations: &[AlterTableOperation],
+    tables: &mut [Table],
+    dialect: DdlDialect,
+    default_schema: Option<&str>,
+) {
     let table_name = obj_name_to_str(name);
-    let table_schema = obj_schema_to_str(name);
-    let Some(idx) = tables.iter().position(|t| t.name == table_name && t.schema.as_deref() == table_schema.as_deref()) else {
+    let ref_schema = obj_schema_to_str(name);
+    let Some(idx) = tables.iter().position(|t| t.name == table_name && schema_matches(ref_schema.as_deref(), t.schema.as_deref(), default_schema)) else {
         return;
     };
 
@@ -378,7 +384,7 @@ mod tests {
     fn test_apply_drop_tables_schema_qualified() {
         let mut tables = vec![Table::with_schema("s1", "t", vec![]), Table::with_schema("s2", "t", vec![])];
         let names = vec![ObjectName::from(vec![Ident::new("s1"), Ident::new("t")])];
-        apply_drop_tables(&names, &mut tables);
+        apply_drop_tables(&names, &mut tables, None);
         assert_eq!(tables.len(), 1);
         assert_eq!(tables[0].schema.as_deref(), Some("s2"));
     }
@@ -391,7 +397,7 @@ mod tests {
             vec![Table::with_schema("s1", "t", vec![Column::new("a", SqlType::Text)]), Table::with_schema("s2", "t", vec![Column::new("b", SqlType::Text)])];
         let stmts = Parser::parse_sql(&GenericDialect {}, "ALTER TABLE s1.t ADD COLUMN c INTEGER;").unwrap();
         if let sqlparser::ast::Statement::AlterTable(a) = &stmts[0] {
-            apply_alter_table(&a.name, &a.operations, &mut tables, test_dialect());
+            apply_alter_table(&a.name, &a.operations, &mut tables, test_dialect(), None);
         }
         assert_eq!(tables[0].columns.len(), 2); // s1.t got new column
         assert_eq!(tables[1].columns.len(), 1); // s2.t unchanged
@@ -417,7 +423,7 @@ mod tests {
     fn test_apply_drop_tables_removes_matching() {
         let mut tables = vec![Table::new("a", vec![]), Table::new("b", vec![]), Table::new("c", vec![])];
         let names = vec![ObjectName::from(vec![Ident::new("a")]), ObjectName::from(vec![Ident::new("c")])];
-        apply_drop_tables(&names, &mut tables);
+        apply_drop_tables(&names, &mut tables, None);
         assert_eq!(tables.len(), 1);
         assert_eq!(tables[0].name, "b");
     }
@@ -426,7 +432,7 @@ mod tests {
     fn test_apply_drop_tables_ignores_nonexistent() {
         let mut tables = vec![Table::new("a", vec![])];
         let names = vec![ObjectName::from(vec![Ident::new("ghost")])];
-        apply_drop_tables(&names, &mut tables);
+        apply_drop_tables(&names, &mut tables, None);
         assert_eq!(tables.len(), 1);
     }
 
@@ -437,7 +443,7 @@ mod tests {
         let mut tables = vec![Table::new("users", vec![Column::new_primary_key("id", SqlType::Integer)])];
         let stmts = Parser::parse_sql(&GenericDialect {}, "ALTER TABLE ghost ADD COLUMN x TEXT;").unwrap();
         if let sqlparser::ast::Statement::AlterTable(a) = &stmts[0] {
-            apply_alter_table(&a.name, &a.operations, &mut tables, DdlDialect { map_type: test_map, alter_caps: AlterCaps::ALL });
+            apply_alter_table(&a.name, &a.operations, &mut tables, DdlDialect { map_type: test_map, alter_caps: AlterCaps::ALL }, None);
         }
         assert_eq!(tables[0].columns.len(), 1);
     }
@@ -447,7 +453,7 @@ mod tests {
         let mut tables = vec![Table::new("users", vec![Column::new_primary_key("id", SqlType::Integer), Column::new("bio", SqlType::Text)])];
         let stmts = Parser::parse_sql(&GenericDialect {}, "ALTER TABLE users DROP COLUMN bio;").unwrap();
         if let sqlparser::ast::Statement::AlterTable(a) = &stmts[0] {
-            apply_alter_table(&a.name, &a.operations, &mut tables, DdlDialect { map_type: test_map, alter_caps: AlterCaps::SQLITE });
+            apply_alter_table(&a.name, &a.operations, &mut tables, DdlDialect { map_type: test_map, alter_caps: AlterCaps::SQLITE }, None);
         }
         // DROP COLUMN should be ignored under SQLite caps
         assert_eq!(tables[0].columns.len(), 2);
@@ -458,7 +464,7 @@ mod tests {
         let mut tables = vec![Table::new("users", vec![Column::new_primary_key("id", SqlType::Integer), Column::new("bio", SqlType::Text)])];
         let stmts = Parser::parse_sql(&GenericDialect {}, "ALTER TABLE users DROP COLUMN bio;").unwrap();
         if let sqlparser::ast::Statement::AlterTable(a) = &stmts[0] {
-            apply_alter_table(&a.name, &a.operations, &mut tables, DdlDialect { map_type: test_map, alter_caps: AlterCaps::ALL });
+            apply_alter_table(&a.name, &a.operations, &mut tables, DdlDialect { map_type: test_map, alter_caps: AlterCaps::ALL }, None);
         }
         // DROP COLUMN should work under ALL caps
         assert_eq!(tables[0].columns.len(), 1);
@@ -470,7 +476,7 @@ mod tests {
         // ADD COLUMN — should work
         let stmts = Parser::parse_sql(&GenericDialect {}, "ALTER TABLE users ADD COLUMN name TEXT NOT NULL;").unwrap();
         if let sqlparser::ast::Statement::AlterTable(a) = &stmts[0] {
-            apply_alter_table(&a.name, &a.operations, &mut tables, DdlDialect { map_type: test_map, alter_caps: AlterCaps::SQLITE });
+            apply_alter_table(&a.name, &a.operations, &mut tables, DdlDialect { map_type: test_map, alter_caps: AlterCaps::SQLITE }, None);
         }
         assert_eq!(tables[0].columns.len(), 2);
         assert_eq!(tables[0].columns[1].name, "name");
@@ -478,7 +484,7 @@ mod tests {
         // RENAME COLUMN — should work
         let stmts = Parser::parse_sql(&GenericDialect {}, "ALTER TABLE users RENAME COLUMN name TO full_name;").unwrap();
         if let sqlparser::ast::Statement::AlterTable(a) = &stmts[0] {
-            apply_alter_table(&a.name, &a.operations, &mut tables, DdlDialect { map_type: test_map, alter_caps: AlterCaps::SQLITE });
+            apply_alter_table(&a.name, &a.operations, &mut tables, DdlDialect { map_type: test_map, alter_caps: AlterCaps::SQLITE }, None);
         }
         assert_eq!(tables[0].columns[1].name, "full_name");
     }

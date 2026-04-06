@@ -36,15 +36,21 @@ impl Schema {
     /// - Query unqualified, table qualified: match if table's schema is the default.
     /// - Query qualified, table unqualified: match if query's schema is the default.
     pub fn find_table(&self, query_schema: Option<&str>, table_name: &str, default_schema: Option<&str>) -> Option<&Table> {
-        self.tables.iter().find(|t| {
-            t.name == table_name
-                && match (query_schema, t.schema.as_deref()) {
-                    (Some(q), Some(s)) => q == s,
-                    (None, None) => true,
-                    (None, Some(s)) => default_schema == Some(s),
-                    (Some(q), None) => default_schema == Some(q),
-                }
-        })
+        self.tables.iter().find(|t| t.name == table_name && schema_matches(query_schema, t.schema.as_deref(), default_schema))
+    }
+}
+
+/// Returns true when two schema qualifiers match, considering the default schema.
+///
+/// Used by both `Schema::find_table` (query resolution) and DDL operations
+/// (`ALTER TABLE`, `DROP TABLE`) to consistently resolve qualified/unqualified
+/// table references.
+pub fn schema_matches(ref_schema: Option<&str>, table_schema: Option<&str>, default_schema: Option<&str>) -> bool {
+    match (ref_schema, table_schema) {
+        (Some(q), Some(s)) => q == s,
+        (None, None) => true,
+        (None, Some(s)) => default_schema == Some(s),
+        (Some(q), None) => default_schema == Some(q),
     }
 }
 

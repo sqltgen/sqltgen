@@ -4,7 +4,8 @@ use crate::backend::sql_rewrite::replace_list_in_clause;
 use crate::frontend::common::query::{parse_queries_with_config, ResolverConfig};
 use crate::ir::{NativeListBind, Parameter, Query, Schema};
 
-pub(crate) fn parse_queries(sql: &str, schema: &Schema) -> anyhow::Result<Vec<Query>> {
+pub(crate) fn parse_queries(sql: &str, schema: &Schema, default_schema: Option<&str>) -> anyhow::Result<Vec<Query>> {
+    let ds = default_schema.unwrap_or("main");
     parse_queries_with_config(
         &SQLiteDialect {},
         sql,
@@ -12,7 +13,7 @@ pub(crate) fn parse_queries(sql: &str, schema: &Schema) -> anyhow::Result<Vec<Qu
         &ResolverConfig {
             typemap: crate::frontend::sqlite::typemap::map,
             native_list_sql: Some(sqlite_native_list_sql),
-            default_schema: Some("main".into()),
+            default_schema: Some(ds.to_string()),
             ..ResolverConfig::default()
         },
     )
@@ -52,7 +53,7 @@ mod tests {
         // SQLite uses @name params that get rewritten to $N by named_params.rs,
         // but can also use $N directly.
         let sql = "-- name: GetUser :one\nSELECT id, name FROM users WHERE id = $1;";
-        let queries = parse_queries(sql, &make_schema()).unwrap();
+        let queries = parse_queries(sql, &make_schema(), None).unwrap();
         assert_eq!(queries.len(), 1);
         assert_eq!(queries[0].name, "GetUser");
         assert_eq!(queries[0].cmd, QueryCmd::One);
@@ -65,7 +66,7 @@ mod tests {
     #[test]
     fn parses_insert() {
         let sql = "-- name: CreateUser :exec\nINSERT INTO users (name, email) VALUES ($1, $2);";
-        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let q = &parse_queries(sql, &make_schema(), None).unwrap()[0];
         assert_eq!(q.cmd, QueryCmd::Exec);
         assert_eq!(q.params.len(), 2);
         assert_eq!(q.params[0].name, "name");
@@ -75,7 +76,7 @@ mod tests {
     #[test]
     fn parses_update() {
         let sql = "-- name: UpdateUser :exec\nUPDATE users SET name = $1 WHERE id = $2;";
-        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let q = &parse_queries(sql, &make_schema(), None).unwrap()[0];
         assert_eq!(q.params.len(), 2);
         assert_eq!(q.params[0].name, "name");
         assert_eq!(q.params[1].name, "id");
@@ -84,7 +85,7 @@ mod tests {
     #[test]
     fn parses_delete() {
         let sql = "-- name: DeleteUser :exec\nDELETE FROM users WHERE id = $1;";
-        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let q = &parse_queries(sql, &make_schema(), None).unwrap()[0];
         assert_eq!(q.cmd, QueryCmd::Exec);
         assert_eq!(q.params.len(), 1);
     }
@@ -92,7 +93,7 @@ mod tests {
     #[test]
     fn parses_select_many() {
         let sql = "-- name: ListUsers :many\nSELECT id, name, email FROM users;";
-        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let q = &parse_queries(sql, &make_schema(), None).unwrap()[0];
         assert_eq!(q.cmd, QueryCmd::Many);
         assert_eq!(q.result_columns.len(), 3);
         assert_eq!(q.params.len(), 0);
@@ -101,7 +102,7 @@ mod tests {
     #[test]
     fn strips_trailing_semicolons() {
         let sql = "-- name: ListUsers :many\nSELECT id FROM users;";
-        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let q = &parse_queries(sql, &make_schema(), None).unwrap()[0];
         assert!(!q.sql.ends_with(';'));
     }
 
@@ -111,7 +112,7 @@ mod tests {
             -- name: GetUser :one\nSELECT id FROM users WHERE id = $1;\n\n\
             -- name: ListUsers :many\nSELECT id, name FROM users;\n\n\
             -- name: DeleteUser :exec\nDELETE FROM users WHERE id = $1;";
-        let queries = parse_queries(sql, &make_schema()).unwrap();
+        let queries = parse_queries(sql, &make_schema(), None).unwrap();
         assert_eq!(queries.len(), 3);
     }
 }

@@ -29,8 +29,8 @@ use sqltgen::ir::{Query, Schema};
 /// without comparing to golden — used for error resilience tests that verify
 /// the pipeline doesn't crash on edge-case input.
 fn parse_and_generate(parser: &dyn DialectParser, ddl: &str, queries_sql: &str, codegen: &dyn Codegen) -> Vec<GeneratedFile> {
-    let schema = parser.parse_schema(ddl).expect("schema parse should not fail");
-    let queries = parser.parse_queries(queries_sql, &schema).expect("query parse should not fail");
+    let schema = parser.parse_schema(ddl, None).expect("schema parse should not fail");
+    let queries = parser.parse_queries(queries_sql, &schema, None).expect("query parse should not fail");
     let config = output_config();
     codegen.generate(&schema, &queries, &config).expect("codegen should not fail")
 }
@@ -46,8 +46,8 @@ fn load_fixtures(dialect: &str, parser: &dyn DialectParser) -> (Schema, Vec<Quer
     let ddl = std::fs::read_to_string(root.join("schema.sql")).unwrap_or_else(|e| panic!("reading {dialect}/schema.sql: {e}"));
     let queries_sql = std::fs::read_to_string(root.join("queries.sql")).unwrap_or_else(|e| panic!("reading {dialect}/queries.sql: {e}"));
 
-    let schema = parser.parse_schema(&ddl).unwrap_or_else(|e| panic!("parsing {dialect} schema: {e}"));
-    let queries = parser.parse_queries(&queries_sql, &schema).unwrap_or_else(|e| panic!("parsing {dialect} queries: {e}"));
+    let schema = parser.parse_schema(&ddl, None).unwrap_or_else(|e| panic!("parsing {dialect} schema: {e}"));
+    let queries = parser.parse_queries(&queries_sql, &schema, None).unwrap_or_else(|e| panic!("parsing {dialect} queries: {e}"));
     (schema, queries)
 }
 
@@ -484,7 +484,7 @@ fn resilience_all_backends_empty_queries() {
         Box::new(TypeScriptCodegen { target: JsTarget::Pg, output: JsOutput::TypeScript }),
         Box::new(TypeScriptCodegen { target: JsTarget::Pg, output: JsOutput::JavaScript }),
     ];
-    let schema = PostgresParser.parse_schema(SIMPLE_PG_SCHEMA).unwrap();
+    let schema = PostgresParser.parse_schema(SIMPLE_PG_SCHEMA, None).unwrap();
     let config = output_config();
     for backend in &backends {
         let _ = backend.generate(&schema, &[], &config).expect("codegen with no queries should not fail");

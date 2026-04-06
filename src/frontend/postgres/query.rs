@@ -4,7 +4,8 @@ use crate::backend::sql_rewrite::replace_list_in_clause;
 use crate::frontend::common::query::{parse_queries_with_config, ResolverConfig};
 use crate::ir::{NativeListBind, Parameter, Query, Schema, SqlType};
 
-pub(crate) fn parse_queries(sql: &str, schema: &Schema) -> anyhow::Result<Vec<Query>> {
+pub(crate) fn parse_queries(sql: &str, schema: &Schema, default_schema: Option<&str>) -> anyhow::Result<Vec<Query>> {
+    let ds = default_schema.unwrap_or("public");
     parse_queries_with_config(
         &PostgreSqlDialect {},
         sql,
@@ -15,7 +16,7 @@ pub(crate) fn parse_queries(sql: &str, schema: &Schema) -> anyhow::Result<Vec<Qu
             sum_bigint_type: SqlType::Decimal,
             avg_integer_type: SqlType::Decimal,
             native_list_sql: Some(pg_native_list_sql),
-            default_schema: Some("public".into()),
+            default_schema: Some(ds.to_string()),
             ..ResolverConfig::default()
         },
     )
@@ -53,7 +54,7 @@ mod tests {
     #[test]
     fn parses_select_with_dollar_placeholder() {
         let sql = "-- name: GetUser :one\nSELECT id, name FROM users WHERE id = $1;";
-        let queries = parse_queries(sql, &make_schema()).unwrap();
+        let queries = parse_queries(sql, &make_schema(), None).unwrap();
         assert_eq!(queries.len(), 1);
         assert_eq!(queries[0].name, "GetUser");
         assert_eq!(queries[0].cmd, QueryCmd::One);
@@ -66,7 +67,7 @@ mod tests {
     #[test]
     fn parses_insert_with_multiple_params() {
         let sql = "-- name: CreateUser :exec\nINSERT INTO users (name, email) VALUES ($1, $2);";
-        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let q = &parse_queries(sql, &make_schema(), None).unwrap()[0];
         assert_eq!(q.cmd, QueryCmd::Exec);
         assert_eq!(q.params.len(), 2);
         assert_eq!(q.params[0].name, "name");
@@ -76,7 +77,7 @@ mod tests {
     #[test]
     fn parses_update() {
         let sql = "-- name: UpdateUser :exec\nUPDATE users SET name = $1 WHERE id = $2;";
-        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let q = &parse_queries(sql, &make_schema(), None).unwrap()[0];
         assert_eq!(q.params.len(), 2);
         assert_eq!(q.params[0].name, "name");
         assert_eq!(q.params[1].name, "id");
@@ -85,7 +86,7 @@ mod tests {
     #[test]
     fn parses_delete() {
         let sql = "-- name: DeleteUser :exec\nDELETE FROM users WHERE id = $1;";
-        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let q = &parse_queries(sql, &make_schema(), None).unwrap()[0];
         assert_eq!(q.cmd, QueryCmd::Exec);
         assert_eq!(q.params.len(), 1);
     }
@@ -93,7 +94,7 @@ mod tests {
     #[test]
     fn parses_select_many() {
         let sql = "-- name: ListUsers :many\nSELECT id, name, email FROM users;";
-        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let q = &parse_queries(sql, &make_schema(), None).unwrap()[0];
         assert_eq!(q.cmd, QueryCmd::Many);
         assert_eq!(q.result_columns.len(), 3);
         assert_eq!(q.params.len(), 0);
@@ -102,7 +103,7 @@ mod tests {
     #[test]
     fn strips_trailing_semicolons() {
         let sql = "-- name: ListUsers :many\nSELECT id FROM users;";
-        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let q = &parse_queries(sql, &make_schema(), None).unwrap()[0];
         assert!(!q.sql.ends_with(';'));
     }
 
@@ -112,7 +113,7 @@ mod tests {
             -- name: GetUser :one\nSELECT id FROM users WHERE id = $1;\n\n\
             -- name: ListUsers :many\nSELECT id, name FROM users;\n\n\
             -- name: DeleteUser :exec\nDELETE FROM users WHERE id = $1;";
-        let queries = parse_queries(sql, &make_schema()).unwrap();
+        let queries = parse_queries(sql, &make_schema(), None).unwrap();
         assert_eq!(queries.len(), 3);
     }
 
@@ -122,7 +123,7 @@ mod tests {
         // checked for NULL must be inferred as nullable so backends emit an
         // Option/nullable type rather than a non-null type.
         let sql = "-- name: FilterById :many\nSELECT id, name FROM users WHERE (@id::bigint IS NULL OR id = @id::bigint);";
-        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let q = &parse_queries(sql, &make_schema(), None).unwrap()[0];
         assert_eq!(q.params.len(), 1);
         assert_eq!(q.params[0].name, "id");
         assert_eq!(q.params[0].sql_type, SqlType::BigInt);
@@ -133,7 +134,7 @@ mod tests {
     fn test_is_null_plain_placeholder_inferred_as_nullable() {
         // Same pattern with a plain $1 placeholder (no named params).
         let sql = "-- name: FilterById :many\nSELECT id, name FROM users WHERE ($1 IS NULL OR id = $1);";
-        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let q = &parse_queries(sql, &make_schema(), None).unwrap()[0];
         assert_eq!(q.params.len(), 1);
         assert_eq!(q.params[0].sql_type, SqlType::BigInt);
         assert!(q.params[0].nullable, "plain $1 inside IS NULL must be inferred as nullable");
@@ -145,7 +146,7 @@ mod tests {
         // inferred as nullable.
         let sql = "-- name: FilterCase :many\n\
             SELECT id, name FROM users WHERE CASE WHEN $1::bigint IS NULL THEN true ELSE id = $1 END;";
-        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let q = &parse_queries(sql, &make_schema(), None).unwrap()[0];
         let p = &q.params[0];
         assert_eq!(p.sql_type, SqlType::BigInt);
         assert!(p.nullable, "param inside IS NULL in CASE branch must be nullable");
@@ -157,7 +158,7 @@ mod tests {
         // inferred as nullable.
         let sql = "-- name: FilterSub :many\n\
             SELECT id, name FROM users WHERE EXISTS (SELECT 1 FROM users u2 WHERE $1::bigint IS NULL OR u2.id = $1);";
-        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let q = &parse_queries(sql, &make_schema(), None).unwrap()[0];
         let p = &q.params[0];
         assert_eq!(p.sql_type, SqlType::BigInt);
         assert!(p.nullable, "param inside IS NULL in subquery must be nullable");
@@ -169,7 +170,7 @@ mod tests {
         // inferred as nullable.
         let sql = "-- name: FilterJoin :many\n\
             SELECT u.id, u.name FROM users u JOIN users u2 ON ($1::bigint IS NULL OR u.id = u2.id);";
-        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let q = &parse_queries(sql, &make_schema(), None).unwrap()[0];
         let p = &q.params[0];
         assert_eq!(p.sql_type, SqlType::BigInt);
         assert!(p.nullable, "param inside IS NULL in JOIN ON must be nullable");
@@ -181,7 +182,7 @@ mod tests {
         // inferred as nullable (e.g. COALESCE wrapping an IS NULL check).
         let sql = "-- name: FilterFunc :many\n\
             SELECT id, name FROM users WHERE id = COALESCE((CASE WHEN $1::bigint IS NULL THEN NULL ELSE $1 END), 0);";
-        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let q = &parse_queries(sql, &make_schema(), None).unwrap()[0];
         let p = &q.params[0];
         assert_eq!(p.sql_type, SqlType::BigInt);
         assert!(p.nullable, "param inside IS NULL nested in function arg must be nullable");
@@ -192,7 +193,7 @@ mod tests {
     #[test]
     fn test_is_distinct_from_param_inferred_as_nullable() {
         let sql = "-- name: Q :many\nSELECT id FROM users WHERE id IS DISTINCT FROM $1;";
-        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let q = &parse_queries(sql, &make_schema(), None).unwrap()[0];
         assert_eq!(q.params.len(), 1);
         assert_eq!(q.params[0].sql_type, SqlType::BigInt);
         assert!(q.params[0].nullable, "param in IS DISTINCT FROM must be nullable");
@@ -201,7 +202,7 @@ mod tests {
     #[test]
     fn test_is_not_distinct_from_param_inferred_as_nullable() {
         let sql = "-- name: Q :many\nSELECT id FROM users WHERE id IS NOT DISTINCT FROM $1;";
-        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let q = &parse_queries(sql, &make_schema(), None).unwrap()[0];
         assert_eq!(q.params.len(), 1);
         assert_eq!(q.params[0].sql_type, SqlType::BigInt);
         assert!(q.params[0].nullable, "param in IS NOT DISTINCT FROM must be nullable");
@@ -210,7 +211,7 @@ mod tests {
     #[test]
     fn test_is_distinct_from_param_on_left_inferred() {
         let sql = "-- name: Q :many\nSELECT id FROM users WHERE $1 IS DISTINCT FROM id;";
-        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let q = &parse_queries(sql, &make_schema(), None).unwrap()[0];
         assert_eq!(q.params.len(), 1);
         assert_eq!(q.params[0].sql_type, SqlType::BigInt);
         assert!(q.params[0].nullable, "left-side param in IS DISTINCT FROM must be nullable");
@@ -221,7 +222,7 @@ mod tests {
         // The expression `id IS DISTINCT FROM $1` must resolve to non-nullable Boolean
         // in the projection so backends emit the correct return type.
         let sql = "-- name: Q :one\nSELECT (id IS DISTINCT FROM $1::bigint) AS result FROM users WHERE true;";
-        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let q = &parse_queries(sql, &make_schema(), None).unwrap()[0];
         assert_eq!(q.result_columns.len(), 1);
         assert_eq!(q.result_columns[0].sql_type, crate::ir::SqlType::Boolean);
         assert!(!q.result_columns[0].nullable);
@@ -239,7 +240,7 @@ mod tests {
         // only a single placeholder appears in the list, or (b) infer `is_list` from the
         // `IN (@name)` named-param syntax itself.
         let sql = "-- name: GetByIds :many\nSELECT id, name FROM users WHERE id IN (@ids);";
-        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let q = &parse_queries(sql, &make_schema(), None).unwrap()[0];
         assert_eq!(q.params.len(), 1);
         assert_eq!(q.params[0].name, "ids");
         // Without annotation, is_list must be false today (confirming the gap).
@@ -257,7 +258,7 @@ mod tests {
         // The fix must detect `is_list` from the `::type[]` cast on the named param or
         // from the surrounding ANY() context.
         let sql = "-- name: GetByIds :many\nSELECT id, name FROM users WHERE id = ANY(@ids::bigint[]);";
-        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let q = &parse_queries(sql, &make_schema(), None).unwrap()[0];
         assert_eq!(q.params.len(), 1);
         assert_eq!(q.params[0].name, "ids");
         // Must be recognised as a list param.
@@ -270,7 +271,7 @@ mod tests {
         // With annotation the list flag must be set — this is the current workaround
         // and must keep working after any fix.
         let sql = "-- name: GetByIds :many\n-- @ids bigint[] not null\nSELECT id, name FROM users WHERE id IN (@ids);";
-        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let q = &parse_queries(sql, &make_schema(), None).unwrap()[0];
         assert_eq!(q.params.len(), 1);
         assert_eq!(q.params[0].name, "ids");
         assert!(q.params[0].is_list, "annotation must set is_list");
@@ -307,7 +308,7 @@ mod tests {
             FROM owner o\n\
             WHERE o.id = @owner_id AND o.account_id = @account_id\n\
             RETURNING id, owner_id, name;";
-        let q = &parse_queries(sql, &make_insert_select_schema()).unwrap()[0];
+        let q = &parse_queries(sql, &make_insert_select_schema(), None).unwrap()[0];
         let resource_id = q.params.iter().find(|p| p.name == "resource_id").expect("resource_id param");
         assert_eq!(resource_id.sql_type, SqlType::BigInt, "resource_id must be BigInt (from resource.id)");
         let name = q.params.iter().find(|p| p.name == "name").expect("name param");
@@ -327,7 +328,7 @@ mod tests {
         // This is the common/supported path.
         let sql = "-- name: CreateUser :exec\n\
             INSERT INTO users (id, name) VALUES (@id::bigint, @name);";
-        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let q = &parse_queries(sql, &make_schema(), None).unwrap()[0];
         let id_p = q.params.iter().find(|p| p.name == "id").expect("id param");
         assert_eq!(id_p.sql_type, SqlType::BigInt, "id must be BigInt (from inline cast)");
         let name_p = q.params.iter().find(|p| p.name == "name").expect("name param");
@@ -341,7 +342,7 @@ mod tests {
         // not the fallback default.
         let sql = "-- name: CreateUser :exec\n\
             INSERT INTO users (id, name) VALUES ($1::bigint, $2);";
-        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let q = &parse_queries(sql, &make_schema(), None).unwrap()[0];
         assert_eq!(q.params[0].sql_type, SqlType::BigInt, "$1::bigint must be BigInt (from users.id)");
         assert_eq!(q.params[1].sql_type, SqlType::Text, "$2 must be Text (from users.name)");
     }
@@ -354,7 +355,7 @@ mod tests {
         // @name must be typed as Text (from users.name), @id as BigInt (from users.id).
         let sql = "-- name: UpdateUser :exec\n\
             UPDATE users SET name = @name WHERE id = @id;";
-        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let q = &parse_queries(sql, &make_schema(), None).unwrap()[0];
         let name_p = q.params.iter().find(|p| p.name == "name").expect("name param");
         assert_eq!(name_p.sql_type, SqlType::Text, "name must be Text (from users.name)");
         let id_p = q.params.iter().find(|p| p.name == "id").expect("id param");
@@ -367,7 +368,7 @@ mod tests {
         // The bare-Placeholder pattern in collect_update_params must not miss this.
         let sql = "-- name: UpdateUserId :exec\n\
             UPDATE users SET id = $1::bigint WHERE name = $2;";
-        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let q = &parse_queries(sql, &make_schema(), None).unwrap()[0];
         assert_eq!(q.params[0].sql_type, SqlType::BigInt, "$1::bigint in SET must be BigInt (from users.id)");
         assert_eq!(q.params[1].sql_type, SqlType::Text, "$2 in WHERE must be Text (from users.name)");
     }
@@ -379,7 +380,7 @@ mod tests {
         // All three supported engines treat LIMIT/OFFSET as 64-bit integers
         // (PostgreSQL: bigint-range, SQLite: 64-bit in memory, MySQL: up to 2^64−1).
         let sql = "-- name: ListUsersPaged :many\nSELECT id, name FROM users LIMIT $1 OFFSET $2;";
-        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let q = &parse_queries(sql, &make_schema(), None).unwrap()[0];
         assert_eq!(q.params.len(), 2);
         let limit_p = q.params.iter().find(|p| p.name == "limit").expect("limit param");
         assert_eq!(limit_p.sql_type, SqlType::BigInt, "LIMIT param must be BigInt");
@@ -397,7 +398,7 @@ mod tests {
         // which backends render as Object / Any?.
         let sql = "-- name: FetchPayload :one\n\
             SELECT fetch_resource_payload($1, $2) AS payload;";
-        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let q = &parse_queries(sql, &make_schema(), None).unwrap()[0];
         assert_eq!(q.result_columns.len(), 1);
         let col = &q.result_columns[0];
         assert_eq!(col.name, "payload");
@@ -412,7 +413,7 @@ mod tests {
         // existing behaviour — the test guards against accidental regressions.
         let sql = "-- name: FetchPayload :one\n\
             SELECT fetch_resource_payload($1, $2);";
-        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let q = &parse_queries(sql, &make_schema(), None).unwrap()[0];
         assert_eq!(q.result_columns.len(), 0, "unnamed unresolvable expr must be omitted");
     }
 
@@ -425,7 +426,7 @@ mod tests {
         // RETURNING id + $2 → $2 must be BigInt (from users.id), not Text.
         let sql = "-- name: CreateUser :one\n\
             INSERT INTO users (name) VALUES ($1) RETURNING id + $2 AS adjusted_id;";
-        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let q = &parse_queries(sql, &make_schema(), None).unwrap()[0];
         assert_eq!(q.params.len(), 2);
         let p2 = q.params.iter().find(|p| p.index == 2).expect("$2");
         assert_eq!(p2.sql_type, SqlType::BigInt, "$2 in RETURNING id + $2 must be BigInt (from users.id)");
@@ -439,7 +440,7 @@ mod tests {
             WITH ins AS (\
               INSERT INTO users (name) VALUES ($1) RETURNING id + $2 AS adjusted_id\
             ) SELECT adjusted_id FROM ins;";
-        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let q = &parse_queries(sql, &make_schema(), None).unwrap()[0];
         let p2 = q.params.iter().find(|p| p.index == 2).expect("$2");
         assert_eq!(p2.sql_type, SqlType::BigInt, "$2 in CTE INSERT RETURNING id + $2 must be BigInt");
     }
@@ -452,7 +453,7 @@ mod tests {
             WITH upd AS (\
               UPDATE users SET name = $1 WHERE id = $2 RETURNING id + $3 AS adjusted_id\
             ) SELECT adjusted_id FROM upd;";
-        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let q = &parse_queries(sql, &make_schema(), None).unwrap()[0];
         let p3 = q.params.iter().find(|p| p.index == 3).expect("$3");
         assert_eq!(p3.sql_type, SqlType::BigInt, "$3 in CTE UPDATE RETURNING id + $3 must be BigInt");
     }
@@ -466,7 +467,7 @@ mod tests {
         // but this variant uses @name syntax to guard against regressions.
         let sql = "-- name: FindResource :many\n\
             SELECT id, name FROM users WHERE (@id::bigint IS NULL OR id = @id::bigint);";
-        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let q = &parse_queries(sql, &make_schema(), None).unwrap()[0];
         let id_p = q.params.iter().find(|p| p.name == "id").expect("id param");
         assert_eq!(id_p.sql_type, SqlType::BigInt);
         assert!(id_p.nullable, "param tested with IS NULL must be nullable");
@@ -483,7 +484,7 @@ mod tests {
     #[test]
     fn test_udf_return_type_inferred_from_schema() {
         let sql = "-- name: GetPayload :one\nSELECT fetch_payload($1) AS payload FROM users WHERE id = $1;";
-        let q = &parse_queries(sql, &make_udf_schema()).unwrap()[0];
+        let q = &parse_queries(sql, &make_udf_schema(), None).unwrap()[0];
         let payload = q.result_columns.iter().find(|c| c.name == "payload").expect("payload column");
         assert_eq!(payload.sql_type, SqlType::Text);
         assert!(payload.nullable, "UDF results are always nullable");
@@ -503,7 +504,7 @@ mod tests {
             }
         };
         let sql = "-- name: GetPayload :one\nSELECT fetch_payload($1, $2) AS payload FROM users WHERE id = $1;";
-        let q = &parse_queries(sql, &schema).unwrap()[0];
+        let q = &parse_queries(sql, &schema, None).unwrap()[0];
         let p1 = q.params.iter().find(|p| p.index == 1).expect("$1");
         let p2 = q.params.iter().find(|p| p.index == 2).expect("$2");
         assert_eq!(p1.sql_type, SqlType::BigInt);
@@ -514,7 +515,7 @@ mod tests {
     fn test_unknown_function_still_defaults_to_text() {
         // Regression guard: functions not in schema fall back to Text (nullable)
         let sql = "-- name: DoStuff :one\nSELECT mystery_func($1) AS result FROM users WHERE id = $1;";
-        let q = &parse_queries(sql, &make_schema()).unwrap()[0];
+        let q = &parse_queries(sql, &make_schema(), None).unwrap()[0];
         let result = q.result_columns.iter().find(|c| c.name == "result").expect("result column");
         assert_eq!(result.sql_type, SqlType::Text);
         assert!(result.nullable);
@@ -527,7 +528,7 @@ mod tests {
         let mut schema = make_schema();
         schema.tables.push(Table::view("active_users", vec![Column::new_not_nullable("id", SqlType::BigInt), Column::new_not_nullable("name", SqlType::Text)]));
         let sql = "-- name: GetActive :many\nSELECT id, name FROM active_users();";
-        let q = &parse_queries(sql, &schema).unwrap()[0];
+        let q = &parse_queries(sql, &schema, None).unwrap()[0];
         assert_eq!(q.result_columns.len(), 2);
         assert_eq!(q.result_columns[0].name, "id");
         assert_eq!(q.result_columns[0].sql_type, SqlType::BigInt);
@@ -540,7 +541,7 @@ mod tests {
         let mut schema = make_schema();
         schema.tables.push(Table::view("get_stats", vec![Column::new_not_nullable("total", SqlType::Integer), Column::new("avg_score", SqlType::Decimal)]));
         let sql = "-- name: Stats :one\nSELECT * FROM get_stats();";
-        let q = &parse_queries(sql, &schema).unwrap()[0];
+        let q = &parse_queries(sql, &schema, None).unwrap()[0];
         assert_eq!(q.result_columns.len(), 2);
         assert_eq!(q.result_columns[0].name, "total");
         assert_eq!(q.result_columns[0].sql_type, SqlType::Integer);
@@ -558,7 +559,7 @@ mod tests {
             .tables
             .push(Table::view("get_active_users", vec![Column::new_not_nullable("id", SqlType::BigInt), Column::new_not_nullable("name", SqlType::Text)]));
         let sql = "-- name: GetActiveUsers :many\nSELECT id, name FROM get_active_users($1);";
-        let q = &parse_queries(sql, &schema).unwrap()[0];
+        let q = &parse_queries(sql, &schema, None).unwrap()[0];
         assert_eq!(q.params.len(), 1);
         assert_eq!(q.params[0].name, "param1");
         assert_eq!(q.params[0].sql_type, SqlType::Text);
@@ -573,7 +574,7 @@ mod tests {
             .tables
             .push(Table::view("get_active_users", vec![Column::new_not_nullable("id", SqlType::BigInt), Column::new_not_nullable("name", SqlType::Text)]));
         let sql = "-- name: GetActiveUserById :one\nSELECT id, name FROM get_active_users($1) WHERE id = $2;";
-        let q = &parse_queries(sql, &schema).unwrap()[0];
+        let q = &parse_queries(sql, &schema, None).unwrap()[0];
         assert_eq!(q.params.len(), 2);
         assert_eq!(q.params[0].name, "param1");
         assert_eq!(q.params[0].sql_type, SqlType::Text);
