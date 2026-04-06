@@ -30,6 +30,11 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
   during migration (see Fixed below).
 
 ### Fixed
+- **`UPDATE … FROM` parameters now collected (PostgreSQL)** — parameters in the
+  `FROM` clause and the `WHERE` conditions that reference FROM tables in
+  `UPDATE t SET col = $1 FROM other WHERE t.id = other.id AND other.status = $2`
+  are now typed and collected. JOIN ON conditions within the FROM clause are also
+  walked. Plain `UPDATE … SET … WHERE` queries are unaffected.
 - **`INSERT ... SELECT` parameters now collected** — parameters in the `SELECT`
   body of an `INSERT INTO t (cols) SELECT … FROM … WHERE …` statement are now
   typed and collected. Projection placeholders are typed from the INSERT target

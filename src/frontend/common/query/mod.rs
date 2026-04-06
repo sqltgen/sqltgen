@@ -5,7 +5,10 @@ mod select;
 
 use std::collections::HashMap;
 
-use sqlparser::ast::{Delete, Insert, JoinOperator, Query as SqlQuery, Select, SelectItem, SetExpr, Statement, TableFactor, TableObject, With};
+use sqlparser::ast::{
+    Delete, Insert, JoinOperator, Query as SqlQuery, Select, SelectItem, SetExpr, Statement, TableFactor, TableObject, TableWithJoins, UpdateTableFromKind,
+    With,
+};
 use sqlparser::dialect::Dialect;
 use sqlparser::parser::Parser;
 
@@ -260,7 +263,17 @@ pub(super) fn collect_cte_params(
         collect_cte_params(cte.query.with.as_ref(), schema, config, mapping, query_name);
         match cte.query.body.as_ref() {
             SetExpr::Update(Statement::Update(u)) => {
-                collect_update_params(&u.table, &u.assignments, u.selection.as_ref(), schema, config, mapping, query_name);
+                collect_update_params(
+                    &u.table,
+                    &u.assignments,
+                    u.selection.as_ref(),
+                    update_from_tables(&u.from),
+                    &local_ctes,
+                    schema,
+                    config,
+                    mapping,
+                    query_name,
+                );
                 if let TableFactor::Table { name, .. } = &u.table.relation {
                     let table_name = obj_name_to_str(name);
                     if let Some(table) = schema.tables.iter().find(|t| t.name == table_name) {
@@ -313,11 +326,28 @@ pub(super) fn collect_cte_params(
     }
 }
 
-// ─── Table collection ─────────────────────────────────────────────────────────
+// ─── Table collection ────────────────────────────────────────────────────────
 
-pub(super) fn collect_from_tables(select: &Select, schema: &Schema, ctes: &[Table], config: &ResolverConfig) -> Vec<(Table, Option<String>)> {
+/// Extract the FROM tables from an `UPDATE … FROM` clause.
+///
+/// `UpdateTableFromKind` wraps the same `Vec<TableWithJoins>` in two variants
+/// (`BeforeSet` for Snowflake-style, `AfterSet` for standard PostgreSQL-style).
+/// Returns an empty slice for plain `UPDATE … SET … WHERE` with no FROM clause.
+pub(super) fn update_from_tables(from: &Option<UpdateTableFromKind>) -> &[TableWithJoins] {
+    match from {
+        Some(UpdateTableFromKind::BeforeSet(tables)) | Some(UpdateTableFromKind::AfterSet(tables)) => tables,
+        None => &[],
+    }
+}
+
+/// Collect typed tables from a list of `TableWithJoins` (a FROM clause or UPDATE FROM clause).
+///
+/// Shared by `collect_from_tables` (SELECT) and `collect_update_params` (UPDATE … FROM).
+/// Respects outer-join nullability: LEFT JOIN makes the right side nullable, RIGHT/FULL
+/// makes the left side nullable.
+pub(super) fn collect_table_list(from: &[TableWithJoins], schema: &Schema, ctes: &[Table], config: &ResolverConfig) -> Vec<(Table, Option<String>)> {
     let mut tables = Vec::new();
-    for twj in &select.from {
+    for twj in from {
         let base_idx = tables.len();
         collect_table_factor(&twj.relation, schema, ctes, &mut tables, config);
         for join in &twj.joins {
@@ -344,6 +374,10 @@ pub(super) fn collect_from_tables(select: &Select, schema: &Schema, ctes: &[Tabl
         }
     }
     tables
+}
+
+pub(super) fn collect_from_tables(select: &Select, schema: &Schema, ctes: &[Table], config: &ResolverConfig) -> Vec<(Table, Option<String>)> {
+    collect_table_list(&select.from, schema, ctes, config)
 }
 
 /// Returns true if the join makes the **left** side nullable (RIGHT / FULL OUTER).

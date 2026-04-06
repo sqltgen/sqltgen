@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 use sqlparser::ast::{
     BinaryOperator, Expr, FunctionArg, FunctionArgExpr, FunctionArguments, JoinConstraint, JoinOperator, LimitClause, OrderByKind, Query as SqlQuery, Select,
-    SelectItem, SetExpr, TableFactor, UnaryOperator, Value, ValueWithSpan,
+    SelectItem, SetExpr, TableFactor, TableWithJoins, UnaryOperator, Value, ValueWithSpan,
 };
 
 use crate::ir::{Schema, SqlType, Table};
@@ -503,8 +503,11 @@ fn collect_params_from_subquery(
 }
 
 /// Collect typed parameter mappings from JOIN ON conditions.
-pub(super) fn collect_join_params(select: &Select, ctx: &mut ResolverContext) {
-    for twj in &select.from {
+/// Collect typed parameter mappings from JOIN ON conditions in a list of `TableWithJoins`.
+///
+/// Shared by `collect_join_params` (SELECT) and `collect_update_params` (UPDATE … FROM).
+pub(super) fn collect_join_params_list(from: &[TableWithJoins], ctx: &mut ResolverContext) {
+    for twj in from {
         for join in &twj.joins {
             let constraint = match &join.join_operator {
                 JoinOperator::Join(c)
@@ -531,6 +534,10 @@ pub(super) fn collect_join_params(select: &Select, ctx: &mut ResolverContext) {
             }
         }
     }
+}
+
+pub(super) fn collect_join_params(select: &Select, ctx: &mut ResolverContext) {
+    collect_join_params_list(&select.from, ctx);
 }
 
 /// Collect parameter mappings from LIMIT and OFFSET expressions.
