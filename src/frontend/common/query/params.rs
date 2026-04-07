@@ -371,34 +371,16 @@ pub(super) fn placeholder_idx_in_expr(expr: &Expr) -> Option<usize> {
 fn mark_is_null_nullable(expr: &Expr, mapping: &mut HashMap<usize, (String, SqlType, bool)>) {
     match expr {
         Expr::IsNull(inner) | Expr::IsNotNull(inner) => {
-            if let Some(idx) = placeholder_idx_in_expr(inner) {
-                if let Some(entry) = mapping.get_mut(&idx) {
-                    entry.2 = true;
-                }
-            }
+            mark_nullable_placeholder(inner, mapping);
             mark_is_null_nullable(inner, mapping);
         },
         // IS DISTINCT FROM / IS NOT DISTINCT FROM: both operands may be NULL.
         Expr::IsDistinctFrom(left, right) | Expr::IsNotDistinctFrom(left, right) => {
-            for operand in [left.as_ref(), right.as_ref()] {
-                if let Some(idx) = placeholder_idx_in_expr(operand) {
-                    if let Some(entry) = mapping.get_mut(&idx) {
-                        entry.2 = true;
-                    }
-                }
-                mark_is_null_nullable(operand, mapping);
-            }
+            mark_nullable_pair(left, right, mapping);
         },
         // MySQL null-safe equality <=>: both operands may be NULL.
         Expr::BinaryOp { left, op: BinaryOperator::Spaceship, right } => {
-            for operand in [left.as_ref(), right.as_ref()] {
-                if let Some(idx) = placeholder_idx_in_expr(operand) {
-                    if let Some(entry) = mapping.get_mut(&idx) {
-                        entry.2 = true;
-                    }
-                }
-                mark_is_null_nullable(operand, mapping);
-            }
+            mark_nullable_pair(left, right, mapping);
         },
         Expr::BinaryOp { left, right, .. } => {
             mark_is_null_nullable(left, mapping);
@@ -408,16 +390,7 @@ fn mark_is_null_nullable(expr: &Expr, mapping: &mut HashMap<usize, (String, SqlT
             mark_is_null_nullable(inner, mapping);
         },
         Expr::Case { operand, conditions, else_result, .. } => {
-            if let Some(op) = operand {
-                mark_is_null_nullable(op, mapping);
-            }
-            for cw in conditions {
-                mark_is_null_nullable(&cw.condition, mapping);
-                mark_is_null_nullable(&cw.result, mapping);
-            }
-            if let Some(el) = else_result {
-                mark_is_null_nullable(el, mapping);
-            }
+            mark_nullable_case(operand.as_deref(), conditions, else_result.as_deref(), mapping);
         },
         Expr::Subquery(q) | Expr::Exists { subquery: q, .. } => {
             mark_is_null_nullable_in_subquery(q, mapping);
@@ -451,6 +424,39 @@ fn mark_is_null_nullable(expr: &Expr, mapping: &mut HashMap<usize, (String, SqlT
             mark_is_null_nullable(pattern, mapping);
         },
         _ => {},
+    }
+}
+
+fn mark_nullable_placeholder(expr: &Expr, mapping: &mut HashMap<usize, (String, SqlType, bool)>) {
+    if let Some(idx) = placeholder_idx_in_expr(expr) {
+        if let Some(entry) = mapping.get_mut(&idx) {
+            entry.2 = true;
+        }
+    }
+}
+
+fn mark_nullable_pair(left: &Expr, right: &Expr, mapping: &mut HashMap<usize, (String, SqlType, bool)>) {
+    for operand in [left, right] {
+        mark_nullable_placeholder(operand, mapping);
+        mark_is_null_nullable(operand, mapping);
+    }
+}
+
+fn mark_nullable_case(
+    operand: Option<&Expr>,
+    conditions: &[sqlparser::ast::CaseWhen],
+    else_result: Option<&Expr>,
+    mapping: &mut HashMap<usize, (String, SqlType, bool)>,
+) {
+    if let Some(op) = operand {
+        mark_is_null_nullable(op, mapping);
+    }
+    for cw in conditions {
+        mark_is_null_nullable(&cw.condition, mapping);
+        mark_is_null_nullable(&cw.result, mapping);
+    }
+    if let Some(el) = else_result {
+        mark_is_null_nullable(el, mapping);
     }
 }
 
