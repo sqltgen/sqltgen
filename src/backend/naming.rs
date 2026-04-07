@@ -21,6 +21,11 @@ pub fn to_camel_case(s: &str) -> String {
     }
 }
 
+/// Convert a string to SCREAMING_SNAKE_CASE: `active` → `ACTIVE`, `my_status` → `MY_STATUS`.
+pub fn to_screaming_snake_case(s: &str) -> String {
+    to_snake_case(&to_pascal_case(s)).to_uppercase()
+}
+
 /// Convert PascalCase/camelCase to snake_case: `GetUserById` → `get_user_by_id`.
 pub fn to_snake_case(s: &str) -> String {
     let mut out = String::new();

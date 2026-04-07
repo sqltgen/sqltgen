@@ -584,4 +584,35 @@ mod tests {
         assert_eq!(q.params[1].name, "id");
         assert_eq!(q.params[1].sql_type, SqlType::BigInt);
     }
+
+    // ─── Enum type inference ────────────────────────────────────────────────
+
+    fn make_enum_schema() -> Schema {
+        use crate::ir::EnumType;
+        let mut schema = Schema {
+            tables: vec![Table::new(
+                "users",
+                vec![Column::new_primary_key("id", SqlType::BigInt), Column::new_not_nullable("status", SqlType::Enum("user_status".to_string()))],
+            )],
+            enums: vec![EnumType { name: "user_status".to_string(), schema: None, variants: vec!["active".into(), "inactive".into()] }],
+            ..Default::default()
+        };
+        // Resolve enum columns (normally done by parse_schema)
+        schema.resolve_enum_columns();
+        schema
+    }
+
+    #[test]
+    fn test_enum_param_typed_from_column() {
+        let sql = "-- name: GetByStatus :many\nSELECT id, status FROM users WHERE status = $1;";
+        let q = &parse_queries(sql, &make_enum_schema(), None).unwrap()[0];
+        assert_eq!(q.params[0].sql_type, SqlType::Enum("user_status".to_string()));
+    }
+
+    #[test]
+    fn test_enum_result_column_type() {
+        let sql = "-- name: GetUser :one\nSELECT id, status FROM users WHERE id = $1;";
+        let q = &parse_queries(sql, &make_enum_schema(), None).unwrap()[0];
+        assert_eq!(q.result_columns[1].sql_type, SqlType::Enum("user_status".to_string()));
+    }
 }

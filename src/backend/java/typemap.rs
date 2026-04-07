@@ -2,6 +2,7 @@ use std::collections::{BTreeSet, HashMap};
 
 use crate::backend::common::{canonical_sql_types, sql_type_key, SqlTypeKey};
 use crate::backend::jdbc::{preset_gson, preset_jackson};
+use crate::backend::naming::to_pascal_case;
 use crate::config::{resolve_type_override, ExtraField, Language, OutputConfig, ResolvedType, TypeVariant};
 use crate::ir::{Parameter, Query, SqlType, Table};
 
@@ -105,6 +106,9 @@ impl JavaTypeMap {
     ///
     /// For `Array(inner)`, returns `java.util.List<BoxedInner>` (with `@Nullable` prefix when nullable).
     pub(super) fn java_type(&self, sql_type: &SqlType, nullable: bool) -> String {
+        if let SqlType::Enum(name) = sql_type {
+            return to_pascal_case(name);
+        }
         if let SqlType::Array(inner) = sql_type {
             let boxed = self.java_type_boxed(inner);
             let t = format!("java.util.List<{boxed}>");
@@ -120,6 +124,9 @@ impl JavaTypeMap {
 
     /// Return the boxed Java type for `sql_type`, used for `List<T>` and JDBC ARRAY casts.
     pub(super) fn java_type_boxed(&self, sql_type: &SqlType) -> String {
+        if let SqlType::Enum(name) = sql_type {
+            return to_pascal_case(name);
+        }
         if let SqlType::Array(inner) = sql_type {
             return format!("java.util.List<{}>", self.java_type_boxed(inner));
         }
@@ -154,6 +161,9 @@ impl JavaTypeMap {
 
     /// Return the Java param type for a parameter, applying list and override logic.
     pub(super) fn java_param_type(&self, p: &Parameter) -> String {
+        if let SqlType::Enum(name) = &p.sql_type {
+            return to_pascal_case(name);
+        }
         if let SqlType::Array(inner) = &p.sql_type {
             return format!("java.util.List<{}>", self.java_type_boxed(inner));
         }

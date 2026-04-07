@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use crate::backend::common::{canonical_sql_types, sql_type_key, SqlTypeKey};
+use crate::backend::naming::to_pascal_case;
 use crate::config::{resolve_type_override, Language, OutputConfig, ResolvedType, TypeVariant};
 use crate::ir::{Parameter, Query, SqlType};
 
@@ -67,6 +68,10 @@ impl JsTypeMap {
     ///
     /// `Array(inner)` maps to `InnerType[]` (or `InnerType[] | null` when nullable).
     pub(super) fn field_type(&self, sql_type: &SqlType, nullable: bool) -> String {
+        if let SqlType::Enum(name) = sql_type {
+            let ty = to_pascal_case(name);
+            return if nullable { format!("{ty} | null") } else { ty };
+        }
         if let SqlType::Array(inner) = sql_type {
             let inner_ty = self.field_type(inner, false);
             let arr_ty = format!("{inner_ty}[]");
@@ -82,6 +87,10 @@ impl JsTypeMap {
 
     /// Return the JS/TS parameter type for `sql_type`, with nullability applied.
     pub(super) fn param_type(&self, sql_type: &SqlType, nullable: bool) -> String {
+        if let SqlType::Enum(name) = sql_type {
+            let ty = to_pascal_case(name);
+            return if nullable { format!("{ty} | null") } else { ty };
+        }
         if let SqlType::Array(inner) = sql_type {
             let inner_ty = self.param_type(inner, false);
             let arr_ty = format!("{inner_ty}[]");

@@ -7,7 +7,7 @@ use crate::backend::naming::{to_pascal_case, to_snake_case};
 use crate::backend::sql_rewrite::{positional_bind_names, rewrite_to_anon_params, split_at_in_clause};
 use crate::backend::GeneratedFile;
 use crate::config::{ListParamStrategy, OutputConfig};
-use crate::ir::{NativeListBind, Parameter, Query, QueryCmd, Schema, SqlType};
+use crate::ir::{EnumType, NativeListBind, Parameter, Query, QueryCmd, Schema, SqlType};
 
 use super::adapter::{RustBindMode, RustCoreContract, RustPlaceholderMode, RustSqlNormMode};
 use super::typemap::RustTypeMap;
@@ -36,6 +36,14 @@ pub(super) fn generate_core_files(
         files.push(GeneratedFile { path, content: src });
     }
 
+    // One enum file per CREATE TYPE ... AS ENUM
+    for e in &schema.enums {
+        let mut src = String::new();
+        emit_rust_enum(&mut src, e)?;
+        let path = PathBuf::from(&config.out).join("models").join(format!("{}.rs", e.name));
+        files.push(GeneratedFile { path, content: src });
+    }
+
     // One .rs file per query group
     let strategy = config.list_params.clone().unwrap_or_default();
     let groups = group_queries(queries);
@@ -55,7 +63,11 @@ pub(super) fn generate_core_files(
         for name in &needed_sorted {
             writeln!(src, "use super::super::models::{}::{};", name, to_pascal_case(name))?;
         }
-        if !needed.is_empty() {
+        let enum_names = crate::backend::common::needed_enums(&group_queries.iter().collect::<Vec<_>>());
+        for name in &enum_names {
+            writeln!(src, "use super::super::models::{}::{};", name, to_pascal_case(name))?;
+        }
+        if !needed.is_empty() || !enum_names.is_empty() {
             writeln!(src)?;
         }
 
@@ -90,7 +102,7 @@ pub(super) fn generate_core_files(
         writeln!(src, "#![allow(dead_code)]")?;
         writeln!(src)?;
         writeln!(src, "pub mod sqltgen;")?;
-        if !schema.tables.is_empty() {
+        if !schema.tables.is_empty() || !schema.enums.is_empty() {
             writeln!(src, "pub mod models;")?;
         }
         if !group_stems.is_empty() {
@@ -101,10 +113,13 @@ pub(super) fn generate_core_files(
     }
 
     // models/mod.rs
-    if !schema.tables.is_empty() {
+    if !schema.tables.is_empty() || !schema.enums.is_empty() {
         let mut src = String::new();
         for table in &schema.tables {
             writeln!(src, "pub mod {};", table.name)?;
+        }
+        for e in &schema.enums {
+            writeln!(src, "pub mod {};", e.name)?;
         }
         let path = PathBuf::from(&config.out).join("models").join("mod.rs");
         files.push(GeneratedFile { path, content: src });
@@ -423,4 +438,51 @@ fn normalize_sql_for_sqlx(sql: &str, mode: RustSqlNormMode) -> String {
         RustSqlNormMode::AnonParams => rewrite_to_anon_params(sql),
         RustSqlNormMode::Preserve => sql.to_string(),
     }
+}
+
+/// Generate the Rust source for a single enum type.
+///
+/// Emits a `pub enum` with `Display` and `FromStr` implementations so that
+/// enum values round-trip through their SQL string representation.
+fn emit_rust_enum(src: &mut String, e: &EnumType) -> anyhow::Result<()> {
+    let name = to_pascal_case(&e.name);
+
+    writeln!(src, "use std::fmt;")?;
+    writeln!(src, "use std::str::FromStr;")?;
+    writeln!(src)?;
+    writeln!(src, "#[derive(Debug, Clone, PartialEq, Eq)]")?;
+    writeln!(src, "pub enum {name} {{")?;
+    for variant in &e.variants {
+        writeln!(src, "    {},", to_pascal_case(variant))?;
+    }
+    writeln!(src, "}}")?;
+    writeln!(src)?;
+
+    // Display impl — returns the original SQL label
+    writeln!(src, "impl fmt::Display for {name} {{")?;
+    writeln!(src, "    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {{")?;
+    writeln!(src, "        f.write_str(match self {{")?;
+    for variant in &e.variants {
+        writeln!(src, "            Self::{} => \"{}\",", to_pascal_case(variant), variant)?;
+    }
+    writeln!(src, "        }})")?;
+    writeln!(src, "    }}")?;
+    writeln!(src, "}}")?;
+    writeln!(src)?;
+
+    // FromStr impl — parses from the SQL label
+    writeln!(src, "impl FromStr for {name} {{")?;
+    writeln!(src, "    type Err = String;")?;
+    writeln!(src)?;
+    writeln!(src, "    fn from_str(s: &str) -> Result<Self, Self::Err> {{")?;
+    writeln!(src, "        match s {{")?;
+    for variant in &e.variants {
+        writeln!(src, "            \"{}\" => Ok(Self::{}),", variant, to_pascal_case(variant))?;
+    }
+    writeln!(src, "            _ => Err(format!(\"unknown {name}: {{}}\", s)),")?;
+    writeln!(src, "        }}")?;
+    writeln!(src, "    }}")?;
+    writeln!(src, "}}")?;
+
+    Ok(())
 }

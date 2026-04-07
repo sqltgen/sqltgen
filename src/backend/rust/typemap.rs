@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use crate::backend::common::{canonical_sql_types, sql_type_key, SqlTypeKey};
+use crate::backend::naming::to_pascal_case;
 use crate::config::{resolve_type_override, Language, OutputConfig, ResolvedType, TypeVariant};
 use crate::ir::SqlType;
 
@@ -44,6 +45,10 @@ impl RustTypeMap {
     ///
     /// `Array(inner)` maps to `Vec<InnerType>` (or `Option<Vec<InnerType>>` when nullable).
     pub(super) fn field_type(&self, sql_type: &SqlType, nullable: bool) -> String {
+        if let SqlType::Enum(name) = sql_type {
+            let ty = to_pascal_case(name);
+            return if nullable { format!("Option<{ty}>") } else { ty };
+        }
         if let SqlType::Array(inner) = sql_type {
             let inner_ty = self.field_type(inner, false);
             let vec_ty = format!("Vec<{inner_ty}>");
@@ -59,6 +64,10 @@ impl RustTypeMap {
 
     /// Return the Rust parameter type string for `sql_type`, with nullability applied.
     pub(super) fn param_type(&self, sql_type: &SqlType, nullable: bool) -> String {
+        if let SqlType::Enum(name) = sql_type {
+            let ty = to_pascal_case(name);
+            return if nullable { format!("Option<{ty}>") } else { ty };
+        }
         if let SqlType::Array(inner) = sql_type {
             let inner_ty = self.param_type(inner, false);
             let vec_ty = format!("Vec<{inner_ty}>");
