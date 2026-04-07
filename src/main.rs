@@ -106,6 +106,10 @@ fn run_generate(config_path: &Path) -> anyhow::Result<()> {
         queries.append(&mut parsed);
     }
 
+    // Resolve Custom(name) → Enum(name) in query result columns and parameters
+    let enum_names = schema.enum_names();
+    sqltgen::ir::resolve_enum_in_queries(&mut queries, &enum_names);
+
     // Run each configured codegen target
     for (lang, output_config) in &cfg.gen {
         let driver = output_config.driver.as_deref();

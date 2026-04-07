@@ -792,4 +792,61 @@ mod tests {
         assert!(views.iter().any(|v| v.columns.len() == 1 && v.columns[0].name == "name"));
         assert!(views.iter().any(|v| v.columns.len() == 2 && v.columns[0].name == "id" && v.columns[1].name == "name"));
     }
+
+    // ─── CREATE TYPE AS ENUM ─────────────────��──────────────────────────────
+
+    #[test]
+    fn test_create_type_as_enum_parsed() {
+        let ddl = r#"
+            CREATE TYPE status AS ENUM ('active', 'inactive', 'pending');
+        "#;
+        let schema = parse_schema(ddl, None).unwrap();
+        assert_eq!(schema.enums.len(), 1);
+        assert_eq!(schema.enums[0].name, "status");
+        assert_eq!(schema.enums[0].variants, vec!["active", "inactive", "pending"]);
+    }
+
+    #[test]
+    fn test_create_type_as_enum_schema_qualified() {
+        let ddl = r#"
+            CREATE TYPE public.status AS ENUM ('active', 'inactive');
+        "#;
+        let schema = parse_schema(ddl, None).unwrap();
+        assert_eq!(schema.enums[0].name, "status");
+        assert_eq!(schema.enums[0].schema.as_deref(), Some("public"));
+    }
+
+    #[test]
+    fn test_enum_column_resolves_to_enum_type() {
+        let ddl = r#"
+            CREATE TYPE status AS ENUM ('active', 'inactive');
+            CREATE TABLE users (id BIGSERIAL PRIMARY KEY, status status NOT NULL);
+        "#;
+        let schema = parse_schema(ddl, None).unwrap();
+        let col = &schema.tables[0].columns[1];
+        assert_eq!(col.name, "status");
+        assert_eq!(col.sql_type, SqlType::Enum("status".to_string()));
+    }
+
+    #[test]
+    fn test_enum_array_column_resolves() {
+        let ddl = r#"
+            CREATE TYPE status AS ENUM ('active', 'inactive');
+            CREATE TABLE users (id BIGSERIAL PRIMARY KEY, tags status[] NOT NULL);
+        "#;
+        let schema = parse_schema(ddl, None).unwrap();
+        let col = &schema.tables[0].columns[1];
+        assert_eq!(col.sql_type, SqlType::Array(Box::new(SqlType::Enum("status".to_string()))));
+    }
+
+    #[test]
+    fn test_non_enum_custom_type_stays_custom() {
+        let ddl = r#"
+            CREATE TYPE status AS ENUM ('active', 'inactive');
+            CREATE TABLE users (id BIGSERIAL PRIMARY KEY, data citext NOT NULL);
+        "#;
+        let schema = parse_schema(ddl, None).unwrap();
+        let col = &schema.tables[0].columns[1];
+        assert_eq!(col.sql_type, SqlType::Custom("citext".to_string()));
+    }
 }

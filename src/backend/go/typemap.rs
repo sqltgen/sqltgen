@@ -237,6 +237,6 @@ fn go_default_entry(sql_type: &SqlType, json_mode: GoJsonMode) -> GoTypeEntry {
             import: None,
             import_nullable: None,
         },
-        SqlType::Array(_) => unreachable!("arrays are not in the canonical type list"),
+        SqlType::Enum(_) | SqlType::Array(_) => unreachable!("enums and arrays are not in the canonical type list"),
     }
 }

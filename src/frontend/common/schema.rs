@@ -1,4 +1,4 @@
-use sqlparser::ast::{ArgMode, DataType, DropFunction, ObjectType, Statement};
+use sqlparser::ast::{ArgMode, DataType, DropFunction, ObjectType, Statement, UserDefinedTypeRepresentation};
 use sqlparser::dialect::Dialect;
 use sqlparser::parser::Parser;
 use sqlparser::tokenizer::{Token, Tokenizer};
@@ -6,7 +6,7 @@ use sqlparser::tokenizer::{Token, Tokenizer};
 use super::{apply_alter_table, apply_drop_tables, build_column, build_create_table, obj_name_to_str, obj_schema_to_str, DdlDialect};
 use crate::frontend::common::query::{resolve_view_columns, ResolverConfig};
 use crate::ir::schema_matches;
-use crate::ir::{ScalarFunction, Schema, SqlType, Table};
+use crate::ir::{EnumType, ScalarFunction, Schema, SqlType, Table};
 
 /// A `CREATE VIEW` statement collected during pass 1 for resolution in pass 2.
 struct PendingView {
@@ -62,6 +62,10 @@ pub(crate) fn parse_schema_impl(ddl: &str, sql_dialect: &dyn Dialect, ddl_dialec
             },
         }
     }
+
+    // ── Pass 1.5: resolve enum column types ────────────────────────────────────
+    // Replace Custom(name) → Enum(name) for columns referencing known enum types.
+    schema.resolve_enum_columns();
 
     // ── Pass 2: resolve views in declaration order ────────────────────────────
     // Each resolved view is pushed to schema.tables immediately so that a later
@@ -137,6 +141,12 @@ fn process_statement(stmt: &Statement, schema: &mut Schema, dialect: DdlDialect,
             }
         },
         Statement::DropFunction(DropFunction { func_desc, .. }) => apply_drop_functions(func_desc, &mut schema.functions, default_schema),
+        Statement::CreateType { name, representation: Some(UserDefinedTypeRepresentation::Enum { labels }) } => {
+            let enum_name = obj_name_to_str(name);
+            let enum_schema = obj_schema_to_str(name);
+            let variants: Vec<String> = labels.iter().map(|l| l.value.clone()).collect();
+            schema.enums.push(EnumType { name: enum_name, schema: enum_schema, variants });
+        },
         _ => {},
     }
 }

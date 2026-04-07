@@ -57,7 +57,7 @@ fn manifest_sql_type(sql_type: &SqlType) -> String {
         SqlType::Char(Some(n)) => format!("char({n})"),
         SqlType::VarChar(Some(n)) => format!("varchar({n})"),
         SqlType::Array(inner) => format!("{}[]", manifest_sql_type(inner)),
-        SqlType::Custom(name) => name.clone(),
+        SqlType::Enum(name) | SqlType::Custom(name) => name.clone(),
         other => sql_type_key(other).to_string(),
     }
 }

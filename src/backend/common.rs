@@ -283,7 +283,7 @@ pub fn sql_type_key(sql_type: &SqlType) -> SqlTypeKey {
         SqlType::Real => SqlTypeKey::Real,
         SqlType::Double => SqlTypeKey::Double,
         SqlType::Decimal => SqlTypeKey::Decimal,
-        SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_) | SqlType::Interval => SqlTypeKey::Text,
+        SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_) | SqlType::Interval | SqlType::Enum(_) => SqlTypeKey::Text,
         SqlType::Bytes => SqlTypeKey::Bytes,
         SqlType::Date => SqlTypeKey::Date,
         SqlType::Time => SqlTypeKey::Time,

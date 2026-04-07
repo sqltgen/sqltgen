@@ -133,7 +133,7 @@ fn python_default_entry(sql_type: &SqlType, json_mode: PythonJsonMode) -> Python
             PythonJsonMode::Text => PythonDefaultEntry::simple("str"),
         },
         SqlType::Custom(_) => PythonDefaultEntry::with_import("Any", "from typing import Any"),
-        SqlType::Array(_) => unreachable!("arrays are not in the canonical type list"),
+        SqlType::Enum(_) | SqlType::Array(_) => unreachable!("enums and arrays are not in the canonical type list"),
     }
 }
 

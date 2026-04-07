@@ -18,11 +18,26 @@ pub struct ScalarFunction {
     pub param_types: Vec<SqlType>,
 }
 
+/// A PostgreSQL `CREATE TYPE ... AS ENUM` definition.
+///
+/// Stores the enum type name and its variant labels. The IR representation
+/// is dialect-agnostic so MySQL inline enums can reuse it in the future.
+#[derive(Debug, Clone)]
+pub struct EnumType {
+    pub name: String,
+    /// The schema this enum belongs to (e.g. `"public"`).
+    pub schema: Option<String>,
+    /// Variant labels in declaration order, preserving original case.
+    pub variants: Vec<String>,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Schema {
     pub tables: Vec<Table>,
     /// User-defined scalar functions parsed from `CREATE FUNCTION` statements.
     pub functions: Vec<ScalarFunction>,
+    /// Enum types parsed from `CREATE TYPE ... AS ENUM` statements.
+    pub enums: Vec<EnumType>,
 }
 
 impl Schema {
@@ -40,6 +55,56 @@ impl Schema {
     /// - Query qualified, table unqualified: match if query's schema is the default.
     pub fn find_table(&self, query_schema: Option<&str>, table_name: &str, default_schema: Option<&str>) -> Option<&Table> {
         self.tables.iter().find(|t| t.name == table_name && schema_matches(query_schema, t.schema.as_deref(), default_schema))
+    }
+
+    /// Returns the set of lowercased enum type names in this schema.
+    pub fn enum_names(&self) -> std::collections::HashSet<String> {
+        self.enums.iter().map(|e| e.name.clone()).collect()
+    }
+
+    /// Resolve all `Custom(name)` → `Enum(name)` in table columns for known enums.
+    ///
+    /// Must be called after all DDL statements are processed (pass 1) and before
+    /// view resolution (pass 2), so that views inherit correct enum types.
+    pub fn resolve_enum_columns(&mut self) {
+        let names = self.enum_names();
+        if names.is_empty() {
+            return;
+        }
+        for table in &mut self.tables {
+            for col in &mut table.columns {
+                resolve_enum_in_type(&mut col.sql_type, &names);
+            }
+        }
+    }
+}
+
+/// Replace `Custom(name)` with `Enum(name)` when `name` is a known enum type.
+/// Recurses into `Array(inner)` for enum array columns.
+fn resolve_enum_in_type(sql_type: &mut SqlType, enum_names: &std::collections::HashSet<String>) {
+    match sql_type {
+        SqlType::Custom(ref name) if enum_names.contains(name) => {
+            *sql_type = SqlType::Enum(name.clone());
+        },
+        SqlType::Array(inner) => resolve_enum_in_type(inner, enum_names),
+        _ => {},
+    }
+}
+
+/// Resolve `Custom(name)` → `Enum(name)` in query result columns and parameters.
+///
+/// Call after query parsing, before passing queries to backends.
+pub fn resolve_enum_in_queries(queries: &mut [crate::ir::Query], enum_names: &std::collections::HashSet<String>) {
+    if enum_names.is_empty() {
+        return;
+    }
+    for query in queries {
+        for rc in &mut query.result_columns {
+            resolve_enum_in_type(&mut rc.sql_type, enum_names);
+        }
+        for p in &mut query.params {
+            resolve_enum_in_type(&mut p.sql_type, enum_names);
+        }
     }
 }
 

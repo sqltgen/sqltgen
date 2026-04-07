@@ -478,6 +478,7 @@ mod tests {
         Schema {
             tables: make_schema().tables,
             functions: vec![ScalarFunction { name: "fetch_payload".into(), schema: None, return_type: SqlType::Text, param_types: vec![SqlType::BigInt] }],
+            ..Default::default()
         }
     }
 
@@ -502,6 +503,7 @@ mod tests {
                     return_type: SqlType::Text,
                     param_types: vec![SqlType::BigInt, SqlType::BigInt],
                 }],
+                ..Default::default()
             }
         };
         let sql = "-- name: GetPayload :one\nSELECT fetch_payload($1, $2) AS payload FROM users WHERE id = $1;";

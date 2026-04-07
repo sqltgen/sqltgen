@@ -424,7 +424,7 @@ fn java_type_info(sql_type: &SqlType) -> JavaTypeInfo {
             array_elem: None,
             array_raw: "(String) it",
         },
-        SqlType::Array(_) | SqlType::Custom(_) => JavaTypeInfo {
+        SqlType::Array(_) | SqlType::Enum(_) | SqlType::Custom(_) => JavaTypeInfo {
             field_type: "Object",
             field_type_boxed: "Object",
             scalar_read: "rs.getObject({idx})",

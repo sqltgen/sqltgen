@@ -30,6 +30,8 @@ pub enum SqlType {
     Jsonb,
     // Arrays
     Array(Box<SqlType>),
+    // Enum types (PostgreSQL `CREATE TYPE ... AS ENUM`)
+    Enum(String),
     // Unknown / extension types (e.g. citext, geometry)
     Custom(String),
 }

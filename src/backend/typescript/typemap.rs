@@ -177,6 +177,6 @@ fn js_default_type(sql_type: &SqlType, contract: &TsCoreContract) -> String {
         SqlType::Time | SqlType::Timestamp | SqlType::TimestampTz => "Date".to_string(),
         SqlType::Json | SqlType::Jsonb => "unknown".to_string(),
         SqlType::Custom(_) => "unknown".to_string(),
-        SqlType::Array(_) => unreachable!("arrays are not in the canonical type list"),
+        SqlType::Enum(_) | SqlType::Array(_) => unreachable!("enums and arrays are not in the canonical type list"),
     }
 }

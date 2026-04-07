@@ -311,7 +311,7 @@ fn kotlin_type_info(sql_type: &SqlType) -> KotlinTypeInfo {
             array_elem: None,
             array_raw: "it as String",
         },
-        SqlType::Array(_) | SqlType::Custom(_) => KotlinTypeInfo {
+        SqlType::Array(_) | SqlType::Enum(_) | SqlType::Custom(_) => KotlinTypeInfo {
             name: "Any",
             scalar_read: "rs.getObject({idx})",
             nullable_helper: None,

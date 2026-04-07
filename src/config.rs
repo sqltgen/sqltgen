@@ -210,6 +210,7 @@ pub fn sql_type_key(sql_type: &SqlType) -> &'static str {
         SqlType::Json => "json",
         SqlType::Jsonb => "jsonb",
         SqlType::Array(_) => "array",
+        SqlType::Enum(_) => "enum",
         SqlType::Custom(_) => "custom",
     }
 }
