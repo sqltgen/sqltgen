@@ -78,76 +78,7 @@ pub(super) fn collect_set_expr_params(
 pub(super) fn collect_params_from_expr(expr: &Expr, ctx: &mut ResolverContext) {
     match expr {
         Expr::BinaryOp { left, op, right } => {
-            // Infer param type from any comparison: col = $N, col < $N, col > $N, etc.
-            // Only use column-based types for parameter inference, not bare literals
-            // (a literal like `-1` would give Integer, masking a BigInt column type).
-            if matches!(
-                op,
-                BinaryOperator::Eq
-                    | BinaryOperator::NotEq
-                    | BinaryOperator::Lt
-                    | BinaryOperator::LtEq
-                    | BinaryOperator::Gt
-                    | BinaryOperator::GtEq
-                    | BinaryOperator::Plus
-                    | BinaryOperator::Minus
-                    | BinaryOperator::Multiply
-                    | BinaryOperator::Divide
-                    | BinaryOperator::Modulo
-                    | BinaryOperator::StringConcat
-                    | BinaryOperator::BitwiseAnd
-                    | BinaryOperator::BitwiseOr
-                    | BinaryOperator::BitwiseXor
-                    | BinaryOperator::PGBitwiseShiftLeft
-                    | BinaryOperator::PGBitwiseShiftRight
-                    // JSON containment: both operands are the same JSONB type
-                    | BinaryOperator::AtArrow
-                    | BinaryOperator::ArrowAt
-                    // Null-safe equality: MySQL `<=>` (IS NOT DISTINCT FROM equivalent)
-                    | BinaryOperator::Spaceship
-            ) {
-                // col OP $N
-                if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = &**right {
-                    if let Some(idx) = placeholder_idx(p) {
-                        if !is_literal_expr(left) {
-                            if let Some(rc) = resolve_expr(left, ctx.alias_map, ctx.all_tables, ctx.config) {
-                                ctx.mapping.entry(idx).or_insert((rc.name, rc.sql_type, rc.nullable));
-                            }
-                        }
-                    }
-                }
-                // $N OP col
-                if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = &**left {
-                    if let Some(idx) = placeholder_idx(p) {
-                        if !is_literal_expr(right) {
-                            if let Some(rc) = resolve_expr(right, ctx.alias_map, ctx.all_tables, ctx.config) {
-                                ctx.mapping.entry(idx).or_insert((rc.name, rc.sql_type, rc.nullable));
-                            }
-                        }
-                    }
-                }
-            }
-            // JSON field access: col -> $key or col ->> $key.
-            // The key is Text (field name) or Integer (array index); Text is the
-            // common case and a reasonable default when the type is unknown.
-            if matches!(op, BinaryOperator::Arrow | BinaryOperator::LongArrow) {
-                if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = &**right {
-                    if let Some(idx) = placeholder_idx(p) {
-                        ctx.mapping.entry(idx).or_insert(("key".into(), SqlType::Text, false));
-                    }
-                }
-            }
-            // JSON path access: col #> $path or col #>> $path.
-            // The path is always a Text[] array of key segments.
-            if matches!(op, BinaryOperator::HashArrow | BinaryOperator::HashLongArrow) {
-                if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = &**right {
-                    if let Some(idx) = placeholder_idx(p) {
-                        ctx.mapping.entry(idx).or_insert(("path".into(), SqlType::Array(Box::new(SqlType::Text)), false));
-                    }
-                }
-            }
-            collect_params_from_expr(left, ctx);
-            collect_params_from_expr(right, ctx);
+            collect_binary_op_params(left, op, right, ctx);
         },
         Expr::InSubquery { expr, subquery, .. } => {
             collect_params_from_expr(expr, ctx);
@@ -236,33 +167,7 @@ pub(super) fn collect_params_from_expr(expr: &Expr, ctx: &mut ResolverContext) {
             collect_params_from_expr(expr, ctx);
         },
         Expr::Cast { expr, data_type, .. } => {
-            // If the cast is directly on a placeholder ($N::type), use the target
-            // type for parameter inference — this is the most explicit signal available.
-            if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = expr.as_ref() {
-                if let Some(idx) = placeholder_idx(p) {
-                    let inferred = (ctx.config.typemap)(data_type);
-                    let name = cast_name(data_type);
-                    match ctx.mapping.entry(idx) {
-                        Entry::Vacant(e) => {
-                            e.insert((name, inferred, false));
-                        },
-                        Entry::Occupied(mut e) => {
-                            let (existing_name, existing_type, _) = e.get().clone();
-                            // Conflict: same param cast to two different types. Warn and
-                            // fall back to Custom so the caller must use an annotation.
-                            if existing_type != inferred && !matches!(existing_type, SqlType::Custom(_)) {
-                                eprintln!(
-                                    "warning: query {:?}: parameter ${idx} cast to conflicting types \
-                                     ({existing_type:?} vs {inferred:?}); type unknown — use named \
-                                     parameters with a `-- @<name> <type>` annotation to resolve",
-                                    ctx.query_name
-                                );
-                                e.insert((existing_name, SqlType::Custom("unknown".into()), false));
-                            }
-                        },
-                    }
-                }
-            }
+            infer_cast_placeholder(expr, data_type, ctx);
             collect_params_from_expr(expr, ctx);
         },
         Expr::Case { operand, conditions, else_result, .. } => {
@@ -278,57 +183,160 @@ pub(super) fn collect_params_from_expr(expr: &Expr, ctx: &mut ResolverContext) {
             }
         },
         Expr::Function(func) => {
-            if let FunctionArguments::List(arg_list) = &func.args {
-                let func_name =
-                    func.name.0.last().and_then(|p| if let sqlparser::ast::ObjectNamePart::Identifier(i) = p { Some(i.value.to_uppercase()) } else { None });
-                let is_coalesce = matches!(func_name.as_deref(), Some("COALESCE" | "IFNULL" | "NULLIF" | "NVL"));
-                // For COALESCE-family functions, infer placeholder types from the first
-                // resolvable non-placeholder argument (the column that determines the type).
-                let coalesce_type = if is_coalesce {
-                    arg_list.args.iter().find_map(|a| {
-                        if let FunctionArg::Unnamed(FunctionArgExpr::Expr(inner)) = a {
-                            if !matches!(inner, Expr::Value(ValueWithSpan { value: Value::Placeholder(_), .. })) {
-                                return resolve_expr(inner, ctx.alias_map, ctx.all_tables, ctx.config);
-                            }
-                        }
-                        None
-                    })
-                } else {
-                    None
-                };
-                // For user-defined functions, infer placeholder types from the declared
-                // parameter types. Overload resolution is by argument count.
-                let arg_count = arg_list.args.len();
-                let udf_param_types: Option<&[crate::ir::SqlType]> = if !is_coalesce {
-                    func_name
-                        .as_deref()
-                        .and_then(|n| ctx.config.user_functions.get(n))
-                        .and_then(|overloads| overloads.iter().find(|(pt, _)| pt.len() == arg_count).map(|(pt, _)| pt.as_slice()))
-                } else {
-                    None
-                };
-                for (pos, arg) in arg_list.args.iter().enumerate() {
-                    if let FunctionArg::Unnamed(FunctionArgExpr::Expr(inner)) = arg {
-                        if let Some(ref rc) = coalesce_type {
-                            if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = inner {
-                                if let Some(idx) = placeholder_idx(p) {
-                                    ctx.mapping.entry(idx).or_insert((rc.name.clone(), rc.sql_type.clone(), true));
-                                }
-                            }
-                        }
-                        if let Some(param_types) = udf_param_types {
-                            if let Some(param_type) = param_types.get(pos) {
-                                if let Some(idx) = placeholder_idx_in_expr(inner) {
-                                    ctx.mapping.entry(idx).or_insert(("param".into(), param_type.clone(), false));
-                                }
-                            }
-                        }
-                        collect_params_from_expr(inner, ctx);
+            collect_function_params(func, ctx);
+        },
+        _ => {},
+    }
+}
+
+fn collect_binary_op_params(left: &Expr, op: &BinaryOperator, right: &Expr, ctx: &mut ResolverContext) {
+    // Infer param type from any comparison: col = $N, col < $N, col > $N, etc.
+    // Only use column-based types for parameter inference, not bare literals
+    // (a literal like `-1` would give Integer, masking a BigInt column type).
+    if matches!(
+        op,
+        BinaryOperator::Eq
+            | BinaryOperator::NotEq
+            | BinaryOperator::Lt
+            | BinaryOperator::LtEq
+            | BinaryOperator::Gt
+            | BinaryOperator::GtEq
+            | BinaryOperator::Plus
+            | BinaryOperator::Minus
+            | BinaryOperator::Multiply
+            | BinaryOperator::Divide
+            | BinaryOperator::Modulo
+            | BinaryOperator::StringConcat
+            | BinaryOperator::BitwiseAnd
+            | BinaryOperator::BitwiseOr
+            | BinaryOperator::BitwiseXor
+            | BinaryOperator::PGBitwiseShiftLeft
+            | BinaryOperator::PGBitwiseShiftRight
+            // JSON containment: both operands are the same JSONB type
+            | BinaryOperator::AtArrow
+            | BinaryOperator::ArrowAt
+            // Null-safe equality: MySQL `<=>` (IS NOT DISTINCT FROM equivalent)
+            | BinaryOperator::Spaceship
+    ) {
+        infer_placeholder_from_side(right, left, ctx);
+        infer_placeholder_from_side(left, right, ctx);
+    }
+
+    // JSON field access: col -> $key or col ->> $key.
+    // The key is Text (field name) or Integer (array index); Text is the
+    // common case and a reasonable default when the type is unknown.
+    if matches!(op, BinaryOperator::Arrow | BinaryOperator::LongArrow) {
+        if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = right {
+            if let Some(idx) = placeholder_idx(p) {
+                ctx.mapping.entry(idx).or_insert(("key".into(), SqlType::Text, false));
+            }
+        }
+    }
+
+    // JSON path access: col #> $path or col #>> $path.
+    // The path is always a Text[] array of key segments.
+    if matches!(op, BinaryOperator::HashArrow | BinaryOperator::HashLongArrow) {
+        if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = right {
+            if let Some(idx) = placeholder_idx(p) {
+                ctx.mapping.entry(idx).or_insert(("path".into(), SqlType::Array(Box::new(SqlType::Text)), false));
+            }
+        }
+    }
+
+    collect_params_from_expr(left, ctx);
+    collect_params_from_expr(right, ctx);
+}
+
+fn infer_placeholder_from_side(placeholder_side: &Expr, typed_side: &Expr, ctx: &mut ResolverContext) {
+    if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = placeholder_side {
+        if let Some(idx) = placeholder_idx(p) {
+            if !is_literal_expr(typed_side) {
+                if let Some(rc) = resolve_expr(typed_side, ctx.alias_map, ctx.all_tables, ctx.config) {
+                    ctx.mapping.entry(idx).or_insert((rc.name, rc.sql_type, rc.nullable));
+                }
+            }
+        }
+    }
+}
+
+fn infer_cast_placeholder(expr: &Expr, data_type: &sqlparser::ast::DataType, ctx: &mut ResolverContext) {
+    // If the cast is directly on a placeholder ($N::type), use the target
+    // type for parameter inference — this is the most explicit signal available.
+    let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = expr else { return };
+    let Some(idx) = placeholder_idx(p) else { return };
+    let inferred = (ctx.config.typemap)(data_type);
+    let name = cast_name(data_type);
+    match ctx.mapping.entry(idx) {
+        Entry::Vacant(e) => {
+            e.insert((name, inferred, false));
+        },
+        Entry::Occupied(mut e) => {
+            let (existing_name, existing_type, _) = e.get().clone();
+            // Conflict: same param cast to two different types. Warn and
+            // fall back to Custom so the caller must use an annotation.
+            if existing_type != inferred && !matches!(existing_type, SqlType::Custom(_)) {
+                eprintln!(
+                    "warning: query {:?}: parameter ${idx} cast to conflicting types \
+                     ({existing_type:?} vs {inferred:?}); type unknown — use named \
+                     parameters with a `-- @<name> <type>` annotation to resolve",
+                    ctx.query_name
+                );
+                e.insert((existing_name, SqlType::Custom("unknown".into()), false));
+            }
+        },
+    }
+}
+
+fn collect_function_params(func: &sqlparser::ast::Function, ctx: &mut ResolverContext) {
+    let FunctionArguments::List(arg_list) = &func.args else { return };
+    let func_name = func.name.0.last().and_then(|p| if let sqlparser::ast::ObjectNamePart::Identifier(i) = p { Some(i.value.to_uppercase()) } else { None });
+    let is_coalesce = matches!(func_name.as_deref(), Some("COALESCE" | "IFNULL" | "NULLIF" | "NVL"));
+
+    // For COALESCE-family functions, infer placeholder types from the first
+    // resolvable non-placeholder argument (the column that determines the type).
+    let coalesce_type = if is_coalesce {
+        arg_list.args.iter().find_map(|a| {
+            if let FunctionArg::Unnamed(FunctionArgExpr::Expr(inner)) = a {
+                if !matches!(inner, Expr::Value(ValueWithSpan { value: Value::Placeholder(_), .. })) {
+                    return resolve_expr(inner, ctx.alias_map, ctx.all_tables, ctx.config);
+                }
+            }
+            None
+        })
+    } else {
+        None
+    };
+
+    // For user-defined functions, infer placeholder types from the declared
+    // parameter types. Overload resolution is by argument count.
+    let arg_count = arg_list.args.len();
+    let udf_param_types: Option<&[crate::ir::SqlType]> = if !is_coalesce {
+        func_name
+            .as_deref()
+            .and_then(|n| ctx.config.user_functions.get(n))
+            .and_then(|overloads| overloads.iter().find(|(pt, _)| pt.len() == arg_count).map(|(pt, _)| pt.as_slice()))
+    } else {
+        None
+    };
+
+    for (pos, arg) in arg_list.args.iter().enumerate() {
+        if let FunctionArg::Unnamed(FunctionArgExpr::Expr(inner)) = arg {
+            if let Some(ref rc) = coalesce_type {
+                if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = inner {
+                    if let Some(idx) = placeholder_idx(p) {
+                        ctx.mapping.entry(idx).or_insert((rc.name.clone(), rc.sql_type.clone(), true));
                     }
                 }
             }
-        },
-        _ => {},
+            if let Some(param_types) = udf_param_types {
+                if let Some(param_type) = param_types.get(pos) {
+                    if let Some(idx) = placeholder_idx_in_expr(inner) {
+                        ctx.mapping.entry(idx).or_insert(("param".into(), param_type.clone(), false));
+                    }
+                }
+            }
+            collect_params_from_expr(inner, ctx);
+        }
     }
 }
 
