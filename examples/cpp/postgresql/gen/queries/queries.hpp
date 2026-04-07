@@ -101,11 +101,11 @@ std::vector<Book> list_books_by_genre(pqxx::connection& db, const std::string& g
 inline const std::string SQL_LIST_BOOKS_BY_GENRE_OR_ALL = R"sql(
 SELECT id, author_id, title, genre, price, published_at
 FROM book
-WHERE $1 = 'all' OR genre = $1
+WHERE ($1::genre IS NULL OR genre = $1::genre)
 ORDER BY title
 )sql";
 
-std::vector<Book> list_books_by_genre_or_all(pqxx::connection& db, const std::string& genre);
+std::vector<Book> list_books_by_genre_or_all(pqxx::connection& db, const std::optional<std::string>& genre);
 
 
 struct CreateCustomerRow {
@@ -246,7 +246,7 @@ public:
 
     std::vector<Book> list_books_by_genre(const std::string& genre);
 
-    std::vector<Book> list_books_by_genre_or_all(const std::string& genre);
+    std::vector<Book> list_books_by_genre_or_all(const std::optional<std::string>& genre);
 
     std::optional<CreateCustomerRow> create_customer(const std::string& name, const std::string& email);
 

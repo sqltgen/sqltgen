@@ -53,11 +53,11 @@ static void run_demo(pqxx::connection& conn) {
               << le_guin->id << ", " << herbert->id << ", " << asimov->id << ")\n";
 
     // ── Insert books ────────────────────────────────────────────────────
-    auto lhod  = create_book(conn, le_guin->id, "The Left Hand of Darkness", "sci-fi", "12.99", std::optional<std::string>{"1969-03-01"});
-    auto disp  = create_book(conn, le_guin->id, "The Dispossessed",          "sci-fi", "11.50", std::optional<std::string>{"1974-05-01"});
-    auto dune  = create_book(conn, herbert->id, "Dune",                      "sci-fi", "14.99", std::optional<std::string>{"1965-08-01"});
-    auto found = create_book(conn, asimov->id,  "Foundation",                "sci-fi", "10.99", std::optional<std::string>{"1951-06-01"});
-    auto caves = create_book(conn, asimov->id,  "The Caves of Steel",        "sci-fi", "9.99",  std::optional<std::string>{"1954-02-01"});
+    auto lhod  = create_book(conn, le_guin->id, "The Left Hand of Darkness", "fiction", "12.99", std::optional<std::string>{"1969-03-01"});
+    auto disp  = create_book(conn, le_guin->id, "The Dispossessed",          "fiction", "11.50", std::optional<std::string>{"1974-05-01"});
+    auto dune  = create_book(conn, herbert->id, "Dune",                      "science", "14.99", std::optional<std::string>{"1965-08-01"});
+    auto found = create_book(conn, asimov->id,  "Foundation",                "science", "10.99", std::optional<std::string>{"1951-06-01"});
+    auto caves = create_book(conn, asimov->id,  "The Caves of Steel",        "fiction", "9.99",  std::optional<std::string>{"1954-02-01"});
 
     std::cout << "[cpp/pg] inserted 5 books\n";
 
@@ -87,15 +87,15 @@ static void run_demo(pqxx::connection& conn) {
     for (const auto& b : by_ids)
         std::cout << "  \"" << b.title << "\"\n";
 
-    auto books = list_books_by_genre(conn, "sci-fi");
-    std::cout << "[cpp/pg] list_books_by_genre(sci-fi): " << books.size() << " row(s)\n";
+    auto books = list_books_by_genre(conn, "science");
+    std::cout << "[cpp/pg] list_books_by_genre(science): " << books.size() << " row(s)\n";
 
-    auto all_books = list_books_by_genre_or_all(conn, "all");
-    std::cout << "[cpp/pg] list_books_by_genre_or_all(all): " << all_books.size()
-              << " row(s) (repeated-param demo)\n";
+    auto all_books = list_books_by_genre_or_all(conn, std::nullopt);
+    std::cout << "[cpp/pg] list_books_by_genre_or_all(null): " << all_books.size()
+              << " row(s) (nullable-param demo)\n";
 
-    auto scifi2 = list_books_by_genre_or_all(conn, "sci-fi");
-    std::cout << "[cpp/pg] list_books_by_genre_or_all(sci-fi): " << scifi2.size() << " row(s)\n";
+    auto scifi2 = list_books_by_genre_or_all(conn, std::optional<std::string>{"science"});
+    std::cout << "[cpp/pg] list_books_by_genre_or_all(science): " << scifi2.size() << " row(s)\n";
 
     auto with_author = list_books_with_author(conn);
     std::cout << "[cpp/pg] list_books_with_author:\n";

@@ -85,7 +85,7 @@ std::vector<Book> list_books_by_genre(pqxx::connection& db, const std::string& g
     return rows;
 }
 
-std::vector<Book> list_books_by_genre_or_all(pqxx::connection& db, const std::string& genre) {
+std::vector<Book> list_books_by_genre_or_all(pqxx::connection& db, const std::optional<std::string>& genre) {
     pqxx::work txn(db);
     std::vector<Book> rows;
     for (auto [id_, author_id_, title_, genre_, price_, published_at_] : txn.query<std::int64_t, std::int64_t, std::string, std::string, std::string, std::optional<std::string>>(SQL_LIST_BOOKS_BY_GENRE_OR_ALL, pqxx::params{genre})) {
@@ -196,7 +196,7 @@ std::vector<Book> Querier::list_books_by_genre(const std::string& genre) {
     return ::list_books_by_genre(db_, genre);
 }
 
-std::vector<Book> Querier::list_books_by_genre_or_all(const std::string& genre) {
+std::vector<Book> Querier::list_books_by_genre_or_all(const std::optional<std::string>& genre) {
     return ::list_books_by_genre_or_all(db_, genre);
 }
 
