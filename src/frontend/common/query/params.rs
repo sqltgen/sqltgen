@@ -16,18 +16,13 @@ use crate::ir::{Schema, SqlType, Table};
 use super::resolve::{cast_name, function_name_upper, resolve_expr};
 use super::{build_alias_map, collect_cte_params, collect_from_tables, placeholder_idx, ResolverConfig, ResolverContext};
 
+type ParamMapping = HashMap<usize, (String, SqlType, bool)>;
+
 /// Collect typed parameter mappings from a single `SELECT` clause.
 ///
 /// Covers WHERE, JOIN ON, HAVING, and projection expressions. Shared by
 /// `build_select_body` (plain queries) and `collect_set_expr_params` (UNION branches).
-pub(super) fn collect_select_params(
-    select: &Select,
-    schema: &Schema,
-    config: &ResolverConfig,
-    ctes: &[Table],
-    mapping: &mut HashMap<usize, (String, SqlType, bool)>,
-    query_name: &str,
-) {
+pub(super) fn collect_select_params(select: &Select, schema: &Schema, config: &ResolverConfig, ctes: &[Table], mapping: &mut ParamMapping, query_name: &str) {
     let all_tables = collect_from_tables(select, schema, ctes, config);
     let alias_map = build_alias_map(&all_tables);
     let ctx = &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping, query_name };
@@ -42,14 +37,7 @@ pub(super) fn collect_select_params(
 ///
 /// Each `SELECT` branch gets its own table context for inference. Set operation
 /// nodes recurse into both left and right operands.
-pub(super) fn collect_set_expr_params(
-    expr: &SetExpr,
-    schema: &Schema,
-    config: &ResolverConfig,
-    ctes: &[Table],
-    mapping: &mut HashMap<usize, (String, SqlType, bool)>,
-    query_name: &str,
-) {
+pub(super) fn collect_set_expr_params(expr: &SetExpr, schema: &Schema, config: &ResolverConfig, ctes: &[Table], mapping: &mut ParamMapping, query_name: &str) {
     match expr {
         SetExpr::Select(select) => {
             collect_select_params(select, schema, config, ctes, mapping, query_name);
@@ -339,7 +327,7 @@ pub(super) fn placeholder_idx_in_expr(expr: &Expr) -> Option<usize> {
 /// type-inference pass so all parameter types are already present in `mapping`.
 /// The two-pass approach is necessary because `$1 IS NULL OR col = $1` processes
 /// the IS NULL branch before the comparison that inserts the entry.
-fn mark_is_null_nullable(expr: &Expr, mapping: &mut HashMap<usize, (String, SqlType, bool)>) {
+fn mark_is_null_nullable(expr: &Expr, mapping: &mut ParamMapping) {
     match expr {
         Expr::IsNull(inner) | Expr::IsNotNull(inner) => {
             mark_nullable_placeholder(inner, mapping);
@@ -398,7 +386,7 @@ fn mark_is_null_nullable(expr: &Expr, mapping: &mut HashMap<usize, (String, SqlT
     }
 }
 
-fn mark_nullable_placeholder(expr: &Expr, mapping: &mut HashMap<usize, (String, SqlType, bool)>) {
+fn mark_nullable_placeholder(expr: &Expr, mapping: &mut ParamMapping) {
     if let Some(idx) = placeholder_idx_in_expr(expr) {
         if let Some(entry) = mapping.get_mut(&idx) {
             entry.2 = true;
@@ -406,19 +394,14 @@ fn mark_nullable_placeholder(expr: &Expr, mapping: &mut HashMap<usize, (String, 
     }
 }
 
-fn mark_nullable_pair(left: &Expr, right: &Expr, mapping: &mut HashMap<usize, (String, SqlType, bool)>) {
+fn mark_nullable_pair(left: &Expr, right: &Expr, mapping: &mut ParamMapping) {
     for operand in [left, right] {
         mark_nullable_placeholder(operand, mapping);
         mark_is_null_nullable(operand, mapping);
     }
 }
 
-fn mark_nullable_case(
-    operand: Option<&Expr>,
-    conditions: &[sqlparser::ast::CaseWhen],
-    else_result: Option<&Expr>,
-    mapping: &mut HashMap<usize, (String, SqlType, bool)>,
-) {
+fn mark_nullable_case(operand: Option<&Expr>, conditions: &[sqlparser::ast::CaseWhen], else_result: Option<&Expr>, mapping: &mut ParamMapping) {
     if let Some(op) = operand {
         mark_is_null_nullable(op, mapping);
     }
@@ -432,7 +415,7 @@ fn mark_nullable_case(
 }
 
 /// Walk a subquery's WHERE and HAVING clauses to mark IS NULL/IS NOT NULL params as nullable.
-fn mark_is_null_nullable_in_subquery(q: &SqlQuery, mapping: &mut HashMap<usize, (String, SqlType, bool)>) {
+fn mark_is_null_nullable_in_subquery(q: &SqlQuery, mapping: &mut ParamMapping) {
     let SetExpr::Select(select) = q.body.as_ref() else { return };
     if let Some(expr) = &select.selection {
         mark_is_null_nullable(expr, mapping);
@@ -459,13 +442,7 @@ fn is_literal_expr(expr: &Expr) -> bool {
 /// Builds the subquery's FROM scope, recurses into any nested WITH clauses,
 /// and collects parameters from the WHERE clause. Handles both scalar
 /// subqueries (`Expr::Subquery`) and IN-subquery expressions.
-fn collect_params_from_subquery(
-    q: &SqlQuery,
-    schema: &Schema,
-    config: &ResolverConfig,
-    mapping: &mut HashMap<usize, (String, SqlType, bool)>,
-    query_name: &str,
-) {
+fn collect_params_from_subquery(q: &SqlQuery, schema: &Schema, config: &ResolverConfig, mapping: &mut ParamMapping, query_name: &str) {
     collect_cte_params(q.with.as_ref(), schema, config, mapping, query_name);
     let SetExpr::Select(select) = q.body.as_ref() else { return };
     let all_tables = collect_from_tables(select, schema, &[], config);
@@ -534,7 +511,7 @@ pub(super) fn collect_join_params(select: &Select, ctx: &mut ResolverContext) {
 /// LIMIT/OFFSET params are typed as `BigInt` because all three supported engines
 /// treat them as 64-bit integers: PostgreSQL accepts bigint-range values, SQLite
 /// stores integers as 64-bit in memory, and MySQL documents a max of 2^64−1.
-pub(super) fn collect_limit_offset_params(q: &SqlQuery, mapping: &mut HashMap<usize, (String, SqlType, bool)>) {
+pub(super) fn collect_limit_offset_params(q: &SqlQuery, mapping: &mut ParamMapping) {
     if let Some(LimitClause::LimitOffset { limit, offset, .. }) = &q.limit_clause {
         if let Some(Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. })) = limit {
             if let Some(idx) = placeholder_idx(p) {
