@@ -279,8 +279,21 @@ fn resolve_function(func: &sqlparser::ast::Function, scope: &ResolveScope<'_>) -
     let fname =
         func.name.0.last().and_then(|p| if let ObjectNamePart::Identifier(i) = p { Some(ident_to_str(i)) } else { None }).unwrap_or_default().to_uppercase();
 
-    match fname.as_str() {
-        // ── Aggregates ───────────────────────────────────────────────
+    resolve_aggregate_function(func, &fname, scope)
+        .or_else(|| resolve_string_function(&fname))
+        .or_else(|| resolve_length_function(&fname))
+        .or_else(|| resolve_math_function(func, &fname, scope))
+        .or_else(|| resolve_datetime_function(&fname))
+        .or_else(|| resolve_conditional_function(func, &fname, scope))
+        .or_else(|| resolve_misc_function(&fname))
+        .or_else(|| resolve_json_function(&fname))
+        .or_else(|| resolve_boolean_function(&fname))
+        .or_else(|| resolve_window_function(func, &fname, scope))
+        .or_else(|| resolve_udf(func, &fname, scope.config))
+}
+
+fn resolve_aggregate_function(func: &sqlparser::ast::Function, fname: &str, scope: &ResolveScope<'_>) -> Option<ResultColumn> {
+    match fname {
         "COUNT" => Some(ResultColumn::not_nullable("count", SqlType::BigInt)),
         "SUM" => resolve_func_first_arg(func, scope).map(|rc| {
             // Integer inputs are widened to avoid overflow; other types are preserved.
@@ -301,58 +314,93 @@ fn resolve_function(func: &sqlparser::ast::Function, scope: &ResolveScope<'_>) -
             };
             ResultColumn { sql_type: promoted, nullable: true, ..rc }
         }),
+        _ => None,
+    }
+}
 
-        // ── String functions → Text ──────────────────────────────────
+fn resolve_string_function(fname: &str) -> Option<ResultColumn> {
+    match fname {
         "UPPER" | "LOWER" | "TRIM" | "LTRIM" | "RTRIM" | "REPLACE" | "SUBSTR" | "SUBSTRING" | "CONCAT" | "LEFT" | "RIGHT" | "LPAD" | "RPAD" | "REVERSE"
         | "REPEAT" | "TRANSLATE" | "INITCAP" | "MD5" | "ENCODE" | "DECODE" | "FORMAT" | "TO_CHAR" | "STRING_AGG" | "GROUP_CONCAT" => {
             Some(ResultColumn { name: fname.to_lowercase(), sql_type: SqlType::Text, nullable: true })
         },
+        _ => None,
+    }
+}
 
-        // ── Length / position → Integer ──────────────────────────────
+fn resolve_length_function(fname: &str) -> Option<ResultColumn> {
+    match fname {
         "LENGTH" | "CHAR_LENGTH" | "CHARACTER_LENGTH" | "OCTET_LENGTH" | "BIT_LENGTH" | "POSITION" | "STRPOS" => {
             Some(ResultColumn { name: fname.to_lowercase(), sql_type: SqlType::Integer, nullable: true })
         },
+        _ => None,
+    }
+}
 
-        // ── Math functions → propagate type or return Double ─────────
+fn resolve_math_function(func: &sqlparser::ast::Function, fname: &str, scope: &ResolveScope<'_>) -> Option<ResultColumn> {
+    match fname {
         "ABS" | "CEIL" | "CEILING" | "FLOOR" | "ROUND" | "TRUNC" | "TRUNCATE" | "SIGN" => {
             resolve_func_first_arg(func, scope).map(|rc| ResultColumn { nullable: true, ..rc })
         },
         "SQRT" | "CBRT" | "EXP" | "LN" | "LOG" | "LOG2" | "LOG10" | "POWER" | "POW" | "RANDOM" | "PI" | "DEGREES" | "RADIANS" | "SIN" | "COS" | "TAN"
         | "ASIN" | "ACOS" | "ATAN" | "ATAN2" => Some(ResultColumn { name: fname.to_lowercase(), sql_type: SqlType::Double, nullable: true }),
         "MOD" => Some(ResultColumn::nullable("mod", SqlType::Integer)),
+        _ => None,
+    }
+}
 
-        // ── Date/time functions ──────────────────────────────────────
+fn resolve_datetime_function(fname: &str) -> Option<ResultColumn> {
+    match fname {
         "NOW" | "CURRENT_TIMESTAMP" | "LOCALTIMESTAMP" | "STATEMENT_TIMESTAMP" | "TRANSACTION_TIMESTAMP" | "CLOCK_TIMESTAMP" => {
             Some(ResultColumn { name: fname.to_lowercase(), sql_type: SqlType::TimestampTz, nullable: false })
         },
         "CURRENT_DATE" | "DATE" => Some(ResultColumn::not_nullable("date", SqlType::Date)),
         "CURRENT_TIME" | "LOCALTIME" => Some(ResultColumn::not_nullable("time", SqlType::Time)),
+        _ => None,
+    }
+}
 
-        // ── Conditional / null-handling ───────────────────────────────
+fn resolve_conditional_function(func: &sqlparser::ast::Function, fname: &str, scope: &ResolveScope<'_>) -> Option<ResultColumn> {
+    match fname {
         "COALESCE" => resolve_coalesce(func, scope),
         "NULLIF" => resolve_func_first_arg(func, scope).map(|rc| ResultColumn { nullable: true, ..rc }),
         "IFNULL" => resolve_func_first_arg(func, scope).map(|rc| ResultColumn { nullable: false, ..rc }),
         "GREATEST" | "LEAST" => resolve_func_first_arg(func, scope).map(|rc| ResultColumn { nullable: true, ..rc }),
+        _ => None,
+    }
+}
 
-        // ── Type-probing functions ───────────────────────────────────
+fn resolve_misc_function(fname: &str) -> Option<ResultColumn> {
+    match fname {
         "TYPEOF" => Some(ResultColumn::not_nullable("typeof", SqlType::Text)),
+        _ => None,
+    }
+}
 
-        // ── JSON functions ───────────────────────────────────────────
+fn resolve_json_function(fname: &str) -> Option<ResultColumn> {
+    match fname {
         "JSON_EXTRACT" | "JSON_EXTRACT_PATH_TEXT" | "JSONB_EXTRACT_PATH_TEXT" | "JSON_VALUE" => {
             Some(ResultColumn { name: fname.to_lowercase(), sql_type: SqlType::Text, nullable: true })
         },
         "JSON_OBJECT" | "JSON_BUILD_OBJECT" | "JSONB_BUILD_OBJECT" | "JSON_ARRAY" | "JSON_BUILD_ARRAY" | "JSONB_BUILD_ARRAY" | "JSON_AGG" | "JSONB_AGG"
         | "JSON_ARRAYAGG" | "JSON_OBJECTAGG" => Some(ResultColumn { name: fname.to_lowercase(), sql_type: SqlType::Json, nullable: true }),
+        _ => None,
+    }
+}
 
-        // ── Boolean functions ────────────────────────────────────────
+fn resolve_boolean_function(fname: &str) -> Option<ResultColumn> {
+    match fname {
         "BOOL_AND" | "BOOL_OR" | "EVERY" => Some(ResultColumn { name: fname.to_lowercase(), sql_type: SqlType::Boolean, nullable: true }),
+        _ => None,
+    }
+}
 
-        // ── Window functions that return integers ────────────────────
+fn resolve_window_function(func: &sqlparser::ast::Function, fname: &str, scope: &ResolveScope<'_>) -> Option<ResultColumn> {
+    match fname {
         "ROW_NUMBER" | "RANK" | "DENSE_RANK" | "NTILE" => Some(ResultColumn { name: fname.to_lowercase(), sql_type: SqlType::BigInt, nullable: false }),
         "CUME_DIST" | "PERCENT_RANK" => Some(ResultColumn { name: fname.to_lowercase(), sql_type: SqlType::Double, nullable: false }),
         "LAG" | "LEAD" | "FIRST_VALUE" | "LAST_VALUE" | "NTH_VALUE" => resolve_func_first_arg(func, scope).map(|rc| ResultColumn { nullable: true, ..rc }),
-
-        _ => resolve_udf(func, &fname, scope.config),
+        _ => None,
     }
 }
 
