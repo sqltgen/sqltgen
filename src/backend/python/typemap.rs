@@ -152,7 +152,7 @@ fn python_default_entry(sql_type: &SqlType, json_mode: PythonJsonMode) -> Python
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{OutputConfig, TypeOverride, TypeRef};
+    use crate::config::{OutputConfig, TypeOverride};
     use crate::ir::SqlType;
 
     fn map_default() -> PythonTypeMap {

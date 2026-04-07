@@ -7,7 +7,7 @@ use crate::ir::{Column, Schema, SqlType, Table};
 
 use super::dml::{collect_delete_where_params, collect_insert_value_params, collect_returning_params, collect_update_params};
 use super::params::{collect_limit_offset_params, collect_set_expr_params};
-use super::{delete_table_ref, derived_cols, insert_table_ref, update_from_tables, ResolverConfig};
+use super::{delete_table_ref, derived_cols, insert_table_ref, ResolverConfig};
 
 /// Collect typed parameter mappings from the bodies of all CTEs in `with`.
 ///
@@ -29,17 +29,7 @@ pub(in crate::frontend::common) fn collect_cte_params(
         collect_cte_params(cte.query.with.as_ref(), schema, config, mapping, query_name);
         match cte.query.body.as_ref() {
             SetExpr::Update(Statement::Update(u)) => {
-                collect_update_params(
-                    &u.table,
-                    &u.assignments,
-                    u.selection.as_ref(),
-                    update_from_tables(&u.from),
-                    &local_ctes,
-                    schema,
-                    config,
-                    mapping,
-                    query_name,
-                );
+                collect_update_params(u, &local_ctes, schema, config, mapping, query_name);
                 if let TableFactor::Table { name, .. } = &u.table.relation {
                     if let Some(table) = schema.find_table(obj_schema_to_str(name).as_deref(), &obj_name_to_str(name), config.default_schema.as_deref()) {
                         if let Some(items) = u.returning.as_deref() {

@@ -18,11 +18,31 @@ use super::{build_alias_map, collect_cte_params, collect_from_tables, placeholde
 
 type ParamMapping = HashMap<usize, (String, SqlType, bool)>;
 
+struct ParamCollectScope<'a> {
+    schema: &'a Schema,
+    config: &'a ResolverConfig,
+    query_name: &'a str,
+}
+
+impl<'a> ParamCollectScope<'a> {
+    fn from_ctx(ctx: &ResolverContext<'a>) -> Self {
+        Self { schema: ctx.schema, config: ctx.config, query_name: ctx.query_name }
+    }
+}
+
 /// Collect typed parameter mappings from a single `SELECT` clause.
 ///
 /// Covers WHERE, JOIN ON, HAVING, and projection expressions. Shared by
 /// `build_select_body` (plain queries) and `collect_set_expr_params` (UNION branches).
 pub(super) fn collect_select_params(select: &Select, schema: &Schema, config: &ResolverConfig, ctes: &[Table], mapping: &mut ParamMapping, query_name: &str) {
+    let scope = ParamCollectScope { schema, config, query_name };
+    collect_select_params_in(select, ctes, mapping, &scope);
+}
+
+fn collect_select_params_in(select: &Select, ctes: &[Table], mapping: &mut ParamMapping, scope: &ParamCollectScope<'_>) {
+    let schema = scope.schema;
+    let config = scope.config;
+    let query_name = scope.query_name;
     let all_tables = collect_from_tables(select, schema, ctes, config);
     let alias_map = build_alias_map(&all_tables);
     let ctx = &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping, query_name };
@@ -38,13 +58,18 @@ pub(super) fn collect_select_params(select: &Select, schema: &Schema, config: &R
 /// Each `SELECT` branch gets its own table context for inference. Set operation
 /// nodes recurse into both left and right operands.
 pub(super) fn collect_set_expr_params(expr: &SetExpr, schema: &Schema, config: &ResolverConfig, ctes: &[Table], mapping: &mut ParamMapping, query_name: &str) {
+    let scope = ParamCollectScope { schema, config, query_name };
+    collect_set_expr_params_in(expr, ctes, mapping, &scope);
+}
+
+fn collect_set_expr_params_in(expr: &SetExpr, ctes: &[Table], mapping: &mut ParamMapping, scope: &ParamCollectScope<'_>) {
     match expr {
         SetExpr::Select(select) => {
-            collect_select_params(select, schema, config, ctes, mapping, query_name);
+            collect_select_params_in(select, ctes, mapping, scope);
         },
         SetExpr::SetOperation { left, right, .. } => {
-            collect_set_expr_params(left, schema, config, ctes, mapping, query_name);
-            collect_set_expr_params(right, schema, config, ctes, mapping, query_name);
+            collect_set_expr_params_in(left, ctes, mapping, scope);
+            collect_set_expr_params_in(right, ctes, mapping, scope);
         },
         _ => {},
     }
@@ -62,10 +87,12 @@ pub(super) fn collect_params_from_expr(expr: &Expr, ctx: &mut ResolverContext) {
         },
         Expr::InSubquery { expr, subquery, .. } => {
             collect_params_from_expr(expr, ctx);
-            collect_params_from_subquery(subquery, ctx.schema, ctx.config, ctx.mapping, ctx.query_name);
+            let scope = ParamCollectScope::from_ctx(ctx);
+            collect_params_from_subquery(subquery, ctx.mapping, &scope);
         },
         Expr::Subquery(q) => {
-            collect_params_from_subquery(q, ctx.schema, ctx.config, ctx.mapping, ctx.query_name);
+            let scope = ParamCollectScope::from_ctx(ctx);
+            collect_params_from_subquery(q, ctx.mapping, &scope);
         },
         Expr::Nested(inner) => {
             collect_params_from_expr(inner, ctx);
@@ -83,7 +110,8 @@ pub(super) fn collect_params_from_expr(expr: &Expr, ctx: &mut ResolverContext) {
             collect_params_from_expr(right, ctx);
         },
         Expr::Exists { subquery, .. } => {
-            collect_params_from_subquery(subquery, ctx.schema, ctx.config, ctx.mapping, ctx.query_name);
+            let scope = ParamCollectScope::from_ctx(ctx);
+            collect_params_from_subquery(subquery, ctx.mapping, &scope);
         },
         Expr::InList { expr, list, .. } => {
             // col IN ($1, $2, …) — infer param type from the expression being tested
@@ -442,7 +470,10 @@ fn is_literal_expr(expr: &Expr) -> bool {
 /// Builds the subquery's FROM scope, recurses into any nested WITH clauses,
 /// and collects parameters from the WHERE clause. Handles both scalar
 /// subqueries (`Expr::Subquery`) and IN-subquery expressions.
-fn collect_params_from_subquery(q: &SqlQuery, schema: &Schema, config: &ResolverConfig, mapping: &mut ParamMapping, query_name: &str) {
+fn collect_params_from_subquery(q: &SqlQuery, mapping: &mut ParamMapping, scope: &ParamCollectScope<'_>) {
+    let schema = scope.schema;
+    let config = scope.config;
+    let query_name = scope.query_name;
     collect_cte_params(q.with.as_ref(), schema, config, mapping, query_name);
     let SetExpr::Select(select) = q.body.as_ref() else { return };
     let all_tables = collect_from_tables(select, schema, &[], config);

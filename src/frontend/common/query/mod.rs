@@ -13,7 +13,9 @@ mod utils;
 use std::collections::HashMap;
 
 use crate::frontend::common::{obj_name_to_str, obj_schema_to_str};
-use crate::ir::{NativeListBind, Parameter, Query, QueryCmd, Schema, SqlType, Table};
+use crate::ir::{NativeListBind, Parameter, Schema, SqlType, Table};
+#[cfg(test)]
+use crate::ir::{Query, QueryCmd};
 use sqlparser::ast::{Delete, Insert, TableFactor, TableObject};
 
 type UserFunctions = HashMap<String, Vec<(Vec<SqlType>, SqlType)>>;

@@ -438,7 +438,7 @@ mod tests {
         assert_eq!(params[0].name, "user_id");
         assert_eq!(params[0].sql_type, SqlType::BigInt);
         assert_eq!(params[1].name, "bio");
-        assert_eq!(params[1].nullable, true);
+        assert!(params[1].nullable);
         // sql_type not overridden when None
         assert_eq!(params[1].sql_type, SqlType::Text);
     }

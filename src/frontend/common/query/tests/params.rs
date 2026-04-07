@@ -33,7 +33,7 @@ fn test_named_param_select_type_inferred() {
     assert_eq!(q.params.len(), 1);
     assert_eq!(q.params[0].name, "user_id");
     assert_eq!(q.params[0].sql_type, SqlType::BigInt);
-    assert_eq!(q.params[0].nullable, false);
+    assert!(!q.params[0].nullable);
     assert!(q.sql.contains("$1"));
     assert!(!q.sql.contains("@user_id"));
 }
@@ -52,7 +52,7 @@ fn test_named_param_annotation_forces_nullable() {
     let sql = "-- name: Test :many\n-- @bio null\nSELECT id FROM users WHERE bio = @bio;";
     let q = &parse_queries(sql, &make_schema()).unwrap()[0];
     assert_eq!(q.params[0].name, "bio");
-    assert_eq!(q.params[0].nullable, true);
+    assert!(q.params[0].nullable);
 }
 
 #[test]
@@ -60,7 +60,7 @@ fn test_named_param_annotation_forces_type_and_not_null() {
     let sql = "-- name: Test :many\n-- @bio text not null\nSELECT id FROM users WHERE bio = @bio;";
     let q = &parse_queries(sql, &make_schema()).unwrap()[0];
     assert_eq!(q.params[0].sql_type, SqlType::Text);
-    assert_eq!(q.params[0].nullable, false);
+    assert!(!q.params[0].nullable);
 }
 
 #[test]

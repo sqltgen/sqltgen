@@ -7,8 +7,7 @@
 use std::collections::HashMap;
 
 use sqlparser::ast::{
-    Assignment, AssignmentTarget, Delete, Expr, FromTable, Insert, ObjectNamePart, OnConflictAction, OnInsert, Query as SqlQuery, SelectItem, SetExpr,
-    TableFactor, TableWithJoins, Values,
+    AssignmentTarget, Delete, FromTable, Insert, ObjectNamePart, OnConflictAction, OnInsert, Query as SqlQuery, SelectItem, SetExpr, TableFactor, Values,
 };
 
 use crate::frontend::common::{ident_to_str, obj_name_to_str, obj_schema_to_str};
@@ -212,7 +211,7 @@ pub(super) fn build_update(ann: &QueryAnnotation, sql: &str, u: &sqlparser::ast:
     };
 
     let mut mapping: HashMap<usize, (String, SqlType, bool)> = HashMap::new();
-    collect_update_params(&u.table, &u.assignments, u.selection.as_ref(), update_from_tables(&u.from), &[], schema, config, &mut mapping, &ann.name);
+    collect_update_params(u, &[], schema, config, &mut mapping, &ann.name);
     if let Some(items) = u.returning.as_deref() {
         collect_returning_params(items, table, config, &mut mapping, &ann.name);
     }
@@ -238,7 +237,7 @@ pub(super) fn build_query_from_update(
     let mut mapping = HashMap::new();
     collect_cte_params(q.with.as_ref(), schema, config, &mut mapping, &ann.name);
     let ctes = build_cte_scope(q.with.as_ref(), schema, config);
-    collect_update_params(&u.table, &u.assignments, u.selection.as_ref(), update_from_tables(&u.from), &ctes, schema, config, &mut mapping, &ann.name);
+    collect_update_params(u, &ctes, schema, config, &mut mapping, &ann.name);
     if let Some(table) = schema.find_table(table_schema.as_deref(), &table_name, ds) {
         if let Some(items) = u.returning.as_deref() {
             collect_returning_params(items, table, config, &mut mapping, &ann.name);
@@ -264,18 +263,18 @@ pub(super) fn build_query_from_update(
 /// resolve column types from CTE output shapes.
 ///
 /// Shared by `build_update` (standalone UPDATE) and `build_query_from_update` (CTE-wrapped UPDATE).
-#[allow(clippy::too_many_arguments)]
 pub(super) fn collect_update_params(
-    table_with_joins: &TableWithJoins,
-    assignments: &[Assignment],
-    selection: Option<&Expr>,
-    from: &[TableWithJoins],
+    update: &sqlparser::ast::Update,
     ctes: &[Table],
     schema: &Schema,
     config: &ResolverConfig,
     mapping: &mut HashMap<usize, (String, SqlType, bool)>,
     query_name: &str,
 ) {
+    let table_with_joins = &update.table;
+    let assignments = &update.assignments;
+    let selection = update.selection.as_ref();
+    let from = update_from_tables(&update.from);
     let (table_schema, table_name, target_alias) = match &table_with_joins.relation {
         TableFactor::Table { name, alias, .. } => (obj_schema_to_str(name), obj_name_to_str(name), alias.as_ref().map(|a| ident_to_str(&a.name))),
         _ => return,

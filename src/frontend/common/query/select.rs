@@ -19,6 +19,14 @@ use super::{
     unresolved_query, QueryAnnotation, ResolverConfig, ResolverContext,
 };
 
+struct WildcardSourceScope<'a> {
+    alias_map: &'a HashMap<String, &'a Table>,
+    all_tables: &'a [(Table, Option<String>)],
+    schema: &'a Schema,
+    provenance: &'a HashMap<String, String>,
+    default_schema: Option<&'a str>,
+}
+
 /// Build a [`Query`] from a `Statement::Query` node (SELECT, set operation, or
 /// data-modifying CTE whose outer body is an INSERT/UPDATE).
 pub(super) fn build_select(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, schema: &Schema, config: &ResolverConfig) -> Query {
@@ -52,7 +60,14 @@ fn build_select_body(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, select: &Se
         build_params(mapping, count_params(sql))
     };
     let provenance = build_source_provenance(q.with.as_ref(), &select.from, schema, ctes, config);
-    let source_table = select_wildcard_source(select, &alias_map, &all_tables, schema, &provenance, config.default_schema.as_deref());
+    let source_scope = WildcardSourceScope {
+        alias_map: &alias_map,
+        all_tables: &all_tables,
+        schema,
+        provenance: &provenance,
+        default_schema: config.default_schema.as_deref(),
+    };
+    let source_table = select_wildcard_source(select, &source_scope);
     Query::new(ann.name.clone(), ann.cmd.clone(), sql, params, result_columns).with_source_table(source_table)
 }
 
@@ -67,14 +82,8 @@ fn build_select_body(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, select: &Se
 ///
 /// Returns `None` for all other projections (explicit column lists, set operations,
 /// multi-table wildcards, non-trivial CTEs, or nullable-side tables).
-fn select_wildcard_source(
-    select: &Select,
-    alias_map: &HashMap<String, &Table>,
-    all_tables: &[(Table, Option<String>)],
-    schema: &Schema,
-    provenance: &HashMap<String, String>,
-    default_schema: Option<&str>,
-) -> Option<String> {
+fn select_wildcard_source(select: &Select, scope: &WildcardSourceScope<'_>) -> Option<String> {
+    let WildcardSourceScope { alias_map, all_tables, schema, provenance, default_schema } = scope;
     let [item] = select.projection.as_slice() else { return None };
     let table_in_scope: &Table = match item {
         SelectItem::Wildcard(_) => {
@@ -91,7 +100,7 @@ fn select_wildcard_source(
     };
 
     // Direct schema table: present in schema and not made nullable by an outer join.
-    if let Some(schema_table) = schema.find_table(table_in_scope.schema.as_deref(), &table_in_scope.name, default_schema) {
+    if let Some(schema_table) = schema.find_table(table_in_scope.schema.as_deref(), &table_in_scope.name, *default_schema) {
         let made_nullable = schema_table.columns.iter().zip(&table_in_scope.columns).any(|(sc, rc)| !sc.nullable && rc.nullable);
         return if made_nullable { None } else { Some(schema_table.name.clone()) };
     }
@@ -131,7 +140,14 @@ pub(super) fn build_source_provenance(
                 let all_tables = collect_from_tables(select, schema, &cte_tables, config);
                 if !all_tables.is_empty() {
                     let alias_map = build_alias_map(&all_tables);
-                    if let Some(source) = select_wildcard_source(select, &alias_map, &all_tables, schema, &merged, config.default_schema.as_deref()) {
+                    let source_scope = WildcardSourceScope {
+                        alias_map: &alias_map,
+                        all_tables: &all_tables,
+                        schema,
+                        provenance: &merged,
+                        default_schema: config.default_schema.as_deref(),
+                    };
+                    if let Some(source) = select_wildcard_source(select, &source_scope) {
                         provenance.insert(cte_name.clone(), source);
                     }
                 }
@@ -155,7 +171,14 @@ pub(super) fn build_source_provenance(
                 let all_tables = collect_from_tables(select, schema, ctes, config);
                 if !all_tables.is_empty() {
                     let alias_map = build_alias_map(&all_tables);
-                    if let Some(source) = select_wildcard_source(select, &alias_map, &all_tables, schema, &merged, config.default_schema.as_deref()) {
+                    let source_scope = WildcardSourceScope {
+                        alias_map: &alias_map,
+                        all_tables: &all_tables,
+                        schema,
+                        provenance: &merged,
+                        default_schema: config.default_schema.as_deref(),
+                    };
+                    if let Some(source) = select_wildcard_source(select, &source_scope) {
                         provenance.insert(alias_name, source);
                     }
                 }
