@@ -4,6 +4,7 @@ mod dml;
 mod params;
 mod resolve;
 mod select;
+mod utils;
 
 use std::collections::HashMap;
 
@@ -28,6 +29,7 @@ pub(crate) use dispatch::parse_queries_with_config;
 use dml::{collect_delete_where_params, collect_insert_value_params, collect_returning_params, collect_update_params};
 use params::{collect_limit_offset_params, collect_set_expr_params};
 use resolve::{resolve_expr, resolve_projection};
+pub(super) use utils::{build_params, count_params, placeholder_idx, unresolved_query};
 
 /// Dialect-agnostic type inference configuration.
 #[derive(Clone)]
@@ -394,24 +396,6 @@ pub(super) fn build_cte_scope(with: Option<&With>, schema: &Schema, config: &Res
     ctes
 }
 
-pub(super) fn build_params(mapping: HashMap<usize, (String, SqlType, bool)>, count: usize) -> Vec<Parameter> {
-    // Track how many times each name has been used so we can deduplicate.
-    // e.g. `price BETWEEN $1 AND $2` → both get name "price" from the column,
-    // but we need "price" and "price_2" in the function signature.
-    let mut name_counts: HashMap<String, usize> = HashMap::new();
-    (1..=count)
-        .map(|idx| match mapping.get(&idx) {
-            Some((name, sql_type, nullable)) => {
-                let count = name_counts.entry(name.clone()).or_insert(0);
-                *count += 1;
-                let unique_name = if *count == 1 { name.clone() } else { format!("{name}_{count}") };
-                Parameter::scalar(idx, unique_name, sql_type.clone(), *nullable)
-            },
-            None => Parameter::scalar(idx, format!("param{idx}"), SqlType::Text, false),
-        })
-        .collect()
-}
-
 // ─── RETURNING ────────────────────────────────────────────────────────────────
 
 pub(super) fn resolve_returning(items: &[SelectItem], table: &Table, config: &ResolverConfig) -> Vec<ResultColumn> {
@@ -437,37 +421,6 @@ pub(super) fn resolve_returning(items: &[SelectItem], table: &Table, config: &Re
         }
     }
     result
-}
-
-// ─── Utilities ────────────────────────────────────────────────────────────────
-
-/// Build a fallback query with no type information for parameters or result columns.
-///
-/// Used when a query cannot be fully resolved against the schema (e.g. unsupported
-/// syntax, unknown tables). The query still runs but parameter/result types default
-/// to `SqlType::Text`.
-pub(super) fn unresolved_query(ann: &QueryAnnotation, sql: &str) -> Query {
-    Query::new(ann.name.clone(), ann.cmd.clone(), sql, build_params(HashMap::new(), count_params(sql)), vec![])
-}
-
-pub(super) fn count_params(sql: &str) -> usize {
-    let mut max = 0usize;
-    let mut chars = sql.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c == '$' || c == '?' {
-            let digits: String = chars.by_ref().take_while(|ch| ch.is_ascii_digit()).collect();
-            if let Ok(n) = digits.parse::<usize>() {
-                max = max.max(n);
-            }
-        }
-    }
-    max
-}
-
-pub(super) fn placeholder_idx(s: &str) -> Option<usize> {
-    // $N (PostgreSQL) or ?N (SQLite)
-    let rest = s.strip_prefix('$').or_else(|| s.strip_prefix('?'))?;
-    rest.parse().ok()
 }
 
 #[cfg(test)]
