@@ -29,15 +29,15 @@ func seed(ctx context.Context, db *sql.DB) {
 	must(err)
 	fmt.Printf("[pg] inserted 3 authors (ids: %d, %d, %d)\n", leGuin.Id, herbert.Id, asimov.Id)
 
-	lhod, err := gen.CreateBook(ctx, db, leGuin.Id, "The Left Hand of Darkness", "sci-fi", "12.99", sql.NullTime{})
+	lhod, err := gen.CreateBook(ctx, db, leGuin.Id, "The Left Hand of Darkness", gen.GenreFiction, "12.99", sql.NullTime{})
 	must(err)
-	_, err = gen.CreateBook(ctx, db, leGuin.Id, "The Dispossessed", "sci-fi", "11.50", sql.NullTime{})
+	_, err = gen.CreateBook(ctx, db, leGuin.Id, "The Dispossessed", gen.GenreFiction, "11.50", sql.NullTime{})
 	must(err)
-	dune, err := gen.CreateBook(ctx, db, herbert.Id, "Dune", "sci-fi", "14.99", sql.NullTime{})
+	dune, err := gen.CreateBook(ctx, db, herbert.Id, "Dune", gen.GenreScience, "14.99", sql.NullTime{})
 	must(err)
-	found, err := gen.CreateBook(ctx, db, asimov.Id, "Foundation", "sci-fi", "10.99", sql.NullTime{})
+	found, err := gen.CreateBook(ctx, db, asimov.Id, "Foundation", gen.GenreScience, "10.99", sql.NullTime{})
 	must(err)
-	_, err = gen.CreateBook(ctx, db, asimov.Id, "The Caves of Steel", "sci-fi", "9.99", sql.NullTime{})
+	_, err = gen.CreateBook(ctx, db, asimov.Id, "The Caves of Steel", gen.GenreFiction, "9.99", sql.NullTime{})
 	must(err)
 	fmt.Println("[pg] inserted 5 books")
 
@@ -70,16 +70,17 @@ func query(ctx context.Context, db *sql.DB) {
 		fmt.Printf("  \"%s\"\n", b.Title)
 	}
 
-	scifi, err := gen.ListBooksByGenre(ctx, db, "sci-fi")
+	scifi, err := gen.ListBooksByGenre(ctx, db, gen.GenreScience)
 	must(err)
-	fmt.Printf("[pg] listBooksByGenre(sci-fi): %d row(s)\n", len(scifi))
+	fmt.Printf("[pg] listBooksByGenre(science): %d row(s)\n", len(scifi))
 
-	allBooks, err := gen.ListBooksByGenreOrAll(ctx, db, "all")
+	allBooks, err := gen.ListBooksByGenreOrAll(ctx, db, nil)
 	must(err)
-	fmt.Printf("[pg] listBooksByGenreOrAll(all): %d row(s) (repeated-param demo)\n", len(allBooks))
-	scifi2, err := gen.ListBooksByGenreOrAll(ctx, db, "sci-fi")
+	fmt.Printf("[pg] listBooksByGenreOrAll(null): %d row(s) (nullable-param demo)\n", len(allBooks))
+	science := gen.GenreScience
+	scifi2, err := gen.ListBooksByGenreOrAll(ctx, db, &science)
 	must(err)
-	fmt.Printf("[pg] listBooksByGenreOrAll(sci-fi): %d row(s)\n", len(scifi2))
+	fmt.Printf("[pg] listBooksByGenreOrAll(science): %d row(s)\n", len(scifi2))
 
 	booksWithAuthor, err := gen.ListBooksWithAuthor(ctx, db)
 	must(err)

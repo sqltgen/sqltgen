@@ -3,15 +3,15 @@ use std::fmt::Write;
 use std::path::PathBuf;
 
 use crate::backend::common::{
-    emit_package, group_queries, has_inline_rows, infer_table, pg_array_type_name, querier_class_name, queries_class_name, row_type_name,
+    emit_package, group_queries, has_inline_rows, infer_table, needed_enums, pg_array_type_name, querier_class_name, queries_class_name, row_type_name,
 };
 use crate::backend::jdbc::{
     self, emit_dynamic_binds, emit_jdbc_binds, prepare_dynamic_sql_parts, prepare_sql_const, prepare_sql_const_from, ListAction, QuerierContext,
 };
-use crate::backend::naming::{to_camel_case, to_pascal_case};
+use crate::backend::naming::{to_camel_case, to_pascal_case, to_screaming_snake_case};
 use crate::backend::GeneratedFile;
 use crate::config::{ExtraField, ListParamStrategy, OutputConfig};
-use crate::ir::{Parameter, Query, QueryCmd, Schema, SqlType, Table};
+use crate::ir::{EnumType, Parameter, Query, QueryCmd, Schema, SqlType, Table};
 
 use super::adapter::JvmCoreContract;
 use super::typemap::{KotlinTypeEntry, KotlinTypeMap};
@@ -30,6 +30,9 @@ pub(super) fn kotlin_param_type(p: &Parameter, type_map: &KotlinTypeMap) -> Stri
 /// When the type has a `write` expression, substitutes `{value}` with the param name.
 fn kotlin_write_expr(p: &Parameter, type_map: &KotlinTypeMap) -> String {
     let name = to_camel_case(&p.name);
+    if matches!(&p.sql_type, SqlType::Enum(_)) {
+        return if p.nullable { format!("{name}?.value") } else { format!("{name}.value") };
+    }
     if let Some(expr) = &type_map.get(&p.sql_type).write {
         expr.replace("{value}", &name)
     } else {
@@ -79,6 +82,16 @@ pub(super) fn generate_core_files(
         files.push(GeneratedFile { path, content: src });
     }
 
+    // One enum class per schema enum
+    for enum_type in &schema.enums {
+        let class_name = to_pascal_case(&enum_type.name);
+        let mpkg = models_package(&config.package);
+        let mut src = String::new();
+        emit_kotlin_enum(&mut src, &mpkg, &class_name, enum_type)?;
+        let path = source_path(&config.out, &mpkg, &class_name, "kt");
+        files.push(GeneratedFile { path, content: src });
+    }
+
     // One object per query group + one DataSource-backed wrapper class per group
     let strategy = config.list_params.clone().unwrap_or_default();
     for (group, group_queries) in group_queries(queries) {
@@ -97,6 +110,10 @@ pub(super) fn generate_core_files(
                 let model_class = to_pascal_case(table_name);
                 model_imports.insert(format!("{mpkg}.{model_class}"));
             }
+        }
+        let enum_names = needed_enums(&group_queries.iter().collect::<Vec<_>>());
+        for name in &enum_names {
+            model_imports.insert(format!("{mpkg}.{}", to_pascal_case(name)));
         }
         // Emit override-specific imports (standard import is just Connection)
         writeln!(src, "import java.sql.Connection")?;
@@ -415,6 +432,10 @@ fn emit_row_constructor(query: &Query, schema: &Schema, type_map: &KotlinTypeMap
 // ─── Emitter helpers (consume the type map) ───────────────────────────────────
 
 fn resultset_read_expr(sql_type: &SqlType, nullable: bool, idx: usize, type_map: &KotlinTypeMap) -> String {
+    if let SqlType::Enum(name) = sql_type {
+        let ty = to_pascal_case(name);
+        return if nullable { format!("rs.getString({idx})?.let {{ {ty}.fromValue(it) }}") } else { format!("{ty}.fromValue(rs.getString({idx}))") };
+    }
     if let SqlType::Array(inner) = sql_type {
         return jdbc_array_read_expr(inner, nullable, idx, type_map);
     }
@@ -509,6 +530,21 @@ fn emit_array_helper(src: &mut String) -> anyhow::Result<()> {
 #[cfg(test)]
 pub(super) fn resultset_read_expr_pub(sql_type: &SqlType, nullable: bool, idx: usize, type_map: &KotlinTypeMap) -> String {
     resultset_read_expr(sql_type, nullable, idx, type_map)
+}
+
+/// Emit a Kotlin enum class for a SQL enum type.
+fn emit_kotlin_enum(src: &mut String, package: &str, class_name: &str, enum_type: &EnumType) -> anyhow::Result<()> {
+    emit_package(src, package, "");
+    writeln!(src, "enum class {class_name}(val value: String) {{")?;
+    let variants: Vec<String> = enum_type.variants.iter().map(|v| format!("    {}(\"{}\")", to_screaming_snake_case(v), v)).collect();
+    writeln!(src, "{};", variants.join(",\n"))?;
+    writeln!(src)?;
+    writeln!(src, "    companion object {{")?;
+    writeln!(src, "        fun fromValue(value: String): {class_name} =")?;
+    writeln!(src, "            entries.first {{ it.value == value }}")?;
+    writeln!(src, "    }}")?;
+    writeln!(src, "}}")?;
+    Ok(())
 }
 
 // ─── Path helper ──────────────────────────────────────────────────────────────

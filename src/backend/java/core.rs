@@ -3,15 +3,15 @@ use std::fmt::Write;
 use std::path::PathBuf;
 
 use crate::backend::common::{
-    emit_package, group_queries, has_inline_rows, infer_table, pg_array_type_name, querier_class_name, queries_class_name, row_type_name,
+    emit_package, group_queries, has_inline_rows, infer_table, needed_enums, pg_array_type_name, querier_class_name, queries_class_name, row_type_name,
 };
 use crate::backend::jdbc::{
     self, emit_dynamic_binds, emit_jdbc_binds, prepare_dynamic_sql_parts, prepare_sql_const, prepare_sql_const_from, ListAction, QuerierContext,
 };
-use crate::backend::naming::{to_camel_case, to_pascal_case};
+use crate::backend::naming::{to_camel_case, to_pascal_case, to_screaming_snake_case};
 use crate::backend::GeneratedFile;
 use crate::config::{ListParamStrategy, OutputConfig};
-use crate::ir::{Parameter, Query, QueryCmd, Schema};
+use crate::ir::{EnumType, Parameter, Query, QueryCmd, Schema};
 
 use super::adapter::JvmCoreContract;
 use super::typemap::JavaTypeMap;
@@ -58,6 +58,16 @@ pub(super) fn generate_core_files(
         files.push(GeneratedFile { path, content: src });
     }
 
+    // One enum class per schema enum
+    for enum_type in &schema.enums {
+        let class_name = to_pascal_case(&enum_type.name);
+        let mpkg = models_package(&config.package);
+        let mut src = String::new();
+        emit_java_enum(&mut src, &mpkg, &class_name, enum_type)?;
+        let path = record_path(&config.out, &mpkg, &class_name);
+        files.push(GeneratedFile { path, content: src });
+    }
+
     // One class per query group + one DataSource-backed wrapper class per group
     let strategy = config.list_params.clone().unwrap_or_default();
     for (group, group_queries) in group_queries(queries) {
@@ -89,6 +99,10 @@ pub(super) fn generate_core_files(
                 let model_class = to_pascal_case(table_name);
                 model_imports.insert(format!("{mpkg}.{model_class}"));
             }
+        }
+        let enum_names = needed_enums(&group_queries.iter().collect::<Vec<_>>());
+        for name in &enum_names {
+            model_imports.insert(format!("{mpkg}.{}", to_pascal_case(name)));
         }
         all_imports.extend(override_imports.iter().cloned());
         all_imports.extend(model_imports.iter().cloned());
@@ -414,6 +428,35 @@ fn emit_nullable_primitive_helpers(src: &mut String) -> anyhow::Result<()> {
         writeln!(src, "        return rs.wasNull() ? null : v;")?;
         writeln!(src, "    }}")?;
     }
+    Ok(())
+}
+
+/// Emit a Java enum class for a SQL enum type.
+fn emit_java_enum(src: &mut String, package: &str, class_name: &str, enum_type: &EnumType) -> anyhow::Result<()> {
+    emit_package(src, package, ";");
+    writeln!(src, "public enum {class_name} {{")?;
+    let variants: Vec<String> = enum_type.variants.iter().map(|v| format!("    {}(\"{}\")", to_screaming_snake_case(v), v)).collect();
+    writeln!(src, "{};", variants.join(",\n"))?;
+    writeln!(src)?;
+    writeln!(src, "    private final String value;")?;
+    writeln!(src)?;
+    writeln!(src, "    {class_name}(String value) {{")?;
+    writeln!(src, "        this.value = value;")?;
+    writeln!(src, "    }}")?;
+    writeln!(src)?;
+    writeln!(src, "    public String getValue() {{")?;
+    writeln!(src, "        return value;")?;
+    writeln!(src, "    }}")?;
+    writeln!(src)?;
+    writeln!(src, "    public static {class_name} fromValue(String value) {{")?;
+    writeln!(src, "        for ({class_name} e : values()) {{")?;
+    writeln!(src, "            if (e.value.equals(value)) {{")?;
+    writeln!(src, "                return e;")?;
+    writeln!(src, "            }}")?;
+    writeln!(src, "        }}")?;
+    writeln!(src, "        throw new IllegalArgumentException(\"Unknown {class_name}: \" + value);")?;
+    writeln!(src, "    }}")?;
+    writeln!(src, "}}")?;
     Ok(())
 }
 

@@ -107,6 +107,19 @@ def render_typed_arg(
         if lang_type == "sql.NullTime":
             return f"sql.NullTime{{Time: {var_name}, Valid: true}}"
         return var_name
+    if kind == "str":
+        # Pointer-to-enum: *Priority → allocate and return pointer
+        if lang_type.startswith("*") and _is_enum_type(lang_type[1:]):
+            inner = lang_type[1:]
+            escaped = _escape_go_str(str(value))
+            return f'_genPtrTo(gen.{inner}("{escaped}"))'
+        # Non-pointer enum: Priority → type conversion
+        if _is_enum_type(lang_type):
+            return f'gen.{lang_type}("{_escape_go_str(str(value))}")'
+        # sql.NullString: wrap in Valid struct
+        if lang_type == "sql.NullString":
+            return f'sql.NullString{{String: {_go_str(value)}, Valid: true}}'
+
     # For str, int, float, bool, uuid — fall back to render_value.
     return render_value(kind, value, engine, coercions)
 
@@ -122,13 +135,25 @@ def render_call_lines(
 ) -> list[str]:
     """Render a function call as Go source lines with error handling."""
     if bind:
-        return [
+        lines = [
             f"{indent}{bind}, err := {call_expr}",
             f"{indent}if err != nil {{",
             f"{indent}\tt.Fatal(err)",
             f"{indent}}}",
         ]
-    # exec without bind: use inline if err := ...
+        # Suppress "declared and not used" for variables that may only be
+        # read in later steps (Go vet checks per-function, not per-scope).
+        if command in ("one", "many"):
+            lines.append(f"{indent}_ = {bind}")
+        return lines
+    # No bind: discard return value if command returns a result (one/many).
+    if command in ("one", "many"):
+        return [
+            f"{indent}if _, err := {call_expr}; err != nil {{",
+            f"{indent}\tt.Fatal(err)",
+            f"{indent}}}",
+        ]
+    # exec/execrows without bind: use inline if err := ...
     return [
         f"{indent}if err := {call_expr}; err != nil {{",
         f"{indent}\tt.Fatal(err)",
@@ -183,6 +208,14 @@ def render_assert_eq_typed(
         # expected is a map[string]interface{}{...} expression.
         # genAssertJSON handles []byte, *[]byte, sql.NullString, and string payloads.
         return f"genAssertJSON(t, {field_expr}, {expected})"
+    if kind == "str" and field_lang_type and _is_enum_type(field_lang_type):
+        enum_expected = f'gen.{field_lang_type}({expected})'
+        return f"if {field_expr} != {enum_expected} {{ t.Errorf(\"expected %v, got %v\", {enum_expected}, {field_expr}) }}"
+    if kind == "str" and field_lang_type == "sql.NullString":
+        return (
+            f"if !{field_expr}.Valid || {field_expr}.String != {expected} "
+            f"{{ t.Errorf(\"expected %v, got %v\", {expected}, {field_expr}) }}"
+        )
     if kind == "int":
         return f"if {field_expr} != {expected} {{ t.Errorf(\"expected %v, got %v\", {expected}, {field_expr}) }}"
     return f"if {field_expr} != {expected} {{ t.Errorf(\"expected %v, got %v\", {expected}, {field_expr}) }}"
@@ -253,6 +286,36 @@ def render_uuid_compare(field_expr: str, var_name: str) -> str:
 
 
 # ── Internal helpers ─────────────────────────────────────────────────────
+
+
+_GO_BUILTIN_TYPES = frozenset({
+    "string", "int", "int8", "int16", "int32", "int64",
+    "uint", "uint8", "uint16", "uint32", "uint64",
+    "float32", "float64", "bool", "byte", "rune",
+    "any", "interface{}",
+})
+
+_GO_STDLIB_PREFIXES = ("sql.", "time.", "[]", "*")
+
+
+def _is_enum_type(lang_type: str) -> bool:
+    """Return True if lang_type looks like a generated Go enum type.
+
+    Go enums are PascalCase identifiers (e.g. Priority, Status).
+    Builtins (string, int64, etc.) and stdlib types (sql.NullString, time.Time)
+    are not enums.
+    """
+    if lang_type in _GO_BUILTIN_TYPES:
+        return False
+    if any(lang_type.startswith(p) for p in _GO_STDLIB_PREFIXES):
+        return False
+    # Must be PascalCase: starts with uppercase letter, no dots
+    return bool(lang_type) and lang_type[0].isupper() and "." not in lang_type
+
+
+def _escape_go_str(s: str) -> str:
+    """Escape a string for use inside a Go double-quoted string literal."""
+    return s.replace("\\", "\\\\").replace('"', '\\"')
 
 
 def _go_str(value: Any) -> str:

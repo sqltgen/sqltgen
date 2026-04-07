@@ -9,7 +9,7 @@ use crate::backend::naming::to_pascal_case;
 use crate::backend::sql_rewrite::{parse_placeholder_indices, positional_bind_names, rewrite_to_anon_params, split_at_in_clause};
 use crate::backend::GeneratedFile;
 use crate::config::{ListParamStrategy, OutputConfig};
-use crate::ir::{NativeListBind, Parameter, Query, QueryCmd, ResultColumn, Schema, SqlType};
+use crate::ir::{EnumType, NativeListBind, Parameter, Query, QueryCmd, ResultColumn, Schema, SqlType};
 
 use super::adapter::{GoBindMode, GoCoreContract, GoPlaceholderMode};
 use super::typemap::GoTypeMap;
@@ -139,8 +139,8 @@ pub(super) fn generate_core_files(
     let pkg = package_name(config);
     let mut files = Vec::new();
 
-    // All table structs in one models.go file
-    if !schema.tables.is_empty() {
+    // All table structs and enum types in one models.go file
+    if !schema.tables.is_empty() || !schema.enums.is_empty() {
         files.push(emit_models_file(schema, config, type_map, &pkg)?);
     }
 
@@ -196,8 +196,30 @@ fn emit_models_file(schema: &Schema, config: &OutputConfig, type_map: &GoTypeMap
         writeln!(src)?;
     }
 
+    for e in &schema.enums {
+        emit_go_enum(&mut src, e)?;
+        writeln!(src)?;
+    }
+
     let path = PathBuf::from(&config.out).join("models.go");
     Ok(GeneratedFile { path, content: src })
+}
+
+// ─── Enum types ──────────────────────────────────────────────────────────────
+
+/// Emit a Go enum type (string newtype + const block) for a SQL enum.
+fn emit_go_enum(src: &mut String, e: &EnumType) -> anyhow::Result<()> {
+    let type_name = to_pascal_case(&e.name);
+    writeln!(src, "// {type_name} represents the SQL enum type `{raw_name}`.", raw_name = e.name)?;
+    writeln!(src, "type {type_name} string")?;
+    writeln!(src)?;
+    writeln!(src, "const (")?;
+    for v in &e.variants {
+        let const_name = format!("{type_name}{}", to_pascal_case(v));
+        writeln!(src, "\t{const_name}\t{type_name} = \"{v}\"")?;
+    }
+    writeln!(src, ")")?;
+    Ok(())
 }
 
 // ─── Queries file ─────────────────────────────────────────────────────────────

@@ -87,6 +87,11 @@ func _genIsNull(v interface{}) bool {
 	return v == nil
 }
 
+// _genPtrTo returns a pointer to a copy of v. Used for nullable enum parameters.
+func _genPtrTo[T any](v T) *T {
+	return &v
+}
+
 // genAssertJSON asserts that got and want contain equivalent JSON values.
 // got may be []byte, *[]byte, sql.NullString, or string.
 // want must be a Go value that can be JSON-marshalled (e.g. map[string]interface{}).

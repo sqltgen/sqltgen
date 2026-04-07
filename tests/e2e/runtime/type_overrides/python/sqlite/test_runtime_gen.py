@@ -13,6 +13,7 @@ import sqlite3
 import pytest
 
 from gen.queries import queries
+from gen.models import *
 
 _FIXTURES = pathlib.Path(__file__).parent / "../../../../fixtures/type_overrides/sqlite"
 

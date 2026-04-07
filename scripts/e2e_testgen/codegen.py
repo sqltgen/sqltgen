@@ -33,6 +33,8 @@ def render_test(
         lstrip_blocks=True,
     )
     env.filters["to_pascal_case"] = lambda s: "".join(w.capitalize() for w in s.split("_"))
+    env.filters["to_snake_case"] = lambda s: _to_snake_case(s)
+    env.filters["enum_types"] = lambda m: _extract_enum_types(m, language)
 
     # Load the language-specific literal renderer
     literals_mod = _load_literals(language)
@@ -305,6 +307,42 @@ def _load_literals(language: str) -> ModuleType:
 
 
 # ── Naming helpers ──────────────────────────────────────────────────────
+
+
+def _extract_enum_types(manifest: Manifest, language: str) -> list[str]:
+    """Extract enum type names from a manifest by checking param/field lang_types.
+
+    Enum types are PascalCase identifiers that are not standard language types.
+    Returns a sorted list of unique enum type names.
+    """
+    if language == "rust":
+        from literals.rust import _is_enum_type
+    elif language == "go":
+        from literals.go import _is_enum_type
+    else:
+        return []
+
+    enum_types: set[str] = set()
+    for fn in manifest.functions:
+        for p in fn.params:
+            lt = p.lang_type
+            # Strip Option<> or * wrapper
+            if lt.startswith("Option<") and lt.endswith(">"):
+                lt = lt[7:-1]
+            elif lt.startswith("*"):
+                lt = lt[1:]
+            if _is_enum_type(lt):
+                enum_types.add(lt)
+    for model in manifest.models:
+        for field in model.fields:
+            lt = field.lang_type
+            if lt.startswith("Option<") and lt.endswith(">"):
+                lt = lt[7:-1]
+            elif lt.startswith("*"):
+                lt = lt[1:]
+            if _is_enum_type(lt):
+                enum_types.add(lt)
+    return sorted(enum_types)
 
 
 def _to_snake_case(s: str) -> str:

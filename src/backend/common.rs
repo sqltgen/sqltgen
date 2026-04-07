@@ -157,6 +157,35 @@ pub fn infer_table<'a>(query: &Query, schema: &'a Schema) -> Option<&'a str> {
     matched
 }
 
+/// Collect the set of enum type names used by a group of queries.
+///
+/// Scans result columns and parameters for `SqlType::Enum(name)` and returns
+/// the deduplicated, sorted set of enum names. Backends use this to emit
+/// import statements for generated enum types in query files.
+pub fn needed_enums(queries: &[&Query]) -> std::collections::BTreeSet<String> {
+    let mut enums = std::collections::BTreeSet::new();
+    for q in queries {
+        for rc in &q.result_columns {
+            collect_enum_names_from_type(&rc.sql_type, &mut enums);
+        }
+        for p in &q.params {
+            collect_enum_names_from_type(&p.sql_type, &mut enums);
+        }
+    }
+    enums
+}
+
+/// Recursively extract enum type names from a SqlType (handles Array(Enum(...))).
+pub fn collect_enum_names_from_type(sql_type: &SqlType, out: &mut std::collections::BTreeSet<String>) {
+    match sql_type {
+        SqlType::Enum(name) => {
+            out.insert(name.clone());
+        },
+        SqlType::Array(inner) => collect_enum_names_from_type(inner, out),
+        _ => {},
+    }
+}
+
 /// Emit a package declaration if non-empty. Pass `";"` for Java, `""` for Kotlin.
 pub fn emit_package(src: &mut String, package: &str, terminator: &str) {
     if !package.is_empty() {

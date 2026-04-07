@@ -25,6 +25,30 @@ from literals.jvm_helpers import (
 )
 
 
+# Known Kotlin types that are NOT enums.
+_KOTLIN_KNOWN_TYPES = frozenset([
+    "String", "Int", "Long", "Short", "Float", "Double", "Boolean", "Byte",
+    "Any", "BigDecimal", "UUID",
+    "java.math.BigDecimal", "java.util.UUID",
+])
+
+
+def _is_enum_type(lang_type: str) -> bool:
+    """Return True if lang_type looks like a generated enum type name."""
+    if not lang_type or not lang_type[0].isupper():
+        return False
+    # Strip nullable wrapper if present
+    inner = lang_type.rstrip("?")
+    # Known Kotlin types are not enums
+    if inner in _KOTLIN_KNOWN_TYPES:
+        return False
+    # Contains a dot -> FQN like java.time.LocalDate, not an enum
+    if "." in inner:
+        return False
+    # Starts with uppercase, not a known type -> likely an enum
+    return True
+
+
 # ── Protocol: optional extension methods ────────────────────────────────
 
 def step_indent() -> str:
@@ -189,6 +213,9 @@ def render_typed_arg(
         return f'UUID.fromString({_kotlin_str(str(value))})'
 
     if kind == "str":
+        if _is_enum_type(lang_type):
+            enum_name = lang_type.rstrip("?")
+            return f'{enum_name}.fromValue({_kotlin_str(str(value))})'
         return _kotlin_str(str(value))
 
     if kind == "int":
@@ -261,6 +288,10 @@ def render_assert_eq_typed(
             args = m.group(1)
             ot_expr = f"OffsetDateTime.of({args}, 0, ZoneOffset.UTC)"
             return f"assertEquals({ot_expr}, {field_expr})"
+
+    if kind == "str" and _is_enum_type(field_lang_type or ""):
+        enum_name = (field_lang_type or "").rstrip("?")
+        return f"assertEquals({enum_name}.fromValue({expected}), {field_expr})"
 
     return f"assertEquals({expected}, {field_expr})"
 

@@ -2,6 +2,7 @@ use std::collections::{BTreeSet, HashMap};
 
 use crate::backend::common::{canonical_sql_types, sql_type_key, SqlTypeKey};
 use crate::backend::jdbc::{preset_gson, preset_jackson};
+use crate::backend::naming::to_pascal_case;
 use crate::config::{resolve_type_override, ExtraField, Language, OutputConfig, ResolvedType, TypeVariant};
 use crate::ir::{Parameter, Query, SqlType, Table};
 
@@ -105,6 +106,9 @@ impl JavaTypeMap {
     ///
     /// For `Array(inner)`, returns `java.util.List<BoxedInner>` (with `@Nullable` prefix when nullable).
     pub(super) fn java_type(&self, sql_type: &SqlType, nullable: bool) -> String {
+        if let SqlType::Enum(name) = sql_type {
+            return to_pascal_case(name);
+        }
         if let SqlType::Array(inner) = sql_type {
             let boxed = self.java_type_boxed(inner);
             let t = format!("java.util.List<{boxed}>");
@@ -120,6 +124,9 @@ impl JavaTypeMap {
 
     /// Return the boxed Java type for `sql_type`, used for `List<T>` and JDBC ARRAY casts.
     pub(super) fn java_type_boxed(&self, sql_type: &SqlType) -> String {
+        if let SqlType::Enum(name) = sql_type {
+            return to_pascal_case(name);
+        }
         if let SqlType::Array(inner) = sql_type {
             return format!("java.util.List<{}>", self.java_type_boxed(inner));
         }
@@ -131,6 +138,14 @@ impl JavaTypeMap {
     /// For `Array(inner)`, generates a stream-map expression when the inner type needs
     /// per-element conversion, or `Arrays.asList` with a direct cast otherwise.
     pub(super) fn read_expr(&self, sql_type: &SqlType, nullable: bool, idx: usize) -> String {
+        if let SqlType::Enum(name) = sql_type {
+            let ty = to_pascal_case(name);
+            return if nullable {
+                format!("rs.getString({idx}) != null ? {ty}.fromValue(rs.getString({idx})) : null")
+            } else {
+                format!("{ty}.fromValue(rs.getString({idx}))")
+            };
+        }
         if let SqlType::Array(inner) = sql_type {
             let inner_entry = self.get(inner);
             let boxed = self.java_type_boxed(inner);
@@ -145,6 +160,9 @@ impl JavaTypeMap {
     /// When the type has a `write` expression, substitutes `{value}` with the camelCase param name.
     pub(super) fn write_expr(&self, p: &Parameter) -> String {
         let name = crate::backend::naming::to_camel_case(&p.name);
+        if matches!(&p.sql_type, SqlType::Enum(_)) {
+            return if p.nullable { format!("{name} != null ? {name}.getValue() : null") } else { format!("{name}.getValue()") };
+        }
         if let Some(expr) = &self.get(&p.sql_type).write {
             expr.replace("{value}", &name)
         } else {
@@ -154,6 +172,9 @@ impl JavaTypeMap {
 
     /// Return the Java param type for a parameter, applying list and override logic.
     pub(super) fn java_param_type(&self, p: &Parameter) -> String {
+        if let SqlType::Enum(name) = &p.sql_type {
+            return to_pascal_case(name);
+        }
         if let SqlType::Array(inner) = &p.sql_type {
             return format!("java.util.List<{}>", self.java_type_boxed(inner));
         }

@@ -1,5 +1,6 @@
 package com.example
 
+import com.example.db.models.Genre
 import com.example.db.queries.Querier
 import java.math.BigDecimal
 import org.postgresql.ds.PGSimpleDataSource
@@ -26,11 +27,11 @@ object Demo {
         val asimov  = q.createAuthor("Isaac Asimov",      null,                                  1920)!!
         println("[pg] inserted 3 authors (ids: ${leGuin.id}, ${herbert.id}, ${asimov.id})")
 
-        val lhod  = q.createBook(leGuin.id,  "The Left Hand of Darkness", "sci-fi", BigDecimal("12.99"), null)!!
-        val disp  = q.createBook(leGuin.id,  "The Dispossessed",           "sci-fi", BigDecimal("11.50"), null)!!
-        val dune  = q.createBook(herbert.id, "Dune",                       "sci-fi", BigDecimal("14.99"), null)!!
-        val found = q.createBook(asimov.id,  "Foundation",                 "sci-fi", BigDecimal("10.99"), null)!!
-        val caves = q.createBook(asimov.id,  "The Caves of Steel",         "sci-fi", BigDecimal("9.99"),  null)!!
+        val lhod  = q.createBook(leGuin.id,  "The Left Hand of Darkness", Genre.FICTION,  BigDecimal("12.99"), null)!!
+        val disp  = q.createBook(leGuin.id,  "The Dispossessed",           Genre.FICTION,  BigDecimal("11.50"), null)!!
+        val dune  = q.createBook(herbert.id, "Dune",                       Genre.SCIENCE,  BigDecimal("14.99"), null)!!
+        val found = q.createBook(asimov.id,  "Foundation",                 Genre.SCIENCE,  BigDecimal("10.99"), null)!!
+        val caves = q.createBook(asimov.id,  "The Caves of Steel",         Genre.FICTION,  BigDecimal("9.99"),  null)!!
         println("[pg] inserted 5 books")
 
         val alice = q.createCustomer("Alice", "alice@example.com")!!
@@ -55,13 +56,13 @@ object Demo {
         println("[pg] getBooksByIds([1,3]): ${byIds.size} row(s)")
         byIds.forEach { println("  \"${it.title}\"") }
 
-        val scifi = q.listBooksByGenre("sci-fi")
-        println("[pg] listBooksByGenre(sci-fi): ${scifi.size} row(s)")
+        val scifi = q.listBooksByGenre(Genre.SCIENCE)
+        println("[pg] listBooksByGenre(science): ${scifi.size} row(s)")
 
-        val allBooks = q.listBooksByGenreOrAll("all")
-        println("[pg] listBooksByGenreOrAll(all): ${allBooks.size} row(s) (repeated-param demo)")
-        val scifi2 = q.listBooksByGenreOrAll("sci-fi")
-        println("[pg] listBooksByGenreOrAll(sci-fi): ${scifi2.size} row(s)")
+        val allBooks = q.listBooksByGenreOrAll(null)
+        println("[pg] listBooksByGenreOrAll(null): ${allBooks.size} row(s) (nullable-param demo)")
+        val scifi2 = q.listBooksByGenreOrAll(Genre.SCIENCE)
+        println("[pg] listBooksByGenreOrAll(science): ${scifi2.size} row(s)")
 
         println("[pg] listBooksWithAuthor:")
         q.listBooksWithAuthor().forEach { r ->

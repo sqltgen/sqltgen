@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use crate::backend::common::{canonical_sql_types, sql_type_key, SqlTypeKey};
 use crate::backend::jdbc::{preset_gson, preset_jackson};
+use crate::backend::naming::to_pascal_case;
 use crate::config::{resolve_type_override, ExtraField, Language, OutputConfig, ResolvedType, TypeVariant};
 use crate::ir::SqlType;
 
@@ -45,6 +46,10 @@ impl KotlinTypeMap {
     ///
     /// `Array(inner)` maps to `List<InnerType>` (or `List<InnerType>?` when nullable).
     pub(super) fn kotlin_type(&self, sql_type: &SqlType, nullable: bool) -> String {
+        if let SqlType::Enum(name) = sql_type {
+            let ty = to_pascal_case(name);
+            return if nullable { format!("{ty}?") } else { ty };
+        }
         if let SqlType::Array(inner) = sql_type {
             let t = format!("List<{}>", self.kotlin_type(inner, false));
             return if nullable { format!("{t}?") } else { t };
@@ -62,6 +67,10 @@ impl KotlinTypeMap {
     /// Uses the param-specific type mapping (which may differ from the field type when a
     /// param-variant override is configured). `Array(inner)` maps to `List<InnerParamType>`.
     pub(super) fn kotlin_param_type(&self, sql_type: &SqlType, nullable: bool) -> String {
+        if let SqlType::Enum(name) = sql_type {
+            let ty = to_pascal_case(name);
+            return if nullable { format!("{ty}?") } else { ty };
+        }
         if let SqlType::Array(inner) = sql_type {
             let t = format!("List<{}>", self.get(inner).param_type);
             return if nullable { format!("{t}?") } else { t };

@@ -84,6 +84,11 @@ func _genIsNull(v interface{}) bool {
 	return v == nil
 }
 
+// _genPtrTo returns a pointer to a copy of v. Used for nullable enum parameters.
+func _genPtrTo[T any](v T) *T {
+	return &v
+}
+
 // genAssertJSON asserts that got and want contain equivalent JSON values.
 // got may be []byte, *[]byte, sql.NullString, or string.
 // want must be a Go value that can be JSON-marshalled (e.g. map[string]interface{}).
@@ -117,6 +122,7 @@ func TestUpdatePayloadGen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	_ = ev
 	if ev == nil { t.Fatalf("expected non-nil ev") }
 	genAssertJSON(t, ev.Payload, map[string]interface{}{"v": 2, "changed": true})
 	if !_genIsNull(ev.Meta) { t.Fatalf("expected null ev.Meta") }
@@ -134,6 +140,7 @@ func TestUpdateEventDateGen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	_ = ev
 	if ev == nil { t.Fatalf("expected non-nil ev") }
 	if !_genTimeOf(ev.EventDate).Equal(time.Date(2024, 12, 31, 0, 0, 0, 0, time.UTC)) { t.Errorf("expected %v, got %v", time.Date(2024, 12, 31, 0, 0, 0, 0, time.UTC), _genTimeOf(ev.EventDate)) }
 }
@@ -167,6 +174,7 @@ func TestListEventsGen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	_ = events
 	if len(events) != 3 { t.Fatalf("expected len=3, got %d", len(events)) }
 	if events[0].Name != "alpha" { t.Errorf("expected %v, got %v", "alpha", events[0].Name) }
 	if events[1].Name != "beta" { t.Errorf("expected %v, got %v", "beta", events[1].Name) }
@@ -188,6 +196,7 @@ func TestGetEventsByDateRangeGen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	_ = events
 	if len(events) != 2 { t.Fatalf("expected len=2, got %d", len(events)) }
 	if events[0].Name != "early" { t.Errorf("expected %v, got %v", "early", events[0].Name) }
 	if events[1].Name != "mid" { t.Errorf("expected %v, got %v", "mid", events[1].Name) }
@@ -205,6 +214,7 @@ func TestInsertAndGetEventGen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	_ = ev
 	if ev == nil { t.Fatalf("expected non-nil ev") }
 	if ev.Name != "login" { t.Errorf("expected %v, got %v", "login", ev.Name) }
 	genAssertJSON(t, ev.Payload, map[string]interface{}{"type": "click", "x": 10})
@@ -222,6 +232,7 @@ func TestGetEventNotFoundGen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	_ = result
 	if result != nil { t.Fatalf("expected nil, got %v", result) }
 }
 
@@ -242,6 +253,7 @@ func TestCountEventsGen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	_ = row
 	if row == nil { t.Fatalf("expected non-nil row") }
 	if row.Total != 3 { t.Errorf("expected %v, got %v", 3, row.Total) }
 }
@@ -258,6 +270,7 @@ func TestFindByDateGen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	_ = row
 	if row == nil { t.Fatalf("expected non-nil row") }
 	if row.Name != "dated" { t.Errorf("expected %v, got %v", "dated", row.Name) }
 }
@@ -272,6 +285,7 @@ func TestFindByUuidGen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	_ = row
 	if row == nil { t.Fatalf("expected non-nil row") }
 	if row.Name != "uuid-test" { t.Errorf("expected %v, got %v", "uuid-test", row.Name) }
 }

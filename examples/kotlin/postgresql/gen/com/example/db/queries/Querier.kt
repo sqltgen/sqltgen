@@ -2,6 +2,7 @@ package com.example.db.queries
 
 import com.example.db.models.Author
 import com.example.db.models.Book
+import com.example.db.models.Genre
 import javax.sql.DataSource
 
 class Querier(private val dataSource: DataSource) {
@@ -21,7 +22,7 @@ class Querier(private val dataSource: DataSource) {
     fun deleteAuthor(id: Long): Queries.DeleteAuthorRow? =
         dataSource.connection.use { conn -> Queries.deleteAuthor(conn, id) }
 
-    fun createBook(authorId: Long, title: String, genre: String, price: java.math.BigDecimal, publishedAt: java.time.LocalDate?): Book? =
+    fun createBook(authorId: Long, title: String, genre: Genre, price: java.math.BigDecimal, publishedAt: java.time.LocalDate?): Book? =
         dataSource.connection.use { conn -> Queries.createBook(conn, authorId, title, genre, price, publishedAt) }
 
     fun getBook(id: Long): Book? =
@@ -30,10 +31,10 @@ class Querier(private val dataSource: DataSource) {
     fun getBooksByIds(ids: List<Long>): List<Book> =
         dataSource.connection.use { conn -> Queries.getBooksByIds(conn, ids) }
 
-    fun listBooksByGenre(genre: String): List<Book> =
+    fun listBooksByGenre(genre: Genre): List<Book> =
         dataSource.connection.use { conn -> Queries.listBooksByGenre(conn, genre) }
 
-    fun listBooksByGenreOrAll(genre: String): List<Book> =
+    fun listBooksByGenreOrAll(genre: Genre?): List<Book> =
         dataSource.connection.use { conn -> Queries.listBooksByGenreOrAll(conn, genre) }
 
     fun createCustomer(name: String, email: String): Queries.CreateCustomerRow? =

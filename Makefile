@@ -30,6 +30,13 @@ SQLTGEN := ./target/debug/sqltgen
        e2e-runtime-type-overrides-go-sqlite \
        e2e-runtime-type-overrides-go-postgresql \
        e2e-runtime-type-overrides-go-mysql \
+       e2e-runtime-enums \
+       e2e-runtime-enums-java-postgresql \
+       e2e-runtime-enums-kotlin-postgresql \
+       e2e-runtime-enums-python-postgresql \
+       e2e-runtime-enums-typescript-postgresql \
+       e2e-runtime-enums-go-postgresql \
+       e2e-runtime-enums-rust-postgresql \
        e2e-db-up e2e-db-down \
        e2e-testgen-setup e2e-testgen-generate e2e-testgen-generate-python \
        ci-fmt ci-clippy ci-test ci-check-suite ci-examples-drift ci-testgen-mypy ci-testgen-drift ci-runtime-sqlite ci-runtime-postgresql ci-runtime-mysql ci-runtime-db
@@ -143,7 +150,8 @@ e2e-runtime: \
 	e2e-runtime-typescript-mysql \
 	e2e-runtime-go-postgresql \
 	e2e-runtime-go-mysql \
-	e2e-runtime-type-overrides
+	e2e-runtime-type-overrides \
+	e2e-runtime-enums
 
 # ── Type-overrides runtime tests (all dialects × all languages) ───────────────
 
@@ -231,6 +239,36 @@ e2e-runtime-type-overrides: \
 	e2e-runtime-type-overrides-typescript-mysql \
 	e2e-runtime-type-overrides-go-postgresql \
 	e2e-runtime-type-overrides-go-mysql
+
+# ── Enums runtime tests (PostgreSQL only) ─────────────────────────────────────
+
+E2E_ENUMS := tests/e2e/runtime/enums
+
+e2e-runtime-enums-java-postgresql: $(SQLTGEN) e2e-db-up
+	$(MAKE) -C $(E2E_ENUMS)/java/postgresql test
+
+e2e-runtime-enums-kotlin-postgresql: $(SQLTGEN) e2e-db-up
+	$(MAKE) -C $(E2E_ENUMS)/kotlin/postgresql test
+
+e2e-runtime-enums-python-postgresql: $(SQLTGEN) e2e-db-up
+	$(MAKE) -C $(E2E_ENUMS)/python/postgresql test
+
+e2e-runtime-enums-typescript-postgresql: $(SQLTGEN) e2e-db-up
+	$(MAKE) -C $(E2E_ENUMS)/typescript/postgresql install test
+
+e2e-runtime-enums-go-postgresql: $(SQLTGEN) e2e-db-up
+	$(MAKE) -C $(E2E_ENUMS)/go/postgresql test
+
+e2e-runtime-enums-rust-postgresql: $(SQLTGEN) e2e-db-up
+	$(MAKE) -C $(E2E_ENUMS)/rust/postgresql test
+
+e2e-runtime-enums: \
+	e2e-runtime-enums-java-postgresql \
+	e2e-runtime-enums-kotlin-postgresql \
+	e2e-runtime-enums-python-postgresql \
+	e2e-runtime-enums-typescript-postgresql \
+	e2e-runtime-enums-go-postgresql \
+	e2e-runtime-enums-rust-postgresql
 
 # ── No-Docker runtime tests (SQLite) ─────────────────────────────────────────
 
@@ -382,6 +420,7 @@ ci-runtime-postgresql: build
 	$(MAKE) e2e-runtime-type-overrides-python-postgresql
 	$(MAKE) e2e-runtime-type-overrides-typescript-postgresql
 	$(MAKE) e2e-runtime-type-overrides-go-postgresql
+	$(MAKE) e2e-runtime-enums
 
 ci-runtime-mysql: build
 	pip install --quiet pytest mysql-connector-python
