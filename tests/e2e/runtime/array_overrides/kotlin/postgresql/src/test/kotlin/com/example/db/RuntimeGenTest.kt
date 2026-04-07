@@ -5,6 +5,7 @@ package com.example.db
 
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.example.db.models.*
 import com.example.db.queries.Queries
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.*
