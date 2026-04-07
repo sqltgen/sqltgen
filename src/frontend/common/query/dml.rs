@@ -20,6 +20,15 @@ use super::{
     resolve_returning, unresolved_query, update_from_tables, QueryAnnotation, ResolverConfig, ResolverContext,
 };
 
+type ParamMapping = HashMap<usize, (String, SqlType, bool)>;
+
+struct DmlCollectCtx<'a> {
+    schema: &'a Schema,
+    config: &'a ResolverConfig,
+    mapping: &'a mut ParamMapping,
+    query_name: &'a str,
+}
+
 // ─── RETURNING params ────────────────────────────────────────────────────────
 
 /// Collect typed parameter mappings from the expressions in a `RETURNING` clause.
@@ -27,23 +36,29 @@ use super::{
 /// Expressions like `RETURNING col + $N` or `RETURNING col || $N` allow parameters
 /// whose type is inferred from the sibling column reference, exactly as in a SELECT
 /// projection. Without this pass, such parameters fall through to the `Text` default.
-pub(super) fn collect_returning_params(
-    items: &[SelectItem],
-    table: &Table,
-    config: &ResolverConfig,
-    mapping: &mut HashMap<usize, (String, SqlType, bool)>,
-    query_name: &str,
-) {
+pub(super) fn collect_returning_params(items: &[SelectItem], table: &Table, config: &ResolverConfig, mapping: &mut ParamMapping, query_name: &str) {
+    let schema = Schema::with_tables(vec![table.clone()]);
+    let mut ctx = DmlCollectCtx { schema: &schema, config, mapping, query_name };
+    collect_returning_params_in(items, table, &mut ctx);
+}
+
+fn collect_returning_params_in(items: &[SelectItem], table: &Table, ctx: &mut DmlCollectCtx<'_>) {
     let all_tables = [(table.clone(), None)];
     let alias_map = build_alias_map(&all_tables);
-    let schema = Schema::with_tables(vec![table.clone()]);
-    let ctx = &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema: &schema, config, mapping, query_name };
+    let resolver_ctx = &mut ResolverContext {
+        alias_map: &alias_map,
+        all_tables: &all_tables,
+        schema: ctx.schema,
+        config: ctx.config,
+        mapping: ctx.mapping,
+        query_name: ctx.query_name,
+    };
     for item in items {
         let expr = match item {
             SelectItem::UnnamedExpr(e) | SelectItem::ExprWithAlias { expr: e, .. } => e,
             _ => continue,
         };
-        collect_params_from_expr(expr, ctx);
+        collect_params_from_expr(expr, resolver_ctx);
     }
 }
 
@@ -56,7 +71,7 @@ pub(super) fn build_insert(ann: &QueryAnnotation, sql: &str, insert: &Insert, sc
         return unresolved_query(ann, sql);
     };
 
-    let mut mapping = HashMap::new();
+    let mut mapping: ParamMapping = HashMap::new();
     collect_insert_value_params(insert, schema, config, &mut mapping, &ann.name);
     collect_on_conflict_params(insert, table, config, &mut mapping, &ann.name);
     if let Some(items) = insert.returning.as_deref() {
@@ -72,7 +87,7 @@ pub(super) fn build_insert(ann: &QueryAnnotation, sql: &str, insert: &Insert, sc
 pub(super) fn build_query_from_insert(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, ins: &Insert, schema: &Schema, config: &ResolverConfig) -> Query {
     let (ins_schema, ins_name) = insert_table_ref(ins);
     let ds = config.default_schema.as_deref();
-    let mut mapping = HashMap::new();
+    let mut mapping: ParamMapping = HashMap::new();
     collect_cte_params(q.with.as_ref(), schema, config, &mut mapping, &ann.name);
     collect_insert_value_params(ins, schema, config, &mut mapping, &ann.name);
     if let Some(table) = schema.find_table(ins_schema.as_deref(), &ins_name, ds) {
@@ -95,33 +110,39 @@ pub(super) fn build_query_from_insert(ann: &QueryAnnotation, sql: &str, q: &SqlQ
 /// `count = count + $N`) and under the `excluded` pseudo-alias used by PostgreSQL
 /// and SQLite (for `excluded.col + $N`). MySQL `ON DUPLICATE KEY UPDATE` uses
 /// unqualified references, so only the direct exposure matters there.
-fn collect_on_conflict_params(
-    insert: &Insert,
-    table: &Table,
-    config: &ResolverConfig,
-    mapping: &mut HashMap<usize, (String, SqlType, bool)>,
-    query_name: &str,
-) {
+fn collect_on_conflict_params(insert: &Insert, table: &Table, config: &ResolverConfig, mapping: &mut ParamMapping, query_name: &str) {
+    let schema = Schema::with_tables(vec![table.clone()]);
+    let mut ctx = DmlCollectCtx { schema: &schema, config, mapping, query_name };
+    collect_on_conflict_params_in(insert, table, &mut ctx);
+}
+
+fn collect_on_conflict_params_in(insert: &Insert, table: &Table, ctx: &mut DmlCollectCtx<'_>) {
     // Expose the target table both unaliased (for unqualified refs) and under
     // the "excluded" pseudo-alias (for PostgreSQL/SQLite `excluded.col` refs).
     let all_tables = [(table.clone(), None), (table.clone(), Some("excluded".to_string()))];
     let alias_map = build_alias_map(&all_tables);
-    let ctx =
-        &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema: &Schema::with_tables(vec![table.clone()]), config, mapping, query_name };
+    let resolver_ctx = &mut ResolverContext {
+        alias_map: &alias_map,
+        all_tables: &all_tables,
+        schema: ctx.schema,
+        config: ctx.config,
+        mapping: ctx.mapping,
+        query_name: ctx.query_name,
+    };
 
     match &insert.on {
         Some(OnInsert::OnConflict(on_conflict)) => {
             let OnConflictAction::DoUpdate(do_update) = &on_conflict.action else { return };
             for assignment in &do_update.assignments {
-                collect_params_from_expr(&assignment.value, ctx);
+                collect_params_from_expr(&assignment.value, resolver_ctx);
             }
             if let Some(selection) = &do_update.selection {
-                collect_params_from_expr(selection, ctx);
+                collect_params_from_expr(selection, resolver_ctx);
             }
         },
         Some(OnInsert::DuplicateKeyUpdate(assignments)) => {
             for assignment in assignments {
-                collect_params_from_expr(&assignment.value, ctx);
+                collect_params_from_expr(&assignment.value, resolver_ctx);
             }
         },
         _ => {},
@@ -135,15 +156,14 @@ fn collect_on_conflict_params(
 ///   INSERT target column type.
 /// - SELECT: maps positional placeholders in the SELECT projection to the INSERT
 ///   target columns, then delegates WHERE/JOIN/HAVING inference to `collect_select_params`.
-pub(super) fn collect_insert_value_params(
-    ins: &Insert,
-    schema: &Schema,
-    config: &ResolverConfig,
-    mapping: &mut HashMap<usize, (String, SqlType, bool)>,
-    query_name: &str,
-) {
+pub(super) fn collect_insert_value_params(ins: &Insert, schema: &Schema, config: &ResolverConfig, mapping: &mut ParamMapping, query_name: &str) {
     let (ins_schema, table_name) = insert_table_ref(ins);
     let Some(table) = schema.find_table(ins_schema.as_deref(), &table_name, config.default_schema.as_deref()) else { return };
+    let mut ctx = DmlCollectCtx { schema, config, mapping, query_name };
+    collect_insert_value_params_in(ins, table, &mut ctx);
+}
+
+fn collect_insert_value_params_in(ins: &Insert, table: &Table, ctx: &mut DmlCollectCtx<'_>) {
     let col_names: Vec<String> = ins.columns.iter().map(ident_to_str).collect();
     let Some(source) = &ins.source else { return };
 
@@ -153,7 +173,7 @@ pub(super) fn collect_insert_value_params(
                 for (pos, val_expr) in row.iter().enumerate() {
                     if let Some(idx) = placeholder_idx_in_expr(val_expr) {
                         if let Some(col) = col_names.get(pos).and_then(|n| table.columns.iter().find(|c| &c.name == n)) {
-                            mapping.entry(idx).or_insert((col.name.clone(), col.sql_type.clone(), col.nullable));
+                            ctx.mapping.entry(idx).or_insert((col.name.clone(), col.sql_type.clone(), col.nullable));
                         }
                     }
                 }
@@ -168,12 +188,12 @@ pub(super) fn collect_insert_value_params(
                 };
                 if let Some(idx) = placeholder_idx_in_expr(expr) {
                     if let Some(col) = col_names.get(pos).and_then(|n| table.columns.iter().find(|c| &c.name == n)) {
-                        mapping.entry(idx).or_insert((col.name.clone(), col.sql_type.clone(), col.nullable));
+                        ctx.mapping.entry(idx).or_insert((col.name.clone(), col.sql_type.clone(), col.nullable));
                     }
                 }
             }
             // Type WHERE/JOIN/HAVING params from the SELECT's FROM tables.
-            collect_select_params(select, schema, config, &[], mapping, query_name);
+            collect_select_params(select, ctx.schema, ctx.config, &[], ctx.mapping, ctx.query_name);
         },
         _ => {},
     }
