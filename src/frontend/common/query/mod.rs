@@ -1,4 +1,5 @@
 mod annotations;
+mod dispatch;
 mod dml;
 mod params;
 mod resolve;
@@ -6,15 +7,12 @@ mod select;
 
 use std::collections::HashMap;
 
+use crate::frontend::common::{ident_to_str, obj_name_to_str, obj_schema_to_str};
+use crate::ir::{Column, NativeListBind, Parameter, Query, QueryCmd, ResultColumn, Schema, SqlType, Table};
 use sqlparser::ast::{
     Delete, Insert, JoinOperator, Query as SqlQuery, Select, SelectItem, SetExpr, Statement, TableAliasColumnDef, TableFactor, TableObject, TableWithJoins,
     UpdateTableFromKind, With,
 };
-use sqlparser::dialect::Dialect;
-use sqlparser::parser::Parser;
-
-use crate::frontend::common::{ident_to_str, named_params, obj_name_to_str, obj_schema_to_str};
-use crate::ir::{Column, NativeListBind, Parameter, Query, QueryCmd, ResultColumn, Schema, SqlType, Table};
 
 type UserFunctions = HashMap<String, Vec<(Vec<SqlType>, SqlType)>>;
 
@@ -25,13 +23,11 @@ type UserFunctions = HashMap<String, Vec<(Vec<SqlType>, SqlType)>>;
 /// [`NativeListBind`] backends must use, or `None` when native expansion is unavailable.
 type NativeListSqlFn = fn(&Parameter, &str) -> Option<(String, NativeListBind)>;
 
-use annotations::{split_into_blocks, QueryAnnotation};
-use dml::{
-    build_delete, build_insert, build_update, collect_delete_where_params, collect_insert_value_params, collect_returning_params, collect_update_params,
-};
+use annotations::QueryAnnotation;
+pub(crate) use dispatch::parse_queries_with_config;
+use dml::{collect_delete_where_params, collect_insert_value_params, collect_returning_params, collect_update_params};
 use params::{collect_limit_offset_params, collect_set_expr_params};
 use resolve::{resolve_expr, resolve_projection};
-use select::build_select;
 
 /// Dialect-agnostic type inference configuration.
 #[derive(Clone)]
@@ -111,86 +107,6 @@ pub(super) fn delete_table_ref(del: &Delete) -> Option<(Option<String>, String)>
         TableFactor::Table { name, .. } => Some((obj_schema_to_str(name), obj_name_to_str(name))),
         _ => None,
     })
-}
-
-pub(crate) fn parse_queries_with_config(dialect: &dyn Dialect, sql: &str, schema: &Schema, config: &ResolverConfig) -> anyhow::Result<Vec<Query>> {
-    let config = build_effective_config(config, schema);
-    let blocks = split_into_blocks(sql);
-    let queries = blocks
-        .into_iter()
-        .filter_map(|(ann, body)| {
-            let body = body.trim().trim_end_matches(';').trim();
-            match build_query_with_dialect(dialect, &ann, body, schema, &config) {
-                Ok(q) => Some(q),
-                Err(e) => {
-                    eprintln!("warning: cannot parse query {:?}: {e}", ann.name);
-                    None
-                },
-            }
-        })
-        .collect();
-    Ok(queries)
-}
-
-/// Produce a `ResolverConfig` augmented with user-defined functions from the schema.
-///
-/// The caller's config is used as the base; `user_functions` entries from the
-/// schema's `CREATE FUNCTION` statements are merged in, keyed by UPPERCASE name.
-fn build_effective_config(config: &ResolverConfig, schema: &Schema) -> ResolverConfig {
-    let mut user_functions = config.user_functions.clone();
-    for f in &schema.functions {
-        user_functions.entry(f.name.to_uppercase()).or_default().push((f.param_types.clone(), f.return_type.clone()));
-    }
-    ResolverConfig { user_functions, ..config.clone() }
-}
-
-// ─── Query building ──────────────────────────────────────────────────────────
-
-fn build_query_with_dialect(dialect: &dyn Dialect, ann: &QueryAnnotation, sql: &str, schema: &Schema, config: &ResolverConfig) -> anyhow::Result<Query> {
-    let (sql_buf, np) = match named_params::preprocess_named_params(sql) {
-        Some((rewritten, params)) => (rewritten, params),
-        // No named params: still strip comment lines so that the stored SQL can be
-        // safely collapsed to a single line in codegen (-- comments would eat the rest).
-        None => (named_params::strip_sql_comment_lines(sql), vec![]),
-    };
-    let sql = sql_buf.as_str();
-
-    let stmts = match Parser::parse_sql(dialect, sql) {
-        Ok(s) if !s.is_empty() => s,
-        _ => {
-            let mut query = unresolved_query(ann, sql);
-            named_params::apply_named_param_overrides(&mut query.params, &np);
-            return Ok(query);
-        },
-    };
-
-    let mut query = match &stmts[0] {
-        Statement::Query(q) => build_select(ann, sql, q, schema, config),
-        Statement::Insert(ins) => build_insert(ann, sql, ins, schema, config),
-        Statement::Update(u) => build_update(ann, sql, u, schema, config),
-        Statement::Delete(del) => build_delete(ann, sql, del, schema, config),
-        _ => unresolved_query(ann, sql),
-    };
-
-    named_params::apply_named_param_overrides(&mut query.params, &np);
-    apply_native_list_sql(&mut query, config);
-    Ok(query)
-}
-
-/// Populate `native_list_sql` and `native_list_bind` for each list parameter.
-///
-/// Called after parameter types and names are fully resolved. Only executes
-/// when `config.native_list_sql` is `Some`.
-fn apply_native_list_sql(query: &mut Query, config: &ResolverConfig) {
-    let Some(rewrite) = config.native_list_sql else { return };
-    for p in &mut query.params {
-        if p.is_list {
-            if let Some((sql, bind)) = rewrite(p, &query.sql) {
-                p.native_list_sql = Some(sql);
-                p.native_list_bind = Some(bind);
-            }
-        }
-    }
 }
 
 // ─── CTE parameter collection ────────────────────────────────────────────────
