@@ -32,15 +32,7 @@ pub(super) fn collect_select_params(
     let alias_map = build_alias_map(&all_tables);
     let ctx = &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping, query_name };
     if !all_tables.is_empty() {
-        if let Some(expr) = &select.selection {
-            collect_params_from_expr(expr, ctx);
-            mark_is_null_nullable(expr, ctx.mapping);
-        }
-        collect_join_params(select, ctx);
-        if let Some(expr) = &select.having {
-            collect_params_from_expr(expr, ctx);
-            mark_is_null_nullable(expr, ctx.mapping);
-        }
+        collect_select_filter_params(select, ctx);
     }
     collect_from_tvf_params(select, ctx);
     collect_projection_params(select, ctx);
@@ -503,17 +495,21 @@ fn collect_params_from_subquery(
     }
     let alias_map = build_alias_map(&all_tables);
     let ctx = &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping, query_name };
+    collect_select_filter_params(select, ctx);
+    collect_from_tvf_params(select, ctx);
+    collect_limit_offset_params(q, ctx.mapping);
+}
+
+fn collect_select_filter_params(select: &Select, ctx: &mut ResolverContext<'_>) {
     if let Some(expr) = &select.selection {
         collect_params_from_expr(expr, ctx);
         mark_is_null_nullable(expr, ctx.mapping);
     }
     collect_join_params(select, ctx);
-    collect_from_tvf_params(select, ctx);
     if let Some(expr) = &select.having {
         collect_params_from_expr(expr, ctx);
         mark_is_null_nullable(expr, ctx.mapping);
     }
-    collect_limit_offset_params(q, ctx.mapping);
 }
 
 /// Collect typed parameter mappings from JOIN ON conditions.
