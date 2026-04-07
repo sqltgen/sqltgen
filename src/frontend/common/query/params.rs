@@ -89,24 +89,8 @@ pub(super) fn collect_params_from_expr(expr: &Expr, ctx: &mut ResolverContext) {
         // same as regular equality. Both operands may legally be NULL so both
         // sides are walked and type inference is bidirectional.
         Expr::IsDistinctFrom(left, right) | Expr::IsNotDistinctFrom(left, right) => {
-            if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = right.as_ref() {
-                if let Some(idx) = placeholder_idx(p) {
-                    if !is_literal_expr(left) {
-                        if let Some(rc) = resolve_expr(left, ctx.alias_map, ctx.all_tables, ctx.config) {
-                            ctx.mapping.entry(idx).or_insert((rc.name, rc.sql_type, rc.nullable));
-                        }
-                    }
-                }
-            }
-            if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = left.as_ref() {
-                if let Some(idx) = placeholder_idx(p) {
-                    if !is_literal_expr(right) {
-                        if let Some(rc) = resolve_expr(right, ctx.alias_map, ctx.all_tables, ctx.config) {
-                            ctx.mapping.entry(idx).or_insert((rc.name, rc.sql_type, rc.nullable));
-                        }
-                    }
-                }
-            }
+            infer_placeholder_from_side(right, left, ctx);
+            infer_placeholder_from_side(left, right, ctx);
             collect_params_from_expr(left, ctx);
             collect_params_from_expr(right, ctx);
         },
@@ -117,13 +101,7 @@ pub(super) fn collect_params_from_expr(expr: &Expr, ctx: &mut ResolverContext) {
             // col IN ($1, $2, …) — infer param type from the expression being tested
             let resolved = resolve_expr(expr, ctx.alias_map, ctx.all_tables, ctx.config);
             for item in list {
-                if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = item {
-                    if let Some(idx) = placeholder_idx(p) {
-                        if let Some(rc) = &resolved {
-                            ctx.mapping.entry(idx).or_insert((rc.name.clone(), rc.sql_type.clone(), rc.nullable));
-                        }
-                    }
-                }
+                infer_placeholder_from_resolved(item, resolved.as_ref(), ctx);
                 collect_params_from_expr(item, ctx);
             }
             collect_params_from_expr(expr, ctx);
@@ -132,13 +110,7 @@ pub(super) fn collect_params_from_expr(expr: &Expr, ctx: &mut ResolverContext) {
             // col BETWEEN $1 AND $2 — infer both param types from the tested expression
             let resolved = resolve_expr(expr, ctx.alias_map, ctx.all_tables, ctx.config);
             for bound in [low.as_ref(), high.as_ref()] {
-                if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = bound {
-                    if let Some(idx) = placeholder_idx(p) {
-                        if let Some(rc) = &resolved {
-                            ctx.mapping.entry(idx).or_insert((rc.name.clone(), rc.sql_type.clone(), rc.nullable));
-                        }
-                    }
-                }
+                infer_placeholder_from_resolved(bound, resolved.as_ref(), ctx);
                 collect_params_from_expr(bound, ctx);
             }
             collect_params_from_expr(expr, ctx);
@@ -249,6 +221,13 @@ fn infer_placeholder_from_side(placeholder_side: &Expr, typed_side: &Expr, ctx: 
             }
         }
     }
+}
+
+fn infer_placeholder_from_resolved(expr: &Expr, resolved: Option<&crate::ir::ResultColumn>, ctx: &mut ResolverContext) {
+    let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = expr else { return };
+    let Some(idx) = placeholder_idx(p) else { return };
+    let Some(rc) = resolved else { return };
+    ctx.mapping.entry(idx).or_insert((rc.name.clone(), rc.sql_type.clone(), rc.nullable));
 }
 
 fn infer_cast_placeholder(expr: &Expr, data_type: &sqlparser::ast::DataType, ctx: &mut ResolverContext) {
