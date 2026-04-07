@@ -326,3 +326,64 @@ std::vector<GetBestCustomersRow> get_best_customers(sqlite3* db) {
     }
     return rows;
 }
+
+
+void Querier::create_author(const std::string& name, const std::optional<std::string>& bio, const std::optional<std::int32_t>& birth_year) {
+    return ::create_author(db_, name, bio, birth_year);
+}
+
+std::optional<Author> Querier::get_author(const std::int32_t& id) {
+    return ::get_author(db_, id);
+}
+
+std::vector<Author> Querier::list_authors() {
+    return ::list_authors(db_);
+}
+
+void Querier::create_book(const std::int32_t& author_id, const std::string& title, const std::string& genre, const double& price, const std::optional<std::string>& published_at) {
+    return ::create_book(db_, author_id, title, genre, price, published_at);
+}
+
+std::optional<Book> Querier::get_book(const std::int32_t& id) {
+    return ::get_book(db_, id);
+}
+
+std::vector<Book> Querier::get_books_by_ids(const std::vector<std::int64_t>& ids) {
+    return ::get_books_by_ids(db_, ids);
+}
+
+std::vector<Book> Querier::list_books_by_genre(const std::string& genre) {
+    return ::list_books_by_genre(db_, genre);
+}
+
+std::vector<Book> Querier::list_books_by_genre_or_all(const std::string& genre) {
+    return ::list_books_by_genre_or_all(db_, genre);
+}
+
+void Querier::create_customer(const std::string& name, const std::string& email) {
+    return ::create_customer(db_, name, email);
+}
+
+void Querier::create_sale(const std::int32_t& customer_id) {
+    return ::create_sale(db_, customer_id);
+}
+
+void Querier::add_sale_item(const std::int32_t& sale_id, const std::int32_t& book_id, const std::int32_t& quantity, const double& unit_price) {
+    return ::add_sale_item(db_, sale_id, book_id, quantity, unit_price);
+}
+
+std::vector<ListBooksWithAuthorRow> Querier::list_books_with_author() {
+    return ::list_books_with_author(db_);
+}
+
+std::vector<Book> Querier::get_books_never_ordered() {
+    return ::get_books_never_ordered(db_);
+}
+
+std::vector<GetTopSellingBooksRow> Querier::get_top_selling_books() {
+    return ::get_top_selling_books(db_);
+}
+
+std::vector<GetBestCustomersRow> Querier::get_best_customers() {
+    return ::get_best_customers(db_);
+}
