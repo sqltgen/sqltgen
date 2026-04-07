@@ -138,6 +138,14 @@ impl JavaTypeMap {
     /// For `Array(inner)`, generates a stream-map expression when the inner type needs
     /// per-element conversion, or `Arrays.asList` with a direct cast otherwise.
     pub(super) fn read_expr(&self, sql_type: &SqlType, nullable: bool, idx: usize) -> String {
+        if let SqlType::Enum(name) = sql_type {
+            let ty = to_pascal_case(name);
+            return if nullable {
+                format!("rs.getString({idx}) != null ? {ty}.fromValue(rs.getString({idx})) : null")
+            } else {
+                format!("{ty}.fromValue(rs.getString({idx}))")
+            };
+        }
         if let SqlType::Array(inner) = sql_type {
             let inner_entry = self.get(inner);
             let boxed = self.java_type_boxed(inner);
@@ -152,6 +160,9 @@ impl JavaTypeMap {
     /// When the type has a `write` expression, substitutes `{value}` with the camelCase param name.
     pub(super) fn write_expr(&self, p: &Parameter) -> String {
         let name = crate::backend::naming::to_camel_case(&p.name);
+        if matches!(&p.sql_type, SqlType::Enum(_)) {
+            return if p.nullable { format!("{name} != null ? {name}.getValue() : null") } else { format!("{name}.getValue()") };
+        }
         if let Some(expr) = &self.get(&p.sql_type).write {
             expr.replace("{value}", &name)
         } else {

@@ -4,7 +4,7 @@ data class Book(
     val id: Long,
     val authorId: Long,
     val title: String,
-    val genre: String,
+    val genre: Genre,
     val price: java.math.BigDecimal,
     val publishedAt: java.time.LocalDate?
 )

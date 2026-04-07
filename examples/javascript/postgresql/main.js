@@ -4,6 +4,7 @@ import * as path from 'path';
 
 import pg from 'pg';
 
+import { Genre } from './gen/models/genre.js';
 import * as queries from './gen/queries/index.js';
 
 // Parse BIGINT (OID 20) and BIGSERIAL as JS numbers rather than strings.
@@ -22,11 +23,11 @@ async function seed(db) {
   const asimov  = await queries.createAuthor(db, 'Isaac Asimov',      null,                                 1920);
   console.log(`[pg] inserted 3 authors (ids: ${leGuin.id}, ${herbert.id}, ${asimov.id})`);
 
-  const lhod  = await queries.createBook(db, leGuin.id,  'The Left Hand of Darkness', 'sci-fi', 12.99, null);
-  const disp  = await queries.createBook(db, leGuin.id,  'The Dispossessed',           'sci-fi', 11.50, null);
-  const dune  = await queries.createBook(db, herbert.id, 'Dune',                       'sci-fi', 14.99, null);
-  const found = await queries.createBook(db, asimov.id,  'Foundation',                 'sci-fi', 10.99, null);
-  await queries.createBook(db, asimov.id, 'The Caves of Steel', 'sci-fi', 9.99, null);
+  const lhod  = await queries.createBook(db, leGuin.id,  'The Left Hand of Darkness', Genre.FICTION,  12.99, null);
+  const disp  = await queries.createBook(db, leGuin.id,  'The Dispossessed',           Genre.FICTION,  11.50, null);
+  const dune  = await queries.createBook(db, herbert.id, 'Dune',                       Genre.SCIENCE,  14.99, null);
+  const found = await queries.createBook(db, asimov.id,  'Foundation',                 Genre.SCIENCE,  10.99, null);
+  await queries.createBook(db, asimov.id, 'The Caves of Steel', Genre.FICTION,  9.99, null);
   console.log('[pg] inserted 5 books');
 
   void disp;
@@ -53,13 +54,13 @@ async function query(db) {
   console.log(`[pg] getBooksByIds([1,3]): ${byIds.length} row(s)`);
   for (const b of byIds) console.log(`  "${b.title}"`);
 
-  const scifi = await queries.listBooksByGenre(db, 'sci-fi');
-  console.log(`[pg] listBooksByGenre(sci-fi): ${scifi.length} row(s)`);
+  const scifi = await queries.listBooksByGenre(db, Genre.SCIENCE);
+  console.log(`[pg] listBooksByGenre(science): ${scifi.length} row(s)`);
 
-  const allBooks = await queries.listBooksByGenreOrAll(db, 'all');
-  console.log(`[pg] listBooksByGenreOrAll(all): ${allBooks.length} row(s) (repeated-param demo)`);
-  const scifi2 = await queries.listBooksByGenreOrAll(db, 'sci-fi');
-  console.log(`[pg] listBooksByGenreOrAll(sci-fi): ${scifi2.length} row(s)`);
+  const allBooks = await queries.listBooksByGenreOrAll(db, null);
+  console.log(`[pg] listBooksByGenreOrAll(null): ${allBooks.length} row(s) (nullable-param demo)`);
+  const scifi2 = await queries.listBooksByGenreOrAll(db, Genre.SCIENCE);
+  console.log(`[pg] listBooksByGenreOrAll(science): ${scifi2.length} row(s)`);
 
   console.log('[pg] listBooksWithAuthor:');
   for (const r of await queries.listBooksWithAuthor(db)) {

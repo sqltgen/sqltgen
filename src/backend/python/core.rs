@@ -49,6 +49,15 @@ pub(super) fn generate_core_files(
         }
         imports.write(&mut src)?;
 
+        // Import any enum types referenced by this table's columns.
+        let mut enum_imports: BTreeSet<String> = BTreeSet::new();
+        for col in &table.columns {
+            crate::backend::common::collect_enum_names_from_type(&col.sql_type, &mut enum_imports);
+        }
+        for name in &enum_imports {
+            writeln!(src, "from .{name} import {}", to_pascal_case(name))?;
+        }
+
         writeln!(src)?;
         writeln!(src)?;
         writeln!(src, "@dataclasses.dataclass")?;

@@ -2,6 +2,7 @@ package com.example.db.queries;
 
 import com.example.db.models.Author;
 import com.example.db.models.Book;
+import com.example.db.models.Genre;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.List;
@@ -45,7 +46,7 @@ public final class Querier {
         }
     }
 
-    public Optional<Book> createBook(long authorId, String title, String genre, java.math.BigDecimal price, java.time.LocalDate publishedAt) throws SQLException {
+    public Optional<Book> createBook(long authorId, String title, Genre genre, java.math.BigDecimal price, java.time.LocalDate publishedAt) throws SQLException {
         try (Connection conn = dataSource.getConnection()) {
             return Queries.createBook(conn, authorId, title, genre, price, publishedAt);
         }
@@ -63,13 +64,13 @@ public final class Querier {
         }
     }
 
-    public List<Book> listBooksByGenre(String genre) throws SQLException {
+    public List<Book> listBooksByGenre(Genre genre) throws SQLException {
         try (Connection conn = dataSource.getConnection()) {
             return Queries.listBooksByGenre(conn, genre);
         }
     }
 
-    public List<Book> listBooksByGenreOrAll(String genre) throws SQLException {
+    public List<Book> listBooksByGenreOrAll(Genre genre) throws SQLException {
         try (Connection conn = dataSource.getConnection()) {
             return Queries.listBooksByGenreOrAll(conn, genre);
         }

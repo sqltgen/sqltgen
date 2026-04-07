@@ -7,6 +7,8 @@ import { releaseDb } from '../sqltgen.js';
 /** @typedef {import('../models/author.js').Author} Author */
 /** @typedef {import('../models/book.js').Book} Book */
 
+/** @typedef {import('../models/genre.js').Genre} Genre */
+
 const SQL_CREATE_AUTHOR = `INSERT INTO author (name, bio, birth_year)
 VALUES ($1, $2, $3)
 RETURNING *`;
@@ -36,7 +38,7 @@ WHERE genre = $1
 ORDER BY title`;
 const SQL_LIST_BOOKS_BY_GENRE_OR_ALL = `SELECT id, author_id, title, genre, price, published_at
 FROM book
-WHERE $1 = 'all' OR genre = $1
+WHERE ($1 IS NULL OR genre = $1)
 ORDER BY title`;
 const SQL_CREATE_CUSTOMER = `INSERT INTO customer (name, email)
 VALUES ($1, $2)
@@ -142,7 +144,7 @@ export async function deleteAuthor(db, id) {
  * @param {Db} db
  * @param {number} authorId
  * @param {string} title
- * @param {string} genre
+ * @param {Genre} genre
  * @param {number} price
  * @param {Date | null} publishedAt
  * @returns {Promise<Book | null>}
@@ -174,7 +176,7 @@ export async function getBooksByIds(db, ids) {
 
 /**
  * @param {Db} db
- * @param {string} genre
+ * @param {Genre} genre
  * @returns {Promise<Book[]>}
  */
 export async function listBooksByGenre(db, genre) {
@@ -184,7 +186,7 @@ export async function listBooksByGenre(db, genre) {
 
 /**
  * @param {Db} db
- * @param {string} genre
+ * @param {Genre | null} genre
  * @returns {Promise<Book[]>}
  */
 export async function listBooksByGenreOrAll(db, genre) {
@@ -239,7 +241,7 @@ export async function addSaleItem(db, saleId, bookId, quantity, unitPrice) {
  * @typedef {Object} ListBooksWithAuthorRow
  * @property {number} id
  * @property {string} title
- * @property {string} genre
+ * @property {Genre} genre
  * @property {number} price
  * @property {Date | null} published_at
  * @property {string} author_name
@@ -268,7 +270,7 @@ export async function getBooksNeverOrdered(db) {
  * @typedef {Object} GetTopSellingBooksRow
  * @property {number} id
  * @property {string} title
- * @property {string} genre
+ * @property {Genre} genre
  * @property {number} price
  * @property {number | null} units_sold
  */

@@ -5,6 +5,7 @@ from pathlib import Path
 
 import psycopg
 
+from gen.models.genre import Genre
 from gen.queries import queries
 
 _HOST = "localhost"
@@ -19,11 +20,11 @@ def seed(conn: psycopg.Connection) -> None:
     asimov  = queries.create_author(conn, "Isaac Asimov",      None,                                  1920)
     print(f"[pg] inserted 3 authors (ids: {le_guin.id}, {herbert.id}, {asimov.id})")
 
-    lhod  = queries.create_book(conn, le_guin.id, "The Left Hand of Darkness", "sci-fi", decimal.Decimal("12.99"), None)
-    disp  = queries.create_book(conn, le_guin.id, "The Dispossessed",           "sci-fi", decimal.Decimal("11.50"), None)
-    dune  = queries.create_book(conn, herbert.id, "Dune",                       "sci-fi", decimal.Decimal("14.99"), None)
-    found = queries.create_book(conn, asimov.id,  "Foundation",                 "sci-fi", decimal.Decimal("10.99"), None)
-    _caves = queries.create_book(conn, asimov.id, "The Caves of Steel",         "sci-fi", decimal.Decimal("9.99"),  None)
+    lhod  = queries.create_book(conn, le_guin.id, "The Left Hand of Darkness", Genre.FICTION,  decimal.Decimal("12.99"), None)
+    disp  = queries.create_book(conn, le_guin.id, "The Dispossessed",           Genre.FICTION,  decimal.Decimal("11.50"), None)
+    dune  = queries.create_book(conn, herbert.id, "Dune",                       Genre.SCIENCE,  decimal.Decimal("14.99"), None)
+    found = queries.create_book(conn, asimov.id,  "Foundation",                 Genre.SCIENCE,  decimal.Decimal("10.99"), None)
+    _caves = queries.create_book(conn, asimov.id, "The Caves of Steel",         Genre.FICTION,  decimal.Decimal("9.99"),  None)
     print("[pg] inserted 5 books")
 
     alice = queries.create_customer(conn, "Alice", "alice@example.com")
@@ -49,13 +50,13 @@ def query(conn: psycopg.Connection) -> None:
     for b in by_ids:
         print(f'  "{b.title}"')
 
-    scifi = queries.list_books_by_genre(conn, "sci-fi")
-    print(f"[pg] listBooksByGenre(sci-fi): {len(scifi)} row(s)")
+    scifi = queries.list_books_by_genre(conn, Genre.SCIENCE)
+    print(f"[pg] listBooksByGenre(science): {len(scifi)} row(s)")
 
-    all_books = queries.list_books_by_genre_or_all(conn, "all")
-    print(f"[pg] listBooksByGenreOrAll(all): {len(all_books)} row(s) (repeated-param demo)")
-    scifi2 = queries.list_books_by_genre_or_all(conn, "sci-fi")
-    print(f"[pg] listBooksByGenreOrAll(sci-fi): {len(scifi2)} row(s)")
+    all_books = queries.list_books_by_genre_or_all(conn, None)
+    print(f"[pg] listBooksByGenreOrAll(null): {len(all_books)} row(s) (nullable-param demo)")
+    scifi2 = queries.list_books_by_genre_or_all(conn, Genre.SCIENCE)
+    print(f"[pg] listBooksByGenreOrAll(science): {len(scifi2)} row(s)")
 
     print("[pg] listBooksWithAuthor:")
     for r in queries.list_books_with_author(conn):

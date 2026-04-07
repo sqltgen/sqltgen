@@ -3,6 +3,7 @@ package com.example.db.queries
 import java.sql.Connection
 import com.example.db.models.Author
 import com.example.db.models.Book
+import com.example.db.models.Genre
 
 object Queries {
 
@@ -92,16 +93,16 @@ object Queries {
         VALUES (?, ?, ?, ?, ?)
         RETURNING *;
     """.trimIndent()
-    fun createBook(conn: Connection, authorId: Long, title: String, genre: String, price: java.math.BigDecimal, publishedAt: java.time.LocalDate?): Book? {
+    fun createBook(conn: Connection, authorId: Long, title: String, genre: Genre, price: java.math.BigDecimal, publishedAt: java.time.LocalDate?): Book? {
         conn.prepareStatement(SQL_CREATE_BOOK).use { ps ->
             ps.setLong(1, authorId)
             ps.setString(2, title)
-            ps.setString(3, genre)
+            ps.setObject(3, genre.value)
             ps.setBigDecimal(4, price)
             ps.setObject(5, publishedAt)
             ps.executeQuery().use { rs ->
                 if (!rs.next()) return null
-                return Book(rs.getLong(1), rs.getLong(2), rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getObject(6, java.time.LocalDate::class.java))
+                return Book(rs.getLong(1), rs.getLong(2), rs.getString(3), Genre.fromValue(rs.getString(4)), rs.getBigDecimal(5), rs.getObject(6, java.time.LocalDate::class.java))
             }
         }
     }
@@ -116,7 +117,7 @@ object Queries {
             ps.setLong(1, id)
             ps.executeQuery().use { rs ->
                 if (!rs.next()) return null
-                return Book(rs.getLong(1), rs.getLong(2), rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getObject(6, java.time.LocalDate::class.java))
+                return Book(rs.getLong(1), rs.getLong(2), rs.getString(3), Genre.fromValue(rs.getString(4)), rs.getBigDecimal(5), rs.getObject(6, java.time.LocalDate::class.java))
             }
         }
     }
@@ -133,7 +134,7 @@ object Queries {
             ps.setArray(1, arr)
             val rows = mutableListOf<Book>()
             ps.executeQuery().use { rs ->
-                while (rs.next()) rows.add(Book(rs.getLong(1), rs.getLong(2), rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getObject(6, java.time.LocalDate::class.java)))
+                while (rs.next()) rows.add(Book(rs.getLong(1), rs.getLong(2), rs.getString(3), Genre.fromValue(rs.getString(4)), rs.getBigDecimal(5), rs.getObject(6, java.time.LocalDate::class.java)))
             }
             return rows
         }
@@ -145,12 +146,12 @@ object Queries {
         WHERE genre = ?
         ORDER BY title;
     """.trimIndent()
-    fun listBooksByGenre(conn: Connection, genre: String): List<Book> {
+    fun listBooksByGenre(conn: Connection, genre: Genre): List<Book> {
         conn.prepareStatement(SQL_LIST_BOOKS_BY_GENRE).use { ps ->
-            ps.setString(1, genre)
+            ps.setObject(1, genre.value)
             val rows = mutableListOf<Book>()
             ps.executeQuery().use { rs ->
-                while (rs.next()) rows.add(Book(rs.getLong(1), rs.getLong(2), rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getObject(6, java.time.LocalDate::class.java)))
+                while (rs.next()) rows.add(Book(rs.getLong(1), rs.getLong(2), rs.getString(3), Genre.fromValue(rs.getString(4)), rs.getBigDecimal(5), rs.getObject(6, java.time.LocalDate::class.java)))
             }
             return rows
         }
@@ -159,16 +160,16 @@ object Queries {
     private val SQL_LIST_BOOKS_BY_GENRE_OR_ALL = """
         SELECT id, author_id, title, genre, price, published_at
         FROM book
-        WHERE ? = 'all' OR genre = ?
+        WHERE (? IS NULL OR genre = ?)
         ORDER BY title;
     """.trimIndent()
-    fun listBooksByGenreOrAll(conn: Connection, genre: String): List<Book> {
+    fun listBooksByGenreOrAll(conn: Connection, genre: Genre?): List<Book> {
         conn.prepareStatement(SQL_LIST_BOOKS_BY_GENRE_OR_ALL).use { ps ->
-            ps.setString(1, genre)
-            ps.setString(2, genre)
+            ps.setObject(1, genre?.value)
+            ps.setObject(2, genre?.value)
             val rows = mutableListOf<Book>()
             ps.executeQuery().use { rs ->
-                while (rs.next()) rows.add(Book(rs.getLong(1), rs.getLong(2), rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getObject(6, java.time.LocalDate::class.java)))
+                while (rs.next()) rows.add(Book(rs.getLong(1), rs.getLong(2), rs.getString(3), Genre.fromValue(rs.getString(4)), rs.getBigDecimal(5), rs.getObject(6, java.time.LocalDate::class.java)))
             }
             return rows
         }
@@ -230,7 +231,7 @@ object Queries {
     data class ListBooksWithAuthorRow(
         val id: Long,
         val title: String,
-        val genre: String,
+        val genre: Genre,
         val price: java.math.BigDecimal,
         val publishedAt: java.time.LocalDate?,
         val authorName: String,
@@ -248,7 +249,7 @@ object Queries {
         conn.prepareStatement(SQL_LIST_BOOKS_WITH_AUTHOR).use { ps ->
             val rows = mutableListOf<ListBooksWithAuthorRow>()
             ps.executeQuery().use { rs ->
-                while (rs.next()) rows.add(ListBooksWithAuthorRow(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getBigDecimal(4), rs.getObject(5, java.time.LocalDate::class.java), rs.getString(6), rs.getString(7)))
+                while (rs.next()) rows.add(ListBooksWithAuthorRow(rs.getLong(1), rs.getString(2), Genre.fromValue(rs.getString(3)), rs.getBigDecimal(4), rs.getObject(5, java.time.LocalDate::class.java), rs.getString(6), rs.getString(7)))
             }
             return rows
         }
@@ -265,7 +266,7 @@ object Queries {
         conn.prepareStatement(SQL_GET_BOOKS_NEVER_ORDERED).use { ps ->
             val rows = mutableListOf<Book>()
             ps.executeQuery().use { rs ->
-                while (rs.next()) rows.add(Book(rs.getLong(1), rs.getLong(2), rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getObject(6, java.time.LocalDate::class.java)))
+                while (rs.next()) rows.add(Book(rs.getLong(1), rs.getLong(2), rs.getString(3), Genre.fromValue(rs.getString(4)), rs.getBigDecimal(5), rs.getObject(6, java.time.LocalDate::class.java)))
             }
             return rows
         }
@@ -274,7 +275,7 @@ object Queries {
     data class GetTopSellingBooksRow(
         val id: Long,
         val title: String,
-        val genre: String,
+        val genre: Genre,
         val price: java.math.BigDecimal,
         val unitsSold: Long?
     )
@@ -296,7 +297,7 @@ object Queries {
         conn.prepareStatement(SQL_GET_TOP_SELLING_BOOKS).use { ps ->
             val rows = mutableListOf<GetTopSellingBooksRow>()
             ps.executeQuery().use { rs ->
-                while (rs.next()) rows.add(GetTopSellingBooksRow(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getBigDecimal(4), getNullableLong(rs, 5)))
+                while (rs.next()) rows.add(GetTopSellingBooksRow(rs.getLong(1), rs.getString(2), Genre.fromValue(rs.getString(3)), rs.getBigDecimal(4), getNullableLong(rs, 5)))
             }
             return rows
         }

@@ -6,6 +6,8 @@ import { releaseDb } from '../sqltgen';
 import type { Author } from '../models/author';
 import type { Book } from '../models/book';
 
+import type { Genre } from '../models/genre';
+
 const SQL_CREATE_AUTHOR = `INSERT INTO author (name, bio, birth_year)
 VALUES ($1, $2, $3)
 RETURNING *`;
@@ -35,7 +37,7 @@ WHERE genre = $1
 ORDER BY title`;
 const SQL_LIST_BOOKS_BY_GENRE_OR_ALL = `SELECT id, author_id, title, genre, price, published_at
 FROM book
-WHERE $1 = 'all' OR genre = $1
+WHERE ($1 IS NULL OR genre = $1)
 ORDER BY title`;
 const SQL_CREATE_CUSTOMER = `INSERT INTO customer (name, email)
 VALUES ($1, $2)
@@ -109,7 +111,7 @@ export async function deleteAuthor(db: Db, id: number): Promise<DeleteAuthorRow 
   return result.rows[0] ?? null;
 }
 
-export async function createBook(db: Db, authorId: number, title: string, genre: string, price: number, publishedAt: Date | null): Promise<Book | null> {
+export async function createBook(db: Db, authorId: number, title: string, genre: Genre, price: number, publishedAt: Date | null): Promise<Book | null> {
   const result = await db.query<Book>(SQL_CREATE_BOOK, [authorId, title, genre, price, publishedAt]);
   return result.rows[0] ?? null;
 }
@@ -124,12 +126,12 @@ export async function getBooksByIds(db: Db, ids: number[]): Promise<Book[]> {
   return result.rows;
 }
 
-export async function listBooksByGenre(db: Db, genre: string): Promise<Book[]> {
+export async function listBooksByGenre(db: Db, genre: Genre): Promise<Book[]> {
   const result = await db.query<Book>(SQL_LIST_BOOKS_BY_GENRE, [genre]);
   return result.rows;
 }
 
-export async function listBooksByGenreOrAll(db: Db, genre: string): Promise<Book[]> {
+export async function listBooksByGenreOrAll(db: Db, genre: Genre | null): Promise<Book[]> {
   const result = await db.query<Book>(SQL_LIST_BOOKS_BY_GENRE_OR_ALL, [genre]);
   return result.rows;
 }
@@ -159,7 +161,7 @@ export async function addSaleItem(db: Db, saleId: number, bookId: number, quanti
 export interface ListBooksWithAuthorRow {
   id: number;
   title: string;
-  genre: string;
+  genre: Genre;
   price: number;
   published_at: Date | null;
   author_name: string;
@@ -179,7 +181,7 @@ export async function getBooksNeverOrdered(db: Db): Promise<Book[]> {
 export interface GetTopSellingBooksRow {
   id: number;
   title: string;
-  genre: string;
+  genre: Genre;
   price: number;
   units_sold: number | null;
 }
@@ -249,7 +251,7 @@ export class Querier {
     }
   }
 
-  async createBook(authorId: number, title: string, genre: string, price: number, publishedAt: Date | null): Promise<Book | null> {
+  async createBook(authorId: number, title: string, genre: Genre, price: number, publishedAt: Date | null): Promise<Book | null> {
     const db = await this.connect();
     try {
       return createBook(db, authorId, title, genre, price, publishedAt);
@@ -276,7 +278,7 @@ export class Querier {
     }
   }
 
-  async listBooksByGenre(genre: string): Promise<Book[]> {
+  async listBooksByGenre(genre: Genre): Promise<Book[]> {
     const db = await this.connect();
     try {
       return listBooksByGenre(db, genre);
@@ -285,7 +287,7 @@ export class Querier {
     }
   }
 
-  async listBooksByGenreOrAll(genre: string): Promise<Book[]> {
+  async listBooksByGenreOrAll(genre: Genre | null): Promise<Book[]> {
     const db = await this.connect();
     try {
       return listBooksByGenreOrAll(db, genre);

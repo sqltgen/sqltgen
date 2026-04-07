@@ -2,6 +2,7 @@ use super::super::sqltgen::DbPool;
 
 use super::super::models::author::Author;
 use super::super::models::book::Book;
+use super::super::models::genre::Genre;
 
 #[derive(Debug, sqlx::FromRow)]
 pub struct DeleteAuthorRow {
@@ -23,7 +24,7 @@ pub struct CreateSaleRow {
 pub struct ListBooksWithAuthorRow {
     pub id: i64,
     pub title: String,
-    pub genre: String,
+    pub genre: Genre,
     pub price: rust_decimal::Decimal,
     pub published_at: Option<time::Date>,
     pub author_name: String,
@@ -34,7 +35,7 @@ pub struct ListBooksWithAuthorRow {
 pub struct GetTopSellingBooksRow {
     pub id: i64,
     pub title: String,
-    pub genre: String,
+    pub genre: Genre,
     pub price: rust_decimal::Decimal,
     pub units_sold: Option<i64>,
 }
@@ -107,7 +108,7 @@ pub async fn delete_author(pool: &DbPool, id: i64) -> Result<Option<DeleteAuthor
         .await
 }
 
-pub async fn create_book(pool: &DbPool, author_id: i64, title: String, genre: String, price: rust_decimal::Decimal, published_at: Option<time::Date>) -> Result<Option<Book>, sqlx::Error> {
+pub async fn create_book(pool: &DbPool, author_id: i64, title: String, genre: Genre, price: rust_decimal::Decimal, published_at: Option<time::Date>) -> Result<Option<Book>, sqlx::Error> {
     let sql = r##"
         INSERT INTO book (author_id, title, genre, price, published_at)
         VALUES ($1, $2, $3, $4, $5)
@@ -148,7 +149,7 @@ pub async fn get_books_by_ids(pool: &DbPool, ids: &[i64]) -> Result<Vec<Book>, s
         .await
 }
 
-pub async fn list_books_by_genre(pool: &DbPool, genre: String) -> Result<Vec<Book>, sqlx::Error> {
+pub async fn list_books_by_genre(pool: &DbPool, genre: Genre) -> Result<Vec<Book>, sqlx::Error> {
     let sql = r##"
         SELECT id, author_id, title, genre, price, published_at
         FROM book
@@ -161,11 +162,11 @@ pub async fn list_books_by_genre(pool: &DbPool, genre: String) -> Result<Vec<Boo
         .await
 }
 
-pub async fn list_books_by_genre_or_all(pool: &DbPool, genre: String) -> Result<Vec<Book>, sqlx::Error> {
+pub async fn list_books_by_genre_or_all(pool: &DbPool, genre: Option<Genre>) -> Result<Vec<Book>, sqlx::Error> {
     let sql = r##"
         SELECT id, author_id, title, genre, price, published_at
         FROM book
-        WHERE $1 = 'all' OR genre = $1
+        WHERE ($1 IS NULL OR genre = $1)
         ORDER BY title
     "##;
     sqlx::query_as::<_, Book>(sql)
@@ -308,7 +309,7 @@ impl<'a> Querier<'a> {
         delete_author(self.pool, id).await
     }
 
-    pub async fn create_book(&self, author_id: i64, title: String, genre: String, price: rust_decimal::Decimal, published_at: Option<time::Date>) -> Result<Option<Book>, sqlx::Error> {
+    pub async fn create_book(&self, author_id: i64, title: String, genre: Genre, price: rust_decimal::Decimal, published_at: Option<time::Date>) -> Result<Option<Book>, sqlx::Error> {
         create_book(self.pool, author_id, title, genre, price, published_at).await
     }
 
@@ -320,11 +321,11 @@ impl<'a> Querier<'a> {
         get_books_by_ids(self.pool, ids).await
     }
 
-    pub async fn list_books_by_genre(&self, genre: String) -> Result<Vec<Book>, sqlx::Error> {
+    pub async fn list_books_by_genre(&self, genre: Genre) -> Result<Vec<Book>, sqlx::Error> {
         list_books_by_genre(self.pool, genre).await
     }
 
-    pub async fn list_books_by_genre_or_all(&self, genre: String) -> Result<Vec<Book>, sqlx::Error> {
+    pub async fn list_books_by_genre_or_all(&self, genre: Option<Genre>) -> Result<Vec<Book>, sqlx::Error> {
         list_books_by_genre_or_all(self.pool, genre).await
     }
 

@@ -14,6 +14,7 @@ Connection = psycopg.Connection
 
 from ..models.author import Author
 from ..models.book import Book
+from ..models.genre import Genre
 
 SQL_CREATE_AUTHOR = """\
 INSERT INTO author (name, bio, birth_year)
@@ -63,7 +64,7 @@ ORDER BY title
 SQL_LIST_BOOKS_BY_GENRE_OR_ALL = """\
 SELECT id, author_id, title, genre, price, published_at
 FROM book
-WHERE %s = 'all' OR genre = %s
+WHERE (%s IS NULL OR genre = %s)
 ORDER BY title
 """
 SQL_CREATE_CUSTOMER = """\
@@ -166,7 +167,7 @@ def delete_author(conn: Connection, id: int) -> DeleteAuthorRow | None:
         return DeleteAuthorRow(*row)
 
 
-def create_book(conn: Connection, author_id: int, title: str, genre: str, price: decimal.Decimal, published_at: datetime.date | None) -> Book | None:
+def create_book(conn: Connection, author_id: int, title: str, genre: Genre, price: decimal.Decimal, published_at: datetime.date | None) -> Book | None:
     with execute(conn, SQL_CREATE_BOOK, (author_id, title, genre, price, published_at)) as cur:
         row = cur.fetchone()
         if row is None:
@@ -187,12 +188,12 @@ def get_books_by_ids(conn: Connection, ids: list[int]) -> list[Book]:
         return [Book(*row) for row in cur.fetchall()]
 
 
-def list_books_by_genre(conn: Connection, genre: str) -> list[Book]:
+def list_books_by_genre(conn: Connection, genre: Genre) -> list[Book]:
     with execute(conn, SQL_LIST_BOOKS_BY_GENRE, (genre,)) as cur:
         return [Book(*row) for row in cur.fetchall()]
 
 
-def list_books_by_genre_or_all(conn: Connection, genre: str) -> list[Book]:
+def list_books_by_genre_or_all(conn: Connection, genre: Genre | None) -> list[Book]:
     with execute(conn, SQL_LIST_BOOKS_BY_GENRE_OR_ALL, (genre, genre)) as cur:
         return [Book(*row) for row in cur.fetchall()]
 
@@ -231,7 +232,7 @@ def add_sale_item(conn: Connection, sale_id: int, book_id: int, quantity: int, u
 class ListBooksWithAuthorRow:
     id: int
     title: str
-    genre: str
+    genre: Genre
     price: decimal.Decimal
     published_at: datetime.date | None
     author_name: str
@@ -252,7 +253,7 @@ def get_books_never_ordered(conn: Connection) -> list[Book]:
 class GetTopSellingBooksRow:
     id: int
     title: str
-    genre: str
+    genre: Genre
     price: decimal.Decimal
     units_sold: int | None
 
@@ -299,7 +300,7 @@ class Querier:
         with closing(self._connect()) as conn:
             return delete_author(conn, id)
 
-    def create_book(self, author_id: int, title: str, genre: str, price: decimal.Decimal, published_at: datetime.date | None) -> Book | None:
+    def create_book(self, author_id: int, title: str, genre: Genre, price: decimal.Decimal, published_at: datetime.date | None) -> Book | None:
         with closing(self._connect()) as conn:
             return create_book(conn, author_id, title, genre, price, published_at)
 
@@ -311,11 +312,11 @@ class Querier:
         with closing(self._connect()) as conn:
             return get_books_by_ids(conn, ids)
 
-    def list_books_by_genre(self, genre: str) -> list[Book]:
+    def list_books_by_genre(self, genre: Genre) -> list[Book]:
         with closing(self._connect()) as conn:
             return list_books_by_genre(conn, genre)
 
-    def list_books_by_genre_or_all(self, genre: str) -> list[Book]:
+    def list_books_by_genre_or_all(self, genre: Genre | None) -> list[Book]:
         with closing(self._connect()) as conn:
             return list_books_by_genre_or_all(conn, genre)
 
