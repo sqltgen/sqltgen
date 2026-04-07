@@ -28,7 +28,7 @@ pub(super) fn cpp_type(sql_type: &SqlType, nullable: bool) -> String {
         SqlType::Uuid => "std::string".to_string(),
         SqlType::Json | SqlType::Jsonb => "std::string".to_string(),
         SqlType::Array(inner) => format!("std::vector<{}>", cpp_type(inner, false)),
-        SqlType::Custom(_) => "std::string".to_string(),
+        SqlType::Enum(_) | SqlType::Custom(_) => "std::string".to_string(),
     };
 
     if nullable {
@@ -68,6 +68,7 @@ impl CppIncludes {
             | SqlType::Uuid
             | SqlType::Json
             | SqlType::Jsonb
+            | SqlType::Enum(_)
             | SqlType::Custom(_) => {
                 self.set.insert("<string>");
             },
