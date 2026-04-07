@@ -3,13 +3,14 @@ mod dispatch;
 mod dml;
 mod params;
 mod resolve;
+mod returning;
 mod select;
 mod utils;
 
 use std::collections::HashMap;
 
 use crate::frontend::common::{ident_to_str, obj_name_to_str, obj_schema_to_str};
-use crate::ir::{Column, NativeListBind, Parameter, Query, QueryCmd, ResultColumn, Schema, SqlType, Table};
+use crate::ir::{Column, NativeListBind, Parameter, Query, QueryCmd, Schema, SqlType, Table};
 use sqlparser::ast::{
     Delete, Insert, JoinOperator, Query as SqlQuery, Select, SelectItem, SetExpr, Statement, TableAliasColumnDef, TableFactor, TableObject, TableWithJoins,
     UpdateTableFromKind, With,
@@ -29,6 +30,7 @@ pub(crate) use dispatch::parse_queries_with_config;
 use dml::{collect_delete_where_params, collect_insert_value_params, collect_returning_params, collect_update_params};
 use params::{collect_limit_offset_params, collect_set_expr_params};
 use resolve::{resolve_expr, resolve_projection};
+pub(super) use returning::resolve_returning;
 pub(super) use utils::{build_params, count_params, placeholder_idx, unresolved_query};
 
 /// Dialect-agnostic type inference configuration.
@@ -394,33 +396,6 @@ pub(super) fn build_cte_scope(with: Option<&With>, schema: &Schema, config: &Res
         }
     }
     ctes
-}
-
-// ─── RETURNING ────────────────────────────────────────────────────────────────
-
-pub(super) fn resolve_returning(items: &[SelectItem], table: &Table, config: &ResolverConfig) -> Vec<ResultColumn> {
-    let all_tables = [(table.clone(), None)];
-    let alias_map = build_alias_map(&all_tables);
-    let mut result = Vec::new();
-    for item in items {
-        match item {
-            SelectItem::Wildcard(_) => {
-                result.extend(table.columns.iter().map(ResultColumn::from));
-            },
-            SelectItem::UnnamedExpr(expr) => {
-                if let Some(rc) = resolve_expr(expr, &alias_map, &all_tables, config) {
-                    result.push(rc);
-                }
-            },
-            SelectItem::ExprWithAlias { expr, alias } => {
-                if let Some(rc) = resolve_expr(expr, &alias_map, &all_tables, config) {
-                    result.push(ResultColumn { name: ident_to_str(alias), ..rc });
-                }
-            },
-            _ => {},
-        }
-    }
-    result
 }
 
 #[cfg(test)]
