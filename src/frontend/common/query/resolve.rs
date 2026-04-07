@@ -18,6 +18,12 @@ use crate::ir::{ResultColumn, Schema, SqlType, Table};
 
 use super::ResolverConfig;
 
+struct ResolveScope<'a> {
+    alias_map: &'a HashMap<String, &'a Table>,
+    all_tables: &'a [(Table, Option<String>)],
+    config: &'a ResolverConfig,
+}
+
 /// Resolve a SELECT projection into typed result columns.
 pub(super) fn resolve_projection(
     select: &Select,
@@ -115,30 +121,35 @@ pub(super) fn resolve_expr(
     all_tables: &[(Table, Option<String>)],
     config: &ResolverConfig,
 ) -> Option<ResultColumn> {
+    let scope = ResolveScope { alias_map, all_tables, config };
+    resolve_expr_in(expr, &scope)
+}
+
+fn resolve_expr_in(expr: &Expr, scope: &ResolveScope<'_>) -> Option<ResultColumn> {
     match expr {
         // ── Column references ────────────────────────────────────────────
         Expr::Identifier(ident) => {
             let col_name = ident_to_str(ident);
-            all_tables.iter().flat_map(|(t, _)| t.columns.iter()).find(|c| c.name == col_name).map(ResultColumn::from)
+            scope.all_tables.iter().flat_map(|(t, _)| t.columns.iter()).find(|c| c.name == col_name).map(ResultColumn::from)
         },
         Expr::CompoundIdentifier(parts) if parts.len() >= 2 => {
             let qualifier = ident_to_str(&parts[parts.len() - 2]);
             let col_name = ident_to_str(&parts[parts.len() - 1]);
-            alias_map.get(&qualifier).and_then(|t| t.columns.iter().find(|c| c.name == col_name)).map(ResultColumn::from)
+            scope.alias_map.get(&qualifier).and_then(|t| t.columns.iter().find(|c| c.name == col_name)).map(ResultColumn::from)
         },
 
         // ── Literals ─────────────────────────────────────────────────────
         Expr::Value(ValueWithSpan { value, .. }) => resolve_literal(value),
 
         // ── Parenthesized expression ─────────────────────────────────────
-        Expr::Nested(inner) => resolve_expr(inner, alias_map, all_tables, config),
+        Expr::Nested(inner) => resolve_expr_in(inner, scope),
 
         // ── Arithmetic operators ─────────────────────────────────────────
         Expr::BinaryOp {
             left,
             op: BinaryOperator::Plus | BinaryOperator::Minus | BinaryOperator::Multiply | BinaryOperator::Divide | BinaryOperator::Modulo,
             right,
-        } => resolve_binary_arithmetic(left, right, alias_map, all_tables, config),
+        } => resolve_binary_arithmetic(left, right, scope),
 
         // ── String concatenation (||) ────────────────────────────────────
         Expr::BinaryOp { op: BinaryOperator::StringConcat, .. } => Some(ResultColumn::nullable("concat", SqlType::Text)),
@@ -176,23 +187,23 @@ pub(super) fn resolve_expr(
 
         // ── Unary operators ──────────────────────────────────────────────
         Expr::UnaryOp { op: UnaryOperator::Not, .. } => Some(ResultColumn::not_nullable("not", SqlType::Boolean)),
-        Expr::UnaryOp { op: UnaryOperator::Minus, expr } => resolve_expr(expr, alias_map, all_tables, config),
-        Expr::UnaryOp { op: UnaryOperator::Plus, expr } => resolve_expr(expr, alias_map, all_tables, config),
+        Expr::UnaryOp { op: UnaryOperator::Minus, expr } => resolve_expr_in(expr, scope),
+        Expr::UnaryOp { op: UnaryOperator::Plus, expr } => resolve_expr_in(expr, scope),
 
         // ── CAST(expr AS type) ───────────────────────────────────────────
         Expr::Cast { data_type, expr, .. } => {
-            let sql_type = (config.typemap)(data_type);
-            let inner = resolve_expr(expr, alias_map, all_tables, config);
+            let sql_type = (scope.config.typemap)(data_type);
+            let inner = resolve_expr_in(expr, scope);
             let nullable = inner.as_ref().is_none_or(|rc| rc.nullable);
             let name = inner.map_or_else(|| cast_name(data_type), |rc| rc.name);
             Some(ResultColumn { name, sql_type, nullable })
         },
 
         // ── CASE WHEN … THEN … END ──────────────────────────────────────
-        Expr::Case { conditions, else_result, .. } => resolve_case(conditions, else_result.as_deref(), alias_map, all_tables, config),
+        Expr::Case { conditions, else_result, .. } => resolve_case(conditions, else_result.as_deref(), scope),
 
         // ── Functions ────────────────────────────────────────────────────
-        Expr::Function(func) => resolve_function(func, alias_map, all_tables, config),
+        Expr::Function(func) => resolve_function(func, scope),
 
         _ => None,
     }
@@ -221,14 +232,8 @@ fn resolve_literal(value: &Value) -> Option<ResultColumn> {
 }
 
 /// Resolve arithmetic binary ops with numeric widening.
-fn resolve_binary_arithmetic(
-    left: &Expr,
-    right: &Expr,
-    alias_map: &HashMap<String, &Table>,
-    all_tables: &[(Table, Option<String>)],
-    config: &ResolverConfig,
-) -> Option<ResultColumn> {
-    match (resolve_expr(left, alias_map, all_tables, config), resolve_expr(right, alias_map, all_tables, config)) {
+fn resolve_binary_arithmetic(left: &Expr, right: &Expr, scope: &ResolveScope<'_>) -> Option<ResultColumn> {
+    match (resolve_expr_in(left, scope), resolve_expr_in(right, scope)) {
         (Some(l), Some(r)) => {
             Some(ResultColumn { name: l.name.clone(), sql_type: numeric_wider(&l.sql_type, &r.sql_type), nullable: l.nullable || r.nullable })
         },
@@ -240,19 +245,13 @@ fn resolve_binary_arithmetic(
 
 /// Resolve CASE expressions: type comes from first THEN branch (or ELSE), nullable
 /// if any branch is nullable or an ELSE is absent.
-fn resolve_case(
-    conditions: &[sqlparser::ast::CaseWhen],
-    else_result: Option<&Expr>,
-    alias_map: &HashMap<String, &Table>,
-    all_tables: &[(Table, Option<String>)],
-    config: &ResolverConfig,
-) -> Option<ResultColumn> {
+fn resolve_case(conditions: &[sqlparser::ast::CaseWhen], else_result: Option<&Expr>, scope: &ResolveScope<'_>) -> Option<ResultColumn> {
     // Try each THEN branch, then ELSE; use the first resolvable one.
     let mut resolved: Option<ResultColumn> = None;
     let mut any_nullable = else_result.is_none(); // no ELSE means NULL is possible
 
     for cw in conditions {
-        if let Some(rc) = resolve_expr(&cw.result, alias_map, all_tables, config) {
+        if let Some(rc) = resolve_expr_in(&cw.result, scope) {
             any_nullable = any_nullable || rc.nullable;
             if resolved.is_none() {
                 resolved = Some(rc);
@@ -260,7 +259,7 @@ fn resolve_case(
         }
     }
     if let Some(el) = else_result {
-        if let Some(rc) = resolve_expr(el, alias_map, all_tables, config) {
+        if let Some(rc) = resolve_expr_in(el, scope) {
             any_nullable = any_nullable || rc.nullable;
             if resolved.is_none() {
                 resolved = Some(rc);
@@ -276,33 +275,28 @@ pub(super) fn cast_name(dt: &DataType) -> String {
 }
 
 /// Resolve function calls: aggregates, string, math, date, and conditional functions.
-fn resolve_function(
-    func: &sqlparser::ast::Function,
-    alias_map: &HashMap<String, &Table>,
-    all_tables: &[(Table, Option<String>)],
-    config: &ResolverConfig,
-) -> Option<ResultColumn> {
+fn resolve_function(func: &sqlparser::ast::Function, scope: &ResolveScope<'_>) -> Option<ResultColumn> {
     let fname =
         func.name.0.last().and_then(|p| if let ObjectNamePart::Identifier(i) = p { Some(ident_to_str(i)) } else { None }).unwrap_or_default().to_uppercase();
 
     match fname.as_str() {
         // ── Aggregates ───────────────────────────────────────────────
         "COUNT" => Some(ResultColumn::not_nullable("count", SqlType::BigInt)),
-        "SUM" => resolve_func_first_arg(func, alias_map, all_tables, config).map(|rc| {
+        "SUM" => resolve_func_first_arg(func, scope).map(|rc| {
             // Integer inputs are widened to avoid overflow; other types are preserved.
             let promoted = match rc.sql_type {
-                SqlType::SmallInt | SqlType::Integer => config.sum_integer_type.clone(),
-                SqlType::BigInt => config.sum_bigint_type.clone(),
+                SqlType::SmallInt | SqlType::Integer => scope.config.sum_integer_type.clone(),
+                SqlType::BigInt => scope.config.sum_bigint_type.clone(),
                 other => other,
             };
             ResultColumn { sql_type: promoted, nullable: true, ..rc }
         }),
-        "MIN" | "MAX" => resolve_func_first_arg(func, alias_map, all_tables, config).map(|rc| ResultColumn { nullable: true, ..rc }),
-        "AVG" => resolve_func_first_arg(func, alias_map, all_tables, config).map(|rc| {
+        "MIN" | "MAX" => resolve_func_first_arg(func, scope).map(|rc| ResultColumn { nullable: true, ..rc }),
+        "AVG" => resolve_func_first_arg(func, scope).map(|rc| {
             // Averaging integers produces a fractional result; widen to the
             // dialect-specific fractional type (Decimal for PG, Double for MySQL/SQLite).
             let promoted = match rc.sql_type {
-                SqlType::SmallInt | SqlType::Integer | SqlType::BigInt => config.avg_integer_type.clone(),
+                SqlType::SmallInt | SqlType::Integer | SqlType::BigInt => scope.config.avg_integer_type.clone(),
                 other => other,
             };
             ResultColumn { sql_type: promoted, nullable: true, ..rc }
@@ -321,7 +315,7 @@ fn resolve_function(
 
         // ── Math functions → propagate type or return Double ─────────
         "ABS" | "CEIL" | "CEILING" | "FLOOR" | "ROUND" | "TRUNC" | "TRUNCATE" | "SIGN" => {
-            resolve_func_first_arg(func, alias_map, all_tables, config).map(|rc| ResultColumn { nullable: true, ..rc })
+            resolve_func_first_arg(func, scope).map(|rc| ResultColumn { nullable: true, ..rc })
         },
         "SQRT" | "CBRT" | "EXP" | "LN" | "LOG" | "LOG2" | "LOG10" | "POWER" | "POW" | "RANDOM" | "PI" | "DEGREES" | "RADIANS" | "SIN" | "COS" | "TAN"
         | "ASIN" | "ACOS" | "ATAN" | "ATAN2" => Some(ResultColumn { name: fname.to_lowercase(), sql_type: SqlType::Double, nullable: true }),
@@ -335,10 +329,10 @@ fn resolve_function(
         "CURRENT_TIME" | "LOCALTIME" => Some(ResultColumn::not_nullable("time", SqlType::Time)),
 
         // ── Conditional / null-handling ───────────────────────────────
-        "COALESCE" => resolve_coalesce(func, alias_map, all_tables, config),
-        "NULLIF" => resolve_func_first_arg(func, alias_map, all_tables, config).map(|rc| ResultColumn { nullable: true, ..rc }),
-        "IFNULL" => resolve_func_first_arg(func, alias_map, all_tables, config).map(|rc| ResultColumn { nullable: false, ..rc }),
-        "GREATEST" | "LEAST" => resolve_func_first_arg(func, alias_map, all_tables, config).map(|rc| ResultColumn { nullable: true, ..rc }),
+        "COALESCE" => resolve_coalesce(func, scope),
+        "NULLIF" => resolve_func_first_arg(func, scope).map(|rc| ResultColumn { nullable: true, ..rc }),
+        "IFNULL" => resolve_func_first_arg(func, scope).map(|rc| ResultColumn { nullable: false, ..rc }),
+        "GREATEST" | "LEAST" => resolve_func_first_arg(func, scope).map(|rc| ResultColumn { nullable: true, ..rc }),
 
         // ── Type-probing functions ───────────────────────────────────
         "TYPEOF" => Some(ResultColumn::not_nullable("typeof", SqlType::Text)),
@@ -356,11 +350,9 @@ fn resolve_function(
         // ── Window functions that return integers ────────────────────
         "ROW_NUMBER" | "RANK" | "DENSE_RANK" | "NTILE" => Some(ResultColumn { name: fname.to_lowercase(), sql_type: SqlType::BigInt, nullable: false }),
         "CUME_DIST" | "PERCENT_RANK" => Some(ResultColumn { name: fname.to_lowercase(), sql_type: SqlType::Double, nullable: false }),
-        "LAG" | "LEAD" | "FIRST_VALUE" | "LAST_VALUE" | "NTH_VALUE" => {
-            resolve_func_first_arg(func, alias_map, all_tables, config).map(|rc| ResultColumn { nullable: true, ..rc })
-        },
+        "LAG" | "LEAD" | "FIRST_VALUE" | "LAST_VALUE" | "NTH_VALUE" => resolve_func_first_arg(func, scope).map(|rc| ResultColumn { nullable: true, ..rc }),
 
-        _ => resolve_udf(func, &fname, config),
+        _ => resolve_udf(func, &fname, scope.config),
     }
 }
 
@@ -377,33 +369,23 @@ fn resolve_udf(func: &sqlparser::ast::Function, fname: &str, config: &ResolverCo
 }
 
 /// Extract the first argument from a function and resolve its type.
-fn resolve_func_first_arg(
-    func: &sqlparser::ast::Function,
-    alias_map: &HashMap<String, &Table>,
-    all_tables: &[(Table, Option<String>)],
-    config: &ResolverConfig,
-) -> Option<ResultColumn> {
+fn resolve_func_first_arg(func: &sqlparser::ast::Function, scope: &ResolveScope<'_>) -> Option<ResultColumn> {
     if let FunctionArguments::List(arg_list) = &func.args {
         if let Some(FunctionArg::Unnamed(FunctionArgExpr::Expr(inner))) = arg_list.args.first() {
-            return resolve_expr(inner, alias_map, all_tables, config);
+            return resolve_expr_in(inner, scope);
         }
     }
     None
 }
 
 /// Resolve COALESCE: type from first argument, nullable only if all arguments are nullable.
-fn resolve_coalesce(
-    func: &sqlparser::ast::Function,
-    alias_map: &HashMap<String, &Table>,
-    all_tables: &[(Table, Option<String>)],
-    config: &ResolverConfig,
-) -> Option<ResultColumn> {
+fn resolve_coalesce(func: &sqlparser::ast::Function, scope: &ResolveScope<'_>) -> Option<ResultColumn> {
     let FunctionArguments::List(arg_list) = &func.args else { return None };
     let mut first: Option<ResultColumn> = None;
     let mut all_nullable = true;
     for arg in &arg_list.args {
         if let FunctionArg::Unnamed(FunctionArgExpr::Expr(inner)) = arg {
-            if let Some(rc) = resolve_expr(inner, alias_map, all_tables, config) {
+            if let Some(rc) = resolve_expr_in(inner, scope) {
                 if !rc.nullable {
                     all_nullable = false;
                 }
