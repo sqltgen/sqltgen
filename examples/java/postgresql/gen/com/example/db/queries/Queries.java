@@ -104,7 +104,7 @@ public final class Queries {
         try (PreparedStatement ps = conn.prepareStatement(SQL_CREATE_BOOK)) {
             ps.setLong(1, authorId);
             ps.setString(2, title);
-            ps.setObject(3, genre.getValue());
+            ps.setObject(3, genre.getValue(), java.sql.Types.OTHER);
             ps.setBigDecimal(4, price);
             ps.setObject(5, publishedAt);
             try (ResultSet rs = ps.executeQuery()) {
@@ -155,7 +155,7 @@ public final class Queries {
             """;
     public static List<Book> listBooksByGenre(Connection conn, Genre genre) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_LIST_BOOKS_BY_GENRE)) {
-            ps.setObject(1, genre.getValue());
+            ps.setObject(1, genre.getValue(), java.sql.Types.OTHER);
             List<Book> rows = new ArrayList<>();
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) rows.add(new Book(rs.getLong(1), rs.getLong(2), rs.getString(3), Genre.fromValue(rs.getString(4)), rs.getBigDecimal(5), rs.getObject(6, java.time.LocalDate.class)));
@@ -167,13 +167,13 @@ public final class Queries {
     private static final String SQL_LIST_BOOKS_BY_GENRE_OR_ALL = """
             SELECT id, author_id, title, genre, price, published_at
             FROM book
-            WHERE (? IS NULL OR genre = ?)
+            WHERE (?::genre IS NULL OR genre = ?::genre)
             ORDER BY title;
             """;
     public static List<Book> listBooksByGenreOrAll(Connection conn, Genre genre) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_LIST_BOOKS_BY_GENRE_OR_ALL)) {
-            ps.setObject(1, genre != null ? genre.getValue() : null);
-            ps.setObject(2, genre != null ? genre.getValue() : null);
+            ps.setObject(1, genre != null ? genre.getValue() : null, java.sql.Types.OTHER);
+            ps.setObject(2, genre != null ? genre.getValue() : null, java.sql.Types.OTHER);
             List<Book> rows = new ArrayList<>();
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) rows.add(new Book(rs.getLong(1), rs.getLong(2), rs.getString(3), Genre.fromValue(rs.getString(4)), rs.getBigDecimal(5), rs.getObject(6, java.time.LocalDate.class)));

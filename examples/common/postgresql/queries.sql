@@ -51,7 +51,7 @@ ORDER BY title;
 -- The @genre param appears twice in the WHERE clause, exercising the bind-plan fix.
 SELECT id, author_id, title, genre, price, published_at
 FROM book
-WHERE (@genre IS NULL OR genre = @genre)
+WHERE (@genre::genre IS NULL OR genre = @genre::genre)
 ORDER BY title;
 
 -- name: CreateCustomer :one

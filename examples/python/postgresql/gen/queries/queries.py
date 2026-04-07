@@ -64,7 +64,7 @@ ORDER BY title
 SQL_LIST_BOOKS_BY_GENRE_OR_ALL = """\
 SELECT id, author_id, title, genre, price, published_at
 FROM book
-WHERE (%s IS NULL OR genre = %s)
+WHERE (%s::genre IS NULL OR genre = %s::genre)
 ORDER BY title
 """
 SQL_CREATE_CUSTOMER = """\

@@ -37,7 +37,7 @@ WHERE genre = $1
 ORDER BY title`;
 const SQL_LIST_BOOKS_BY_GENRE_OR_ALL = `SELECT id, author_id, title, genre, price, published_at
 FROM book
-WHERE ($1 IS NULL OR genre = $1)
+WHERE ($1::genre IS NULL OR genre = $1::genre)
 ORDER BY title`;
 const SQL_CREATE_CUSTOMER = `INSERT INTO customer (name, email)
 VALUES ($1, $2)

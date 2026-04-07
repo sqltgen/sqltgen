@@ -164,6 +164,8 @@ where
                     }
                 },
             }
+        } else if matches!(p.sql_type, SqlType::Enum(_)) {
+            writeln!(src, "            ps.setObject({jdbc_idx}, {}, java.sql.Types.OTHER){se}", scalar_value_expr(p))?;
         } else if p.nullable {
             writeln!(src, "            ps.setObject({jdbc_idx}, {}){se}", scalar_value_expr(p))?;
         } else {

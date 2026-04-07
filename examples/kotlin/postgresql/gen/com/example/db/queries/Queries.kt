@@ -97,7 +97,7 @@ object Queries {
         conn.prepareStatement(SQL_CREATE_BOOK).use { ps ->
             ps.setLong(1, authorId)
             ps.setString(2, title)
-            ps.setObject(3, genre.value)
+            ps.setObject(3, genre.value, java.sql.Types.OTHER)
             ps.setBigDecimal(4, price)
             ps.setObject(5, publishedAt)
             ps.executeQuery().use { rs ->
@@ -148,7 +148,7 @@ object Queries {
     """.trimIndent()
     fun listBooksByGenre(conn: Connection, genre: Genre): List<Book> {
         conn.prepareStatement(SQL_LIST_BOOKS_BY_GENRE).use { ps ->
-            ps.setObject(1, genre.value)
+            ps.setObject(1, genre.value, java.sql.Types.OTHER)
             val rows = mutableListOf<Book>()
             ps.executeQuery().use { rs ->
                 while (rs.next()) rows.add(Book(rs.getLong(1), rs.getLong(2), rs.getString(3), Genre.fromValue(rs.getString(4)), rs.getBigDecimal(5), rs.getObject(6, java.time.LocalDate::class.java)))
@@ -160,13 +160,13 @@ object Queries {
     private val SQL_LIST_BOOKS_BY_GENRE_OR_ALL = """
         SELECT id, author_id, title, genre, price, published_at
         FROM book
-        WHERE (? IS NULL OR genre = ?)
+        WHERE (?::genre IS NULL OR genre = ?::genre)
         ORDER BY title;
     """.trimIndent()
     fun listBooksByGenreOrAll(conn: Connection, genre: Genre?): List<Book> {
         conn.prepareStatement(SQL_LIST_BOOKS_BY_GENRE_OR_ALL).use { ps ->
-            ps.setObject(1, genre?.value)
-            ps.setObject(2, genre?.value)
+            ps.setObject(1, genre?.value, java.sql.Types.OTHER)
+            ps.setObject(2, genre?.value, java.sql.Types.OTHER)
             val rows = mutableListOf<Book>()
             ps.executeQuery().use { rs ->
                 while (rs.next()) rows.add(Book(rs.getLong(1), rs.getLong(2), rs.getString(3), Genre.fromValue(rs.getString(4)), rs.getBigDecimal(5), rs.getObject(6, java.time.LocalDate::class.java)))

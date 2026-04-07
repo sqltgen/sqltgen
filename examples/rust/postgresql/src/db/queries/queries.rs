@@ -166,7 +166,7 @@ pub async fn list_books_by_genre_or_all(pool: &DbPool, genre: Option<Genre>) -> 
     let sql = r##"
         SELECT id, author_id, title, genre, price, published_at
         FROM book
-        WHERE ($1 IS NULL OR genre = $1)
+        WHERE ($1::genre IS NULL OR genre = $1::genre)
         ORDER BY title
     "##;
     sqlx::query_as::<_, Book>(sql)
