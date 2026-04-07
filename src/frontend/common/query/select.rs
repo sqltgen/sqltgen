@@ -27,21 +27,31 @@ struct WildcardSourceScope<'a> {
     default_schema: Option<&'a str>,
 }
 
+struct SelectBuildScope<'a> {
+    schema: &'a Schema,
+    config: &'a ResolverConfig,
+    ctes: &'a [Table],
+}
+
 /// Build a [`Query`] from a `Statement::Query` node (SELECT, set operation, or
 /// data-modifying CTE whose outer body is an INSERT/UPDATE).
 pub(super) fn build_select(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, schema: &Schema, config: &ResolverConfig) -> Query {
     let ctes = build_cte_scope(q.with.as_ref(), schema, config);
+    let scope = SelectBuildScope { schema, config, ctes: &ctes };
     match q.body.as_ref() {
-        SetExpr::Select(select) => build_select_body(ann, sql, q, select, schema, config, &ctes),
+        SetExpr::Select(select) => build_select_body(ann, sql, q, select, &scope),
         SetExpr::Insert(Statement::Insert(ins)) => build_query_from_insert(ann, sql, q, ins, schema, config),
         SetExpr::Update(Statement::Update(u)) => build_query_from_update(ann, sql, q, u, schema, config),
-        SetExpr::SetOperation { .. } => build_set_operation(ann, sql, q, q.body.as_ref(), schema, config, &ctes),
+        SetExpr::SetOperation { .. } => build_set_operation(ann, sql, q, q.body.as_ref(), &scope),
         _ => unresolved_query(ann, sql),
     }
 }
 
 /// Handle `Statement::Query` where the body is a plain `SELECT` (with optional CTEs).
-fn build_select_body(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, select: &Select, schema: &Schema, config: &ResolverConfig, ctes: &[Table]) -> Query {
+fn build_select_body(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, select: &Select, scope: &SelectBuildScope<'_>) -> Query {
+    let schema = scope.schema;
+    let config = scope.config;
+    let ctes = scope.ctes;
     let all_tables = collect_from_tables(select, schema, ctes, config);
     let alias_map = build_alias_map(&all_tables);
     let result_columns = resolve_projection(select, &alias_map, &all_tables, config, schema);
@@ -193,10 +203,13 @@ pub(super) fn build_source_provenance(
 ///
 /// Result columns come from the leftmost SELECT branch (per SQL standard).
 /// Parameters are collected recursively from all branches.
-fn build_set_operation(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, body: &SetExpr, schema: &Schema, config: &ResolverConfig, ctes: &[Table]) -> Query {
+fn build_set_operation(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, body: &SetExpr, scope: &SelectBuildScope<'_>) -> Query {
+    let schema = scope.schema;
+    let config = scope.config;
+    let ctes = scope.ctes;
     // Resolve result columns from all SELECT branches, then keep the leftmost
     // names/types while widening nullability across branches positionally.
-    let branch_columns = resolve_set_branch_columns(body, schema, config, ctes);
+    let branch_columns = resolve_set_branch_columns(body, scope);
     let mut result_columns = branch_columns.first().cloned().unwrap_or_default();
     for cols in branch_columns.iter().skip(1) {
         for (left, right) in result_columns.iter_mut().zip(cols.iter()) {
@@ -241,7 +254,10 @@ fn leftmost_select(expr: &SetExpr) -> Option<&Select> {
 }
 
 /// Resolve projection columns for each SELECT branch in a set-expression tree.
-fn resolve_set_branch_columns(expr: &SetExpr, schema: &Schema, config: &ResolverConfig, ctes: &[Table]) -> Vec<Vec<ResultColumn>> {
+fn resolve_set_branch_columns(expr: &SetExpr, scope: &SelectBuildScope<'_>) -> Vec<Vec<ResultColumn>> {
+    let schema = scope.schema;
+    let config = scope.config;
+    let ctes = scope.ctes;
     let mut selects = Vec::new();
     collect_set_selects(expr, &mut selects);
     selects
