@@ -13,7 +13,7 @@ use sqlparser::ast::{
 
 use crate::ir::{Schema, SqlType, Table};
 
-use super::resolve::{cast_name, resolve_expr};
+use super::resolve::{cast_name, function_name_upper, resolve_expr};
 use super::{build_alias_map, collect_cte_params, collect_from_tables, placeholder_idx, ResolverConfig, ResolverContext};
 
 /// Collect typed parameter mappings from a single `SELECT` clause.
@@ -281,7 +281,7 @@ fn infer_cast_placeholder(expr: &Expr, data_type: &sqlparser::ast::DataType, ctx
 
 fn collect_function_params(func: &sqlparser::ast::Function, ctx: &mut ResolverContext) {
     let FunctionArguments::List(arg_list) = &func.args else { return };
-    let func_name = func.name.0.last().and_then(|p| if let sqlparser::ast::ObjectNamePart::Identifier(i) = p { Some(i.value.to_uppercase()) } else { None });
+    let func_name = function_name_upper(func);
     let is_coalesce = matches!(func_name.as_deref(), Some("COALESCE" | "IFNULL" | "NULLIF" | "NVL"));
 
     // For COALESCE-family functions, infer placeholder types from the first

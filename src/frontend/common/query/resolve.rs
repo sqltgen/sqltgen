@@ -274,10 +274,13 @@ pub(super) fn cast_name(dt: &DataType) -> String {
     format!("{dt}").to_lowercase().replace(' ', "_")
 }
 
+pub(super) fn function_name_upper(func: &sqlparser::ast::Function) -> Option<String> {
+    func.name.0.last().and_then(|p| if let ObjectNamePart::Identifier(i) = p { Some(ident_to_str(i).to_uppercase()) } else { None })
+}
+
 /// Resolve function calls: aggregates, string, math, date, and conditional functions.
 fn resolve_function(func: &sqlparser::ast::Function, scope: &ResolveScope<'_>) -> Option<ResultColumn> {
-    let fname =
-        func.name.0.last().and_then(|p| if let ObjectNamePart::Identifier(i) = p { Some(ident_to_str(i)) } else { None }).unwrap_or_default().to_uppercase();
+    let fname = function_name_upper(func).unwrap_or_default();
 
     resolve_aggregate_function(func, &fname, scope)
         .or_else(|| resolve_string_function(&fname))
