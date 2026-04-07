@@ -26,7 +26,7 @@ FROM author
 WHERE id = $1
 )sql";
 
-std::optional<Author> get_author(sqlite3* db, const std::int32_t& id);
+std::optional<Author> get_author(sqlite3* db, std::int32_t id);
 
 
 inline const std::string SQL_LIST_AUTHORS = R"sql(
@@ -43,7 +43,7 @@ INSERT INTO book (author_id, title, genre, price, published_at)
 VALUES ($1, $2, $3, $4, $5)
 )sql";
 
-void create_book(sqlite3* db, const std::int32_t& author_id, const std::string& title, const std::string& genre, const double& price, const std::optional<std::string>& published_at);
+void create_book(sqlite3* db, std::int32_t author_id, const std::string& title, const std::string& genre, double price, const std::optional<std::string>& published_at);
 
 
 inline const std::string SQL_GET_BOOK = R"sql(
@@ -52,7 +52,7 @@ FROM book
 WHERE id = $1
 )sql";
 
-std::optional<Book> get_book(sqlite3* db, const std::int32_t& id);
+std::optional<Book> get_book(sqlite3* db, std::int32_t id);
 
 
 inline const std::string SQL_GET_BOOKS_BY_IDS = R"sql(
@@ -98,7 +98,7 @@ INSERT INTO sale (customer_id)
 VALUES ($1)
 )sql";
 
-void create_sale(sqlite3* db, const std::int32_t& customer_id);
+void create_sale(sqlite3* db, std::int32_t customer_id);
 
 
 inline const std::string SQL_ADD_SALE_ITEM = R"sql(
@@ -106,7 +106,7 @@ INSERT INTO sale_item (sale_id, book_id, quantity, unit_price)
 VALUES ($1, $2, $3, $4)
 )sql";
 
-void add_sale_item(sqlite3* db, const std::int32_t& sale_id, const std::int32_t& book_id, const std::int32_t& quantity, const double& unit_price);
+void add_sale_item(sqlite3* db, std::int32_t sale_id, std::int32_t book_id, std::int32_t quantity, double unit_price);
 
 
 struct ListBooksWithAuthorRow {
@@ -197,13 +197,13 @@ public:
 
     void create_author(const std::string& name, const std::optional<std::string>& bio, const std::optional<std::int32_t>& birth_year);
 
-    std::optional<Author> get_author(const std::int32_t& id);
+    std::optional<Author> get_author(std::int32_t id);
 
     std::vector<Author> list_authors();
 
-    void create_book(const std::int32_t& author_id, const std::string& title, const std::string& genre, const double& price, const std::optional<std::string>& published_at);
+    void create_book(std::int32_t author_id, const std::string& title, const std::string& genre, double price, const std::optional<std::string>& published_at);
 
-    std::optional<Book> get_book(const std::int32_t& id);
+    std::optional<Book> get_book(std::int32_t id);
 
     std::vector<Book> get_books_by_ids(const std::vector<std::int64_t>& ids);
 
@@ -213,9 +213,9 @@ public:
 
     void create_customer(const std::string& name, const std::string& email);
 
-    void create_sale(const std::int32_t& customer_id);
+    void create_sale(std::int32_t customer_id);
 
-    void add_sale_item(const std::int32_t& sale_id, const std::int32_t& book_id, const std::int32_t& quantity, const double& unit_price);
+    void add_sale_item(std::int32_t sale_id, std::int32_t book_id, std::int32_t quantity, double unit_price);
 
     std::vector<ListBooksWithAuthorRow> list_books_with_author();
 

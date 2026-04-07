@@ -13,6 +13,7 @@ use super::adapter::{CppCoreContract, CppParamStyle, CppQueryContext};
 
 // ─── Type mappings ─────────────────────────────────────────────────────────────
 
+/// Map a SQL type to its C++ representation. Wraps in `std::optional` when nullable.
 pub(super) fn cpp_type(sql_type: &SqlType, nullable: bool) -> String {
     let base = match sql_type {
         SqlType::Boolean => "bool".to_string(),
@@ -46,6 +47,7 @@ struct CppIncludes {
 }
 
 impl CppIncludes {
+    /// Record the standard-library headers required by `sql_type`.
     fn scan(&mut self, sql_type: &SqlType, nullable: bool) {
         if nullable {
             self.set.insert("<optional>");
@@ -152,6 +154,7 @@ fn query_return_type(query: &Query, schema: &Schema) -> String {
 
 // ─── Table header generation - .hpp ──────────────────────────────────────────────────────
 
+/// Emit a complete `.hpp` header for a single table struct.
 fn emit_table_header(table: &Table, namespace: &str) -> anyhow::Result<String> {
     let mut src = String::new();
     let struct_name = to_pascal_case(&table.name);
@@ -188,6 +191,7 @@ fn emit_table_header(table: &Table, namespace: &str) -> anyhow::Result<String> {
     Ok(src)
 }
 
+/// Generate one `.hpp` model header per table in the schema.
 pub(super) fn generate_table_files(schema: &Schema, config: &OutputConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let mut files = Vec::new();
 
@@ -222,101 +226,105 @@ pub(super) fn result_row_type(query: &Query, schema: &Schema) -> String {
     infer_row_type_name(query, schema).unwrap_or_else(|| "std::string".to_string())
 }
 
+/// C++ keywords and reserved identifiers that must not be used as variable names.
+const CPP_KEYWORDS: &[&str] = &[
+    "alignas",
+    "alignof",
+    "and",
+    "and_eq",
+    "asm",
+    "auto",
+    "bitand",
+    "bitor",
+    "bool",
+    "break",
+    "case",
+    "catch",
+    "char",
+    "class",
+    "compl",
+    "concept",
+    "const",
+    "consteval",
+    "constexpr",
+    "constinit",
+    "const_cast",
+    "continue",
+    "co_await",
+    "co_return",
+    "co_yield",
+    "decltype",
+    "default",
+    "delete",
+    "do",
+    "double",
+    "dynamic_cast",
+    "else",
+    "enum",
+    "explicit",
+    "export",
+    "extern",
+    "false",
+    "float",
+    "for",
+    "friend",
+    "goto",
+    "if",
+    "inline",
+    "int",
+    "long",
+    "mutable",
+    "namespace",
+    "new",
+    "noexcept",
+    "not",
+    "not_eq",
+    "nullptr",
+    "operator",
+    "or",
+    "or_eq",
+    "private",
+    "protected",
+    "public",
+    "register",
+    "reinterpret_cast",
+    "requires",
+    "return",
+    "short",
+    "signed",
+    "sizeof",
+    "static",
+    "static_assert",
+    "static_cast",
+    "struct",
+    "switch",
+    "template",
+    "this",
+    "thread_local",
+    "throw",
+    "true",
+    "try",
+    "typedef",
+    "typeid",
+    "typename",
+    "union",
+    "unsigned",
+    "using",
+    "virtual",
+    "void",
+    "volatile",
+    "wchar_t",
+    "while",
+    "xor",
+    "xor_eq",
+];
+
+/// Return true if `name` is a C++ keyword or reserved word.
 fn cpp_keyword_or_reserved(name: &str) -> bool {
-    matches!(
-        name,
-        "alignas"
-            | "alignof"
-            | "and"
-            | "and_eq"
-            | "asm"
-            | "auto"
-            | "bitand"
-            | "bitor"
-            | "bool"
-            | "break"
-            | "case"
-            | "catch"
-            | "char"
-            | "class"
-            | "compl"
-            | "concept"
-            | "const"
-            | "consteval"
-            | "constexpr"
-            | "constinit"
-            | "const_cast"
-            | "continue"
-            | "co_await"
-            | "co_return"
-            | "co_yield"
-            | "decltype"
-            | "default"
-            | "delete"
-            | "do"
-            | "double"
-            | "dynamic_cast"
-            | "else"
-            | "enum"
-            | "explicit"
-            | "export"
-            | "extern"
-            | "false"
-            | "float"
-            | "for"
-            | "friend"
-            | "goto"
-            | "if"
-            | "inline"
-            | "int"
-            | "long"
-            | "mutable"
-            | "namespace"
-            | "new"
-            | "noexcept"
-            | "not"
-            | "not_eq"
-            | "nullptr"
-            | "operator"
-            | "or"
-            | "or_eq"
-            | "private"
-            | "protected"
-            | "public"
-            | "register"
-            | "reinterpret_cast"
-            | "requires"
-            | "return"
-            | "short"
-            | "signed"
-            | "sizeof"
-            | "static"
-            | "static_assert"
-            | "static_cast"
-            | "struct"
-            | "switch"
-            | "template"
-            | "this"
-            | "thread_local"
-            | "throw"
-            | "true"
-            | "try"
-            | "typedef"
-            | "typeid"
-            | "typename"
-            | "union"
-            | "unsigned"
-            | "using"
-            | "virtual"
-            | "void"
-            | "volatile"
-            | "wchar_t"
-            | "while"
-            | "xor"
-            | "xor_eq"
-    )
+    CPP_KEYWORDS.contains(&name)
 }
 
+/// Sanitize a column name into a valid C++ local variable name.
 fn sanitize_cpp_local_base(name: &str) -> String {
     let mut out = String::with_capacity(name.len());
     let mut prev_us = false;
@@ -349,6 +357,8 @@ fn sanitize_cpp_local_base(name: &str) -> String {
     base
 }
 
+/// Generate unique local variable names for each result column, avoiding collisions
+/// with parameter names and reserved identifiers.
 fn result_binding_names(query: &Query) -> Vec<String> {
     use std::collections::HashSet;
 
@@ -376,20 +386,39 @@ fn result_binding_names(query: &Query) -> Vec<String> {
     out
 }
 
+/// Return a comma-separated list of binding variable names for structured bindings.
 pub(super) fn field_bindings(query: &Query) -> String {
     result_binding_names(query).join(", ")
 }
 
+/// Return a comma-separated list of `std::move(name)` expressions for each result column.
 pub(super) fn move_fields(query: &Query) -> String {
     result_binding_names(query).into_iter().map(|n| format!("std::move({n})")).collect::<Vec<_>>().join(", ")
+}
+
+/// Return the C++ parameter declaration type for a query parameter.
+fn cpp_param_decl_type(sql_type: &SqlType, nullable: bool, is_list: bool) -> String {
+    if is_list {
+        return format!("const std::vector<{}>&", cpp_type(sql_type, false));
+    }
+
+    let ty = cpp_type(sql_type, nullable);
+    if nullable {
+        return format!("const {ty}&");
+    }
+
+    match sql_type {
+        SqlType::Boolean | SqlType::SmallInt | SqlType::Integer | SqlType::BigInt | SqlType::Real | SqlType::Double => ty,
+        _ => format!("const {ty}&"),
+    }
 }
 
 /// Build the C++ parameter list string for a query function signature.
 fn params_signature(query: &Query, conn_type: &str) -> String {
     let mut parts = vec![format!("{conn_type} db")];
     for p in &query.params {
-        let ty = if p.is_list { format!("std::vector<{}>", cpp_type(&p.sql_type, false)) } else { cpp_type(&p.sql_type, p.nullable) };
-        parts.push(format!("const {ty}& {}", to_snake_case(&p.name)));
+        let decl_ty = cpp_param_decl_type(&p.sql_type, p.nullable, p.is_list);
+        parts.push(format!("{decl_ty} {}", to_snake_case(&p.name)));
     }
     parts.join(", ")
 }
@@ -484,8 +513,8 @@ fn querier_method_params(query: &Query) -> String {
         .params
         .iter()
         .map(|p| {
-            let ty = if p.is_list { format!("std::vector<{}>", cpp_type(&p.sql_type, false)) } else { cpp_type(&p.sql_type, p.nullable) };
-            format!("const {ty}& {}", to_snake_case(&p.name))
+            let decl_ty = cpp_param_decl_type(&p.sql_type, p.nullable, p.is_list);
+            format!("{decl_ty} {}", to_snake_case(&p.name))
         })
         .collect();
     parts.join(", ")

@@ -10,7 +10,7 @@ std::optional<Author> create_author(pqxx::connection& db, const std::string& nam
     return Author{std::move(id_), std::move(name_), std::move(bio_), std::move(birth_year_)};
 }
 
-std::optional<Author> get_author(pqxx::connection& db, const std::int64_t& id) {
+std::optional<Author> get_author(pqxx::connection& db, std::int64_t id) {
     pqxx::work txn(db);
     auto opt = txn.query01<std::int64_t, std::string, std::optional<std::string>, std::optional<std::int32_t>>(SQL_GET_AUTHOR, pqxx::params{id});
     txn.commit();
@@ -29,7 +29,7 @@ std::vector<Author> list_authors(pqxx::connection& db) {
     return rows;
 }
 
-std::optional<Author> update_author_bio(pqxx::connection& db, const std::optional<std::string>& bio, const std::int64_t& id) {
+std::optional<Author> update_author_bio(pqxx::connection& db, const std::optional<std::string>& bio, std::int64_t id) {
     pqxx::work txn(db);
     auto opt = txn.query01<std::int64_t, std::string, std::optional<std::string>, std::optional<std::int32_t>>(SQL_UPDATE_AUTHOR_BIO, pqxx::params{bio, id});
     txn.commit();
@@ -38,7 +38,7 @@ std::optional<Author> update_author_bio(pqxx::connection& db, const std::optiona
     return Author{std::move(id_), std::move(name_), std::move(bio_), std::move(birth_year_)};
 }
 
-std::optional<DeleteAuthorRow> delete_author(pqxx::connection& db, const std::int64_t& id) {
+std::optional<DeleteAuthorRow> delete_author(pqxx::connection& db, std::int64_t id) {
     pqxx::work txn(db);
     auto opt = txn.query01<std::int64_t, std::string>(SQL_DELETE_AUTHOR, pqxx::params{id});
     txn.commit();
@@ -47,7 +47,7 @@ std::optional<DeleteAuthorRow> delete_author(pqxx::connection& db, const std::in
     return DeleteAuthorRow{std::move(id_), std::move(name_)};
 }
 
-std::optional<Book> create_book(pqxx::connection& db, const std::int64_t& author_id, const std::string& title, const std::string& genre, const std::string& price, const std::optional<std::string>& published_at) {
+std::optional<Book> create_book(pqxx::connection& db, std::int64_t author_id, const std::string& title, const std::string& genre, const std::string& price, const std::optional<std::string>& published_at) {
     pqxx::work txn(db);
     auto opt = txn.query01<std::int64_t, std::int64_t, std::string, std::string, std::string, std::optional<std::string>>(SQL_CREATE_BOOK, pqxx::params{author_id, title, genre, price, published_at});
     txn.commit();
@@ -56,7 +56,7 @@ std::optional<Book> create_book(pqxx::connection& db, const std::int64_t& author
     return Book{std::move(id_), std::move(author_id_), std::move(title_), std::move(genre_), std::move(price_), std::move(published_at_)};
 }
 
-std::optional<Book> get_book(pqxx::connection& db, const std::int64_t& id) {
+std::optional<Book> get_book(pqxx::connection& db, std::int64_t id) {
     pqxx::work txn(db);
     auto opt = txn.query01<std::int64_t, std::int64_t, std::string, std::string, std::string, std::optional<std::string>>(SQL_GET_BOOK, pqxx::params{id});
     txn.commit();
@@ -104,7 +104,7 @@ std::optional<CreateCustomerRow> create_customer(pqxx::connection& db, const std
     return CreateCustomerRow{std::move(id_)};
 }
 
-std::optional<CreateSaleRow> create_sale(pqxx::connection& db, const std::int64_t& customer_id) {
+std::optional<CreateSaleRow> create_sale(pqxx::connection& db, std::int64_t customer_id) {
     pqxx::work txn(db);
     auto opt = txn.query01<std::int64_t>(SQL_CREATE_SALE, pqxx::params{customer_id});
     txn.commit();
@@ -113,7 +113,7 @@ std::optional<CreateSaleRow> create_sale(pqxx::connection& db, const std::int64_
     return CreateSaleRow{std::move(id_)};
 }
 
-void add_sale_item(pqxx::connection& db, const std::int64_t& sale_id, const std::int64_t& book_id, const std::int32_t& quantity, const std::string& unit_price) {
+void add_sale_item(pqxx::connection& db, std::int64_t sale_id, std::int64_t book_id, std::int32_t quantity, const std::string& unit_price) {
     pqxx::work txn(db);
     txn.exec(SQL_ADD_SALE_ITEM, pqxx::params{sale_id, book_id, quantity, unit_price}).no_rows();
     txn.commit();
@@ -164,7 +164,7 @@ std::optional<Author> Querier::create_author(const std::string& name, const std:
     return ::create_author(db_, name, bio, birth_year);
 }
 
-std::optional<Author> Querier::get_author(const std::int64_t& id) {
+std::optional<Author> Querier::get_author(std::int64_t id) {
     return ::get_author(db_, id);
 }
 
@@ -172,19 +172,19 @@ std::vector<Author> Querier::list_authors() {
     return ::list_authors(db_);
 }
 
-std::optional<Author> Querier::update_author_bio(const std::optional<std::string>& bio, const std::int64_t& id) {
+std::optional<Author> Querier::update_author_bio(const std::optional<std::string>& bio, std::int64_t id) {
     return ::update_author_bio(db_, bio, id);
 }
 
-std::optional<DeleteAuthorRow> Querier::delete_author(const std::int64_t& id) {
+std::optional<DeleteAuthorRow> Querier::delete_author(std::int64_t id) {
     return ::delete_author(db_, id);
 }
 
-std::optional<Book> Querier::create_book(const std::int64_t& author_id, const std::string& title, const std::string& genre, const std::string& price, const std::optional<std::string>& published_at) {
+std::optional<Book> Querier::create_book(std::int64_t author_id, const std::string& title, const std::string& genre, const std::string& price, const std::optional<std::string>& published_at) {
     return ::create_book(db_, author_id, title, genre, price, published_at);
 }
 
-std::optional<Book> Querier::get_book(const std::int64_t& id) {
+std::optional<Book> Querier::get_book(std::int64_t id) {
     return ::get_book(db_, id);
 }
 
@@ -204,11 +204,11 @@ std::optional<CreateCustomerRow> Querier::create_customer(const std::string& nam
     return ::create_customer(db_, name, email);
 }
 
-std::optional<CreateSaleRow> Querier::create_sale(const std::int64_t& customer_id) {
+std::optional<CreateSaleRow> Querier::create_sale(std::int64_t customer_id) {
     return ::create_sale(db_, customer_id);
 }
 
-void Querier::add_sale_item(const std::int64_t& sale_id, const std::int64_t& book_id, const std::int32_t& quantity, const std::string& unit_price) {
+void Querier::add_sale_item(std::int64_t sale_id, std::int64_t book_id, std::int32_t quantity, const std::string& unit_price) {
     return ::add_sale_item(db_, sale_id, book_id, quantity, unit_price);
 }
 

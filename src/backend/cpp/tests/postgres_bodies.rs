@@ -59,7 +59,7 @@ fn test_cpp_function_def_has_opening_brace() {
     let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.cpp");
-    assert!(src.contains("void delete_user(pqxx::connection& db, const std::int64_t& id) {"), "function def should have opening brace, not semicolon");
+    assert!(src.contains("void delete_user(pqxx::connection& db, std::int64_t id) {"), "function def should have opening brace, not semicolon");
 }
 
 #[test]
@@ -266,7 +266,7 @@ fn test_querier_method_declarations() {
     let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.hpp");
-    assert!(src.contains("void delete_user(const std::int64_t& id);"), "querier method should omit db param");
+    assert!(src.contains("void delete_user(std::int64_t id);"), "querier method should omit db param");
 }
 
 #[test]
@@ -304,8 +304,8 @@ fn test_querier_method_return_types() {
     );
     let files = pg().generate(&schema, &[q1, q2, q3], &cfg()).unwrap();
     let src = get_file(&files, "queries.hpp");
-    assert!(src.contains("std::int64_t delete_inactive(const bool& active);"), "execrows querier method");
-    assert!(src.contains("std::optional<User> get_user(const std::int64_t& id);"), "one querier method");
+    assert!(src.contains("std::int64_t delete_inactive(bool active);"), "execrows querier method");
+    assert!(src.contains("std::optional<User> get_user(std::int64_t id);"), "one querier method");
     assert!(src.contains("std::vector<User> list_users();"), "many querier method");
 }
 

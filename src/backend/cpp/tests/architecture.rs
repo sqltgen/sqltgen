@@ -9,7 +9,7 @@ fn test_queries_header_includes_pqxx() {
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.hpp");
     assert!(src.contains("#include <pqxx/pqxx>"));
-    assert!(src.contains("void delete_user(pqxx::connection& db, const std::int64_t& id);"));
+    assert!(src.contains("void delete_user(pqxx::connection& db, std::int64_t id);"));
 }
 
 #[test]

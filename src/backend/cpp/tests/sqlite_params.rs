@@ -13,7 +13,7 @@ fn test_sqlite_multiple_params_in_signature() {
     let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.hpp");
     assert!(src.contains("const std::string& name"));
-    assert!(src.contains("const std::int64_t& id"));
+    assert!(src.contains("std::int64_t id"));
 }
 
 #[test]
@@ -27,7 +27,7 @@ fn test_sqlite_nullable_param_uses_optional_in_signature() {
     let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.hpp");
     assert!(src.contains("const std::optional<std::string>& bio"));
-    assert!(src.contains("const std::int64_t& id"));
+    assert!(src.contains("std::int64_t id"));
     assert!(!src.contains("const std::optional<std::int64_t>& id"));
 }
 

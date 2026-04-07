@@ -101,7 +101,7 @@ fn test_queries_header_includes_table_header_for_reused_result_type() {
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.hpp");
     assert!(src.contains("#include \"../models/user.hpp\""));
-    assert!(src.contains("std::optional<User> get_user(pqxx::connection& db, const std::int64_t& id);"));
+    assert!(src.contains("std::optional<User> get_user(pqxx::connection& db, std::int64_t id);"));
 }
 
 // ─── querier wrapper ────────────────────────────────────────────────────
@@ -115,5 +115,5 @@ fn test_generate_querier_wrapper() {
     assert!(header.contains("class Querier {"));
     assert!(header.contains("pqxx::connection& db_;"));
     assert!(header.contains("explicit Querier(pqxx::connection& db) : db_(db) {}"));
-    assert!(header.contains("void delete_user(const std::int64_t& id);"));
+    assert!(header.contains("void delete_user(std::int64_t id);"));
 }

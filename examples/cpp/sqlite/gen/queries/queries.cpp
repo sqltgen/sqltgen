@@ -26,7 +26,7 @@ void create_author(sqlite3* db, const std::string& name, const std::optional<std
     }
 }
 
-std::optional<Author> get_author(sqlite3* db, const std::int32_t& id) {
+std::optional<Author> get_author(sqlite3* db, std::int32_t id) {
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, SQL_GET_AUTHOR.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
         throw std::runtime_error(sqlite3_errmsg(db));
@@ -74,7 +74,7 @@ std::vector<Author> list_authors(sqlite3* db) {
     return rows;
 }
 
-void create_book(sqlite3* db, const std::int32_t& author_id, const std::string& title, const std::string& genre, const double& price, const std::optional<std::string>& published_at) {
+void create_book(sqlite3* db, std::int32_t author_id, const std::string& title, const std::string& genre, double price, const std::optional<std::string>& published_at) {
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, SQL_CREATE_BOOK.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
         throw std::runtime_error(sqlite3_errmsg(db));
@@ -91,7 +91,7 @@ void create_book(sqlite3* db, const std::int32_t& author_id, const std::string& 
     }
 }
 
-std::optional<Book> get_book(sqlite3* db, const std::int32_t& id) {
+std::optional<Book> get_book(sqlite3* db, std::int32_t id) {
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, SQL_GET_BOOK.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
         throw std::runtime_error(sqlite3_errmsg(db));
@@ -214,7 +214,7 @@ void create_customer(sqlite3* db, const std::string& name, const std::string& em
     }
 }
 
-void create_sale(sqlite3* db, const std::int32_t& customer_id) {
+void create_sale(sqlite3* db, std::int32_t customer_id) {
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, SQL_CREATE_SALE.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
         throw std::runtime_error(sqlite3_errmsg(db));
@@ -227,7 +227,7 @@ void create_sale(sqlite3* db, const std::int32_t& customer_id) {
     }
 }
 
-void add_sale_item(sqlite3* db, const std::int32_t& sale_id, const std::int32_t& book_id, const std::int32_t& quantity, const double& unit_price) {
+void add_sale_item(sqlite3* db, std::int32_t sale_id, std::int32_t book_id, std::int32_t quantity, double unit_price) {
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, SQL_ADD_SALE_ITEM.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
         throw std::runtime_error(sqlite3_errmsg(db));
@@ -342,7 +342,7 @@ void Querier::create_author(const std::string& name, const std::optional<std::st
     return ::create_author(db_, name, bio, birth_year);
 }
 
-std::optional<Author> Querier::get_author(const std::int32_t& id) {
+std::optional<Author> Querier::get_author(std::int32_t id) {
     return ::get_author(db_, id);
 }
 
@@ -350,11 +350,11 @@ std::vector<Author> Querier::list_authors() {
     return ::list_authors(db_);
 }
 
-void Querier::create_book(const std::int32_t& author_id, const std::string& title, const std::string& genre, const double& price, const std::optional<std::string>& published_at) {
+void Querier::create_book(std::int32_t author_id, const std::string& title, const std::string& genre, double price, const std::optional<std::string>& published_at) {
     return ::create_book(db_, author_id, title, genre, price, published_at);
 }
 
-std::optional<Book> Querier::get_book(const std::int32_t& id) {
+std::optional<Book> Querier::get_book(std::int32_t id) {
     return ::get_book(db_, id);
 }
 
@@ -374,11 +374,11 @@ void Querier::create_customer(const std::string& name, const std::string& email)
     return ::create_customer(db_, name, email);
 }
 
-void Querier::create_sale(const std::int32_t& customer_id) {
+void Querier::create_sale(std::int32_t customer_id) {
     return ::create_sale(db_, customer_id);
 }
 
-void Querier::add_sale_item(const std::int32_t& sale_id, const std::int32_t& book_id, const std::int32_t& quantity, const double& unit_price) {
+void Querier::add_sale_item(std::int32_t sale_id, std::int32_t book_id, std::int32_t quantity, double unit_price) {
     return ::add_sale_item(db_, sale_id, book_id, quantity, unit_price);
 }
 

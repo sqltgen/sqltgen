@@ -10,7 +10,7 @@ fn test_sqlite_function_uses_sqlite3_connection_type() {
     let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = ?1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.cpp");
-    assert!(src.contains("void delete_user(sqlite3* db, const std::int64_t& id) {"));
+    assert!(src.contains("void delete_user(sqlite3* db, std::int64_t id) {"));
 }
 
 #[test]

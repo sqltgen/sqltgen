@@ -27,7 +27,7 @@ FROM author
 WHERE id = $1
 )sql";
 
-std::optional<Author> get_author(pqxx::connection& db, const std::int64_t& id);
+std::optional<Author> get_author(pqxx::connection& db, std::int64_t id);
 
 
 inline const std::string SQL_LIST_AUTHORS = R"sql(
@@ -44,7 +44,7 @@ UPDATE author SET bio = $1 WHERE id = $2
 RETURNING *
 )sql";
 
-std::optional<Author> update_author_bio(pqxx::connection& db, const std::optional<std::string>& bio, const std::int64_t& id);
+std::optional<Author> update_author_bio(pqxx::connection& db, const std::optional<std::string>& bio, std::int64_t id);
 
 
 struct DeleteAuthorRow {
@@ -57,7 +57,7 @@ DELETE FROM author WHERE id = $1
 RETURNING id, name
 )sql";
 
-std::optional<DeleteAuthorRow> delete_author(pqxx::connection& db, const std::int64_t& id);
+std::optional<DeleteAuthorRow> delete_author(pqxx::connection& db, std::int64_t id);
 
 
 inline const std::string SQL_CREATE_BOOK = R"sql(
@@ -66,7 +66,7 @@ VALUES ($1, $2, $3, $4, $5)
 RETURNING *
 )sql";
 
-std::optional<Book> create_book(pqxx::connection& db, const std::int64_t& author_id, const std::string& title, const std::string& genre, const std::string& price, const std::optional<std::string>& published_at);
+std::optional<Book> create_book(pqxx::connection& db, std::int64_t author_id, const std::string& title, const std::string& genre, const std::string& price, const std::optional<std::string>& published_at);
 
 
 inline const std::string SQL_GET_BOOK = R"sql(
@@ -75,7 +75,7 @@ FROM book
 WHERE id = $1
 )sql";
 
-std::optional<Book> get_book(pqxx::connection& db, const std::int64_t& id);
+std::optional<Book> get_book(pqxx::connection& db, std::int64_t id);
 
 
 inline const std::string SQL_GET_BOOKS_BY_IDS = R"sql(
@@ -131,7 +131,7 @@ VALUES ($1)
 RETURNING id
 )sql";
 
-std::optional<CreateSaleRow> create_sale(pqxx::connection& db, const std::int64_t& customer_id);
+std::optional<CreateSaleRow> create_sale(pqxx::connection& db, std::int64_t customer_id);
 
 
 inline const std::string SQL_ADD_SALE_ITEM = R"sql(
@@ -139,7 +139,7 @@ INSERT INTO sale_item (sale_id, book_id, quantity, unit_price)
 VALUES ($1, $2, $3, $4)
 )sql";
 
-void add_sale_item(pqxx::connection& db, const std::int64_t& sale_id, const std::int64_t& book_id, const std::int32_t& quantity, const std::string& unit_price);
+void add_sale_item(pqxx::connection& db, std::int64_t sale_id, std::int64_t book_id, std::int32_t quantity, const std::string& unit_price);
 
 
 struct ListBooksWithAuthorRow {
@@ -230,17 +230,17 @@ public:
 
     std::optional<Author> create_author(const std::string& name, const std::optional<std::string>& bio, const std::optional<std::int32_t>& birth_year);
 
-    std::optional<Author> get_author(const std::int64_t& id);
+    std::optional<Author> get_author(std::int64_t id);
 
     std::vector<Author> list_authors();
 
-    std::optional<Author> update_author_bio(const std::optional<std::string>& bio, const std::int64_t& id);
+    std::optional<Author> update_author_bio(const std::optional<std::string>& bio, std::int64_t id);
 
-    std::optional<DeleteAuthorRow> delete_author(const std::int64_t& id);
+    std::optional<DeleteAuthorRow> delete_author(std::int64_t id);
 
-    std::optional<Book> create_book(const std::int64_t& author_id, const std::string& title, const std::string& genre, const std::string& price, const std::optional<std::string>& published_at);
+    std::optional<Book> create_book(std::int64_t author_id, const std::string& title, const std::string& genre, const std::string& price, const std::optional<std::string>& published_at);
 
-    std::optional<Book> get_book(const std::int64_t& id);
+    std::optional<Book> get_book(std::int64_t id);
 
     std::vector<Book> get_books_by_ids(const std::vector<std::int64_t>& ids);
 
@@ -250,9 +250,9 @@ public:
 
     std::optional<CreateCustomerRow> create_customer(const std::string& name, const std::string& email);
 
-    std::optional<CreateSaleRow> create_sale(const std::int64_t& customer_id);
+    std::optional<CreateSaleRow> create_sale(std::int64_t customer_id);
 
-    void add_sale_item(const std::int64_t& sale_id, const std::int64_t& book_id, const std::int32_t& quantity, const std::string& unit_price);
+    void add_sale_item(std::int64_t sale_id, std::int64_t book_id, std::int32_t quantity, const std::string& unit_price);
 
     std::vector<ListBooksWithAuthorRow> list_books_with_author();
 

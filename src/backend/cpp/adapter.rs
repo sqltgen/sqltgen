@@ -62,6 +62,7 @@ pub(super) struct CppQueryContext<'a> {
     pub(super) schema: &'a Schema,
 }
 
+/// Resolve the engine-specific C++ generation contract for the selected backend.
 pub(super) fn resolve_contract(target: &super::CppTarget) -> CppCoreContract {
     match target {
         super::CppTarget::Libpqxx => CppCoreContract {
