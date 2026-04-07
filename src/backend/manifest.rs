@@ -220,9 +220,7 @@ mod tests {
 
     #[test]
     fn test_build_manifest_file_produces_valid_json() {
-        let mut config = OutputConfig::default();
-        config.manifest = Some("gen/manifest.json".to_string());
-        config.package = "db".to_string();
+        let config = OutputConfig { manifest: Some("gen/manifest.json".to_string()), package: "db".to_string(), ..Default::default() };
 
         let schema = Schema::with_tables(vec![Table::new(
             "users",
@@ -256,8 +254,7 @@ mod tests {
 
     #[test]
     fn test_manifest_includes_inline_row_models() {
-        let mut config = OutputConfig::default();
-        config.manifest = Some("manifest.json".to_string());
+        let config = OutputConfig { manifest: Some("manifest.json".to_string()), ..Default::default() };
 
         let schema = Schema::default();
         let queries = vec![Query::one(
@@ -278,8 +275,7 @@ mod tests {
 
     #[test]
     fn test_manifest_exec_returns_null() {
-        let mut config = OutputConfig::default();
-        config.manifest = Some("manifest.json".to_string());
+        let config = OutputConfig { manifest: Some("manifest.json".to_string()), ..Default::default() };
 
         let schema = Schema::default();
         let queries = vec![Query::exec("DeleteUser", "DELETE FROM users WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)])];

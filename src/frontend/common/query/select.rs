@@ -19,21 +19,39 @@ use super::{
     unresolved_query, QueryAnnotation, ResolverConfig, ResolverContext,
 };
 
+struct WildcardSourceScope<'a> {
+    alias_map: &'a HashMap<String, &'a Table>,
+    all_tables: &'a [(Table, Option<String>)],
+    schema: &'a Schema,
+    provenance: &'a HashMap<String, String>,
+    default_schema: Option<&'a str>,
+}
+
+struct SelectBuildScope<'a> {
+    schema: &'a Schema,
+    config: &'a ResolverConfig,
+    ctes: &'a [Table],
+}
+
 /// Build a [`Query`] from a `Statement::Query` node (SELECT, set operation, or
 /// data-modifying CTE whose outer body is an INSERT/UPDATE).
 pub(super) fn build_select(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, schema: &Schema, config: &ResolverConfig) -> Query {
     let ctes = build_cte_scope(q.with.as_ref(), schema, config);
+    let scope = SelectBuildScope { schema, config, ctes: &ctes };
     match q.body.as_ref() {
-        SetExpr::Select(select) => build_select_body(ann, sql, q, select, schema, config, &ctes),
+        SetExpr::Select(select) => build_select_body(ann, sql, q, select, &scope),
         SetExpr::Insert(Statement::Insert(ins)) => build_query_from_insert(ann, sql, q, ins, schema, config),
         SetExpr::Update(Statement::Update(u)) => build_query_from_update(ann, sql, q, u, schema, config),
-        SetExpr::SetOperation { .. } => build_set_operation(ann, sql, q, q.body.as_ref(), schema, config, &ctes),
+        SetExpr::SetOperation { .. } => build_set_operation(ann, sql, q, q.body.as_ref(), &scope),
         _ => unresolved_query(ann, sql),
     }
 }
 
 /// Handle `Statement::Query` where the body is a plain `SELECT` (with optional CTEs).
-fn build_select_body(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, select: &Select, schema: &Schema, config: &ResolverConfig, ctes: &[Table]) -> Query {
+fn build_select_body(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, select: &Select, scope: &SelectBuildScope<'_>) -> Query {
+    let schema = scope.schema;
+    let config = scope.config;
+    let ctes = scope.ctes;
     let all_tables = collect_from_tables(select, schema, ctes, config);
     let alias_map = build_alias_map(&all_tables);
     let result_columns = resolve_projection(select, &alias_map, &all_tables, config, schema);
@@ -45,14 +63,18 @@ fn build_select_body(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, select: &Se
         collect_cte_params(q.with.as_ref(), schema, config, &mut mapping, &ann.name);
         collect_select_params(select, schema, config, ctes, &mut mapping, &ann.name);
         collect_limit_offset_params(q, &mut mapping);
-        collect_order_by_params(
-            q,
-            &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping: &mut mapping, query_name: &ann.name },
-        );
+        collect_order_by_params(q, &mut ResolverContext::new(&alias_map, &all_tables, schema, config, &mut mapping, &ann.name));
         build_params(mapping, count_params(sql))
     };
     let provenance = build_source_provenance(q.with.as_ref(), &select.from, schema, ctes, config);
-    let source_table = select_wildcard_source(select, &alias_map, &all_tables, schema, &provenance, config.default_schema.as_deref());
+    let source_scope = WildcardSourceScope {
+        alias_map: &alias_map,
+        all_tables: &all_tables,
+        schema,
+        provenance: &provenance,
+        default_schema: config.default_schema.as_deref(),
+    };
+    let source_table = select_wildcard_source(select, &source_scope);
     Query::new(ann.name.clone(), ann.cmd.clone(), sql, params, result_columns).with_source_table(source_table)
 }
 
@@ -67,14 +89,8 @@ fn build_select_body(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, select: &Se
 ///
 /// Returns `None` for all other projections (explicit column lists, set operations,
 /// multi-table wildcards, non-trivial CTEs, or nullable-side tables).
-fn select_wildcard_source(
-    select: &Select,
-    alias_map: &HashMap<String, &Table>,
-    all_tables: &[(Table, Option<String>)],
-    schema: &Schema,
-    provenance: &HashMap<String, String>,
-    default_schema: Option<&str>,
-) -> Option<String> {
+fn select_wildcard_source(select: &Select, scope: &WildcardSourceScope<'_>) -> Option<String> {
+    let WildcardSourceScope { alias_map, all_tables, schema, provenance, default_schema } = scope;
     let [item] = select.projection.as_slice() else { return None };
     let table_in_scope: &Table = match item {
         SelectItem::Wildcard(_) => {
@@ -91,7 +107,7 @@ fn select_wildcard_source(
     };
 
     // Direct schema table: present in schema and not made nullable by an outer join.
-    if let Some(schema_table) = schema.find_table(table_in_scope.schema.as_deref(), &table_in_scope.name, default_schema) {
+    if let Some(schema_table) = schema.find_table(table_in_scope.schema.as_deref(), &table_in_scope.name, *default_schema) {
         let made_nullable = schema_table.columns.iter().zip(&table_in_scope.columns).any(|(sc, rc)| !sc.nullable && rc.nullable);
         return if made_nullable { None } else { Some(schema_table.name.clone()) };
     }
@@ -131,7 +147,14 @@ pub(super) fn build_source_provenance(
                 let all_tables = collect_from_tables(select, schema, &cte_tables, config);
                 if !all_tables.is_empty() {
                     let alias_map = build_alias_map(&all_tables);
-                    if let Some(source) = select_wildcard_source(select, &alias_map, &all_tables, schema, &merged, config.default_schema.as_deref()) {
+                    let source_scope = WildcardSourceScope {
+                        alias_map: &alias_map,
+                        all_tables: &all_tables,
+                        schema,
+                        provenance: &merged,
+                        default_schema: config.default_schema.as_deref(),
+                    };
+                    if let Some(source) = select_wildcard_source(select, &source_scope) {
                         provenance.insert(cte_name.clone(), source);
                     }
                 }
@@ -155,7 +178,14 @@ pub(super) fn build_source_provenance(
                 let all_tables = collect_from_tables(select, schema, ctes, config);
                 if !all_tables.is_empty() {
                     let alias_map = build_alias_map(&all_tables);
-                    if let Some(source) = select_wildcard_source(select, &alias_map, &all_tables, schema, &merged, config.default_schema.as_deref()) {
+                    let source_scope = WildcardSourceScope {
+                        alias_map: &alias_map,
+                        all_tables: &all_tables,
+                        schema,
+                        provenance: &merged,
+                        default_schema: config.default_schema.as_deref(),
+                    };
+                    if let Some(source) = select_wildcard_source(select, &source_scope) {
                         provenance.insert(alias_name, source);
                     }
                 }
@@ -170,10 +200,13 @@ pub(super) fn build_source_provenance(
 ///
 /// Result columns come from the leftmost SELECT branch (per SQL standard).
 /// Parameters are collected recursively from all branches.
-fn build_set_operation(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, body: &SetExpr, schema: &Schema, config: &ResolverConfig, ctes: &[Table]) -> Query {
+fn build_set_operation(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, body: &SetExpr, scope: &SelectBuildScope<'_>) -> Query {
+    let schema = scope.schema;
+    let config = scope.config;
+    let ctes = scope.ctes;
     // Resolve result columns from all SELECT branches, then keep the leftmost
     // names/types while widening nullability across branches positionally.
-    let branch_columns = resolve_set_branch_columns(body, schema, config, ctes);
+    let branch_columns = resolve_set_branch_columns(body, scope);
     let mut result_columns = branch_columns.first().cloned().unwrap_or_default();
     for cols in branch_columns.iter().skip(1) {
         for (left, right) in result_columns.iter_mut().zip(cols.iter()) {
@@ -192,10 +225,7 @@ fn build_set_operation(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, body: &Se
             let all_tables = collect_from_tables(select, schema, ctes, config);
             if !all_tables.is_empty() {
                 let alias_map = build_alias_map(&all_tables);
-                collect_order_by_params(
-                    q,
-                    &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping: &mut mapping, query_name: &ann.name },
-                );
+                collect_order_by_params(q, &mut ResolverContext::new(&alias_map, &all_tables, schema, config, &mut mapping, &ann.name));
             }
         }
         build_params(mapping, count_params(sql))
@@ -218,7 +248,10 @@ fn leftmost_select(expr: &SetExpr) -> Option<&Select> {
 }
 
 /// Resolve projection columns for each SELECT branch in a set-expression tree.
-fn resolve_set_branch_columns(expr: &SetExpr, schema: &Schema, config: &ResolverConfig, ctes: &[Table]) -> Vec<Vec<ResultColumn>> {
+fn resolve_set_branch_columns(expr: &SetExpr, scope: &SelectBuildScope<'_>) -> Vec<Vec<ResultColumn>> {
+    let schema = scope.schema;
+    let config = scope.config;
+    let ctes = scope.ctes;
     let mut selects = Vec::new();
     collect_set_selects(expr, &mut selects);
     selects
