@@ -509,7 +509,7 @@ fn test_sqlite_bind_text_list_param_quotes_elements() {
     );
     let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.cpp");
-    assert!(src.contains("names_json += \"\\\"\" + names[i] + \"\\\"\";"));
+    assert!(src.contains("names_json += json_escape(names[i]);"));
 }
 
 // ─── column reading ──────────────────────────────────────────────────────

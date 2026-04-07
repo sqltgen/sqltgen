@@ -624,6 +624,11 @@ fn emit_queries_source(
         writeln!(src)?;
     }
 
+    // Emit static helper functions (engine-specific, provided by the adapter).
+    for helper in contract.source_helpers {
+        writeln!(src, "{helper}")?;
+    }
+
     // Function definitions.
     for (i, query) in queries.iter().enumerate() {
         if i > 0 {

@@ -18,6 +18,27 @@ pub(super) enum CppParamStyle {
     QuestionAnon,
 }
 
+/// C++ helper: escapes a string for safe embedding in a JSON array.
+/// Used by SQLite and MySQL list-param serialization (json_each).
+const JSON_ESCAPE: &str = r#"static std::string json_escape(const std::string& s) {
+    std::string out = "\"";
+    for (char c : s) {
+        if (c == '\\' || c == '"') out += '\\';
+        out += c;
+    }
+    out += '"';
+    return out;
+}
+"#;
+
+/// C++ helper: parses a JSON string using simdjson.
+/// Not wired up yet — will be used when simdjson support is added.
+#[allow(dead_code)]
+const _PARSE_JSON: &str = r#"static simdjson::dom::element parse_json(simdjson::dom::parser& parser, const std::string& s) {
+    return parser.parse(simdjson::padded_string(s));
+}
+"#;
+
 /// Resolved engine-specific contract consumed by `core.rs` emitters.
 pub(super) struct CppCoreContract {
     /// Primary `#include` for the database client (e.g. `<pqxx/pqxx>`).
@@ -29,6 +50,8 @@ pub(super) struct CppCoreContract {
     pub(super) param_style: CppParamStyle,
     /// Extra `#include`s needed in generated `.cpp` source files.
     pub(super) source_includes: &'static [&'static str],
+    /// Static C++ helper functions emitted at the top of each `.cpp` file.
+    pub(super) source_helpers: &'static [&'static str],
     /// Engine-specific query body emitter.
     pub(super) emit_query_body: for<'a> fn(&mut String, &CppQueryContext<'a>) -> anyhow::Result<()>,
 }
@@ -46,6 +69,7 @@ pub(super) fn resolve_contract(target: &super::CppTarget) -> CppCoreContract {
             conn_type: "pqxx::connection&",
             param_style: CppParamStyle::Dollar,
             source_includes: &[],
+            source_helpers: &[],
             emit_query_body: emit_pqxx_body,
         },
         super::CppTarget::Sqlite3 => CppCoreContract {
@@ -53,6 +77,7 @@ pub(super) fn resolve_contract(target: &super::CppTarget) -> CppCoreContract {
             conn_type: "sqlite3*",
             param_style: CppParamStyle::QuestionNumbered,
             source_includes: &[],
+            source_helpers: &[JSON_ESCAPE],
             emit_query_body: emit_sqlite3_body,
         },
         super::CppTarget::Libmysqlclient => CppCoreContract {
@@ -60,6 +85,7 @@ pub(super) fn resolve_contract(target: &super::CppTarget) -> CppCoreContract {
             conn_type: "MYSQL*",
             param_style: CppParamStyle::QuestionAnon,
             source_includes: &["<cstring>"],
+            source_helpers: &[JSON_ESCAPE],
             emit_query_body: emit_mysql_body,
         },
     }
@@ -219,7 +245,7 @@ fn emit_sqlite3_bind_list(src: &mut String, sql_type: &SqlType, idx: usize, name
         SqlType::Boolean | SqlType::SmallInt | SqlType::Integer | SqlType::BigInt | SqlType::Real | SqlType::Double => {
             format!("{name}_json += std::to_string({name}[i]);")
         },
-        _ => format!("{name}_json += \"\\\"\" + {name}[i] + \"\\\"\";"),
+        _ => format!("{name}_json += json_escape({name}[i]);"),
     };
     writeln!(src, "    std::string {name}_json = \"[\";")?;
     writeln!(src, "    for (size_t i = 0; i < {name}.size(); ++i) {{")?;
@@ -426,7 +452,7 @@ fn emit_mysql_bind_list_vars(src: &mut String, sql_type: &SqlType, name: &str) -
         SqlType::Boolean | SqlType::SmallInt | SqlType::Integer | SqlType::BigInt | SqlType::Real | SqlType::Double => {
             format!("p_{name}_json += std::to_string({name}[i]);")
         },
-        _ => format!("p_{name}_json += \"\\\"\" + {name}[i] + \"\\\"\";"),
+        _ => format!("p_{name}_json += json_escape({name}[i]);"),
     };
     writeln!(src, "    std::string p_{name}_json = \"[\";")?;
     writeln!(src, "    for (size_t i = 0; i < {name}.size(); ++i) {{")?;
