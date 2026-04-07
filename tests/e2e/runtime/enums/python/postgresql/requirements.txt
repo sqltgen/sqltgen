@@ -1,0 +1,2 @@
+psycopg>=3.0
+pytest>=7.0

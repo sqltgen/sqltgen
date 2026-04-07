@@ -11,6 +11,35 @@ import json
 from typing import Any
 
 
+# Known Python built-in/stdlib types that are NOT enums.
+_PYTHON_KNOWN_TYPES = frozenset([
+    "str", "int", "float", "bool", "bytes", "None",
+    "Any", "object",
+])
+
+
+def _is_enum_type(lang_type: str) -> bool:
+    """Return True if lang_type looks like a generated enum type name.
+
+    Enum types in Python are PascalCase names like Priority, Status.
+    Known built-in types, nullable wrappers, and container types are excluded.
+    """
+    if not lang_type or not lang_type[0].isupper():
+        return False
+    inner = lang_type
+    # Strip Optional[...] or ... | None wrapper
+    if inner.startswith("Optional[") and inner.endswith("]"):
+        inner = inner[len("Optional["):-1]
+    elif inner.endswith(" | None"):
+        inner = inner[:-len(" | None")]
+    if inner in _PYTHON_KNOWN_TYPES:
+        return False
+    # Container types like list[...], dict[...] are not enums
+    if inner.startswith("list[") or inner.startswith("dict["):
+        return False
+    return True
+
+
 def render_value(kind: str, value: Any, engine: str, coercions: dict[str, str]) -> str:
     """Render an abstract typed value as a Python literal string."""
     # Apply engine coercion if applicable
@@ -78,6 +107,55 @@ def render_call(func_name: str, args: list[str], bind: str | None = None) -> str
 def render_uuid_compare(field_expr: str, var_name: str) -> str:
     """Render a UUID string comparison (str(field) == var)."""
     return f"assert str({field_expr}) == {var_name}"
+
+
+def render_typed_arg(
+    arg_name: str,
+    lang_type: str,
+    kind: str,
+    value: Any,
+    engine: str,
+    coercions: dict[str, str],
+) -> str:
+    """Render a call argument using its exact Python lang_type from the manifest.
+
+    When the lang_type is an enum (PascalCase, not a known built-in), wraps string
+    values with the enum constructor: Priority("high").
+    """
+    if kind == "null":
+        return "None"
+    if kind == "str" and _is_enum_type(lang_type):
+        # Strip nullable wrapper to get the bare enum name
+        bare = lang_type
+        if bare.endswith(" | None"):
+            bare = bare[:-len(" | None")]
+        if bare.startswith("Optional[") and bare.endswith("]"):
+            bare = bare[len("Optional["):-1]
+        return f'{bare}({repr(str(value))})'
+    return render_value(kind, value, engine, coercions)
+
+
+def render_assert_eq_typed(
+    field_expr: str,
+    expected: str,
+    kind: str,
+    engine: str,
+    coercions: dict[str, str],
+    field_lang_type: str | None = None,
+) -> str:
+    """Type-aware equality assertion.
+
+    For enum fields, wraps the expected string value with the enum constructor
+    so the assertion compares enum instances rather than raw strings.
+    """
+    if kind == "str" and field_lang_type and _is_enum_type(field_lang_type):
+        bare = field_lang_type
+        if bare.endswith(" | None"):
+            bare = bare[:-len(" | None")]
+        if bare.startswith("Optional[") and bare.endswith("]"):
+            bare = bare[len("Optional["):-1]
+        return f"assert {field_expr} == {bare}({expected})"
+    return f"assert {field_expr} == {expected}"
 
 
 def null_literal() -> str:

@@ -4,6 +4,7 @@
 use e2e_type_overrides_rust_mysql::db::queries::queries;
 use sqlx::mysql::MySqlPoolOptions;
 use sqlx::MySqlPool;
+#[allow(unused_imports)]
 use time::macros::{date, datetime, time};
 
 // ─── test setup ───────────────────────────────────────────────────────────────
@@ -65,6 +66,7 @@ fn gen_assert_json_str(got: &str, want: serde_json::Value) {
 
 // ─── :exec queries ────────────────────────────────────────────────────────────
 
+#[allow(unused_variables)]
 #[tokio::test]
 async fn test_update_payload_gen() {
     let (pool, db_name) = gen_setup_db().await;
@@ -77,6 +79,7 @@ async fn test_update_payload_gen() {
     gen_teardown(pool, db_name).await;
 }
 
+#[allow(unused_variables)]
 #[tokio::test]
 async fn test_update_event_date_gen() {
     let (pool, db_name) = gen_setup_db().await;
@@ -90,6 +93,7 @@ async fn test_update_event_date_gen() {
 
 // ─── :execrows queries ────────────────────────────────────────────────────────────
 
+#[allow(unused_variables)]
 #[tokio::test]
 async fn test_insert_event_rows_gen() {
     let (pool, db_name) = gen_setup_db().await;
@@ -100,6 +104,7 @@ async fn test_insert_event_rows_gen() {
 
 // ─── :many queries ────────────────────────────────────────────────────────────
 
+#[allow(unused_variables)]
 #[tokio::test]
 async fn test_list_events_gen() {
     let (pool, db_name) = gen_setup_db().await;
@@ -115,6 +120,7 @@ async fn test_list_events_gen() {
     gen_teardown(pool, db_name).await;
 }
 
+#[allow(unused_variables)]
 #[tokio::test]
 async fn test_get_events_by_date_range_gen() {
     let (pool, db_name) = gen_setup_db().await;
@@ -130,6 +136,7 @@ async fn test_get_events_by_date_range_gen() {
 
 // ─── :one queries ────────────────────────────────────────────────────────────
 
+#[allow(unused_variables)]
 #[tokio::test]
 async fn test_insert_and_get_event_gen() {
     let (pool, db_name) = gen_setup_db().await;
@@ -148,6 +155,7 @@ async fn test_insert_and_get_event_gen() {
     gen_teardown(pool, db_name).await;
 }
 
+#[allow(unused_variables)]
 #[tokio::test]
 async fn test_get_event_not_found_gen() {
     let (pool, db_name) = gen_setup_db().await;
@@ -158,6 +166,7 @@ async fn test_get_event_not_found_gen() {
 
 // ─── count queries ────────────────────────────────────────────────────────────
 
+#[allow(unused_variables)]
 #[tokio::test]
 async fn test_count_events_gen() {
     let (pool, db_name) = gen_setup_db().await;
@@ -172,6 +181,7 @@ async fn test_count_events_gen() {
 
 // ─── projection queries ────────────────────────────────────────────────────────────
 
+#[allow(unused_variables)]
 #[tokio::test]
 async fn test_find_by_date_gen() {
     let (pool, db_name) = gen_setup_db().await;
@@ -183,6 +193,7 @@ async fn test_find_by_date_gen() {
     gen_teardown(pool, db_name).await;
 }
 
+#[allow(unused_variables)]
 #[tokio::test]
 async fn test_find_by_uuid_gen() {
     let (pool, db_name) = gen_setup_db().await;

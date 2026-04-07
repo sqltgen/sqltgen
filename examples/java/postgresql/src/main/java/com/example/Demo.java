@@ -1,5 +1,6 @@
 package com.example;
 
+import com.example.db.models.Genre;
 import com.example.db.queries.Querier;
 
 import java.math.BigDecimal;
@@ -27,11 +28,11 @@ public class Demo {
         var asimov  = q.createAuthor("Isaac Asimov",      null,                                  1920).orElseThrow();
         System.out.println("[pg] inserted 3 authors (ids: " + leGuin.id() + ", " + herbert.id() + ", " + asimov.id() + ")");
 
-        var lhod  = q.createBook(leGuin.id(),  "The Left Hand of Darkness", "sci-fi", new BigDecimal("12.99"), null).orElseThrow();
-        var disp  = q.createBook(leGuin.id(),  "The Dispossessed",           "sci-fi", new BigDecimal("11.50"), null).orElseThrow();
-        var dune  = q.createBook(herbert.id(), "Dune",                       "sci-fi", new BigDecimal("14.99"), null).orElseThrow();
-        var found = q.createBook(asimov.id(),  "Foundation",                 "sci-fi", new BigDecimal("10.99"), null).orElseThrow();
-        var caves = q.createBook(asimov.id(),  "The Caves of Steel",         "sci-fi", new BigDecimal("9.99"),  null).orElseThrow();
+        var lhod  = q.createBook(leGuin.id(),  "The Left Hand of Darkness", Genre.FICTION,  new BigDecimal("12.99"), null).orElseThrow();
+        var disp  = q.createBook(leGuin.id(),  "The Dispossessed",           Genre.FICTION,  new BigDecimal("11.50"), null).orElseThrow();
+        var dune  = q.createBook(herbert.id(), "Dune",                       Genre.SCIENCE,  new BigDecimal("14.99"), null).orElseThrow();
+        var found = q.createBook(asimov.id(),  "Foundation",                 Genre.SCIENCE,  new BigDecimal("10.99"), null).orElseThrow();
+        var caves = q.createBook(asimov.id(),  "The Caves of Steel",         Genre.FICTION,  new BigDecimal("9.99"),  null).orElseThrow();
         System.out.println("[pg] inserted 5 books");
 
         var alice = q.createCustomer("Alice", "alice@example.com").orElseThrow();
@@ -56,13 +57,13 @@ public class Demo {
         System.out.println("[pg] getBooksByIds([1,3]): " + byIds.size() + " row(s)");
         byIds.forEach(b -> System.out.println("  \"" + b.title() + "\""));
 
-        var scifi = q.listBooksByGenre("sci-fi");
-        System.out.println("[pg] listBooksByGenre(sci-fi): " + scifi.size() + " row(s)");
+        var scifi = q.listBooksByGenre(Genre.SCIENCE);
+        System.out.println("[pg] listBooksByGenre(science): " + scifi.size() + " row(s)");
 
-        var allBooks = q.listBooksByGenreOrAll("all");
-        System.out.println("[pg] listBooksByGenreOrAll(all): " + allBooks.size() + " row(s) (repeated-param demo)");
-        var scifi2 = q.listBooksByGenreOrAll("sci-fi");
-        System.out.println("[pg] listBooksByGenreOrAll(sci-fi): " + scifi2.size() + " row(s)");
+        var allBooks = q.listBooksByGenreOrAll(null);
+        System.out.println("[pg] listBooksByGenreOrAll(null): " + allBooks.size() + " row(s) (nullable-param demo)");
+        var scifi2 = q.listBooksByGenreOrAll(Genre.SCIENCE);
+        System.out.println("[pg] listBooksByGenreOrAll(science): " + scifi2.size() + " row(s)");
 
         System.out.println("[pg] listBooksWithAuthor:");
         q.listBooksWithAuthor()

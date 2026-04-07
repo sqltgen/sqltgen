@@ -4,7 +4,7 @@ public record Book(
     long id,
     long authorId,
     String title,
-    String genre,
+    Genre genre,
     java.math.BigDecimal price,
     java.time.LocalDate publishedAt
 ) {}

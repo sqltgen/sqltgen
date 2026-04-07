@@ -4,6 +4,7 @@ from __future__ import annotations
 import dataclasses
 import datetime
 import decimal
+from .genre import Genre
 
 
 @dataclasses.dataclass
@@ -11,6 +12,6 @@ class Book:
     id: int
     author_id: int
     title: str
-    genre: str
+    genre: Genre
     price: decimal.Decimal
     published_at: datetime.date | None

@@ -19,6 +19,7 @@ import mysql.connector
 import pytest
 
 from gen.queries import queries
+from gen.models import *
 
 {% if engine == "postgresql" %}
 _FIXTURES = pathlib.Path(__file__).parent / "../../../../fixtures/{{ spec.fixture }}/postgresql"

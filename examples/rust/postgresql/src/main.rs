@@ -1,5 +1,6 @@
 mod db;
 
+use db::models::genre::Genre;
 use db::queries::queries as q;
 use rust_decimal::Decimal;
 
@@ -11,11 +12,11 @@ async fn run_demo(pool: &sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>>
     let asimov   = q::create_author(pool, "Isaac Asimov".into(), None, Some(1920)).await?.unwrap();
     println!("[pg] inserted 3 authors (ids: {}, {}, {})", le_guin.id, herbert.id, asimov.id);
 
-    let lhod  = q::create_book(pool, le_guin.id,  "The Left Hand of Darkness".into(), "sci-fi".into(), d("12.99"), None).await?.unwrap();
-    let _disp = q::create_book(pool, le_guin.id,  "The Dispossessed".into(),           "sci-fi".into(), d("11.50"), None).await?.unwrap();
-    let dune  = q::create_book(pool, herbert.id,  "Dune".into(),                       "sci-fi".into(), d("14.99"), None).await?.unwrap();
-    let found = q::create_book(pool, asimov.id,   "Foundation".into(),                 "sci-fi".into(), d("10.99"), None).await?.unwrap();
-    let _caves = q::create_book(pool, asimov.id,  "The Caves of Steel".into(),         "sci-fi".into(), d("9.99"),  None).await?.unwrap();
+    let lhod  = q::create_book(pool, le_guin.id,  "The Left Hand of Darkness".into(), Genre::Fiction, d("12.99"), None).await?.unwrap();
+    let _disp = q::create_book(pool, le_guin.id,  "The Dispossessed".into(),           Genre::Fiction, d("11.50"), None).await?.unwrap();
+    let dune  = q::create_book(pool, herbert.id,  "Dune".into(),                       Genre::Science, d("14.99"), None).await?.unwrap();
+    let found = q::create_book(pool, asimov.id,   "Foundation".into(),                 Genre::Science, d("10.99"), None).await?.unwrap();
+    let _caves = q::create_book(pool, asimov.id,  "The Caves of Steel".into(),         Genre::Fiction, d("9.99"),  None).await?.unwrap();
     println!("[pg] inserted 5 books");
 
     let alice = q::create_customer(pool, "Alice".into(), "alice@example.com".into()).await?.unwrap();
@@ -40,13 +41,13 @@ async fn run_demo(pool: &sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>>
         println!("  \"{}\"", b.title);
     }
 
-    let books = q::list_books_by_genre(pool, "sci-fi".into()).await?;
-    println!("[pg] list_books_by_genre(sci-fi): {} row(s)", books.len());
+    let books = q::list_books_by_genre(pool, Genre::Fiction).await?;
+    println!("[pg] list_books_by_genre(fiction): {} row(s)", books.len());
 
-    let all_books = q::list_books_by_genre_or_all(pool, "all".into()).await?;
-    println!("[pg] list_books_by_genre_or_all(all): {} row(s) (repeated-param demo)", all_books.len());
-    let scifi2 = q::list_books_by_genre_or_all(pool, "sci-fi".into()).await?;
-    println!("[pg] list_books_by_genre_or_all(sci-fi): {} row(s)", scifi2.len());
+    let all_books = q::list_books_by_genre_or_all(pool, None).await?;
+    println!("[pg] list_books_by_genre_or_all(None): {} row(s) (nullable-param demo)", all_books.len());
+    let science = q::list_books_by_genre_or_all(pool, Some(Genre::Science)).await?;
+    println!("[pg] list_books_by_genre_or_all(science): {} row(s)", science.len());
 
     let with_author = q::list_books_with_author(pool).await?;
     println!("[pg] list_books_with_author:");

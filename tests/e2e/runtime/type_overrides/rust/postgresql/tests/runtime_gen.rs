@@ -4,6 +4,7 @@
 use e2e_type_overrides_rust_postgresql::db::queries::queries;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
+#[allow(unused_imports)]
 use time::macros::{date, datetime, time};
 
 // ─── test setup ───────────────────────────────────────────────────────────────
@@ -51,6 +52,7 @@ fn gen_assert_json_str(got: &str, want: serde_json::Value) {
 
 // ─── :exec queries ────────────────────────────────────────────────────────────
 
+#[allow(unused_variables)]
 #[tokio::test]
 async fn test_update_payload_gen() {
     let pool = gen_setup_db().await;
@@ -62,6 +64,7 @@ async fn test_update_payload_gen() {
     assert!(ev.meta.is_none());
 }
 
+#[allow(unused_variables)]
 #[tokio::test]
 async fn test_update_event_date_gen() {
     let pool = gen_setup_db().await;
@@ -74,6 +77,7 @@ async fn test_update_event_date_gen() {
 
 // ─── :execrows queries ────────────────────────────────────────────────────────────
 
+#[allow(unused_variables)]
 #[tokio::test]
 async fn test_insert_event_rows_gen() {
     let pool = gen_setup_db().await;
@@ -83,6 +87,7 @@ async fn test_insert_event_rows_gen() {
 
 // ─── :many queries ────────────────────────────────────────────────────────────
 
+#[allow(unused_variables)]
 #[tokio::test]
 async fn test_list_events_gen() {
     let pool = gen_setup_db().await;
@@ -97,6 +102,7 @@ async fn test_list_events_gen() {
     assert_eq!(events[2].name, "gamma".to_string());
 }
 
+#[allow(unused_variables)]
 #[tokio::test]
 async fn test_get_events_by_date_range_gen() {
     let pool = gen_setup_db().await;
@@ -111,6 +117,7 @@ async fn test_get_events_by_date_range_gen() {
 
 // ─── :one queries ────────────────────────────────────────────────────────────
 
+#[allow(unused_variables)]
 #[tokio::test]
 async fn test_insert_and_get_event_gen() {
     let pool = gen_setup_db().await;
@@ -128,6 +135,7 @@ async fn test_insert_and_get_event_gen() {
     assert_eq!(ev.event_time, Some(time!(09:00:00)));
 }
 
+#[allow(unused_variables)]
 #[tokio::test]
 async fn test_get_event_not_found_gen() {
     let pool = gen_setup_db().await;
@@ -137,6 +145,7 @@ async fn test_get_event_not_found_gen() {
 
 // ─── count queries ────────────────────────────────────────────────────────────
 
+#[allow(unused_variables)]
 #[tokio::test]
 async fn test_count_events_gen() {
     let pool = gen_setup_db().await;
@@ -150,6 +159,7 @@ async fn test_count_events_gen() {
 
 // ─── projection queries ────────────────────────────────────────────────────────────
 
+#[allow(unused_variables)]
 #[tokio::test]
 async fn test_find_by_date_gen() {
     let pool = gen_setup_db().await;
@@ -160,6 +170,7 @@ async fn test_find_by_date_gen() {
     assert_eq!(row.name, "dated".to_string());
 }
 
+#[allow(unused_variables)]
 #[tokio::test]
 async fn test_find_by_uuid_gen() {
     let pool = gen_setup_db().await;

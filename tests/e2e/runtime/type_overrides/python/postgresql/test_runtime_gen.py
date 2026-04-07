@@ -13,6 +13,7 @@ import psycopg
 import pytest
 
 from gen.queries import queries
+from gen.models import *
 
 _FIXTURES = pathlib.Path(__file__).parent / "../../../../fixtures/type_overrides/postgresql"
 _DB_URL = os.environ.get(

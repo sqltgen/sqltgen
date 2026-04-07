@@ -25,6 +25,17 @@ pub(super) fn generate_core_files(
     for table in &schema.tables {
         let struct_name = to_pascal_case(&table.name);
         let mut src = String::new();
+        // Import any enum types referenced by this table's columns
+        let mut enum_imports: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        for col in &table.columns {
+            crate::backend::common::collect_enum_names_from_type(&col.sql_type, &mut enum_imports);
+        }
+        for name in &enum_imports {
+            writeln!(src, "use super::{}::{};", name, to_pascal_case(name))?;
+        }
+        if !enum_imports.is_empty() {
+            writeln!(src)?;
+        }
         writeln!(src, "#[derive(Debug, sqlx::FromRow)]")?;
         writeln!(src, "pub struct {struct_name} {{")?;
         for col in &table.columns {
@@ -450,7 +461,8 @@ fn emit_rust_enum(src: &mut String, e: &EnumType) -> anyhow::Result<()> {
     writeln!(src, "use std::fmt;")?;
     writeln!(src, "use std::str::FromStr;")?;
     writeln!(src)?;
-    writeln!(src, "#[derive(Debug, Clone, PartialEq, Eq)]")?;
+    writeln!(src, "#[derive(Debug, Clone, PartialEq, Eq, sqlx::Type)]")?;
+    writeln!(src, "#[sqlx(type_name = \"{}\", rename_all = \"snake_case\")]", e.name)?;
     writeln!(src, "pub enum {name} {{")?;
     for variant in &e.variants {
         writeln!(src, "    {},", to_pascal_case(variant))?;

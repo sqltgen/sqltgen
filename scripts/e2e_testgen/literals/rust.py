@@ -118,6 +118,9 @@ def render_typed_arg(
         return f"Some({u_expr})" if is_option else u_expr
 
     if kind == "str":
+        if _is_enum_type(inner_type):
+            e_expr = f'"{_escape_str(str(value))}".parse::<{inner_type}>().unwrap()'
+            return f"Some({e_expr})" if is_option else e_expr
         s_expr = f'"{_escape_str(str(value))}".to_string()'
         return f"Some({s_expr})" if is_option else s_expr
 
@@ -147,6 +150,8 @@ def render_call_lines(
     """Render an async function call as Rust source lines."""
     if bind:
         return [f"{indent}let {bind} = {call_expr}.await.unwrap();"]
+    if command in ("one", "many"):
+        return [f"{indent}let _ = {call_expr}.await.unwrap();"]
     return [f"{indent}{call_expr}.await.unwrap();"]
 
 
@@ -193,6 +198,11 @@ def render_assert_eq_typed(
         return f"assert_eq!({field_expr}, {wrapped});"
 
     if kind == "str":
+        if field_lang_type and _is_enum_type(inner_type):
+            # expected is '"value".to_string()'; replace suffix to parse as enum
+            enum_expected = expected.replace(".to_string()", f".parse::<{inner_type}>().unwrap()")
+            wrapped = f"Some({enum_expected})" if is_option else enum_expected
+            return f"assert_eq!({field_expr}, {wrapped});"
         wrapped = f"Some({expected})" if is_option else expected
         return f"assert_eq!({field_expr}, {wrapped});"
 
@@ -266,6 +276,29 @@ def render_uuid_compare(field_expr: str, var_name: str) -> str:
 
 
 # ── Internal helpers ─────────────────────────────────────────────────────
+
+
+_RUST_BUILTIN_TYPES = frozenset({
+    "String", "i8", "i16", "i32", "i64", "i128",
+    "u8", "u16", "u32", "u64", "u128",
+    "f32", "f64", "bool",
+})
+
+_RUST_KNOWN_PREFIXES = ("Vec<", "Option<", "serde_json::", "time::", "sqlx::", "uuid::", "rust_decimal::")
+
+
+def _is_enum_type(lang_type: str) -> bool:
+    """Return True if lang_type looks like a generated Rust enum type.
+
+    Rust enums are PascalCase identifiers (e.g. Priority, Status).
+    Builtins (String, i64, etc.) and library types are not enums.
+    """
+    if lang_type in _RUST_BUILTIN_TYPES:
+        return False
+    if any(lang_type.startswith(p) for p in _RUST_KNOWN_PREFIXES):
+        return False
+    # Must be PascalCase: starts with uppercase letter, no colons/brackets
+    return bool(lang_type) and lang_type[0].isupper() and "::" not in lang_type and "<" not in lang_type
 
 
 def _escape_str(s: str) -> str:

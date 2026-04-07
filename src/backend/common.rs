@@ -166,22 +166,22 @@ pub fn needed_enums(queries: &[&Query]) -> std::collections::BTreeSet<String> {
     let mut enums = std::collections::BTreeSet::new();
     for q in queries {
         for rc in &q.result_columns {
-            collect_enum_names(&rc.sql_type, &mut enums);
+            collect_enum_names_from_type(&rc.sql_type, &mut enums);
         }
         for p in &q.params {
-            collect_enum_names(&p.sql_type, &mut enums);
+            collect_enum_names_from_type(&p.sql_type, &mut enums);
         }
     }
     enums
 }
 
 /// Recursively extract enum type names from a SqlType (handles Array(Enum(...))).
-fn collect_enum_names(sql_type: &SqlType, out: &mut std::collections::BTreeSet<String>) {
+pub fn collect_enum_names_from_type(sql_type: &SqlType, out: &mut std::collections::BTreeSet<String>) {
     match sql_type {
         SqlType::Enum(name) => {
             out.insert(name.clone());
         },
-        SqlType::Array(inner) => collect_enum_names(inner, out),
+        SqlType::Array(inner) => collect_enum_names_from_type(inner, out),
         _ => {},
     }
 }

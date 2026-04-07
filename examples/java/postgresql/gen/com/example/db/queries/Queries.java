@@ -2,6 +2,7 @@ package com.example.db.queries;
 
 import com.example.db.models.Author;
 import com.example.db.models.Book;
+import com.example.db.models.Genre;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -99,16 +100,16 @@ public final class Queries {
             VALUES (?, ?, ?, ?, ?)
             RETURNING *;
             """;
-    public static Optional<Book> createBook(Connection conn, long authorId, String title, String genre, java.math.BigDecimal price, java.time.LocalDate publishedAt) throws SQLException {
+    public static Optional<Book> createBook(Connection conn, long authorId, String title, Genre genre, java.math.BigDecimal price, java.time.LocalDate publishedAt) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_CREATE_BOOK)) {
             ps.setLong(1, authorId);
             ps.setString(2, title);
-            ps.setString(3, genre);
+            ps.setObject(3, genre.getValue(), java.sql.Types.OTHER);
             ps.setBigDecimal(4, price);
             ps.setObject(5, publishedAt);
             try (ResultSet rs = ps.executeQuery()) {
                 if (!rs.next()) return Optional.empty();
-                return Optional.of(new Book(rs.getLong(1), rs.getLong(2), rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getObject(6, java.time.LocalDate.class)));
+                return Optional.of(new Book(rs.getLong(1), rs.getLong(2), rs.getString(3), Genre.fromValue(rs.getString(4)), rs.getBigDecimal(5), rs.getObject(6, java.time.LocalDate.class)));
             }
         }
     }
@@ -123,7 +124,7 @@ public final class Queries {
             ps.setLong(1, id);
             try (ResultSet rs = ps.executeQuery()) {
                 if (!rs.next()) return Optional.empty();
-                return Optional.of(new Book(rs.getLong(1), rs.getLong(2), rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getObject(6, java.time.LocalDate.class)));
+                return Optional.of(new Book(rs.getLong(1), rs.getLong(2), rs.getString(3), Genre.fromValue(rs.getString(4)), rs.getBigDecimal(5), rs.getObject(6, java.time.LocalDate.class)));
             }
         }
     }
@@ -140,7 +141,7 @@ public final class Queries {
             ps.setArray(1, arr);
             List<Book> rows = new ArrayList<>();
             try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) rows.add(new Book(rs.getLong(1), rs.getLong(2), rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getObject(6, java.time.LocalDate.class)));
+                while (rs.next()) rows.add(new Book(rs.getLong(1), rs.getLong(2), rs.getString(3), Genre.fromValue(rs.getString(4)), rs.getBigDecimal(5), rs.getObject(6, java.time.LocalDate.class)));
             }
             return rows;
         }
@@ -152,12 +153,12 @@ public final class Queries {
             WHERE genre = ?
             ORDER BY title;
             """;
-    public static List<Book> listBooksByGenre(Connection conn, String genre) throws SQLException {
+    public static List<Book> listBooksByGenre(Connection conn, Genre genre) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_LIST_BOOKS_BY_GENRE)) {
-            ps.setString(1, genre);
+            ps.setObject(1, genre.getValue(), java.sql.Types.OTHER);
             List<Book> rows = new ArrayList<>();
             try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) rows.add(new Book(rs.getLong(1), rs.getLong(2), rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getObject(6, java.time.LocalDate.class)));
+                while (rs.next()) rows.add(new Book(rs.getLong(1), rs.getLong(2), rs.getString(3), Genre.fromValue(rs.getString(4)), rs.getBigDecimal(5), rs.getObject(6, java.time.LocalDate.class)));
             }
             return rows;
         }
@@ -166,16 +167,16 @@ public final class Queries {
     private static final String SQL_LIST_BOOKS_BY_GENRE_OR_ALL = """
             SELECT id, author_id, title, genre, price, published_at
             FROM book
-            WHERE ? = 'all' OR genre = ?
+            WHERE (?::genre IS NULL OR genre = ?::genre)
             ORDER BY title;
             """;
-    public static List<Book> listBooksByGenreOrAll(Connection conn, String genre) throws SQLException {
+    public static List<Book> listBooksByGenreOrAll(Connection conn, Genre genre) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_LIST_BOOKS_BY_GENRE_OR_ALL)) {
-            ps.setString(1, genre);
-            ps.setString(2, genre);
+            ps.setObject(1, genre != null ? genre.getValue() : null, java.sql.Types.OTHER);
+            ps.setObject(2, genre != null ? genre.getValue() : null, java.sql.Types.OTHER);
             List<Book> rows = new ArrayList<>();
             try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) rows.add(new Book(rs.getLong(1), rs.getLong(2), rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getObject(6, java.time.LocalDate.class)));
+                while (rs.next()) rows.add(new Book(rs.getLong(1), rs.getLong(2), rs.getString(3), Genre.fromValue(rs.getString(4)), rs.getBigDecimal(5), rs.getObject(6, java.time.LocalDate.class)));
             }
             return rows;
         }
@@ -237,7 +238,7 @@ public final class Queries {
     public record ListBooksWithAuthorRow(
         long id,
         String title,
-        String genre,
+        Genre genre,
         java.math.BigDecimal price,
         java.time.LocalDate publishedAt,
         String authorName,
@@ -255,7 +256,7 @@ public final class Queries {
         try (PreparedStatement ps = conn.prepareStatement(SQL_LIST_BOOKS_WITH_AUTHOR)) {
             List<ListBooksWithAuthorRow> rows = new ArrayList<>();
             try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) rows.add(new ListBooksWithAuthorRow(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getBigDecimal(4), rs.getObject(5, java.time.LocalDate.class), rs.getString(6), rs.getString(7)));
+                while (rs.next()) rows.add(new ListBooksWithAuthorRow(rs.getLong(1), rs.getString(2), Genre.fromValue(rs.getString(3)), rs.getBigDecimal(4), rs.getObject(5, java.time.LocalDate.class), rs.getString(6), rs.getString(7)));
             }
             return rows;
         }
@@ -272,7 +273,7 @@ public final class Queries {
         try (PreparedStatement ps = conn.prepareStatement(SQL_GET_BOOKS_NEVER_ORDERED)) {
             List<Book> rows = new ArrayList<>();
             try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) rows.add(new Book(rs.getLong(1), rs.getLong(2), rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getObject(6, java.time.LocalDate.class)));
+                while (rs.next()) rows.add(new Book(rs.getLong(1), rs.getLong(2), rs.getString(3), Genre.fromValue(rs.getString(4)), rs.getBigDecimal(5), rs.getObject(6, java.time.LocalDate.class)));
             }
             return rows;
         }
@@ -281,7 +282,7 @@ public final class Queries {
     public record GetTopSellingBooksRow(
         long id,
         String title,
-        String genre,
+        Genre genre,
         java.math.BigDecimal price,
         Long unitsSold
     ) {}
@@ -303,7 +304,7 @@ public final class Queries {
         try (PreparedStatement ps = conn.prepareStatement(SQL_GET_TOP_SELLING_BOOKS)) {
             List<GetTopSellingBooksRow> rows = new ArrayList<>();
             try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) rows.add(new GetTopSellingBooksRow(rs.getLong(1), rs.getString(2), rs.getString(3), rs.getBigDecimal(4), getNullableLong(rs, 5)));
+                while (rs.next()) rows.add(new GetTopSellingBooksRow(rs.getLong(1), rs.getString(2), Genre.fromValue(rs.getString(3)), rs.getBigDecimal(4), getNullableLong(rs, 5)));
             }
             return rows;
         }

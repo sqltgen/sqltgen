@@ -30,6 +30,9 @@ pub(super) fn kotlin_param_type(p: &Parameter, type_map: &KotlinTypeMap) -> Stri
 /// When the type has a `write` expression, substitutes `{value}` with the param name.
 fn kotlin_write_expr(p: &Parameter, type_map: &KotlinTypeMap) -> String {
     let name = to_camel_case(&p.name);
+    if matches!(&p.sql_type, SqlType::Enum(_)) {
+        return if p.nullable { format!("{name}?.value") } else { format!("{name}.value") };
+    }
     if let Some(expr) = &type_map.get(&p.sql_type).write {
         expr.replace("{value}", &name)
     } else {
@@ -429,6 +432,10 @@ fn emit_row_constructor(query: &Query, schema: &Schema, type_map: &KotlinTypeMap
 // ─── Emitter helpers (consume the type map) ───────────────────────────────────
 
 fn resultset_read_expr(sql_type: &SqlType, nullable: bool, idx: usize, type_map: &KotlinTypeMap) -> String {
+    if let SqlType::Enum(name) = sql_type {
+        let ty = to_pascal_case(name);
+        return if nullable { format!("rs.getString({idx})?.let {{ {ty}.fromValue(it) }}") } else { format!("{ty}.fromValue(rs.getString({idx}))") };
+    }
     if let SqlType::Array(inner) = sql_type {
         return jdbc_array_read_expr(inner, nullable, idx, type_map);
     }
