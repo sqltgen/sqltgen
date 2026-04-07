@@ -4,7 +4,6 @@
 //! infer their types from surrounding column references and operators.
 
 use std::collections::hash_map::Entry;
-use std::collections::HashMap;
 
 use sqlparser::ast::{
     BinaryOperator, Expr, FunctionArg, FunctionArgExpr, FunctionArguments, JoinConstraint, JoinOperator, LimitClause, OrderByKind, Query as SqlQuery, Select,
@@ -14,9 +13,7 @@ use sqlparser::ast::{
 use crate::ir::{Schema, SqlType, Table};
 
 use super::resolve::{cast_name, function_name_upper, resolve_expr};
-use super::{build_alias_map, collect_cte_params, collect_from_tables, placeholder_idx, ResolverConfig, ResolverContext};
-
-type ParamMapping = HashMap<usize, (String, SqlType, bool)>;
+use super::{build_alias_map, collect_cte_params, collect_from_tables, placeholder_idx, ParamMapping, ResolverConfig, ResolverContext};
 
 struct ParamCollectScope<'a> {
     schema: &'a Schema,
@@ -45,7 +42,7 @@ fn collect_select_params_in(select: &Select, ctes: &[Table], mapping: &mut Param
     let query_name = scope.query_name;
     let all_tables = collect_from_tables(select, schema, ctes, config);
     let alias_map = build_alias_map(&all_tables);
-    let ctx = &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping, query_name };
+    let ctx = &mut ResolverContext::new(&alias_map, &all_tables, schema, config, mapping, query_name);
     if !all_tables.is_empty() {
         collect_select_filter_params(select, ctx);
     }
@@ -481,7 +478,7 @@ fn collect_params_from_subquery(q: &SqlQuery, mapping: &mut ParamMapping, scope:
         return;
     }
     let alias_map = build_alias_map(&all_tables);
-    let ctx = &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping, query_name };
+    let ctx = &mut ResolverContext::new(&alias_map, &all_tables, schema, config, mapping, query_name);
     collect_select_filter_params(select, ctx);
     collect_from_tvf_params(select, ctx);
     collect_limit_offset_params(q, ctx.mapping);

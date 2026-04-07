@@ -4,28 +4,29 @@
 //! schema, and returns a typed [`Query`] with inferred parameter types and
 //! (for `RETURNING` queries) inferred result columns.
 
-use std::collections::HashMap;
-
 use sqlparser::ast::{
     AssignmentTarget, Delete, FromTable, Insert, ObjectNamePart, OnConflictAction, OnInsert, Query as SqlQuery, SelectItem, SetExpr, TableFactor, Values,
 };
 
 use crate::frontend::common::{ident_to_str, obj_name_to_str, obj_schema_to_str};
-use crate::ir::{Query, Schema, SqlType, Table};
+use crate::ir::{Query, Schema, Table};
 
 use super::params::{collect_join_params_list, collect_params_from_expr, collect_select_params, placeholder_idx_in_expr};
 use super::{
     build_alias_map, build_cte_scope, build_params, collect_cte_params, collect_table_list, count_params, delete_table_ref, insert_table_ref,
-    resolve_returning, unresolved_query, update_from_tables, QueryAnnotation, ResolverConfig, ResolverContext,
+    resolve_returning, unresolved_query, update_from_tables, ParamMapping, QueryAnnotation, ResolverConfig, ResolverContext,
 };
 
-type ParamMapping = HashMap<usize, (String, SqlType, bool)>;
-
-struct DmlCollectCtx<'a> {
+pub(super) struct DmlBuildScope<'a> {
     schema: &'a Schema,
     config: &'a ResolverConfig,
-    mapping: &'a mut ParamMapping,
     query_name: &'a str,
+}
+
+impl<'a> DmlBuildScope<'a> {
+    pub(super) fn new(schema: &'a Schema, config: &'a ResolverConfig, query_name: &'a str) -> Self {
+        Self { schema, config, query_name }
+    }
 }
 
 // ─── RETURNING params ────────────────────────────────────────────────────────
@@ -35,23 +36,11 @@ struct DmlCollectCtx<'a> {
 /// Expressions like `RETURNING col + $N` or `RETURNING col || $N` allow parameters
 /// whose type is inferred from the sibling column reference, exactly as in a SELECT
 /// projection. Without this pass, such parameters fall through to the `Text` default.
-pub(super) fn collect_returning_params(items: &[SelectItem], table: &Table, config: &ResolverConfig, mapping: &mut ParamMapping, query_name: &str) {
+pub(super) fn collect_returning_params(items: &[SelectItem], table: &Table, scope: &DmlBuildScope<'_>, mapping: &mut ParamMapping) {
     let schema = Schema::with_tables(vec![table.clone()]);
-    let mut ctx = DmlCollectCtx { schema: &schema, config, mapping, query_name };
-    collect_returning_params_in(items, table, &mut ctx);
-}
-
-fn collect_returning_params_in(items: &[SelectItem], table: &Table, ctx: &mut DmlCollectCtx<'_>) {
     let all_tables = [(table.clone(), None)];
     let alias_map = build_alias_map(&all_tables);
-    let resolver_ctx = &mut ResolverContext {
-        alias_map: &alias_map,
-        all_tables: &all_tables,
-        schema: ctx.schema,
-        config: ctx.config,
-        mapping: ctx.mapping,
-        query_name: ctx.query_name,
-    };
+    let resolver_ctx = &mut ResolverContext::new(&alias_map, &all_tables, &schema, scope.config, mapping, scope.query_name);
     for item in items {
         let expr = match item {
             SelectItem::UnnamedExpr(e) | SelectItem::ExprWithAlias { expr: e, .. } => e,
@@ -65,39 +54,41 @@ fn collect_returning_params_in(items: &[SelectItem], table: &Table, ctx: &mut Dm
 
 /// Build a [`Query`] from a top-level `INSERT` statement.
 pub(super) fn build_insert(ann: &QueryAnnotation, sql: &str, insert: &Insert, schema: &Schema, config: &ResolverConfig) -> Query {
+    let scope = DmlBuildScope::new(schema, config, &ann.name);
     let (ins_schema, table_name) = insert_table_ref(insert);
-    let Some(table) = schema.find_table(ins_schema.as_deref(), &table_name, config.default_schema.as_deref()) else {
+    let Some(table) = scope.schema.find_table(ins_schema.as_deref(), &table_name, scope.config.default_schema.as_deref()) else {
         return unresolved_query(ann, sql);
     };
 
-    let mut mapping: ParamMapping = HashMap::new();
-    collect_insert_value_params(insert, schema, config, &mut mapping, &ann.name);
-    collect_on_conflict_params(insert, table, config, &mut mapping, &ann.name);
+    let mut mapping: ParamMapping = ParamMapping::new();
+    collect_insert_value_params(insert, scope.schema, scope.config, &mut mapping, scope.query_name);
+    collect_on_conflict_params(insert, table, scope.config, &mut mapping, scope.query_name);
     if let Some(items) = insert.returning.as_deref() {
-        collect_returning_params(items, table, config, &mut mapping, &ann.name);
+        collect_returning_params(items, table, &scope, &mut mapping);
     }
     let params = build_params(mapping, count_params(sql));
-    let result_columns = insert.returning.as_deref().map_or(vec![], |items| resolve_returning(items, table, config));
+    let result_columns = insert.returning.as_deref().map_or(vec![], |items| resolve_returning(items, table, scope.config));
 
     Query::new(ann.name.clone(), ann.cmd.clone(), sql, params, result_columns)
 }
 
 /// Handle `Statement::Query` where the body is `INSERT … RETURNING` (data-modifying CTE pattern).
 pub(super) fn build_query_from_insert(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, ins: &Insert, schema: &Schema, config: &ResolverConfig) -> Query {
+    let scope = DmlBuildScope::new(schema, config, &ann.name);
     let (ins_schema, ins_name) = insert_table_ref(ins);
-    let ds = config.default_schema.as_deref();
-    let mut mapping: ParamMapping = HashMap::new();
-    collect_cte_params(q.with.as_ref(), schema, config, &mut mapping, &ann.name);
-    collect_insert_value_params(ins, schema, config, &mut mapping, &ann.name);
-    if let Some(table) = schema.find_table(ins_schema.as_deref(), &ins_name, ds) {
+    let ds = scope.config.default_schema.as_deref();
+    let mut mapping: ParamMapping = ParamMapping::new();
+    collect_cte_params(q.with.as_ref(), scope.schema, scope.config, &mut mapping, scope.query_name);
+    collect_insert_value_params(ins, scope.schema, scope.config, &mut mapping, scope.query_name);
+    if let Some(table) = scope.schema.find_table(ins_schema.as_deref(), &ins_name, ds) {
         if let Some(items) = ins.returning.as_deref() {
-            collect_returning_params(items, table, config, &mut mapping, &ann.name);
+            collect_returning_params(items, table, &scope, &mut mapping);
         }
     }
     let params = build_params(mapping, count_params(sql));
     let result_columns = schema
         .find_table(ins_schema.as_deref(), &ins_name, ds)
-        .and_then(|t| ins.returning.as_deref().map(|items| resolve_returning(items, t, config)))
+        .and_then(|t| ins.returning.as_deref().map(|items| resolve_returning(items, t, scope.config)))
         .unwrap_or_default();
     Query::new(ann.name.clone(), ann.cmd.clone(), sql, params, result_columns)
 }
@@ -111,23 +102,15 @@ pub(super) fn build_query_from_insert(ann: &QueryAnnotation, sql: &str, q: &SqlQ
 /// unqualified references, so only the direct exposure matters there.
 fn collect_on_conflict_params(insert: &Insert, table: &Table, config: &ResolverConfig, mapping: &mut ParamMapping, query_name: &str) {
     let schema = Schema::with_tables(vec![table.clone()]);
-    let mut ctx = DmlCollectCtx { schema: &schema, config, mapping, query_name };
-    collect_on_conflict_params_in(insert, table, &mut ctx);
+    collect_on_conflict_params_in(insert, table, &schema, config, mapping, query_name);
 }
 
-fn collect_on_conflict_params_in(insert: &Insert, table: &Table, ctx: &mut DmlCollectCtx<'_>) {
+fn collect_on_conflict_params_in(insert: &Insert, table: &Table, schema: &Schema, config: &ResolverConfig, mapping: &mut ParamMapping, query_name: &str) {
     // Expose the target table both unaliased (for unqualified refs) and under
     // the "excluded" pseudo-alias (for PostgreSQL/SQLite `excluded.col` refs).
     let all_tables = [(table.clone(), None), (table.clone(), Some("excluded".to_string()))];
     let alias_map = build_alias_map(&all_tables);
-    let resolver_ctx = &mut ResolverContext {
-        alias_map: &alias_map,
-        all_tables: &all_tables,
-        schema: ctx.schema,
-        config: ctx.config,
-        mapping: ctx.mapping,
-        query_name: ctx.query_name,
-    };
+    let resolver_ctx = &mut ResolverContext::new(&alias_map, &all_tables, schema, config, mapping, query_name);
 
     match &insert.on {
         Some(OnInsert::OnConflict(on_conflict)) => {
@@ -158,11 +141,10 @@ fn collect_on_conflict_params_in(insert: &Insert, table: &Table, ctx: &mut DmlCo
 pub(super) fn collect_insert_value_params(ins: &Insert, schema: &Schema, config: &ResolverConfig, mapping: &mut ParamMapping, query_name: &str) {
     let (ins_schema, table_name) = insert_table_ref(ins);
     let Some(table) = schema.find_table(ins_schema.as_deref(), &table_name, config.default_schema.as_deref()) else { return };
-    let mut ctx = DmlCollectCtx { schema, config, mapping, query_name };
-    collect_insert_value_params_in(ins, table, &mut ctx);
+    collect_insert_value_params_in(ins, table, schema, config, mapping, query_name);
 }
 
-fn collect_insert_value_params_in(ins: &Insert, table: &Table, ctx: &mut DmlCollectCtx<'_>) {
+fn collect_insert_value_params_in(ins: &Insert, table: &Table, schema: &Schema, config: &ResolverConfig, mapping: &mut ParamMapping, query_name: &str) {
     let col_names: Vec<String> = ins.columns.iter().map(ident_to_str).collect();
     let Some(source) = &ins.source else { return };
 
@@ -172,7 +154,7 @@ fn collect_insert_value_params_in(ins: &Insert, table: &Table, ctx: &mut DmlColl
                 for (pos, val_expr) in row.iter().enumerate() {
                     if let Some(idx) = placeholder_idx_in_expr(val_expr) {
                         if let Some(col) = col_names.get(pos).and_then(|n| table.columns.iter().find(|c| &c.name == n)) {
-                            ctx.mapping.entry(idx).or_insert((col.name.clone(), col.sql_type.clone(), col.nullable));
+                            mapping.entry(idx).or_insert((col.name.clone(), col.sql_type.clone(), col.nullable));
                         }
                     }
                 }
@@ -187,12 +169,12 @@ fn collect_insert_value_params_in(ins: &Insert, table: &Table, ctx: &mut DmlColl
                 };
                 if let Some(idx) = placeholder_idx_in_expr(expr) {
                     if let Some(col) = col_names.get(pos).and_then(|n| table.columns.iter().find(|c| &c.name == n)) {
-                        ctx.mapping.entry(idx).or_insert((col.name.clone(), col.sql_type.clone(), col.nullable));
+                        mapping.entry(idx).or_insert((col.name.clone(), col.sql_type.clone(), col.nullable));
                     }
                 }
             }
             // Type WHERE/JOIN/HAVING params from the SELECT's FROM tables.
-            collect_select_params(select, ctx.schema, ctx.config, &[], ctx.mapping, ctx.query_name);
+            collect_select_params(select, schema, config, &[], mapping, query_name);
         },
         _ => {},
     }
@@ -202,21 +184,22 @@ fn collect_insert_value_params_in(ins: &Insert, table: &Table, ctx: &mut DmlColl
 
 /// Build a [`Query`] from a top-level `UPDATE` statement.
 pub(super) fn build_update(ann: &QueryAnnotation, sql: &str, u: &sqlparser::ast::Update, schema: &Schema, config: &ResolverConfig) -> Query {
+    let scope = DmlBuildScope::new(schema, config, &ann.name);
     let (table_schema, table_name) = match &u.table.relation {
         TableFactor::Table { name, .. } => (obj_schema_to_str(name), obj_name_to_str(name)),
         _ => return unresolved_query(ann, sql),
     };
-    let Some(table) = schema.find_table(table_schema.as_deref(), &table_name, config.default_schema.as_deref()) else {
+    let Some(table) = scope.schema.find_table(table_schema.as_deref(), &table_name, scope.config.default_schema.as_deref()) else {
         return unresolved_query(ann, sql);
     };
 
-    let mut mapping: HashMap<usize, (String, SqlType, bool)> = HashMap::new();
-    collect_update_params(u, &[], schema, config, &mut mapping, &ann.name);
+    let mut mapping: ParamMapping = ParamMapping::new();
+    collect_update_params(u, &[], scope.schema, scope.config, &mut mapping, scope.query_name);
     if let Some(items) = u.returning.as_deref() {
-        collect_returning_params(items, table, config, &mut mapping, &ann.name);
+        collect_returning_params(items, table, &scope, &mut mapping);
     }
     let params = build_params(mapping, count_params(sql));
-    let result_columns = u.returning.as_deref().map_or(vec![], |items| resolve_returning(items, table, config));
+    let result_columns = u.returning.as_deref().map_or(vec![], |items| resolve_returning(items, table, scope.config));
     Query::new(ann.name.clone(), ann.cmd.clone(), sql, params, result_columns)
 }
 
@@ -229,24 +212,25 @@ pub(super) fn build_query_from_update(
     schema: &Schema,
     config: &ResolverConfig,
 ) -> Query {
+    let scope = DmlBuildScope::new(schema, config, &ann.name);
     let (table_schema, table_name) = match &u.table.relation {
         TableFactor::Table { name, .. } => (obj_schema_to_str(name), obj_name_to_str(name)),
         _ => return unresolved_query(ann, sql),
     };
-    let ds = config.default_schema.as_deref();
-    let mut mapping = HashMap::new();
-    collect_cte_params(q.with.as_ref(), schema, config, &mut mapping, &ann.name);
-    let ctes = build_cte_scope(q.with.as_ref(), schema, config);
-    collect_update_params(u, &ctes, schema, config, &mut mapping, &ann.name);
-    if let Some(table) = schema.find_table(table_schema.as_deref(), &table_name, ds) {
+    let ds = scope.config.default_schema.as_deref();
+    let mut mapping: ParamMapping = ParamMapping::new();
+    collect_cte_params(q.with.as_ref(), scope.schema, scope.config, &mut mapping, scope.query_name);
+    let ctes = build_cte_scope(q.with.as_ref(), scope.schema, scope.config);
+    collect_update_params(u, &ctes, scope.schema, scope.config, &mut mapping, scope.query_name);
+    if let Some(table) = scope.schema.find_table(table_schema.as_deref(), &table_name, ds) {
         if let Some(items) = u.returning.as_deref() {
-            collect_returning_params(items, table, config, &mut mapping, &ann.name);
+            collect_returning_params(items, table, &scope, &mut mapping);
         }
     }
     let params = build_params(mapping, count_params(sql));
     let result_columns = schema
         .find_table(table_schema.as_deref(), &table_name, ds)
-        .and_then(|t| u.returning.as_deref().map(|items| resolve_returning(items, t, config)))
+        .and_then(|t| u.returning.as_deref().map(|items| resolve_returning(items, t, scope.config)))
         .unwrap_or_default();
     Query::new(ann.name.clone(), ann.cmd.clone(), sql, params, result_columns)
 }
@@ -268,7 +252,7 @@ pub(super) fn collect_update_params(
     ctes: &[Table],
     schema: &Schema,
     config: &ResolverConfig,
-    mapping: &mut HashMap<usize, (String, SqlType, bool)>,
+    mapping: &mut ParamMapping,
     query_name: &str,
 ) {
     let table_with_joins = &update.table;
@@ -302,7 +286,7 @@ pub(super) fn collect_update_params(
         }
     }
 
-    let ctx = &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping, query_name };
+    let ctx = &mut ResolverContext::new(&alias_map, &all_tables, schema, config, mapping, query_name);
     if let Some(expr) = selection {
         collect_params_from_expr(expr, ctx);
     }
@@ -313,6 +297,7 @@ pub(super) fn collect_update_params(
 
 /// Build a [`Query`] from a top-level `DELETE` statement.
 pub(super) fn build_delete(ann: &QueryAnnotation, sql: &str, delete: &Delete, schema: &Schema, config: &ResolverConfig) -> Query {
+    let scope = DmlBuildScope::new(schema, config, &ann.name);
     let tables = match &delete.from {
         FromTable::WithFromKeyword(t) | FromTable::WithoutKeyword(t) => t,
     };
@@ -324,42 +309,33 @@ pub(super) fn build_delete(ann: &QueryAnnotation, sql: &str, delete: &Delete, sc
     let Some((table_schema, table_name)) = table_ref else {
         return unresolved_query(ann, sql);
     };
-    let Some(table) = schema.find_table(table_schema.as_deref(), &table_name, config.default_schema.as_deref()) else {
+    let Some(table) = scope.schema.find_table(table_schema.as_deref(), &table_name, scope.config.default_schema.as_deref()) else {
         return unresolved_query(ann, sql);
     };
 
     let all_tables = vec![(table.clone(), None)];
     let alias_map = build_alias_map(&all_tables);
-    let mut mapping = HashMap::new();
+    let mut mapping: ParamMapping = ParamMapping::new();
 
     if let Some(expr) = &delete.selection {
-        collect_params_from_expr(
-            expr,
-            &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping: &mut mapping, query_name: &ann.name },
-        );
+        collect_params_from_expr(expr, &mut ResolverContext::new(&alias_map, &all_tables, scope.schema, scope.config, &mut mapping, scope.query_name));
     }
     if let Some(items) = delete.returning.as_deref() {
-        collect_returning_params(items, table, config, &mut mapping, &ann.name);
+        collect_returning_params(items, table, &scope, &mut mapping);
     }
 
     let params = build_params(mapping, count_params(sql));
-    let result_columns = delete.returning.as_deref().map_or(vec![], |items| resolve_returning(items, table, config));
+    let result_columns = delete.returning.as_deref().map_or(vec![], |items| resolve_returning(items, table, scope.config));
 
     Query::new(ann.name.clone(), ann.cmd.clone(), sql, params, result_columns)
 }
 
 /// Collect parameter mappings from a DELETE statement's WHERE clause.
-pub(super) fn collect_delete_where_params(
-    del: &Delete,
-    schema: &Schema,
-    config: &ResolverConfig,
-    mapping: &mut HashMap<usize, (String, SqlType, bool)>,
-    query_name: &str,
-) {
+pub(super) fn collect_delete_where_params(del: &Delete, schema: &Schema, config: &ResolverConfig, mapping: &mut ParamMapping, query_name: &str) {
     let Some((del_schema, del_name)) = delete_table_ref(del) else { return };
     let Some(table) = schema.find_table(del_schema.as_deref(), &del_name, config.default_schema.as_deref()) else { return };
     let Some(expr) = &del.selection else { return };
     let all_tables = vec![(table.clone(), None)];
     let alias_map = build_alias_map(&all_tables);
-    collect_params_from_expr(expr, &mut ResolverContext { alias_map: &alias_map, all_tables: &all_tables, schema, config, mapping, query_name });
+    collect_params_from_expr(expr, &mut ResolverContext::new(&alias_map, &all_tables, schema, config, mapping, query_name));
 }

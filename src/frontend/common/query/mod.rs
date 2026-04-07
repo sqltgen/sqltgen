@@ -5,9 +5,11 @@ mod dispatch;
 mod dml;
 mod params;
 mod resolve;
+mod resolve_functions;
 mod returning;
 mod select;
 mod tables;
+mod types;
 mod utils;
 
 use std::collections::HashMap;
@@ -18,7 +20,8 @@ use crate::ir::{NativeListBind, Parameter, Schema, SqlType, Table};
 use crate::ir::{Query, QueryCmd};
 use sqlparser::ast::{Delete, Insert, TableFactor, TableObject};
 
-type UserFunctions = HashMap<String, Vec<(Vec<SqlType>, SqlType)>>;
+pub(super) use types::ParamMapping;
+use types::UserFunctions;
 
 /// Dialect-specific function that rewrites list-param SQL and returns the binding method.
 ///
@@ -93,8 +96,21 @@ pub(super) struct ResolverContext<'a> {
     pub all_tables: &'a [(Table, Option<String>)],
     pub schema: &'a Schema,
     pub config: &'a ResolverConfig,
-    pub mapping: &'a mut HashMap<usize, (String, SqlType, bool)>,
+    pub mapping: &'a mut ParamMapping,
     pub query_name: &'a str,
+}
+
+impl<'a> ResolverContext<'a> {
+    pub(super) fn new(
+        alias_map: &'a HashMap<String, &'a Table>,
+        all_tables: &'a [(Table, Option<String>)],
+        schema: &'a Schema,
+        config: &'a ResolverConfig,
+        mapping: &'a mut ParamMapping,
+        query_name: &'a str,
+    ) -> Self {
+        Self { alias_map, all_tables, schema, config, mapping, query_name }
+    }
 }
 
 /// Returns `(schema, table_name)` for an INSERT statement's target table.
