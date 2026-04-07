@@ -16,7 +16,7 @@ use super::params::{collect_limit_offset_params, collect_order_by_params, collec
 use super::resolve::resolve_projection;
 use super::{
     apply_cte_alias_columns, build_alias_map, build_cte_scope, build_params, collect_cte_params, collect_from_tables, count_params, derived_cols,
-    unresolved_query, QueryAnnotation, ResolverConfig, ResolverContext,
+    unresolved_query, ParamMapping, QueryAnnotation, ResolverConfig, ResolverContext,
 };
 
 struct WildcardSourceScope<'a> {
@@ -27,45 +27,34 @@ struct WildcardSourceScope<'a> {
     default_schema: Option<&'a str>,
 }
 
-struct SelectBuildScope<'a> {
-    schema: &'a Schema,
-    config: &'a ResolverConfig,
-    ctes: &'a [Table],
-}
-
 /// Build a [`Query`] from a `Statement::Query` node (SELECT, set operation, or
 /// data-modifying CTE whose outer body is an INSERT/UPDATE).
 pub(super) fn build_select(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, schema: &Schema, config: &ResolverConfig) -> Query {
     let ctes = build_cte_scope(q.with.as_ref(), schema, config);
-    let scope = SelectBuildScope { schema, config, ctes: &ctes };
     match q.body.as_ref() {
-        SetExpr::Select(select) => build_select_body(ann, sql, q, select, &scope),
+        SetExpr::Select(select) => build_select_body(ann, sql, q, select, schema, config, &ctes),
         SetExpr::Insert(Statement::Insert(ins)) => build_query_from_insert(ann, sql, q, ins, schema, config),
         SetExpr::Update(Statement::Update(u)) => build_query_from_update(ann, sql, q, u, schema, config),
-        SetExpr::SetOperation { .. } => build_set_operation(ann, sql, q, q.body.as_ref(), &scope),
+        SetExpr::SetOperation { .. } => build_set_operation(ann, sql, q, q.body.as_ref(), schema, config, &ctes),
         _ => unresolved_query(ann, sql),
     }
 }
 
 /// Handle `Statement::Query` where the body is a plain `SELECT` (with optional CTEs).
-fn build_select_body(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, select: &Select, scope: &SelectBuildScope<'_>) -> Query {
-    let schema = scope.schema;
-    let config = scope.config;
-    let ctes = scope.ctes;
+fn build_select_body(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, select: &Select, schema: &Schema, config: &ResolverConfig, ctes: &[Table]) -> Query {
     let all_tables = collect_from_tables(select, schema, ctes, config);
     let alias_map = build_alias_map(&all_tables);
-    let result_columns = resolve_projection(select, &alias_map, &all_tables, config, schema);
+    let mut mapping = ParamMapping::new();
+    let ctx = &mut ResolverContext::new(&alias_map, &all_tables, schema, config, &mut mapping, &ann.name);
+    let result_columns = resolve_projection(select, ctx);
     if all_tables.is_empty() && result_columns.is_empty() {
         return unresolved_query(ann, sql);
     }
-    let params = {
-        let mut mapping = HashMap::new();
-        collect_cte_params(q.with.as_ref(), schema, config, &mut mapping, &ann.name);
-        collect_select_params(select, schema, config, ctes, &mut mapping, &ann.name);
-        collect_limit_offset_params(q, &mut mapping);
-        collect_order_by_params(q, &mut ResolverContext::new(&alias_map, &all_tables, schema, config, &mut mapping, &ann.name));
-        build_params(mapping, count_params(sql))
-    };
+    collect_cte_params(q.with.as_ref(), schema, config, ctx.mapping, ctx.query_name);
+    collect_select_params(select, schema, config, ctes, ctx.mapping, ctx.query_name);
+    collect_limit_offset_params(q, ctx.mapping);
+    collect_order_by_params(q, ctx);
+    let params = build_params(mapping, count_params(sql));
     let provenance = build_source_provenance(q.with.as_ref(), &select.from, schema, ctes, config);
     let source_scope = WildcardSourceScope {
         alias_map: &alias_map,
@@ -200,13 +189,10 @@ pub(super) fn build_source_provenance(
 ///
 /// Result columns come from the leftmost SELECT branch (per SQL standard).
 /// Parameters are collected recursively from all branches.
-fn build_set_operation(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, body: &SetExpr, scope: &SelectBuildScope<'_>) -> Query {
-    let schema = scope.schema;
-    let config = scope.config;
-    let ctes = scope.ctes;
+fn build_set_operation(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, body: &SetExpr, schema: &Schema, config: &ResolverConfig, ctes: &[Table]) -> Query {
     // Resolve result columns from all SELECT branches, then keep the leftmost
     // names/types while widening nullability across branches positionally.
-    let branch_columns = resolve_set_branch_columns(body, scope);
+    let branch_columns = resolve_set_branch_columns(body, schema, config, ctes);
     let mut result_columns = branch_columns.first().cloned().unwrap_or_default();
     for cols in branch_columns.iter().skip(1) {
         for (left, right) in result_columns.iter_mut().zip(cols.iter()) {
@@ -248,10 +234,7 @@ fn leftmost_select(expr: &SetExpr) -> Option<&Select> {
 }
 
 /// Resolve projection columns for each SELECT branch in a set-expression tree.
-fn resolve_set_branch_columns(expr: &SetExpr, scope: &SelectBuildScope<'_>) -> Vec<Vec<ResultColumn>> {
-    let schema = scope.schema;
-    let config = scope.config;
-    let ctes = scope.ctes;
+fn resolve_set_branch_columns(expr: &SetExpr, schema: &Schema, config: &ResolverConfig, ctes: &[Table]) -> Vec<Vec<ResultColumn>> {
     let mut selects = Vec::new();
     collect_set_selects(expr, &mut selects);
     selects
@@ -259,7 +242,9 @@ fn resolve_set_branch_columns(expr: &SetExpr, scope: &SelectBuildScope<'_>) -> V
         .map(|select| {
             let all_tables = collect_from_tables(select, schema, ctes, config);
             let alias_map = build_alias_map(&all_tables);
-            resolve_projection(select, &alias_map, &all_tables, config, schema)
+            let mut mapping = ParamMapping::new();
+            let ctx = ResolverContext::new(&alias_map, &all_tables, schema, config, &mut mapping, "");
+            resolve_projection(select, &ctx)
         })
         .collect()
 }

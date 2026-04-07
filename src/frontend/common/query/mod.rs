@@ -34,7 +34,6 @@ use annotations::QueryAnnotation;
 pub(super) use ctes::{apply_cte_alias_columns, build_cte_scope, collect_cte_params};
 pub(super) use derived::{derived_cols, resolve_view_columns};
 pub(crate) use dispatch::parse_queries_with_config;
-use resolve::{resolve_expr, resolve_projection};
 pub(super) use returning::resolve_returning;
 pub(super) use tables::{build_alias_map, collect_from_tables, collect_table_list, update_from_tables};
 pub(super) use utils::{build_params, count_params, placeholder_idx, unresolved_query};
