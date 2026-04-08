@@ -39,6 +39,50 @@ const _PARSE_JSON: &str = r#"static simdjson::dom::element parse_json(simdjson::
 }
 "#;
 
+/// C++ RAII wrapper for `MYSQL_STMT*`.
+/// Handles init+prepare in the constructor and close in the destructor,
+/// so generated query functions never need manual `mysql_stmt_close` on
+/// error paths.
+const MYSQL_STMT_HELPER: &str = r#"class MysqlStmt {
+    MYSQL_STMT* stmt_;
+public:
+    MysqlStmt(MYSQL* db, const std::string& sql) : stmt_(mysql_stmt_init(db)) {
+        if (!stmt_) throw std::runtime_error(mysql_error(db));
+        if (mysql_stmt_prepare(stmt_, sql.c_str(), sql.size()) != 0) {
+            std::string err = mysql_stmt_error(stmt_);
+            mysql_stmt_close(stmt_);
+            throw std::runtime_error(err);
+        }
+    }
+    ~MysqlStmt() { if (stmt_) mysql_stmt_close(stmt_); }
+    MysqlStmt(const MysqlStmt&) = delete;
+    MysqlStmt& operator=(const MysqlStmt&) = delete;
+    void bind_param(MYSQL_BIND* bind) {
+        if (mysql_stmt_bind_param(stmt_, bind) != 0)
+            throw std::runtime_error(mysql_stmt_error(stmt_));
+    }
+    void execute() {
+        if (mysql_stmt_execute(stmt_) != 0)
+            throw std::runtime_error(mysql_stmt_error(stmt_));
+    }
+    void bind_result(MYSQL_BIND* bind) {
+        if (mysql_stmt_bind_result(stmt_, bind) != 0)
+            throw std::runtime_error(mysql_stmt_error(stmt_));
+    }
+    bool fetch_row() {
+        int rc = mysql_stmt_fetch(stmt_);
+        if (rc == MYSQL_NO_DATA) return false;
+        if (rc != 0 && rc != MYSQL_DATA_TRUNCATED)
+            throw std::runtime_error(mysql_stmt_error(stmt_));
+        return true;
+    }
+    void fetch_column(MYSQL_BIND* bind, unsigned col) {
+        mysql_stmt_fetch_column(stmt_, bind, col, 0);
+    }
+    my_ulonglong affected_rows() { return mysql_stmt_affected_rows(stmt_); }
+};
+"#;
+
 /// Resolved engine-specific contract consumed by `core.rs` emitters.
 pub(super) struct CppCoreContract {
     /// Primary `#include` for the database client (e.g. `<pqxx/pqxx>`).
@@ -86,7 +130,7 @@ pub(super) fn resolve_contract(target: &super::CppTarget) -> CppCoreContract {
             conn_type: "MYSQL*",
             param_style: CppParamStyle::QuestionAnon,
             source_includes: &["<cstring>"],
-            source_helpers: &[JSON_ESCAPE],
+            source_helpers: &[JSON_ESCAPE, MYSQL_STMT_HELPER],
             emit_query_body: emit_mysql_body,
         },
     }
@@ -316,81 +360,65 @@ fn sqlite3_column_expr(sql_type: &SqlType, idx: usize, nullable: bool) -> String
 }
 
 /// Emit the function body for a libmysqlclient (MySQL) query.
+///
+/// Uses `MysqlStmt` (a generated RAII wrapper) for the statement lifecycle.
+/// `MysqlStmt`'s constructor does init+prepare; its destructor closes the
+/// statement, so no manual `mysql_stmt_close` is needed on any path.
 fn emit_mysql_body(src: &mut String, ctx: &CppQueryContext<'_>) -> anyhow::Result<()> {
     let query = ctx.query;
     let const_name = crate::backend::common::sql_const_name(&query.name);
 
+    writeln!(src, "    MysqlStmt stmt(db, {const_name});")?;
+    if !query.params.is_empty() {
+        writeln!(src)?;
+    }
+    emit_mysql_bind_params(src, query)?;
+    if !query.params.is_empty() {
+        writeln!(src)?;
+    }
+
     match query.cmd {
         QueryCmd::Exec => {
-            emit_mysql_prepare(src, &const_name)?;
-            emit_mysql_bind_params(src, query)?;
-            emit_mysql_execute(src)?;
-            writeln!(src, "    mysql_stmt_close(stmt);")?;
+            writeln!(src, "    stmt.execute();")?;
         },
         QueryCmd::ExecRows => {
-            emit_mysql_prepare(src, &const_name)?;
-            emit_mysql_bind_params(src, query)?;
-            emit_mysql_execute(src)?;
-            writeln!(src, "    my_ulonglong affected = mysql_stmt_affected_rows(stmt);")?;
-            writeln!(src, "    mysql_stmt_close(stmt);")?;
-            writeln!(src, "    return static_cast<std::int64_t>(affected);")?;
+            writeln!(src, "    stmt.execute();")?;
+            writeln!(src, "    return static_cast<std::int64_t>(stmt.affected_rows());")?;
         },
         QueryCmd::One => {
             let row_type = result_row_type(query, ctx.schema);
-            emit_mysql_prepare(src, &const_name)?;
-            emit_mysql_bind_params(src, query)?;
-            emit_mysql_execute(src)?;
+            writeln!(src, "    stmt.execute();")?;
+            writeln!(src)?;
             emit_mysql_bind_result_columns(src, &query.result_columns)?;
-            writeln!(src, "    int rc = mysql_stmt_fetch(stmt);")?;
-            writeln!(src, "    if (rc == MYSQL_NO_DATA) {{")?;
-            writeln!(src, "        mysql_stmt_close(stmt);")?;
-            writeln!(src, "        return std::nullopt;")?;
-            writeln!(src, "    }}")?;
-            writeln!(src, "    if (rc != 0 && rc != MYSQL_DATA_TRUNCATED) {{")?;
-            writeln!(src, "        std::string err = mysql_stmt_error(stmt);")?;
-            writeln!(src, "        mysql_stmt_close(stmt);")?;
-            writeln!(src, "        throw std::runtime_error(err);")?;
-            writeln!(src, "    }}")?;
-            emit_mysql_fetch_varlen_columns(src, &query.result_columns)?;
-            emit_mysql_row_construction(src, &row_type, &query.result_columns, "    ")?;
-            writeln!(src, "    mysql_stmt_close(stmt);")?;
-            writeln!(src, "    return result;")?;
+            writeln!(src)?;
+            writeln!(src, "    if (!stmt.fetch_row()) return std::nullopt;")?;
+            let has_varlen = query.result_columns.iter().any(|c| mysql_is_varlen(&c.sql_type));
+            if has_varlen {
+                writeln!(src)?;
+                emit_mysql_fetch_varlen_columns(src, &query.result_columns)?;
+                writeln!(src)?;
+            }
+            emit_mysql_row_construction(src, &row_type, &query.result_columns, "    ", "return ", ";")?;
         },
         QueryCmd::Many => {
             let row_type = result_row_type(query, ctx.schema);
-            emit_mysql_prepare(src, &const_name)?;
-            emit_mysql_bind_params(src, query)?;
-            emit_mysql_execute(src)?;
+            writeln!(src, "    stmt.execute();")?;
+            writeln!(src)?;
             emit_mysql_bind_result_columns(src, &query.result_columns)?;
+            writeln!(src)?;
             writeln!(src, "    std::vector<{row_type}> rows;")?;
-            writeln!(src, "    while (true) {{")?;
-            writeln!(src, "        int rc = mysql_stmt_fetch(stmt);")?;
-            writeln!(src, "        if (rc == MYSQL_NO_DATA) break;")?;
-            writeln!(src, "        if (rc != 0 && rc != MYSQL_DATA_TRUNCATED) {{")?;
-            writeln!(src, "            std::string err = mysql_stmt_error(stmt);")?;
-            writeln!(src, "            mysql_stmt_close(stmt);")?;
-            writeln!(src, "            throw std::runtime_error(err);")?;
-            writeln!(src, "        }}")?;
-            emit_mysql_fetch_varlen_columns_indented(src, &query.result_columns, "        ")?;
-            emit_mysql_row_construction(src, &row_type, &query.result_columns, "        ")?;
-            writeln!(src, "        rows.push_back(std::move(result));")?;
+            writeln!(src, "    while (stmt.fetch_row()) {{")?;
+            let has_varlen = query.result_columns.iter().any(|c| mysql_is_varlen(&c.sql_type));
+            if has_varlen {
+                writeln!(src)?;
+                emit_mysql_fetch_varlen_columns_indented(src, &query.result_columns, "        ")?;
+                writeln!(src)?;
+            }
+            emit_mysql_row_construction(src, &row_type, &query.result_columns, "        ", "rows.push_back(", ");")?;
             writeln!(src, "    }}")?;
-            writeln!(src, "    mysql_stmt_close(stmt);")?;
             writeln!(src, "    return rows;")?;
         },
     }
-    Ok(())
-}
-
-/// Emit `mysql_stmt_init` + `mysql_stmt_prepare` + error checks.
-fn emit_mysql_prepare(src: &mut String, const_name: &str) -> anyhow::Result<()> {
-    writeln!(src, "    MYSQL_STMT* stmt = mysql_stmt_init(db);")?;
-    writeln!(src, "    if (!stmt) throw std::runtime_error(mysql_error(db));")?;
-    writeln!(src, "    if (mysql_stmt_prepare(stmt, {const_name}.c_str(), {const_name}.size()) != 0) {{")?;
-    writeln!(src, "        std::string err = mysql_stmt_error(stmt);")?;
-    writeln!(src, "        mysql_stmt_close(stmt);")?;
-    writeln!(src, "        throw std::runtime_error(err);")?;
-    writeln!(src, "    }}")?;
     Ok(())
 }
 
@@ -408,7 +436,6 @@ fn emit_mysql_bind_params(src: &mut String, query: &Query) -> anyhow::Result<()>
 
     for param in &query.params {
         let name = to_snake_case(&param.name);
-        writeln!(src)?;
         if param.is_list {
             emit_mysql_bind_list_vars(src, &param.sql_type, &name)?;
         } else if param.nullable {
@@ -435,12 +462,7 @@ fn emit_mysql_bind_params(src: &mut String, query: &Query) -> anyhow::Result<()>
         }
     }
 
-    writeln!(src)?;
-    writeln!(src, "    if (mysql_stmt_bind_param(stmt, bind) != 0) {{")?;
-    writeln!(src, "        std::string err = mysql_stmt_error(stmt);")?;
-    writeln!(src, "        mysql_stmt_close(stmt);")?;
-    writeln!(src, "        throw std::runtime_error(err);")?;
-    writeln!(src, "    }}")?;
+    writeln!(src, "    stmt.bind_param(bind);")?;
     Ok(())
 }
 
@@ -526,15 +548,6 @@ fn mysql_bind_info(sql_type: &SqlType, name: &str) -> (&'static str, String, boo
     }
 }
 
-fn emit_mysql_execute(src: &mut String) -> anyhow::Result<()> {
-    writeln!(src, "    if (mysql_stmt_execute(stmt) != 0) {{")?;
-    writeln!(src, "        std::string err = mysql_stmt_error(stmt);")?;
-    writeln!(src, "        mysql_stmt_close(stmt);")?;
-    writeln!(src, "        throw std::runtime_error(err);")?;
-    writeln!(src, "    }}")?;
-    Ok(())
-}
-
 fn mysql_is_varlen(sql_type: &SqlType) -> bool {
     matches!(mysql_bind_info(sql_type, "x"), (_, _, true))
 }
@@ -552,31 +565,25 @@ fn emit_mysql_bind_result_columns(src: &mut String, columns: &[ResultColumn]) ->
         let col_name = to_snake_case(&col.name);
         let mysql_type = mysql_type_const(&col.sql_type);
         writeln!(src)?;
-
         if mysql_is_varlen(&col.sql_type) {
             writeln!(src, "    unsigned long {col_name}_len = 0;")?;
-            writeln!(src, "    my_bool {col_name}_is_null = 0;")?;
-            writeln!(src, "    result_bind[{i}].buffer_type = {mysql_type};")?;
-            writeln!(src, "    result_bind[{i}].buffer = nullptr;")?;
+            writeln!(src, "    my_bool {col_name}_is_null = false;")?;
+            writeln!(src, "    result_bind[{i}].buffer_type   = {mysql_type};")?;
+            writeln!(src, "    result_bind[{i}].buffer        = nullptr;")?;
             writeln!(src, "    result_bind[{i}].buffer_length = 0;")?;
-            writeln!(src, "    result_bind[{i}].length = &{col_name}_len;")?;
-            writeln!(src, "    result_bind[{i}].is_null = &{col_name}_is_null;")?;
+            writeln!(src, "    result_bind[{i}].length        = &{col_name}_len;")?;
+            writeln!(src, "    result_bind[{i}].is_null       = &{col_name}_is_null;")?;
         } else {
             let cpp_ty = cpp_type(&col.sql_type, false);
             writeln!(src, "    {cpp_ty} {col_name}_val{{}};")?;
-            writeln!(src, "    my_bool {col_name}_is_null = 0;")?;
+            writeln!(src, "    my_bool {col_name}_is_null = false;")?;
             writeln!(src, "    result_bind[{i}].buffer_type = {mysql_type};")?;
-            writeln!(src, "    result_bind[{i}].buffer = &{col_name}_val;")?;
-            writeln!(src, "    result_bind[{i}].is_null = &{col_name}_is_null;")?;
+            writeln!(src, "    result_bind[{i}].buffer      = &{col_name}_val;")?;
+            writeln!(src, "    result_bind[{i}].is_null     = &{col_name}_is_null;")?;
         }
     }
 
-    writeln!(src)?;
-    writeln!(src, "    if (mysql_stmt_bind_result(stmt, result_bind) != 0) {{")?;
-    writeln!(src, "        std::string err = mysql_stmt_error(stmt);")?;
-    writeln!(src, "        mysql_stmt_close(stmt);")?;
-    writeln!(src, "        throw std::runtime_error(err);")?;
-    writeln!(src, "    }}")?;
+    writeln!(src, "    stmt.bind_result(result_bind);")?;
     Ok(())
 }
 
@@ -585,10 +592,15 @@ fn emit_mysql_fetch_varlen_columns(src: &mut String, columns: &[ResultColumn]) -
 }
 
 fn emit_mysql_fetch_varlen_columns_indented(src: &mut String, columns: &[ResultColumn], indent: &str) -> anyhow::Result<()> {
+    let mut first = true;
     for (i, col) in columns.iter().enumerate() {
         if !mysql_is_varlen(&col.sql_type) {
             continue;
         }
+        if !first {
+            writeln!(src)?;
+        }
+        first = false;
         let col_name = to_snake_case(&col.name);
         let is_blob = matches!(col.sql_type, SqlType::Bytes);
 
@@ -600,25 +612,32 @@ fn emit_mysql_fetch_varlen_columns_indented(src: &mut String, columns: &[ResultC
             writeln!(src, "{indent}result_bind[{i}].buffer = {col_name}_val.data();")?;
         }
         writeln!(src, "{indent}result_bind[{i}].buffer_length = {col_name}_len;")?;
-        writeln!(src, "{indent}mysql_stmt_fetch_column(stmt, &result_bind[{i}], {i}, 0);")?;
+        writeln!(src, "{indent}stmt.fetch_column(&result_bind[{i}], {i});")?;
     }
     Ok(())
 }
 
-fn emit_mysql_row_construction(src: &mut String, row_type: &str, columns: &[ResultColumn], indent: &str) -> anyhow::Result<()> {
-    writeln!(src, "{indent}auto result = {row_type}{{")?;
+fn emit_mysql_row_construction(src: &mut String, row_type: &str, columns: &[ResultColumn], indent: &str, open: &str, close: &str) -> anyhow::Result<()> {
+    writeln!(src, "{indent}{open}{row_type}{{")?;
     for (i, col) in columns.iter().enumerate() {
         let col_name = to_snake_case(&col.name);
         let val = format!("{col_name}_val");
+        let is_varlen = mysql_is_varlen(&col.sql_type);
         let expr = if col.nullable {
             let base_type = cpp_type(&col.sql_type, false);
-            format!("{col_name}_is_null ? std::nullopt : std::optional<{base_type}>({val})")
+            if is_varlen {
+                format!("{col_name}_is_null ? std::nullopt : std::optional<{base_type}>(std::move({val}))")
+            } else {
+                format!("{col_name}_is_null ? std::nullopt : std::optional<{base_type}>({val})")
+            }
+        } else if is_varlen {
+            format!("std::move({val})")
         } else {
             val
         };
         let comma = if i + 1 < columns.len() { "," } else { "" };
         writeln!(src, "{indent}    {expr}{comma}")?;
     }
-    writeln!(src, "{indent}}};")?;
+    writeln!(src, "{indent}}}{close}")?;
     Ok(())
 }

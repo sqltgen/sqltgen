@@ -2,25 +2,66 @@
 #include "queries.hpp"
 #include <cstring>
 
-void create_author(MYSQL* db, const std::string& name, const std::optional<std::string>& bio, const std::optional<std::int32_t>& birth_year) {
-    MYSQL_STMT* stmt = mysql_stmt_init(db);
-    if (!stmt) throw std::runtime_error(mysql_error(db));
-    if (mysql_stmt_prepare(stmt, SQL_CREATE_AUTHOR.c_str(), SQL_CREATE_AUTHOR.size()) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
+static std::string json_escape(const std::string& s) {
+    std::string out = "\"";
+    for (char c : s) {
+        if (c == '\\' || c == '"') out += '\\';
+        out += c;
     }
+    out += '"';
+    return out;
+}
+
+class MysqlStmt {
+    MYSQL_STMT* stmt_;
+public:
+    MysqlStmt(MYSQL* db, const std::string& sql) : stmt_(mysql_stmt_init(db)) {
+        if (!stmt_) throw std::runtime_error(mysql_error(db));
+        if (mysql_stmt_prepare(stmt_, sql.c_str(), sql.size()) != 0) {
+            std::string err = mysql_stmt_error(stmt_);
+            mysql_stmt_close(stmt_);
+            throw std::runtime_error(err);
+        }
+    }
+    ~MysqlStmt() { if (stmt_) mysql_stmt_close(stmt_); }
+    MysqlStmt(const MysqlStmt&) = delete;
+    MysqlStmt& operator=(const MysqlStmt&) = delete;
+    void bind_param(MYSQL_BIND* bind) {
+        if (mysql_stmt_bind_param(stmt_, bind) != 0)
+            throw std::runtime_error(mysql_stmt_error(stmt_));
+    }
+    void execute() {
+        if (mysql_stmt_execute(stmt_) != 0)
+            throw std::runtime_error(mysql_stmt_error(stmt_));
+    }
+    void bind_result(MYSQL_BIND* bind) {
+        if (mysql_stmt_bind_result(stmt_, bind) != 0)
+            throw std::runtime_error(mysql_stmt_error(stmt_));
+    }
+    bool fetch_row() {
+        int rc = mysql_stmt_fetch(stmt_);
+        if (rc == MYSQL_NO_DATA) return false;
+        if (rc != 0 && rc != MYSQL_DATA_TRUNCATED)
+            throw std::runtime_error(mysql_stmt_error(stmt_));
+        return true;
+    }
+    void fetch_column(MYSQL_BIND* bind, unsigned col) {
+        mysql_stmt_fetch_column(stmt_, bind, col, 0);
+    }
+    my_ulonglong affected_rows() { return mysql_stmt_affected_rows(stmt_); }
+};
+
+void create_author(MYSQL* db, const std::string& name, const std::optional<std::string>& bio, const std::optional<std::int32_t>& birth_year) {
+    MysqlStmt stmt(db, SQL_CREATE_AUTHOR);
+
     MYSQL_BIND bind[3];
     memset(bind, 0, sizeof(bind));
-
     unsigned long p_name_len = name.size();
-
     my_bool bio_is_null = !bio.has_value();
     unsigned long p_bio_value_len = 0;
     if (bio.has_value()) {
         p_bio_value_len = bio.value().size();
     }
-
     my_bool birth_year_is_null = !birth_year.has_value();
 
     bind[0].buffer_type = MYSQL_TYPE_STRING;
@@ -41,204 +82,144 @@ void create_author(MYSQL* db, const std::string& name, const std::optional<std::
     if (birth_year.has_value()) {
         bind[2].buffer = const_cast<std::int32_t*>(&birth_year.value());
     }
+    stmt.bind_param(bind);
 
-    if (mysql_stmt_bind_param(stmt, bind) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
-    if (mysql_stmt_execute(stmt) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
-    mysql_stmt_close(stmt);
+    stmt.execute();
 }
 
-std::optional<Author> get_author(MYSQL* db, const std::int64_t& id) {
-    MYSQL_STMT* stmt = mysql_stmt_init(db);
-    if (!stmt) throw std::runtime_error(mysql_error(db));
-    if (mysql_stmt_prepare(stmt, SQL_GET_AUTHOR.c_str(), SQL_GET_AUTHOR.size()) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
+std::optional<Author> get_author(MYSQL* db, std::int64_t id) {
+    MysqlStmt stmt(db, SQL_GET_AUTHOR);
+
     MYSQL_BIND bind[1];
     memset(bind, 0, sizeof(bind));
 
-
     bind[0].buffer_type = MYSQL_TYPE_LONGLONG;
     bind[0].buffer = const_cast<std::int64_t*>(&id);
+    stmt.bind_param(bind);
 
-    if (mysql_stmt_bind_param(stmt, bind) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
-    if (mysql_stmt_execute(stmt) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
+    stmt.execute();
+
     MYSQL_BIND result_bind[4];
     memset(result_bind, 0, sizeof(result_bind));
 
     std::int64_t id_val{};
-    my_bool id_is_null = 0;
+    my_bool id_is_null = false;
     result_bind[0].buffer_type = MYSQL_TYPE_LONGLONG;
-    result_bind[0].buffer = &id_val;
-    result_bind[0].is_null = &id_is_null;
+    result_bind[0].buffer      = &id_val;
+    result_bind[0].is_null     = &id_is_null;
 
     unsigned long name_len = 0;
-    my_bool name_is_null = 0;
-    result_bind[1].buffer_type = MYSQL_TYPE_STRING;
-    result_bind[1].buffer = nullptr;
+    my_bool name_is_null = false;
+    result_bind[1].buffer_type   = MYSQL_TYPE_STRING;
+    result_bind[1].buffer        = nullptr;
     result_bind[1].buffer_length = 0;
-    result_bind[1].length = &name_len;
-    result_bind[1].is_null = &name_is_null;
+    result_bind[1].length        = &name_len;
+    result_bind[1].is_null       = &name_is_null;
 
     unsigned long bio_len = 0;
-    my_bool bio_is_null = 0;
-    result_bind[2].buffer_type = MYSQL_TYPE_STRING;
-    result_bind[2].buffer = nullptr;
+    my_bool bio_is_null = false;
+    result_bind[2].buffer_type   = MYSQL_TYPE_STRING;
+    result_bind[2].buffer        = nullptr;
     result_bind[2].buffer_length = 0;
-    result_bind[2].length = &bio_len;
-    result_bind[2].is_null = &bio_is_null;
+    result_bind[2].length        = &bio_len;
+    result_bind[2].is_null       = &bio_is_null;
 
     std::int32_t birth_year_val{};
-    my_bool birth_year_is_null = 0;
+    my_bool birth_year_is_null = false;
     result_bind[3].buffer_type = MYSQL_TYPE_LONG;
-    result_bind[3].buffer = &birth_year_val;
-    result_bind[3].is_null = &birth_year_is_null;
+    result_bind[3].buffer      = &birth_year_val;
+    result_bind[3].is_null     = &birth_year_is_null;
+    stmt.bind_result(result_bind);
 
-    if (mysql_stmt_bind_result(stmt, result_bind) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
-    int rc = mysql_stmt_fetch(stmt);
-    if (rc == MYSQL_NO_DATA) {
-        mysql_stmt_close(stmt);
-        return std::nullopt;
-    }
-    if (rc != 0 && rc != MYSQL_DATA_TRUNCATED) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
+    if (!stmt.fetch_row()) return std::nullopt;
+
     std::string name_val(name_len, '\0');
     result_bind[1].buffer = name_val.data();
     result_bind[1].buffer_length = name_len;
-    mysql_stmt_fetch_column(stmt, &result_bind[1], 1, 0);
+    stmt.fetch_column(&result_bind[1], 1);
+
     std::string bio_val(bio_len, '\0');
     result_bind[2].buffer = bio_val.data();
     result_bind[2].buffer_length = bio_len;
-    mysql_stmt_fetch_column(stmt, &result_bind[2], 2, 0);
-    auto result = Author{
+    stmt.fetch_column(&result_bind[2], 2);
+
+    return Author{
         id_val,
-        name_val,
-        bio_is_null ? std::nullopt : std::optional<std::string>(bio_val),
+        std::move(name_val),
+        bio_is_null ? std::nullopt : std::optional<std::string>(std::move(bio_val)),
         birth_year_is_null ? std::nullopt : std::optional<std::int32_t>(birth_year_val)
     };
-    mysql_stmt_close(stmt);
-    return result;
 }
 
 std::vector<Author> list_authors(MYSQL* db) {
-    MYSQL_STMT* stmt = mysql_stmt_init(db);
-    if (!stmt) throw std::runtime_error(mysql_error(db));
-    if (mysql_stmt_prepare(stmt, SQL_LIST_AUTHORS.c_str(), SQL_LIST_AUTHORS.size()) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
-    if (mysql_stmt_execute(stmt) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
+    MysqlStmt stmt(db, SQL_LIST_AUTHORS);
+    stmt.execute();
+
     MYSQL_BIND result_bind[4];
     memset(result_bind, 0, sizeof(result_bind));
 
     std::int64_t id_val{};
-    my_bool id_is_null = 0;
+    my_bool id_is_null = false;
     result_bind[0].buffer_type = MYSQL_TYPE_LONGLONG;
-    result_bind[0].buffer = &id_val;
-    result_bind[0].is_null = &id_is_null;
+    result_bind[0].buffer      = &id_val;
+    result_bind[0].is_null     = &id_is_null;
 
     unsigned long name_len = 0;
-    my_bool name_is_null = 0;
-    result_bind[1].buffer_type = MYSQL_TYPE_STRING;
-    result_bind[1].buffer = nullptr;
+    my_bool name_is_null = false;
+    result_bind[1].buffer_type   = MYSQL_TYPE_STRING;
+    result_bind[1].buffer        = nullptr;
     result_bind[1].buffer_length = 0;
-    result_bind[1].length = &name_len;
-    result_bind[1].is_null = &name_is_null;
+    result_bind[1].length        = &name_len;
+    result_bind[1].is_null       = &name_is_null;
 
     unsigned long bio_len = 0;
-    my_bool bio_is_null = 0;
-    result_bind[2].buffer_type = MYSQL_TYPE_STRING;
-    result_bind[2].buffer = nullptr;
+    my_bool bio_is_null = false;
+    result_bind[2].buffer_type   = MYSQL_TYPE_STRING;
+    result_bind[2].buffer        = nullptr;
     result_bind[2].buffer_length = 0;
-    result_bind[2].length = &bio_len;
-    result_bind[2].is_null = &bio_is_null;
+    result_bind[2].length        = &bio_len;
+    result_bind[2].is_null       = &bio_is_null;
 
     std::int32_t birth_year_val{};
-    my_bool birth_year_is_null = 0;
+    my_bool birth_year_is_null = false;
     result_bind[3].buffer_type = MYSQL_TYPE_LONG;
-    result_bind[3].buffer = &birth_year_val;
-    result_bind[3].is_null = &birth_year_is_null;
+    result_bind[3].buffer      = &birth_year_val;
+    result_bind[3].is_null     = &birth_year_is_null;
+    stmt.bind_result(result_bind);
 
-    if (mysql_stmt_bind_result(stmt, result_bind) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
     std::vector<Author> rows;
-    while (true) {
-        int rc = mysql_stmt_fetch(stmt);
-        if (rc == MYSQL_NO_DATA) break;
-        if (rc != 0 && rc != MYSQL_DATA_TRUNCATED) {
-            std::string err = mysql_stmt_error(stmt);
-            mysql_stmt_close(stmt);
-            throw std::runtime_error(err);
-        }
+    while (stmt.fetch_row()) {
+
         std::string name_val(name_len, '\0');
         result_bind[1].buffer = name_val.data();
         result_bind[1].buffer_length = name_len;
-        mysql_stmt_fetch_column(stmt, &result_bind[1], 1, 0);
+        stmt.fetch_column(&result_bind[1], 1);
+
         std::string bio_val(bio_len, '\0');
         result_bind[2].buffer = bio_val.data();
         result_bind[2].buffer_length = bio_len;
-        mysql_stmt_fetch_column(stmt, &result_bind[2], 2, 0);
-        auto result = Author{
+        stmt.fetch_column(&result_bind[2], 2);
+
+        rows.push_back(Author{
             id_val,
-            name_val,
-            bio_is_null ? std::nullopt : std::optional<std::string>(bio_val),
+            std::move(name_val),
+            bio_is_null ? std::nullopt : std::optional<std::string>(std::move(bio_val)),
             birth_year_is_null ? std::nullopt : std::optional<std::int32_t>(birth_year_val)
-        };
-        rows.push_back(std::move(result));
+        });
     }
-    mysql_stmt_close(stmt);
     return rows;
 }
 
-void update_author_bio(MYSQL* db, const std::optional<std::string>& bio, const std::int64_t& id) {
-    MYSQL_STMT* stmt = mysql_stmt_init(db);
-    if (!stmt) throw std::runtime_error(mysql_error(db));
-    if (mysql_stmt_prepare(stmt, SQL_UPDATE_AUTHOR_BIO.c_str(), SQL_UPDATE_AUTHOR_BIO.size()) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
+void update_author_bio(MYSQL* db, const std::optional<std::string>& bio, std::int64_t id) {
+    MysqlStmt stmt(db, SQL_UPDATE_AUTHOR_BIO);
+
     MYSQL_BIND bind[2];
     memset(bind, 0, sizeof(bind));
-
     my_bool bio_is_null = !bio.has_value();
     unsigned long p_bio_value_len = 0;
     if (bio.has_value()) {
         p_bio_value_len = bio.value().size();
     }
-
 
     bind[0].is_null = &bio_is_null;
     bind[0].buffer_type = MYSQL_TYPE_STRING;
@@ -250,66 +231,32 @@ void update_author_bio(MYSQL* db, const std::optional<std::string>& bio, const s
 
     bind[1].buffer_type = MYSQL_TYPE_LONGLONG;
     bind[1].buffer = const_cast<std::int64_t*>(&id);
+    stmt.bind_param(bind);
 
-    if (mysql_stmt_bind_param(stmt, bind) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
-    if (mysql_stmt_execute(stmt) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
-    mysql_stmt_close(stmt);
+    stmt.execute();
 }
 
-void delete_author(MYSQL* db, const std::int64_t& id) {
-    MYSQL_STMT* stmt = mysql_stmt_init(db);
-    if (!stmt) throw std::runtime_error(mysql_error(db));
-    if (mysql_stmt_prepare(stmt, SQL_DELETE_AUTHOR.c_str(), SQL_DELETE_AUTHOR.size()) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
+void delete_author(MYSQL* db, std::int64_t id) {
+    MysqlStmt stmt(db, SQL_DELETE_AUTHOR);
+
     MYSQL_BIND bind[1];
     memset(bind, 0, sizeof(bind));
 
-
     bind[0].buffer_type = MYSQL_TYPE_LONGLONG;
     bind[0].buffer = const_cast<std::int64_t*>(&id);
+    stmt.bind_param(bind);
 
-    if (mysql_stmt_bind_param(stmt, bind) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
-    if (mysql_stmt_execute(stmt) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
-    mysql_stmt_close(stmt);
+    stmt.execute();
 }
 
-void create_book(MYSQL* db, const std::int64_t& author_id, const std::string& title, const std::string& genre, const std::string& price, const std::optional<std::string>& published_at) {
-    MYSQL_STMT* stmt = mysql_stmt_init(db);
-    if (!stmt) throw std::runtime_error(mysql_error(db));
-    if (mysql_stmt_prepare(stmt, SQL_CREATE_BOOK.c_str(), SQL_CREATE_BOOK.size()) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
+void create_book(MYSQL* db, std::int64_t author_id, const std::string& title, const std::string& genre, const std::string& price, const std::optional<std::string>& published_at) {
+    MysqlStmt stmt(db, SQL_CREATE_BOOK);
+
     MYSQL_BIND bind[5];
     memset(bind, 0, sizeof(bind));
-
-
     unsigned long p_title_len = title.size();
-
     unsigned long p_genre_len = genre.size();
-
     unsigned long p_price_len = price.size();
-
     my_bool published_at_is_null = !published_at.has_value();
     unsigned long p_published_at_value_len = 0;
     if (published_at.has_value()) {
@@ -341,146 +288,108 @@ void create_book(MYSQL* db, const std::int64_t& author_id, const std::string& ti
         bind[4].buffer_length = published_at.value().size();
         bind[4].length = &p_published_at_value_len;
     }
+    stmt.bind_param(bind);
 
-    if (mysql_stmt_bind_param(stmt, bind) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
-    if (mysql_stmt_execute(stmt) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
-    mysql_stmt_close(stmt);
+    stmt.execute();
 }
 
-std::optional<Book> get_book(MYSQL* db, const std::int64_t& id) {
-    MYSQL_STMT* stmt = mysql_stmt_init(db);
-    if (!stmt) throw std::runtime_error(mysql_error(db));
-    if (mysql_stmt_prepare(stmt, SQL_GET_BOOK.c_str(), SQL_GET_BOOK.size()) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
+std::optional<Book> get_book(MYSQL* db, std::int64_t id) {
+    MysqlStmt stmt(db, SQL_GET_BOOK);
+
     MYSQL_BIND bind[1];
     memset(bind, 0, sizeof(bind));
 
-
     bind[0].buffer_type = MYSQL_TYPE_LONGLONG;
     bind[0].buffer = const_cast<std::int64_t*>(&id);
+    stmt.bind_param(bind);
 
-    if (mysql_stmt_bind_param(stmt, bind) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
-    if (mysql_stmt_execute(stmt) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
+    stmt.execute();
+
     MYSQL_BIND result_bind[6];
     memset(result_bind, 0, sizeof(result_bind));
 
     std::int64_t id_val{};
-    my_bool id_is_null = 0;
+    my_bool id_is_null = false;
     result_bind[0].buffer_type = MYSQL_TYPE_LONGLONG;
-    result_bind[0].buffer = &id_val;
-    result_bind[0].is_null = &id_is_null;
+    result_bind[0].buffer      = &id_val;
+    result_bind[0].is_null     = &id_is_null;
 
     std::int64_t author_id_val{};
-    my_bool author_id_is_null = 0;
+    my_bool author_id_is_null = false;
     result_bind[1].buffer_type = MYSQL_TYPE_LONGLONG;
-    result_bind[1].buffer = &author_id_val;
-    result_bind[1].is_null = &author_id_is_null;
+    result_bind[1].buffer      = &author_id_val;
+    result_bind[1].is_null     = &author_id_is_null;
 
     unsigned long title_len = 0;
-    my_bool title_is_null = 0;
-    result_bind[2].buffer_type = MYSQL_TYPE_STRING;
-    result_bind[2].buffer = nullptr;
+    my_bool title_is_null = false;
+    result_bind[2].buffer_type   = MYSQL_TYPE_STRING;
+    result_bind[2].buffer        = nullptr;
     result_bind[2].buffer_length = 0;
-    result_bind[2].length = &title_len;
-    result_bind[2].is_null = &title_is_null;
+    result_bind[2].length        = &title_len;
+    result_bind[2].is_null       = &title_is_null;
 
     unsigned long genre_len = 0;
-    my_bool genre_is_null = 0;
-    result_bind[3].buffer_type = MYSQL_TYPE_STRING;
-    result_bind[3].buffer = nullptr;
+    my_bool genre_is_null = false;
+    result_bind[3].buffer_type   = MYSQL_TYPE_STRING;
+    result_bind[3].buffer        = nullptr;
     result_bind[3].buffer_length = 0;
-    result_bind[3].length = &genre_len;
-    result_bind[3].is_null = &genre_is_null;
+    result_bind[3].length        = &genre_len;
+    result_bind[3].is_null       = &genre_is_null;
 
     unsigned long price_len = 0;
-    my_bool price_is_null = 0;
-    result_bind[4].buffer_type = MYSQL_TYPE_STRING;
-    result_bind[4].buffer = nullptr;
+    my_bool price_is_null = false;
+    result_bind[4].buffer_type   = MYSQL_TYPE_STRING;
+    result_bind[4].buffer        = nullptr;
     result_bind[4].buffer_length = 0;
-    result_bind[4].length = &price_len;
-    result_bind[4].is_null = &price_is_null;
+    result_bind[4].length        = &price_len;
+    result_bind[4].is_null       = &price_is_null;
 
     unsigned long published_at_len = 0;
-    my_bool published_at_is_null = 0;
-    result_bind[5].buffer_type = MYSQL_TYPE_STRING;
-    result_bind[5].buffer = nullptr;
+    my_bool published_at_is_null = false;
+    result_bind[5].buffer_type   = MYSQL_TYPE_STRING;
+    result_bind[5].buffer        = nullptr;
     result_bind[5].buffer_length = 0;
-    result_bind[5].length = &published_at_len;
-    result_bind[5].is_null = &published_at_is_null;
+    result_bind[5].length        = &published_at_len;
+    result_bind[5].is_null       = &published_at_is_null;
+    stmt.bind_result(result_bind);
 
-    if (mysql_stmt_bind_result(stmt, result_bind) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
-    int rc = mysql_stmt_fetch(stmt);
-    if (rc == MYSQL_NO_DATA) {
-        mysql_stmt_close(stmt);
-        return std::nullopt;
-    }
-    if (rc != 0 && rc != MYSQL_DATA_TRUNCATED) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
+    if (!stmt.fetch_row()) return std::nullopt;
+
     std::string title_val(title_len, '\0');
     result_bind[2].buffer = title_val.data();
     result_bind[2].buffer_length = title_len;
-    mysql_stmt_fetch_column(stmt, &result_bind[2], 2, 0);
+    stmt.fetch_column(&result_bind[2], 2);
+
     std::string genre_val(genre_len, '\0');
     result_bind[3].buffer = genre_val.data();
     result_bind[3].buffer_length = genre_len;
-    mysql_stmt_fetch_column(stmt, &result_bind[3], 3, 0);
+    stmt.fetch_column(&result_bind[3], 3);
+
     std::string price_val(price_len, '\0');
     result_bind[4].buffer = price_val.data();
     result_bind[4].buffer_length = price_len;
-    mysql_stmt_fetch_column(stmt, &result_bind[4], 4, 0);
+    stmt.fetch_column(&result_bind[4], 4);
+
     std::string published_at_val(published_at_len, '\0');
     result_bind[5].buffer = published_at_val.data();
     result_bind[5].buffer_length = published_at_len;
-    mysql_stmt_fetch_column(stmt, &result_bind[5], 5, 0);
-    auto result = Book{
+    stmt.fetch_column(&result_bind[5], 5);
+
+    return Book{
         id_val,
         author_id_val,
-        title_val,
-        genre_val,
-        price_val,
-        published_at_is_null ? std::nullopt : std::optional<std::string>(published_at_val)
+        std::move(title_val),
+        std::move(genre_val),
+        std::move(price_val),
+        published_at_is_null ? std::nullopt : std::optional<std::string>(std::move(published_at_val))
     };
-    mysql_stmt_close(stmt);
-    return result;
 }
 
 std::vector<Book> get_books_by_ids(MYSQL* db, const std::vector<std::int64_t>& ids) {
-    MYSQL_STMT* stmt = mysql_stmt_init(db);
-    if (!stmt) throw std::runtime_error(mysql_error(db));
-    if (mysql_stmt_prepare(stmt, SQL_GET_BOOKS_BY_IDS.c_str(), SQL_GET_BOOKS_BY_IDS.size()) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
+    MysqlStmt stmt(db, SQL_GET_BOOKS_BY_IDS);
+
     MYSQL_BIND bind[1];
     memset(bind, 0, sizeof(bind));
-
     std::string p_ids_json = "[";
     for (size_t i = 0; i < ids.size(); ++i) {
         if (i > 0) p_ids_json += ",";
@@ -493,238 +402,196 @@ std::vector<Book> get_books_by_ids(MYSQL* db, const std::vector<std::int64_t>& i
     bind[0].buffer = const_cast<char*>(p_ids_json.c_str());
     bind[0].buffer_length = p_ids_json.size();
     bind[0].length = &p_ids_json_len;
+    stmt.bind_param(bind);
 
-    if (mysql_stmt_bind_param(stmt, bind) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
-    if (mysql_stmt_execute(stmt) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
+    stmt.execute();
+
     MYSQL_BIND result_bind[6];
     memset(result_bind, 0, sizeof(result_bind));
 
     std::int64_t id_val{};
-    my_bool id_is_null = 0;
+    my_bool id_is_null = false;
     result_bind[0].buffer_type = MYSQL_TYPE_LONGLONG;
-    result_bind[0].buffer = &id_val;
-    result_bind[0].is_null = &id_is_null;
+    result_bind[0].buffer      = &id_val;
+    result_bind[0].is_null     = &id_is_null;
 
     std::int64_t author_id_val{};
-    my_bool author_id_is_null = 0;
+    my_bool author_id_is_null = false;
     result_bind[1].buffer_type = MYSQL_TYPE_LONGLONG;
-    result_bind[1].buffer = &author_id_val;
-    result_bind[1].is_null = &author_id_is_null;
+    result_bind[1].buffer      = &author_id_val;
+    result_bind[1].is_null     = &author_id_is_null;
 
     unsigned long title_len = 0;
-    my_bool title_is_null = 0;
-    result_bind[2].buffer_type = MYSQL_TYPE_STRING;
-    result_bind[2].buffer = nullptr;
+    my_bool title_is_null = false;
+    result_bind[2].buffer_type   = MYSQL_TYPE_STRING;
+    result_bind[2].buffer        = nullptr;
     result_bind[2].buffer_length = 0;
-    result_bind[2].length = &title_len;
-    result_bind[2].is_null = &title_is_null;
+    result_bind[2].length        = &title_len;
+    result_bind[2].is_null       = &title_is_null;
 
     unsigned long genre_len = 0;
-    my_bool genre_is_null = 0;
-    result_bind[3].buffer_type = MYSQL_TYPE_STRING;
-    result_bind[3].buffer = nullptr;
+    my_bool genre_is_null = false;
+    result_bind[3].buffer_type   = MYSQL_TYPE_STRING;
+    result_bind[3].buffer        = nullptr;
     result_bind[3].buffer_length = 0;
-    result_bind[3].length = &genre_len;
-    result_bind[3].is_null = &genre_is_null;
+    result_bind[3].length        = &genre_len;
+    result_bind[3].is_null       = &genre_is_null;
 
     unsigned long price_len = 0;
-    my_bool price_is_null = 0;
-    result_bind[4].buffer_type = MYSQL_TYPE_STRING;
-    result_bind[4].buffer = nullptr;
+    my_bool price_is_null = false;
+    result_bind[4].buffer_type   = MYSQL_TYPE_STRING;
+    result_bind[4].buffer        = nullptr;
     result_bind[4].buffer_length = 0;
-    result_bind[4].length = &price_len;
-    result_bind[4].is_null = &price_is_null;
+    result_bind[4].length        = &price_len;
+    result_bind[4].is_null       = &price_is_null;
 
     unsigned long published_at_len = 0;
-    my_bool published_at_is_null = 0;
-    result_bind[5].buffer_type = MYSQL_TYPE_STRING;
-    result_bind[5].buffer = nullptr;
+    my_bool published_at_is_null = false;
+    result_bind[5].buffer_type   = MYSQL_TYPE_STRING;
+    result_bind[5].buffer        = nullptr;
     result_bind[5].buffer_length = 0;
-    result_bind[5].length = &published_at_len;
-    result_bind[5].is_null = &published_at_is_null;
+    result_bind[5].length        = &published_at_len;
+    result_bind[5].is_null       = &published_at_is_null;
+    stmt.bind_result(result_bind);
 
-    if (mysql_stmt_bind_result(stmt, result_bind) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
     std::vector<Book> rows;
-    while (true) {
-        int rc = mysql_stmt_fetch(stmt);
-        if (rc == MYSQL_NO_DATA) break;
-        if (rc != 0 && rc != MYSQL_DATA_TRUNCATED) {
-            std::string err = mysql_stmt_error(stmt);
-            mysql_stmt_close(stmt);
-            throw std::runtime_error(err);
-        }
+    while (stmt.fetch_row()) {
+
         std::string title_val(title_len, '\0');
         result_bind[2].buffer = title_val.data();
         result_bind[2].buffer_length = title_len;
-        mysql_stmt_fetch_column(stmt, &result_bind[2], 2, 0);
+        stmt.fetch_column(&result_bind[2], 2);
+
         std::string genre_val(genre_len, '\0');
         result_bind[3].buffer = genre_val.data();
         result_bind[3].buffer_length = genre_len;
-        mysql_stmt_fetch_column(stmt, &result_bind[3], 3, 0);
+        stmt.fetch_column(&result_bind[3], 3);
+
         std::string price_val(price_len, '\0');
         result_bind[4].buffer = price_val.data();
         result_bind[4].buffer_length = price_len;
-        mysql_stmt_fetch_column(stmt, &result_bind[4], 4, 0);
+        stmt.fetch_column(&result_bind[4], 4);
+
         std::string published_at_val(published_at_len, '\0');
         result_bind[5].buffer = published_at_val.data();
         result_bind[5].buffer_length = published_at_len;
-        mysql_stmt_fetch_column(stmt, &result_bind[5], 5, 0);
-        auto result = Book{
+        stmt.fetch_column(&result_bind[5], 5);
+
+        rows.push_back(Book{
             id_val,
             author_id_val,
-            title_val,
-            genre_val,
-            price_val,
-            published_at_is_null ? std::nullopt : std::optional<std::string>(published_at_val)
-        };
-        rows.push_back(std::move(result));
+            std::move(title_val),
+            std::move(genre_val),
+            std::move(price_val),
+            published_at_is_null ? std::nullopt : std::optional<std::string>(std::move(published_at_val))
+        });
     }
-    mysql_stmt_close(stmt);
     return rows;
 }
 
 std::vector<Book> list_books_by_genre(MYSQL* db, const std::string& genre) {
-    MYSQL_STMT* stmt = mysql_stmt_init(db);
-    if (!stmt) throw std::runtime_error(mysql_error(db));
-    if (mysql_stmt_prepare(stmt, SQL_LIST_BOOKS_BY_GENRE.c_str(), SQL_LIST_BOOKS_BY_GENRE.size()) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
+    MysqlStmt stmt(db, SQL_LIST_BOOKS_BY_GENRE);
+
     MYSQL_BIND bind[1];
     memset(bind, 0, sizeof(bind));
-
     unsigned long p_genre_len = genre.size();
 
     bind[0].buffer_type = MYSQL_TYPE_STRING;
     bind[0].buffer = const_cast<char*>(genre.c_str());
     bind[0].buffer_length = genre.size();
     bind[0].length = &p_genre_len;
+    stmt.bind_param(bind);
 
-    if (mysql_stmt_bind_param(stmt, bind) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
-    if (mysql_stmt_execute(stmt) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
+    stmt.execute();
+
     MYSQL_BIND result_bind[6];
     memset(result_bind, 0, sizeof(result_bind));
 
     std::int64_t id_val{};
-    my_bool id_is_null = 0;
+    my_bool id_is_null = false;
     result_bind[0].buffer_type = MYSQL_TYPE_LONGLONG;
-    result_bind[0].buffer = &id_val;
-    result_bind[0].is_null = &id_is_null;
+    result_bind[0].buffer      = &id_val;
+    result_bind[0].is_null     = &id_is_null;
 
     std::int64_t author_id_val{};
-    my_bool author_id_is_null = 0;
+    my_bool author_id_is_null = false;
     result_bind[1].buffer_type = MYSQL_TYPE_LONGLONG;
-    result_bind[1].buffer = &author_id_val;
-    result_bind[1].is_null = &author_id_is_null;
+    result_bind[1].buffer      = &author_id_val;
+    result_bind[1].is_null     = &author_id_is_null;
 
     unsigned long title_len = 0;
-    my_bool title_is_null = 0;
-    result_bind[2].buffer_type = MYSQL_TYPE_STRING;
-    result_bind[2].buffer = nullptr;
+    my_bool title_is_null = false;
+    result_bind[2].buffer_type   = MYSQL_TYPE_STRING;
+    result_bind[2].buffer        = nullptr;
     result_bind[2].buffer_length = 0;
-    result_bind[2].length = &title_len;
-    result_bind[2].is_null = &title_is_null;
+    result_bind[2].length        = &title_len;
+    result_bind[2].is_null       = &title_is_null;
 
     unsigned long genre_len = 0;
-    my_bool genre_is_null = 0;
-    result_bind[3].buffer_type = MYSQL_TYPE_STRING;
-    result_bind[3].buffer = nullptr;
+    my_bool genre_is_null = false;
+    result_bind[3].buffer_type   = MYSQL_TYPE_STRING;
+    result_bind[3].buffer        = nullptr;
     result_bind[3].buffer_length = 0;
-    result_bind[3].length = &genre_len;
-    result_bind[3].is_null = &genre_is_null;
+    result_bind[3].length        = &genre_len;
+    result_bind[3].is_null       = &genre_is_null;
 
     unsigned long price_len = 0;
-    my_bool price_is_null = 0;
-    result_bind[4].buffer_type = MYSQL_TYPE_STRING;
-    result_bind[4].buffer = nullptr;
+    my_bool price_is_null = false;
+    result_bind[4].buffer_type   = MYSQL_TYPE_STRING;
+    result_bind[4].buffer        = nullptr;
     result_bind[4].buffer_length = 0;
-    result_bind[4].length = &price_len;
-    result_bind[4].is_null = &price_is_null;
+    result_bind[4].length        = &price_len;
+    result_bind[4].is_null       = &price_is_null;
 
     unsigned long published_at_len = 0;
-    my_bool published_at_is_null = 0;
-    result_bind[5].buffer_type = MYSQL_TYPE_STRING;
-    result_bind[5].buffer = nullptr;
+    my_bool published_at_is_null = false;
+    result_bind[5].buffer_type   = MYSQL_TYPE_STRING;
+    result_bind[5].buffer        = nullptr;
     result_bind[5].buffer_length = 0;
-    result_bind[5].length = &published_at_len;
-    result_bind[5].is_null = &published_at_is_null;
+    result_bind[5].length        = &published_at_len;
+    result_bind[5].is_null       = &published_at_is_null;
+    stmt.bind_result(result_bind);
 
-    if (mysql_stmt_bind_result(stmt, result_bind) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
     std::vector<Book> rows;
-    while (true) {
-        int rc = mysql_stmt_fetch(stmt);
-        if (rc == MYSQL_NO_DATA) break;
-        if (rc != 0 && rc != MYSQL_DATA_TRUNCATED) {
-            std::string err = mysql_stmt_error(stmt);
-            mysql_stmt_close(stmt);
-            throw std::runtime_error(err);
-        }
+    while (stmt.fetch_row()) {
+
         std::string title_val(title_len, '\0');
         result_bind[2].buffer = title_val.data();
         result_bind[2].buffer_length = title_len;
-        mysql_stmt_fetch_column(stmt, &result_bind[2], 2, 0);
+        stmt.fetch_column(&result_bind[2], 2);
+
         std::string genre_val(genre_len, '\0');
         result_bind[3].buffer = genre_val.data();
         result_bind[3].buffer_length = genre_len;
-        mysql_stmt_fetch_column(stmt, &result_bind[3], 3, 0);
+        stmt.fetch_column(&result_bind[3], 3);
+
         std::string price_val(price_len, '\0');
         result_bind[4].buffer = price_val.data();
         result_bind[4].buffer_length = price_len;
-        mysql_stmt_fetch_column(stmt, &result_bind[4], 4, 0);
+        stmt.fetch_column(&result_bind[4], 4);
+
         std::string published_at_val(published_at_len, '\0');
         result_bind[5].buffer = published_at_val.data();
         result_bind[5].buffer_length = published_at_len;
-        mysql_stmt_fetch_column(stmt, &result_bind[5], 5, 0);
-        auto result = Book{
+        stmt.fetch_column(&result_bind[5], 5);
+
+        rows.push_back(Book{
             id_val,
             author_id_val,
-            title_val,
-            genre_val,
-            price_val,
-            published_at_is_null ? std::nullopt : std::optional<std::string>(published_at_val)
-        };
-        rows.push_back(std::move(result));
+            std::move(title_val),
+            std::move(genre_val),
+            std::move(price_val),
+            published_at_is_null ? std::nullopt : std::optional<std::string>(std::move(published_at_val))
+        });
     }
-    mysql_stmt_close(stmt);
     return rows;
 }
 
 std::vector<Book> list_books_by_genre_or_all(MYSQL* db, const std::string& genre) {
-    MYSQL_STMT* stmt = mysql_stmt_init(db);
-    if (!stmt) throw std::runtime_error(mysql_error(db));
-    if (mysql_stmt_prepare(stmt, SQL_LIST_BOOKS_BY_GENRE_OR_ALL.c_str(), SQL_LIST_BOOKS_BY_GENRE_OR_ALL.size()) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
+    MysqlStmt stmt(db, SQL_LIST_BOOKS_BY_GENRE_OR_ALL);
+
     MYSQL_BIND bind[2];
     memset(bind, 0, sizeof(bind));
-
     unsigned long p_genre_len = genre.size();
 
     bind[0].buffer_type = MYSQL_TYPE_STRING;
@@ -736,121 +603,99 @@ std::vector<Book> list_books_by_genre_or_all(MYSQL* db, const std::string& genre
     bind[1].buffer = const_cast<char*>(genre.c_str());
     bind[1].buffer_length = genre.size();
     bind[1].length = &p_genre_len;
+    stmt.bind_param(bind);
 
-    if (mysql_stmt_bind_param(stmt, bind) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
-    if (mysql_stmt_execute(stmt) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
+    stmt.execute();
+
     MYSQL_BIND result_bind[6];
     memset(result_bind, 0, sizeof(result_bind));
 
     std::int64_t id_val{};
-    my_bool id_is_null = 0;
+    my_bool id_is_null = false;
     result_bind[0].buffer_type = MYSQL_TYPE_LONGLONG;
-    result_bind[0].buffer = &id_val;
-    result_bind[0].is_null = &id_is_null;
+    result_bind[0].buffer      = &id_val;
+    result_bind[0].is_null     = &id_is_null;
 
     std::int64_t author_id_val{};
-    my_bool author_id_is_null = 0;
+    my_bool author_id_is_null = false;
     result_bind[1].buffer_type = MYSQL_TYPE_LONGLONG;
-    result_bind[1].buffer = &author_id_val;
-    result_bind[1].is_null = &author_id_is_null;
+    result_bind[1].buffer      = &author_id_val;
+    result_bind[1].is_null     = &author_id_is_null;
 
     unsigned long title_len = 0;
-    my_bool title_is_null = 0;
-    result_bind[2].buffer_type = MYSQL_TYPE_STRING;
-    result_bind[2].buffer = nullptr;
+    my_bool title_is_null = false;
+    result_bind[2].buffer_type   = MYSQL_TYPE_STRING;
+    result_bind[2].buffer        = nullptr;
     result_bind[2].buffer_length = 0;
-    result_bind[2].length = &title_len;
-    result_bind[2].is_null = &title_is_null;
+    result_bind[2].length        = &title_len;
+    result_bind[2].is_null       = &title_is_null;
 
     unsigned long genre_len = 0;
-    my_bool genre_is_null = 0;
-    result_bind[3].buffer_type = MYSQL_TYPE_STRING;
-    result_bind[3].buffer = nullptr;
+    my_bool genre_is_null = false;
+    result_bind[3].buffer_type   = MYSQL_TYPE_STRING;
+    result_bind[3].buffer        = nullptr;
     result_bind[3].buffer_length = 0;
-    result_bind[3].length = &genre_len;
-    result_bind[3].is_null = &genre_is_null;
+    result_bind[3].length        = &genre_len;
+    result_bind[3].is_null       = &genre_is_null;
 
     unsigned long price_len = 0;
-    my_bool price_is_null = 0;
-    result_bind[4].buffer_type = MYSQL_TYPE_STRING;
-    result_bind[4].buffer = nullptr;
+    my_bool price_is_null = false;
+    result_bind[4].buffer_type   = MYSQL_TYPE_STRING;
+    result_bind[4].buffer        = nullptr;
     result_bind[4].buffer_length = 0;
-    result_bind[4].length = &price_len;
-    result_bind[4].is_null = &price_is_null;
+    result_bind[4].length        = &price_len;
+    result_bind[4].is_null       = &price_is_null;
 
     unsigned long published_at_len = 0;
-    my_bool published_at_is_null = 0;
-    result_bind[5].buffer_type = MYSQL_TYPE_STRING;
-    result_bind[5].buffer = nullptr;
+    my_bool published_at_is_null = false;
+    result_bind[5].buffer_type   = MYSQL_TYPE_STRING;
+    result_bind[5].buffer        = nullptr;
     result_bind[5].buffer_length = 0;
-    result_bind[5].length = &published_at_len;
-    result_bind[5].is_null = &published_at_is_null;
+    result_bind[5].length        = &published_at_len;
+    result_bind[5].is_null       = &published_at_is_null;
+    stmt.bind_result(result_bind);
 
-    if (mysql_stmt_bind_result(stmt, result_bind) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
     std::vector<Book> rows;
-    while (true) {
-        int rc = mysql_stmt_fetch(stmt);
-        if (rc == MYSQL_NO_DATA) break;
-        if (rc != 0 && rc != MYSQL_DATA_TRUNCATED) {
-            std::string err = mysql_stmt_error(stmt);
-            mysql_stmt_close(stmt);
-            throw std::runtime_error(err);
-        }
+    while (stmt.fetch_row()) {
+
         std::string title_val(title_len, '\0');
         result_bind[2].buffer = title_val.data();
         result_bind[2].buffer_length = title_len;
-        mysql_stmt_fetch_column(stmt, &result_bind[2], 2, 0);
+        stmt.fetch_column(&result_bind[2], 2);
+
         std::string genre_val(genre_len, '\0');
         result_bind[3].buffer = genre_val.data();
         result_bind[3].buffer_length = genre_len;
-        mysql_stmt_fetch_column(stmt, &result_bind[3], 3, 0);
+        stmt.fetch_column(&result_bind[3], 3);
+
         std::string price_val(price_len, '\0');
         result_bind[4].buffer = price_val.data();
         result_bind[4].buffer_length = price_len;
-        mysql_stmt_fetch_column(stmt, &result_bind[4], 4, 0);
+        stmt.fetch_column(&result_bind[4], 4);
+
         std::string published_at_val(published_at_len, '\0');
         result_bind[5].buffer = published_at_val.data();
         result_bind[5].buffer_length = published_at_len;
-        mysql_stmt_fetch_column(stmt, &result_bind[5], 5, 0);
-        auto result = Book{
+        stmt.fetch_column(&result_bind[5], 5);
+
+        rows.push_back(Book{
             id_val,
             author_id_val,
-            title_val,
-            genre_val,
-            price_val,
-            published_at_is_null ? std::nullopt : std::optional<std::string>(published_at_val)
-        };
-        rows.push_back(std::move(result));
+            std::move(title_val),
+            std::move(genre_val),
+            std::move(price_val),
+            published_at_is_null ? std::nullopt : std::optional<std::string>(std::move(published_at_val))
+        });
     }
-    mysql_stmt_close(stmt);
     return rows;
 }
 
 void create_customer(MYSQL* db, const std::string& name, const std::string& email) {
-    MYSQL_STMT* stmt = mysql_stmt_init(db);
-    if (!stmt) throw std::runtime_error(mysql_error(db));
-    if (mysql_stmt_prepare(stmt, SQL_CREATE_CUSTOMER.c_str(), SQL_CREATE_CUSTOMER.size()) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
+    MysqlStmt stmt(db, SQL_CREATE_CUSTOMER);
+
     MYSQL_BIND bind[2];
     memset(bind, 0, sizeof(bind));
-
     unsigned long p_name_len = name.size();
-
     unsigned long p_email_len = email.size();
 
     bind[0].buffer_type = MYSQL_TYPE_STRING;
@@ -862,62 +707,29 @@ void create_customer(MYSQL* db, const std::string& name, const std::string& emai
     bind[1].buffer = const_cast<char*>(email.c_str());
     bind[1].buffer_length = email.size();
     bind[1].length = &p_email_len;
+    stmt.bind_param(bind);
 
-    if (mysql_stmt_bind_param(stmt, bind) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
-    if (mysql_stmt_execute(stmt) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
-    mysql_stmt_close(stmt);
+    stmt.execute();
 }
 
-void create_sale(MYSQL* db, const std::int64_t& customer_id) {
-    MYSQL_STMT* stmt = mysql_stmt_init(db);
-    if (!stmt) throw std::runtime_error(mysql_error(db));
-    if (mysql_stmt_prepare(stmt, SQL_CREATE_SALE.c_str(), SQL_CREATE_SALE.size()) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
+void create_sale(MYSQL* db, std::int64_t customer_id) {
+    MysqlStmt stmt(db, SQL_CREATE_SALE);
+
     MYSQL_BIND bind[1];
     memset(bind, 0, sizeof(bind));
 
-
     bind[0].buffer_type = MYSQL_TYPE_LONGLONG;
     bind[0].buffer = const_cast<std::int64_t*>(&customer_id);
+    stmt.bind_param(bind);
 
-    if (mysql_stmt_bind_param(stmt, bind) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
-    if (mysql_stmt_execute(stmt) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
-    mysql_stmt_close(stmt);
+    stmt.execute();
 }
 
-void add_sale_item(MYSQL* db, const std::int64_t& sale_id, const std::int64_t& book_id, const std::int32_t& quantity, const std::string& unit_price) {
-    MYSQL_STMT* stmt = mysql_stmt_init(db);
-    if (!stmt) throw std::runtime_error(mysql_error(db));
-    if (mysql_stmt_prepare(stmt, SQL_ADD_SALE_ITEM.c_str(), SQL_ADD_SALE_ITEM.size()) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
+void add_sale_item(MYSQL* db, std::int64_t sale_id, std::int64_t book_id, std::int32_t quantity, const std::string& unit_price) {
+    MysqlStmt stmt(db, SQL_ADD_SALE_ITEM);
+
     MYSQL_BIND bind[4];
     memset(bind, 0, sizeof(bind));
-
-
-
-
     unsigned long p_unit_price_len = unit_price.size();
 
     bind[0].buffer_type = MYSQL_TYPE_LONGLONG;
@@ -933,424 +745,417 @@ void add_sale_item(MYSQL* db, const std::int64_t& sale_id, const std::int64_t& b
     bind[3].buffer = const_cast<char*>(unit_price.c_str());
     bind[3].buffer_length = unit_price.size();
     bind[3].length = &p_unit_price_len;
+    stmt.bind_param(bind);
 
-    if (mysql_stmt_bind_param(stmt, bind) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
-    if (mysql_stmt_execute(stmt) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
-    mysql_stmt_close(stmt);
+    stmt.execute();
 }
 
 std::vector<ListBooksWithAuthorRow> list_books_with_author(MYSQL* db) {
-    MYSQL_STMT* stmt = mysql_stmt_init(db);
-    if (!stmt) throw std::runtime_error(mysql_error(db));
-    if (mysql_stmt_prepare(stmt, SQL_LIST_BOOKS_WITH_AUTHOR.c_str(), SQL_LIST_BOOKS_WITH_AUTHOR.size()) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
-    if (mysql_stmt_execute(stmt) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
+    MysqlStmt stmt(db, SQL_LIST_BOOKS_WITH_AUTHOR);
+    stmt.execute();
+
     MYSQL_BIND result_bind[7];
     memset(result_bind, 0, sizeof(result_bind));
 
     std::int64_t id_val{};
-    my_bool id_is_null = 0;
+    my_bool id_is_null = false;
     result_bind[0].buffer_type = MYSQL_TYPE_LONGLONG;
-    result_bind[0].buffer = &id_val;
-    result_bind[0].is_null = &id_is_null;
+    result_bind[0].buffer      = &id_val;
+    result_bind[0].is_null     = &id_is_null;
 
     unsigned long title_len = 0;
-    my_bool title_is_null = 0;
-    result_bind[1].buffer_type = MYSQL_TYPE_STRING;
-    result_bind[1].buffer = nullptr;
+    my_bool title_is_null = false;
+    result_bind[1].buffer_type   = MYSQL_TYPE_STRING;
+    result_bind[1].buffer        = nullptr;
     result_bind[1].buffer_length = 0;
-    result_bind[1].length = &title_len;
-    result_bind[1].is_null = &title_is_null;
+    result_bind[1].length        = &title_len;
+    result_bind[1].is_null       = &title_is_null;
 
     unsigned long genre_len = 0;
-    my_bool genre_is_null = 0;
-    result_bind[2].buffer_type = MYSQL_TYPE_STRING;
-    result_bind[2].buffer = nullptr;
+    my_bool genre_is_null = false;
+    result_bind[2].buffer_type   = MYSQL_TYPE_STRING;
+    result_bind[2].buffer        = nullptr;
     result_bind[2].buffer_length = 0;
-    result_bind[2].length = &genre_len;
-    result_bind[2].is_null = &genre_is_null;
+    result_bind[2].length        = &genre_len;
+    result_bind[2].is_null       = &genre_is_null;
 
     unsigned long price_len = 0;
-    my_bool price_is_null = 0;
-    result_bind[3].buffer_type = MYSQL_TYPE_STRING;
-    result_bind[3].buffer = nullptr;
+    my_bool price_is_null = false;
+    result_bind[3].buffer_type   = MYSQL_TYPE_STRING;
+    result_bind[3].buffer        = nullptr;
     result_bind[3].buffer_length = 0;
-    result_bind[3].length = &price_len;
-    result_bind[3].is_null = &price_is_null;
+    result_bind[3].length        = &price_len;
+    result_bind[3].is_null       = &price_is_null;
 
     unsigned long published_at_len = 0;
-    my_bool published_at_is_null = 0;
-    result_bind[4].buffer_type = MYSQL_TYPE_STRING;
-    result_bind[4].buffer = nullptr;
+    my_bool published_at_is_null = false;
+    result_bind[4].buffer_type   = MYSQL_TYPE_STRING;
+    result_bind[4].buffer        = nullptr;
     result_bind[4].buffer_length = 0;
-    result_bind[4].length = &published_at_len;
-    result_bind[4].is_null = &published_at_is_null;
+    result_bind[4].length        = &published_at_len;
+    result_bind[4].is_null       = &published_at_is_null;
 
     unsigned long author_name_len = 0;
-    my_bool author_name_is_null = 0;
-    result_bind[5].buffer_type = MYSQL_TYPE_STRING;
-    result_bind[5].buffer = nullptr;
+    my_bool author_name_is_null = false;
+    result_bind[5].buffer_type   = MYSQL_TYPE_STRING;
+    result_bind[5].buffer        = nullptr;
     result_bind[5].buffer_length = 0;
-    result_bind[5].length = &author_name_len;
-    result_bind[5].is_null = &author_name_is_null;
+    result_bind[5].length        = &author_name_len;
+    result_bind[5].is_null       = &author_name_is_null;
 
     unsigned long author_bio_len = 0;
-    my_bool author_bio_is_null = 0;
-    result_bind[6].buffer_type = MYSQL_TYPE_STRING;
-    result_bind[6].buffer = nullptr;
+    my_bool author_bio_is_null = false;
+    result_bind[6].buffer_type   = MYSQL_TYPE_STRING;
+    result_bind[6].buffer        = nullptr;
     result_bind[6].buffer_length = 0;
-    result_bind[6].length = &author_bio_len;
-    result_bind[6].is_null = &author_bio_is_null;
+    result_bind[6].length        = &author_bio_len;
+    result_bind[6].is_null       = &author_bio_is_null;
+    stmt.bind_result(result_bind);
 
-    if (mysql_stmt_bind_result(stmt, result_bind) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
     std::vector<ListBooksWithAuthorRow> rows;
-    while (true) {
-        int rc = mysql_stmt_fetch(stmt);
-        if (rc == MYSQL_NO_DATA) break;
-        if (rc != 0 && rc != MYSQL_DATA_TRUNCATED) {
-            std::string err = mysql_stmt_error(stmt);
-            mysql_stmt_close(stmt);
-            throw std::runtime_error(err);
-        }
+    while (stmt.fetch_row()) {
+
         std::string title_val(title_len, '\0');
         result_bind[1].buffer = title_val.data();
         result_bind[1].buffer_length = title_len;
-        mysql_stmt_fetch_column(stmt, &result_bind[1], 1, 0);
+        stmt.fetch_column(&result_bind[1], 1);
+
         std::string genre_val(genre_len, '\0');
         result_bind[2].buffer = genre_val.data();
         result_bind[2].buffer_length = genre_len;
-        mysql_stmt_fetch_column(stmt, &result_bind[2], 2, 0);
+        stmt.fetch_column(&result_bind[2], 2);
+
         std::string price_val(price_len, '\0');
         result_bind[3].buffer = price_val.data();
         result_bind[3].buffer_length = price_len;
-        mysql_stmt_fetch_column(stmt, &result_bind[3], 3, 0);
+        stmt.fetch_column(&result_bind[3], 3);
+
         std::string published_at_val(published_at_len, '\0');
         result_bind[4].buffer = published_at_val.data();
         result_bind[4].buffer_length = published_at_len;
-        mysql_stmt_fetch_column(stmt, &result_bind[4], 4, 0);
+        stmt.fetch_column(&result_bind[4], 4);
+
         std::string author_name_val(author_name_len, '\0');
         result_bind[5].buffer = author_name_val.data();
         result_bind[5].buffer_length = author_name_len;
-        mysql_stmt_fetch_column(stmt, &result_bind[5], 5, 0);
+        stmt.fetch_column(&result_bind[5], 5);
+
         std::string author_bio_val(author_bio_len, '\0');
         result_bind[6].buffer = author_bio_val.data();
         result_bind[6].buffer_length = author_bio_len;
-        mysql_stmt_fetch_column(stmt, &result_bind[6], 6, 0);
-        auto result = ListBooksWithAuthorRow{
+        stmt.fetch_column(&result_bind[6], 6);
+
+        rows.push_back(ListBooksWithAuthorRow{
             id_val,
-            title_val,
-            genre_val,
-            price_val,
-            published_at_is_null ? std::nullopt : std::optional<std::string>(published_at_val),
-            author_name_val,
-            author_bio_is_null ? std::nullopt : std::optional<std::string>(author_bio_val)
-        };
-        rows.push_back(std::move(result));
+            std::move(title_val),
+            std::move(genre_val),
+            std::move(price_val),
+            published_at_is_null ? std::nullopt : std::optional<std::string>(std::move(published_at_val)),
+            std::move(author_name_val),
+            author_bio_is_null ? std::nullopt : std::optional<std::string>(std::move(author_bio_val))
+        });
     }
-    mysql_stmt_close(stmt);
     return rows;
 }
 
 std::vector<Book> get_books_never_ordered(MYSQL* db) {
-    MYSQL_STMT* stmt = mysql_stmt_init(db);
-    if (!stmt) throw std::runtime_error(mysql_error(db));
-    if (mysql_stmt_prepare(stmt, SQL_GET_BOOKS_NEVER_ORDERED.c_str(), SQL_GET_BOOKS_NEVER_ORDERED.size()) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
-    if (mysql_stmt_execute(stmt) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
+    MysqlStmt stmt(db, SQL_GET_BOOKS_NEVER_ORDERED);
+    stmt.execute();
+
     MYSQL_BIND result_bind[6];
     memset(result_bind, 0, sizeof(result_bind));
 
     std::int64_t id_val{};
-    my_bool id_is_null = 0;
+    my_bool id_is_null = false;
     result_bind[0].buffer_type = MYSQL_TYPE_LONGLONG;
-    result_bind[0].buffer = &id_val;
-    result_bind[0].is_null = &id_is_null;
+    result_bind[0].buffer      = &id_val;
+    result_bind[0].is_null     = &id_is_null;
 
     std::int64_t author_id_val{};
-    my_bool author_id_is_null = 0;
+    my_bool author_id_is_null = false;
     result_bind[1].buffer_type = MYSQL_TYPE_LONGLONG;
-    result_bind[1].buffer = &author_id_val;
-    result_bind[1].is_null = &author_id_is_null;
+    result_bind[1].buffer      = &author_id_val;
+    result_bind[1].is_null     = &author_id_is_null;
 
     unsigned long title_len = 0;
-    my_bool title_is_null = 0;
-    result_bind[2].buffer_type = MYSQL_TYPE_STRING;
-    result_bind[2].buffer = nullptr;
+    my_bool title_is_null = false;
+    result_bind[2].buffer_type   = MYSQL_TYPE_STRING;
+    result_bind[2].buffer        = nullptr;
     result_bind[2].buffer_length = 0;
-    result_bind[2].length = &title_len;
-    result_bind[2].is_null = &title_is_null;
+    result_bind[2].length        = &title_len;
+    result_bind[2].is_null       = &title_is_null;
 
     unsigned long genre_len = 0;
-    my_bool genre_is_null = 0;
-    result_bind[3].buffer_type = MYSQL_TYPE_STRING;
-    result_bind[3].buffer = nullptr;
+    my_bool genre_is_null = false;
+    result_bind[3].buffer_type   = MYSQL_TYPE_STRING;
+    result_bind[3].buffer        = nullptr;
     result_bind[3].buffer_length = 0;
-    result_bind[3].length = &genre_len;
-    result_bind[3].is_null = &genre_is_null;
+    result_bind[3].length        = &genre_len;
+    result_bind[3].is_null       = &genre_is_null;
 
     unsigned long price_len = 0;
-    my_bool price_is_null = 0;
-    result_bind[4].buffer_type = MYSQL_TYPE_STRING;
-    result_bind[4].buffer = nullptr;
+    my_bool price_is_null = false;
+    result_bind[4].buffer_type   = MYSQL_TYPE_STRING;
+    result_bind[4].buffer        = nullptr;
     result_bind[4].buffer_length = 0;
-    result_bind[4].length = &price_len;
-    result_bind[4].is_null = &price_is_null;
+    result_bind[4].length        = &price_len;
+    result_bind[4].is_null       = &price_is_null;
 
     unsigned long published_at_len = 0;
-    my_bool published_at_is_null = 0;
-    result_bind[5].buffer_type = MYSQL_TYPE_STRING;
-    result_bind[5].buffer = nullptr;
+    my_bool published_at_is_null = false;
+    result_bind[5].buffer_type   = MYSQL_TYPE_STRING;
+    result_bind[5].buffer        = nullptr;
     result_bind[5].buffer_length = 0;
-    result_bind[5].length = &published_at_len;
-    result_bind[5].is_null = &published_at_is_null;
+    result_bind[5].length        = &published_at_len;
+    result_bind[5].is_null       = &published_at_is_null;
+    stmt.bind_result(result_bind);
 
-    if (mysql_stmt_bind_result(stmt, result_bind) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
     std::vector<Book> rows;
-    while (true) {
-        int rc = mysql_stmt_fetch(stmt);
-        if (rc == MYSQL_NO_DATA) break;
-        if (rc != 0 && rc != MYSQL_DATA_TRUNCATED) {
-            std::string err = mysql_stmt_error(stmt);
-            mysql_stmt_close(stmt);
-            throw std::runtime_error(err);
-        }
+    while (stmt.fetch_row()) {
+
         std::string title_val(title_len, '\0');
         result_bind[2].buffer = title_val.data();
         result_bind[2].buffer_length = title_len;
-        mysql_stmt_fetch_column(stmt, &result_bind[2], 2, 0);
+        stmt.fetch_column(&result_bind[2], 2);
+
         std::string genre_val(genre_len, '\0');
         result_bind[3].buffer = genre_val.data();
         result_bind[3].buffer_length = genre_len;
-        mysql_stmt_fetch_column(stmt, &result_bind[3], 3, 0);
+        stmt.fetch_column(&result_bind[3], 3);
+
         std::string price_val(price_len, '\0');
         result_bind[4].buffer = price_val.data();
         result_bind[4].buffer_length = price_len;
-        mysql_stmt_fetch_column(stmt, &result_bind[4], 4, 0);
+        stmt.fetch_column(&result_bind[4], 4);
+
         std::string published_at_val(published_at_len, '\0');
         result_bind[5].buffer = published_at_val.data();
         result_bind[5].buffer_length = published_at_len;
-        mysql_stmt_fetch_column(stmt, &result_bind[5], 5, 0);
-        auto result = Book{
+        stmt.fetch_column(&result_bind[5], 5);
+
+        rows.push_back(Book{
             id_val,
             author_id_val,
-            title_val,
-            genre_val,
-            price_val,
-            published_at_is_null ? std::nullopt : std::optional<std::string>(published_at_val)
-        };
-        rows.push_back(std::move(result));
+            std::move(title_val),
+            std::move(genre_val),
+            std::move(price_val),
+            published_at_is_null ? std::nullopt : std::optional<std::string>(std::move(published_at_val))
+        });
     }
-    mysql_stmt_close(stmt);
     return rows;
 }
 
 std::vector<GetTopSellingBooksRow> get_top_selling_books(MYSQL* db) {
-    MYSQL_STMT* stmt = mysql_stmt_init(db);
-    if (!stmt) throw std::runtime_error(mysql_error(db));
-    if (mysql_stmt_prepare(stmt, SQL_GET_TOP_SELLING_BOOKS.c_str(), SQL_GET_TOP_SELLING_BOOKS.size()) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
-    if (mysql_stmt_execute(stmt) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
+    MysqlStmt stmt(db, SQL_GET_TOP_SELLING_BOOKS);
+    stmt.execute();
+
     MYSQL_BIND result_bind[5];
     memset(result_bind, 0, sizeof(result_bind));
 
     std::int64_t id_val{};
-    my_bool id_is_null = 0;
+    my_bool id_is_null = false;
     result_bind[0].buffer_type = MYSQL_TYPE_LONGLONG;
-    result_bind[0].buffer = &id_val;
-    result_bind[0].is_null = &id_is_null;
+    result_bind[0].buffer      = &id_val;
+    result_bind[0].is_null     = &id_is_null;
 
     unsigned long title_len = 0;
-    my_bool title_is_null = 0;
-    result_bind[1].buffer_type = MYSQL_TYPE_STRING;
-    result_bind[1].buffer = nullptr;
+    my_bool title_is_null = false;
+    result_bind[1].buffer_type   = MYSQL_TYPE_STRING;
+    result_bind[1].buffer        = nullptr;
     result_bind[1].buffer_length = 0;
-    result_bind[1].length = &title_len;
-    result_bind[1].is_null = &title_is_null;
+    result_bind[1].length        = &title_len;
+    result_bind[1].is_null       = &title_is_null;
 
     unsigned long genre_len = 0;
-    my_bool genre_is_null = 0;
-    result_bind[2].buffer_type = MYSQL_TYPE_STRING;
-    result_bind[2].buffer = nullptr;
+    my_bool genre_is_null = false;
+    result_bind[2].buffer_type   = MYSQL_TYPE_STRING;
+    result_bind[2].buffer        = nullptr;
     result_bind[2].buffer_length = 0;
-    result_bind[2].length = &genre_len;
-    result_bind[2].is_null = &genre_is_null;
+    result_bind[2].length        = &genre_len;
+    result_bind[2].is_null       = &genre_is_null;
 
     unsigned long price_len = 0;
-    my_bool price_is_null = 0;
-    result_bind[3].buffer_type = MYSQL_TYPE_STRING;
-    result_bind[3].buffer = nullptr;
+    my_bool price_is_null = false;
+    result_bind[3].buffer_type   = MYSQL_TYPE_STRING;
+    result_bind[3].buffer        = nullptr;
     result_bind[3].buffer_length = 0;
-    result_bind[3].length = &price_len;
-    result_bind[3].is_null = &price_is_null;
+    result_bind[3].length        = &price_len;
+    result_bind[3].is_null       = &price_is_null;
 
     unsigned long units_sold_len = 0;
-    my_bool units_sold_is_null = 0;
-    result_bind[4].buffer_type = MYSQL_TYPE_STRING;
-    result_bind[4].buffer = nullptr;
+    my_bool units_sold_is_null = false;
+    result_bind[4].buffer_type   = MYSQL_TYPE_STRING;
+    result_bind[4].buffer        = nullptr;
     result_bind[4].buffer_length = 0;
-    result_bind[4].length = &units_sold_len;
-    result_bind[4].is_null = &units_sold_is_null;
+    result_bind[4].length        = &units_sold_len;
+    result_bind[4].is_null       = &units_sold_is_null;
+    stmt.bind_result(result_bind);
 
-    if (mysql_stmt_bind_result(stmt, result_bind) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
     std::vector<GetTopSellingBooksRow> rows;
-    while (true) {
-        int rc = mysql_stmt_fetch(stmt);
-        if (rc == MYSQL_NO_DATA) break;
-        if (rc != 0 && rc != MYSQL_DATA_TRUNCATED) {
-            std::string err = mysql_stmt_error(stmt);
-            mysql_stmt_close(stmt);
-            throw std::runtime_error(err);
-        }
+    while (stmt.fetch_row()) {
+
         std::string title_val(title_len, '\0');
         result_bind[1].buffer = title_val.data();
         result_bind[1].buffer_length = title_len;
-        mysql_stmt_fetch_column(stmt, &result_bind[1], 1, 0);
+        stmt.fetch_column(&result_bind[1], 1);
+
         std::string genre_val(genre_len, '\0');
         result_bind[2].buffer = genre_val.data();
         result_bind[2].buffer_length = genre_len;
-        mysql_stmt_fetch_column(stmt, &result_bind[2], 2, 0);
+        stmt.fetch_column(&result_bind[2], 2);
+
         std::string price_val(price_len, '\0');
         result_bind[3].buffer = price_val.data();
         result_bind[3].buffer_length = price_len;
-        mysql_stmt_fetch_column(stmt, &result_bind[3], 3, 0);
+        stmt.fetch_column(&result_bind[3], 3);
+
         std::string units_sold_val(units_sold_len, '\0');
         result_bind[4].buffer = units_sold_val.data();
         result_bind[4].buffer_length = units_sold_len;
-        mysql_stmt_fetch_column(stmt, &result_bind[4], 4, 0);
-        auto result = GetTopSellingBooksRow{
+        stmt.fetch_column(&result_bind[4], 4);
+
+        rows.push_back(GetTopSellingBooksRow{
             id_val,
-            title_val,
-            genre_val,
-            price_val,
-            units_sold_is_null ? std::nullopt : std::optional<std::string>(units_sold_val)
-        };
-        rows.push_back(std::move(result));
+            std::move(title_val),
+            std::move(genre_val),
+            std::move(price_val),
+            units_sold_is_null ? std::nullopt : std::optional<std::string>(std::move(units_sold_val))
+        });
     }
-    mysql_stmt_close(stmt);
     return rows;
 }
 
 std::vector<GetBestCustomersRow> get_best_customers(MYSQL* db) {
-    MYSQL_STMT* stmt = mysql_stmt_init(db);
-    if (!stmt) throw std::runtime_error(mysql_error(db));
-    if (mysql_stmt_prepare(stmt, SQL_GET_BEST_CUSTOMERS.c_str(), SQL_GET_BEST_CUSTOMERS.size()) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
-    if (mysql_stmt_execute(stmt) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
+    MysqlStmt stmt(db, SQL_GET_BEST_CUSTOMERS);
+    stmt.execute();
+
     MYSQL_BIND result_bind[4];
     memset(result_bind, 0, sizeof(result_bind));
 
     std::int64_t id_val{};
-    my_bool id_is_null = 0;
+    my_bool id_is_null = false;
     result_bind[0].buffer_type = MYSQL_TYPE_LONGLONG;
-    result_bind[0].buffer = &id_val;
-    result_bind[0].is_null = &id_is_null;
+    result_bind[0].buffer      = &id_val;
+    result_bind[0].is_null     = &id_is_null;
 
     unsigned long name_len = 0;
-    my_bool name_is_null = 0;
-    result_bind[1].buffer_type = MYSQL_TYPE_STRING;
-    result_bind[1].buffer = nullptr;
+    my_bool name_is_null = false;
+    result_bind[1].buffer_type   = MYSQL_TYPE_STRING;
+    result_bind[1].buffer        = nullptr;
     result_bind[1].buffer_length = 0;
-    result_bind[1].length = &name_len;
-    result_bind[1].is_null = &name_is_null;
+    result_bind[1].length        = &name_len;
+    result_bind[1].is_null       = &name_is_null;
 
     unsigned long email_len = 0;
-    my_bool email_is_null = 0;
-    result_bind[2].buffer_type = MYSQL_TYPE_STRING;
-    result_bind[2].buffer = nullptr;
+    my_bool email_is_null = false;
+    result_bind[2].buffer_type   = MYSQL_TYPE_STRING;
+    result_bind[2].buffer        = nullptr;
     result_bind[2].buffer_length = 0;
-    result_bind[2].length = &email_len;
-    result_bind[2].is_null = &email_is_null;
+    result_bind[2].length        = &email_len;
+    result_bind[2].is_null       = &email_is_null;
 
     unsigned long total_spent_len = 0;
-    my_bool total_spent_is_null = 0;
-    result_bind[3].buffer_type = MYSQL_TYPE_STRING;
-    result_bind[3].buffer = nullptr;
+    my_bool total_spent_is_null = false;
+    result_bind[3].buffer_type   = MYSQL_TYPE_STRING;
+    result_bind[3].buffer        = nullptr;
     result_bind[3].buffer_length = 0;
-    result_bind[3].length = &total_spent_len;
-    result_bind[3].is_null = &total_spent_is_null;
+    result_bind[3].length        = &total_spent_len;
+    result_bind[3].is_null       = &total_spent_is_null;
+    stmt.bind_result(result_bind);
 
-    if (mysql_stmt_bind_result(stmt, result_bind) != 0) {
-        std::string err = mysql_stmt_error(stmt);
-        mysql_stmt_close(stmt);
-        throw std::runtime_error(err);
-    }
     std::vector<GetBestCustomersRow> rows;
-    while (true) {
-        int rc = mysql_stmt_fetch(stmt);
-        if (rc == MYSQL_NO_DATA) break;
-        if (rc != 0 && rc != MYSQL_DATA_TRUNCATED) {
-            std::string err = mysql_stmt_error(stmt);
-            mysql_stmt_close(stmt);
-            throw std::runtime_error(err);
-        }
+    while (stmt.fetch_row()) {
+
         std::string name_val(name_len, '\0');
         result_bind[1].buffer = name_val.data();
         result_bind[1].buffer_length = name_len;
-        mysql_stmt_fetch_column(stmt, &result_bind[1], 1, 0);
+        stmt.fetch_column(&result_bind[1], 1);
+
         std::string email_val(email_len, '\0');
         result_bind[2].buffer = email_val.data();
         result_bind[2].buffer_length = email_len;
-        mysql_stmt_fetch_column(stmt, &result_bind[2], 2, 0);
+        stmt.fetch_column(&result_bind[2], 2);
+
         std::string total_spent_val(total_spent_len, '\0');
         result_bind[3].buffer = total_spent_val.data();
         result_bind[3].buffer_length = total_spent_len;
-        mysql_stmt_fetch_column(stmt, &result_bind[3], 3, 0);
-        auto result = GetBestCustomersRow{
+        stmt.fetch_column(&result_bind[3], 3);
+
+        rows.push_back(GetBestCustomersRow{
             id_val,
-            name_val,
-            email_val,
-            total_spent_is_null ? std::nullopt : std::optional<std::string>(total_spent_val)
-        };
-        rows.push_back(std::move(result));
+            std::move(name_val),
+            std::move(email_val),
+            total_spent_is_null ? std::nullopt : std::optional<std::string>(std::move(total_spent_val))
+        });
     }
-    mysql_stmt_close(stmt);
     return rows;
+}
+
+
+void Querier::create_author(const std::string& name, const std::optional<std::string>& bio, const std::optional<std::int32_t>& birth_year) {
+    return ::create_author(db_, name, bio, birth_year);
+}
+
+std::optional<Author> Querier::get_author(std::int64_t id) {
+    return ::get_author(db_, id);
+}
+
+std::vector<Author> Querier::list_authors() {
+    return ::list_authors(db_);
+}
+
+void Querier::update_author_bio(const std::optional<std::string>& bio, std::int64_t id) {
+    return ::update_author_bio(db_, bio, id);
+}
+
+void Querier::delete_author(std::int64_t id) {
+    return ::delete_author(db_, id);
+}
+
+void Querier::create_book(std::int64_t author_id, const std::string& title, const std::string& genre, const std::string& price, const std::optional<std::string>& published_at) {
+    return ::create_book(db_, author_id, title, genre, price, published_at);
+}
+
+std::optional<Book> Querier::get_book(std::int64_t id) {
+    return ::get_book(db_, id);
+}
+
+std::vector<Book> Querier::get_books_by_ids(const std::vector<std::int64_t>& ids) {
+    return ::get_books_by_ids(db_, ids);
+}
+
+std::vector<Book> Querier::list_books_by_genre(const std::string& genre) {
+    return ::list_books_by_genre(db_, genre);
+}
+
+std::vector<Book> Querier::list_books_by_genre_or_all(const std::string& genre) {
+    return ::list_books_by_genre_or_all(db_, genre);
+}
+
+void Querier::create_customer(const std::string& name, const std::string& email) {
+    return ::create_customer(db_, name, email);
+}
+
+void Querier::create_sale(std::int64_t customer_id) {
+    return ::create_sale(db_, customer_id);
+}
+
+void Querier::add_sale_item(std::int64_t sale_id, std::int64_t book_id, std::int32_t quantity, const std::string& unit_price) {
+    return ::add_sale_item(db_, sale_id, book_id, quantity, unit_price);
+}
+
+std::vector<ListBooksWithAuthorRow> Querier::list_books_with_author() {
+    return ::list_books_with_author(db_);
+}
+
+std::vector<Book> Querier::get_books_never_ordered() {
+    return ::get_books_never_ordered(db_);
+}
+
+std::vector<GetTopSellingBooksRow> Querier::get_top_selling_books() {
+    return ::get_top_selling_books(db_);
+}
+
+std::vector<GetBestCustomersRow> Querier::get_best_customers() {
+    return ::get_best_customers(db_);
 }
