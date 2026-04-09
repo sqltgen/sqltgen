@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use sqlparser::ast::{ObjectNamePart, Query as SqlQuery, Select, SelectItem, SelectItemQualifiedWildcardKind, SetExpr, Statement, TableWithJoins, With};
 
 use crate::frontend::common::ident_to_str;
-use crate::ir::{Query, ResultColumn, Schema, Table};
+use crate::ir::{Query, ResultColumn, Schema, SourceTable, Table};
 
 use super::dml::{build_query_from_insert, build_query_from_update};
 use super::params::{collect_limit_offset_params, collect_order_by_params, collect_select_params, collect_set_expr_params};
@@ -23,7 +23,7 @@ struct WildcardSourceScope<'a> {
     alias_map: &'a HashMap<String, &'a Table>,
     all_tables: &'a [(Table, Option<String>)],
     schema: &'a Schema,
-    provenance: &'a HashMap<String, String>,
+    provenance: &'a HashMap<String, SourceTable>,
     default_schema: Option<&'a str>,
 }
 
@@ -63,8 +63,8 @@ fn build_select_body(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, select: &Se
         provenance: &provenance,
         default_schema: config.default_schema.as_deref(),
     };
-    let source_table = select_wildcard_source(select, &source_scope);
-    Query::new(ann.name.clone(), ann.cmd.clone(), sql, params, result_columns).with_source_table(source_table)
+    let source = select_wildcard_source(select, &source_scope);
+    Query::new(ann.name.clone(), ann.cmd.clone(), sql, params, result_columns).with_source(source)
 }
 
 /// Detect the source schema table when the SELECT projection is an unambiguous wildcard.
@@ -78,7 +78,7 @@ fn build_select_body(ann: &QueryAnnotation, sql: &str, q: &SqlQuery, select: &Se
 ///
 /// Returns `None` for all other projections (explicit column lists, set operations,
 /// multi-table wildcards, non-trivial CTEs, or nullable-side tables).
-fn select_wildcard_source(select: &Select, scope: &WildcardSourceScope<'_>) -> Option<String> {
+fn select_wildcard_source(select: &Select, scope: &WildcardSourceScope<'_>) -> Option<SourceTable> {
     let WildcardSourceScope { alias_map, all_tables, schema, provenance, default_schema } = scope;
     let [item] = select.projection.as_slice() else { return None };
     let table_in_scope: &Table = match item {
@@ -98,7 +98,7 @@ fn select_wildcard_source(select: &Select, scope: &WildcardSourceScope<'_>) -> O
     // Direct schema table: present in schema and not made nullable by an outer join.
     if let Some(schema_table) = schema.find_table(table_in_scope.schema.as_deref(), &table_in_scope.name, *default_schema) {
         let made_nullable = schema_table.columns.iter().zip(&table_in_scope.columns).any(|(sc, rc)| !sc.nullable && rc.nullable);
-        return if made_nullable { None } else { Some(schema_table.name.clone()) };
+        return if made_nullable { None } else { Some(SourceTable::new(schema_table.schema.clone(), schema_table.name.clone())) };
     }
 
     // CTE or derived table: look up the provenance chain built by build_source_provenance.
@@ -106,7 +106,7 @@ fn select_wildcard_source(select: &Select, scope: &WildcardSourceScope<'_>) -> O
     provenance.get(&table_in_scope.name).cloned()
 }
 
-/// Build a map of `virtual_table_name → schema_table_name` for all CTEs and derived
+/// Build a map of `virtual_table_name → SourceTable` for all CTEs and derived
 /// tables in a query whose rows provably come from a single schema table through an
 /// unambiguous wildcard selection chain.
 ///
@@ -119,8 +119,8 @@ pub(super) fn build_source_provenance(
     schema: &Schema,
     ctes: &[Table],
     config: &ResolverConfig,
-) -> HashMap<String, String> {
-    let mut provenance: HashMap<String, String> = HashMap::new();
+) -> HashMap<String, SourceTable> {
+    let mut provenance: HashMap<String, SourceTable> = HashMap::new();
 
     // CTE pass — process in declaration order so each CTE can see earlier ones.
     if let Some(with) = with {

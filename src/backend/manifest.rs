@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use serde::Serialize;
 
 use crate::backend::common::infer_row_type_name;
-use crate::backend::naming::to_pascal_case;
 use crate::backend::GeneratedFile;
 use crate::config::{sql_type_key, OutputConfig};
 use crate::ir::{Parameter, Query, QueryCmd, Schema, SqlType};
@@ -117,7 +116,7 @@ fn build_models(schema: &Schema, resolve_field_type: &dyn Fn(&SqlType, bool) -> 
         .tables
         .iter()
         .map(|table| ManifestModel {
-            name: to_pascal_case(&table.name),
+            name: crate::backend::common::model_name(table, schema.default_schema.as_deref()),
             fields: table
                 .columns
                 .iter()

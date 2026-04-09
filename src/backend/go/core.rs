@@ -3,7 +3,7 @@ use std::fmt::Write;
 use std::path::PathBuf;
 
 use crate::backend::common::{
-    group_queries, has_inline_rows, infer_row_type_name, infer_table, querier_class_name, queries_file_stem, row_type_name, sql_const_name,
+    group_queries, has_inline_rows, infer_row_type_name, model_name, querier_class_name, queries_file_stem, row_type_name, sql_const_name,
 };
 use crate::backend::naming::to_pascal_case;
 use crate::backend::sql_rewrite::{parse_placeholder_indices, positional_bind_names, rewrite_to_anon_params, split_at_in_clause};
@@ -179,8 +179,9 @@ fn emit_models_file(schema: &Schema, config: &OutputConfig, type_map: &GoTypeMap
         writeln!(src)?;
     }
 
+    let ds = schema.default_schema.as_deref();
     for table in &schema.tables {
-        let struct_name = to_pascal_case(&table.name);
+        let struct_name = model_name(table, ds);
         writeln!(src, "// {struct_name} represents a row from the {table_name} table.", table_name = table.name)?;
         writeln!(src, "type {struct_name} struct {{")?;
         for col in &table.columns {
@@ -271,15 +272,7 @@ pub(super) fn build_queries_file(
         }
     }
 
-    // Table imports: collect which table types are reused
-    let needed_tables: Vec<&str> = {
-        let mut tables: Vec<&str> = queries.iter().filter_map(|q| infer_table(q, schema)).collect();
-        tables.sort_unstable();
-        tables.dedup();
-        tables
-    };
-    // (In Go, table types live in the same package, so no import needed.)
-    let _ = needed_tables;
+    // (In Go, table types live in the same package, so no import is needed.)
 
     // Query functions
     for query in queries {

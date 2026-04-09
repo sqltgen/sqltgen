@@ -38,6 +38,9 @@ pub struct Schema {
     pub functions: Vec<ScalarFunction>,
     /// Enum types parsed from `CREATE TYPE ... AS ENUM` statements.
     pub enums: Vec<EnumType>,
+    /// The resolved default schema for this engine (e.g. `"public"` for PostgreSQL,
+    /// `"main"` for SQLite). Set after parsing so backends can use it for model naming.
+    pub default_schema: Option<String>,
 }
 
 impl Schema {

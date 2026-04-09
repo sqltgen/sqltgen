@@ -1,8 +1,10 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fmt::Write;
 use std::path::PathBuf;
 
-use crate::backend::common::{group_queries, has_inline_rows, infer_row_type_name, infer_table, querier_class_name, queries_file_stem, row_type_name};
+use crate::backend::common::{
+    group_queries, has_inline_rows, infer_row_type_name, infer_table, model_file_stem, model_name, querier_class_name, queries_file_stem, row_type_name,
+};
 use crate::backend::naming::{to_pascal_case, to_snake_case};
 use crate::backend::sql_rewrite::{positional_bind_names, rewrite_to_anon_params, split_at_in_clause};
 use crate::backend::GeneratedFile;
@@ -21,9 +23,11 @@ pub(super) fn generate_core_files(
 ) -> anyhow::Result<Vec<GeneratedFile>> {
     let mut files = Vec::new();
 
+    let ds = schema.default_schema.as_deref();
+
     // One struct file per table
     for table in &schema.tables {
-        let struct_name = to_pascal_case(&table.name);
+        let struct_name = model_name(table, ds);
         let mut src = String::new();
         // Import any enum types referenced by this table's columns
         let mut enum_imports: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
@@ -43,7 +47,7 @@ pub(super) fn generate_core_files(
         }
         writeln!(src, "}}")?;
 
-        let path = PathBuf::from(&config.out).join("models").join(format!("{}.rs", table.name));
+        let path = PathBuf::from(&config.out).join("models").join(format!("{}.rs", model_file_stem(table, ds)));
         files.push(GeneratedFile { path, content: src });
     }
 
@@ -68,11 +72,16 @@ pub(super) fn generate_core_files(
         writeln!(src)?;
 
         // Import only table structs that are actually used as return types
-        let needed: HashSet<&str> = group_queries.iter().filter_map(|q| infer_table(q, schema)).collect();
-        let mut needed_sorted: Vec<&str> = needed.iter().copied().collect();
-        needed_sorted.sort();
-        for name in &needed_sorted {
-            writeln!(src, "use super::super::models::{}::{};", name, to_pascal_case(name))?;
+        let needed: Vec<_> = {
+            let mut tables: Vec<_> = group_queries.iter().filter_map(|q| infer_table(q, schema)).collect();
+            tables.sort_by_key(|t| &t.name);
+            tables.dedup_by_key(|t| &t.name);
+            tables
+        };
+        for table in &needed {
+            let file_stem = model_file_stem(table, ds);
+            let type_name = model_name(table, ds);
+            writeln!(src, "use super::super::models::{file_stem}::{type_name};")?;
         }
         let enum_names = crate::backend::common::needed_enums(&group_queries.iter().collect::<Vec<_>>());
         for name in &enum_names {
@@ -127,7 +136,7 @@ pub(super) fn generate_core_files(
     if !schema.tables.is_empty() || !schema.enums.is_empty() {
         let mut src = String::new();
         for table in &schema.tables {
-            writeln!(src, "pub mod {};", table.name)?;
+            writeln!(src, "pub mod {};", model_file_stem(table, ds))?;
         }
         for e in &schema.enums {
             writeln!(src, "pub mod {};", e.name)?;
