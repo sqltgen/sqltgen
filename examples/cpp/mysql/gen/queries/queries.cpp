@@ -2,6 +2,8 @@
 #include "queries.hpp"
 #include <cstring>
 
+// ---------- helpers ----------
+
 static std::string json_escape(const std::string& s) {
     std::string out = "\"";
     for (char c : s) {
@@ -51,37 +53,36 @@ public:
     my_ulonglong affected_rows() { return mysql_stmt_affected_rows(stmt_); }
 };
 
+// ---------- query functions ----------
+
 void create_author(MYSQL* db, const std::string& name, const std::optional<std::string>& bio, const std::optional<std::int32_t>& birth_year) {
     MysqlStmt stmt(db, SQL_CREATE_AUTHOR);
 
     MYSQL_BIND bind[3];
     memset(bind, 0, sizeof(bind));
-    unsigned long p_name_len = name.size();
-    my_bool bio_is_null = !bio.has_value();
-    unsigned long p_bio_value_len = 0;
-    if (bio.has_value()) {
-        p_bio_value_len = bio.value().size();
-    }
-    my_bool birth_year_is_null = !birth_year.has_value();
 
-    bind[0].buffer_type = MYSQL_TYPE_STRING;
+    // name — string
     bind[0].buffer = const_cast<char*>(name.c_str());
-    bind[0].buffer_length = name.size();
+    bind[0].buffer_type = MYSQL_TYPE_STRING;
+    unsigned long p_name_len = name.size();
     bind[0].length = &p_name_len;
+    bind[0].buffer_length = p_name_len;
 
-    bind[1].is_null = &bio_is_null;
+    // bio — string?
+    bind[1].buffer = const_cast<char*>(bio.has_value() ? bio.value().c_str() : "");
     bind[1].buffer_type = MYSQL_TYPE_STRING;
-    if (bio.has_value()) {
-        bind[1].buffer = const_cast<char*>(bio.value().c_str());
-        bind[1].buffer_length = bio.value().size();
-        bind[1].length = &p_bio_value_len;
-    }
+    unsigned long p_bio_len = bio.has_value() ? bio.value().size() : 0;
+    bind[1].length = &p_bio_len;
+    bind[1].buffer_length = p_bio_len;
+    my_bool bio_is_null = !bio.has_value();
+    bind[1].is_null = &bio_is_null;
 
-    bind[2].is_null = &birth_year_is_null;
+    // birth_year — int?
+    std::int32_t birth_year_val = birth_year.value_or(std::int32_t{});
+    bind[2].buffer = &birth_year_val;
     bind[2].buffer_type = MYSQL_TYPE_LONG;
-    if (birth_year.has_value()) {
-        bind[2].buffer = const_cast<std::int32_t*>(&birth_year.value());
-    }
+    my_bool birth_year_is_null = !birth_year.has_value();
+    bind[2].is_null = &birth_year_is_null;
     stmt.bind_param(bind);
 
     stmt.execute();
@@ -93,8 +94,9 @@ std::optional<Author> get_author(MYSQL* db, std::int64_t id) {
     MYSQL_BIND bind[1];
     memset(bind, 0, sizeof(bind));
 
-    bind[0].buffer_type = MYSQL_TYPE_LONGLONG;
+    // id — bigint
     bind[0].buffer = const_cast<std::int64_t*>(&id);
+    bind[0].buffer_type = MYSQL_TYPE_LONGLONG;
     stmt.bind_param(bind);
 
     stmt.execute();
@@ -102,33 +104,37 @@ std::optional<Author> get_author(MYSQL* db, std::int64_t id) {
     MYSQL_BIND result_bind[4];
     memset(result_bind, 0, sizeof(result_bind));
 
+    // id — bigint
     std::int64_t id_val{};
-    my_bool id_is_null = false;
+    result_bind[0].buffer = &id_val;
     result_bind[0].buffer_type = MYSQL_TYPE_LONGLONG;
-    result_bind[0].buffer      = &id_val;
-    result_bind[0].is_null     = &id_is_null;
+    my_bool id_is_null = false;
+    result_bind[0].is_null = &id_is_null;
 
+    // name — string (two-phase)
+    result_bind[1].buffer = nullptr; // filled below
+    result_bind[1].buffer_type = MYSQL_TYPE_STRING;
     unsigned long name_len = 0;
-    my_bool name_is_null = false;
-    result_bind[1].buffer_type   = MYSQL_TYPE_STRING;
-    result_bind[1].buffer        = nullptr;
+    result_bind[1].length = &name_len;
     result_bind[1].buffer_length = 0;
-    result_bind[1].length        = &name_len;
-    result_bind[1].is_null       = &name_is_null;
+    my_bool name_is_null = false;
+    result_bind[1].is_null = &name_is_null;
 
+    // bio — string? (two-phase)
+    result_bind[2].buffer = nullptr; // filled below
+    result_bind[2].buffer_type = MYSQL_TYPE_STRING;
     unsigned long bio_len = 0;
-    my_bool bio_is_null = false;
-    result_bind[2].buffer_type   = MYSQL_TYPE_STRING;
-    result_bind[2].buffer        = nullptr;
+    result_bind[2].length = &bio_len;
     result_bind[2].buffer_length = 0;
-    result_bind[2].length        = &bio_len;
-    result_bind[2].is_null       = &bio_is_null;
+    my_bool bio_is_null = false;
+    result_bind[2].is_null = &bio_is_null;
 
+    // birth_year — int?
     std::int32_t birth_year_val{};
-    my_bool birth_year_is_null = false;
+    result_bind[3].buffer = &birth_year_val;
     result_bind[3].buffer_type = MYSQL_TYPE_LONG;
-    result_bind[3].buffer      = &birth_year_val;
-    result_bind[3].is_null     = &birth_year_is_null;
+    my_bool birth_year_is_null = false;
+    result_bind[3].is_null = &birth_year_is_null;
     stmt.bind_result(result_bind);
 
     if (!stmt.fetch_row()) return std::nullopt;
@@ -158,33 +164,37 @@ std::vector<Author> list_authors(MYSQL* db) {
     MYSQL_BIND result_bind[4];
     memset(result_bind, 0, sizeof(result_bind));
 
+    // id — bigint
     std::int64_t id_val{};
-    my_bool id_is_null = false;
+    result_bind[0].buffer = &id_val;
     result_bind[0].buffer_type = MYSQL_TYPE_LONGLONG;
-    result_bind[0].buffer      = &id_val;
-    result_bind[0].is_null     = &id_is_null;
+    my_bool id_is_null = false;
+    result_bind[0].is_null = &id_is_null;
 
+    // name — string (two-phase)
+    result_bind[1].buffer = nullptr; // filled below
+    result_bind[1].buffer_type = MYSQL_TYPE_STRING;
     unsigned long name_len = 0;
-    my_bool name_is_null = false;
-    result_bind[1].buffer_type   = MYSQL_TYPE_STRING;
-    result_bind[1].buffer        = nullptr;
+    result_bind[1].length = &name_len;
     result_bind[1].buffer_length = 0;
-    result_bind[1].length        = &name_len;
-    result_bind[1].is_null       = &name_is_null;
+    my_bool name_is_null = false;
+    result_bind[1].is_null = &name_is_null;
 
+    // bio — string? (two-phase)
+    result_bind[2].buffer = nullptr; // filled below
+    result_bind[2].buffer_type = MYSQL_TYPE_STRING;
     unsigned long bio_len = 0;
-    my_bool bio_is_null = false;
-    result_bind[2].buffer_type   = MYSQL_TYPE_STRING;
-    result_bind[2].buffer        = nullptr;
+    result_bind[2].length = &bio_len;
     result_bind[2].buffer_length = 0;
-    result_bind[2].length        = &bio_len;
-    result_bind[2].is_null       = &bio_is_null;
+    my_bool bio_is_null = false;
+    result_bind[2].is_null = &bio_is_null;
 
+    // birth_year — int?
     std::int32_t birth_year_val{};
-    my_bool birth_year_is_null = false;
+    result_bind[3].buffer = &birth_year_val;
     result_bind[3].buffer_type = MYSQL_TYPE_LONG;
-    result_bind[3].buffer      = &birth_year_val;
-    result_bind[3].is_null     = &birth_year_is_null;
+    my_bool birth_year_is_null = false;
+    result_bind[3].is_null = &birth_year_is_null;
     stmt.bind_result(result_bind);
 
     std::vector<Author> rows;
@@ -215,22 +225,19 @@ void update_author_bio(MYSQL* db, const std::optional<std::string>& bio, std::in
 
     MYSQL_BIND bind[2];
     memset(bind, 0, sizeof(bind));
-    my_bool bio_is_null = !bio.has_value();
-    unsigned long p_bio_value_len = 0;
-    if (bio.has_value()) {
-        p_bio_value_len = bio.value().size();
-    }
 
-    bind[0].is_null = &bio_is_null;
+    // bio — string?
+    bind[0].buffer = const_cast<char*>(bio.has_value() ? bio.value().c_str() : "");
     bind[0].buffer_type = MYSQL_TYPE_STRING;
-    if (bio.has_value()) {
-        bind[0].buffer = const_cast<char*>(bio.value().c_str());
-        bind[0].buffer_length = bio.value().size();
-        bind[0].length = &p_bio_value_len;
-    }
+    unsigned long p_bio_len = bio.has_value() ? bio.value().size() : 0;
+    bind[0].length = &p_bio_len;
+    bind[0].buffer_length = p_bio_len;
+    my_bool bio_is_null = !bio.has_value();
+    bind[0].is_null = &bio_is_null;
 
-    bind[1].buffer_type = MYSQL_TYPE_LONGLONG;
+    // id — bigint
     bind[1].buffer = const_cast<std::int64_t*>(&id);
+    bind[1].buffer_type = MYSQL_TYPE_LONGLONG;
     stmt.bind_param(bind);
 
     stmt.execute();
@@ -242,8 +249,9 @@ void delete_author(MYSQL* db, std::int64_t id) {
     MYSQL_BIND bind[1];
     memset(bind, 0, sizeof(bind));
 
-    bind[0].buffer_type = MYSQL_TYPE_LONGLONG;
+    // id — bigint
     bind[0].buffer = const_cast<std::int64_t*>(&id);
+    bind[0].buffer_type = MYSQL_TYPE_LONGLONG;
     stmt.bind_param(bind);
 
     stmt.execute();
@@ -254,40 +262,40 @@ void create_book(MYSQL* db, std::int64_t author_id, const std::string& title, co
 
     MYSQL_BIND bind[5];
     memset(bind, 0, sizeof(bind));
-    unsigned long p_title_len = title.size();
-    unsigned long p_genre_len = genre.size();
-    unsigned long p_price_len = price.size();
-    my_bool published_at_is_null = !published_at.has_value();
-    unsigned long p_published_at_value_len = 0;
-    if (published_at.has_value()) {
-        p_published_at_value_len = published_at.value().size();
-    }
 
-    bind[0].buffer_type = MYSQL_TYPE_LONGLONG;
+    // author_id — bigint
     bind[0].buffer = const_cast<std::int64_t*>(&author_id);
+    bind[0].buffer_type = MYSQL_TYPE_LONGLONG;
 
-    bind[1].buffer_type = MYSQL_TYPE_STRING;
+    // title — string
     bind[1].buffer = const_cast<char*>(title.c_str());
-    bind[1].buffer_length = title.size();
+    bind[1].buffer_type = MYSQL_TYPE_STRING;
+    unsigned long p_title_len = title.size();
     bind[1].length = &p_title_len;
+    bind[1].buffer_length = p_title_len;
 
-    bind[2].buffer_type = MYSQL_TYPE_STRING;
+    // genre — string
     bind[2].buffer = const_cast<char*>(genre.c_str());
-    bind[2].buffer_length = genre.size();
+    bind[2].buffer_type = MYSQL_TYPE_STRING;
+    unsigned long p_genre_len = genre.size();
     bind[2].length = &p_genre_len;
+    bind[2].buffer_length = p_genre_len;
 
-    bind[3].buffer_type = MYSQL_TYPE_STRING;
+    // price — decimal
     bind[3].buffer = const_cast<char*>(price.c_str());
-    bind[3].buffer_length = price.size();
+    bind[3].buffer_type = MYSQL_TYPE_STRING;
+    unsigned long p_price_len = price.size();
     bind[3].length = &p_price_len;
+    bind[3].buffer_length = p_price_len;
 
-    bind[4].is_null = &published_at_is_null;
+    // published_at — date?
+    bind[4].buffer = const_cast<char*>(published_at.has_value() ? published_at.value().c_str() : "");
     bind[4].buffer_type = MYSQL_TYPE_STRING;
-    if (published_at.has_value()) {
-        bind[4].buffer = const_cast<char*>(published_at.value().c_str());
-        bind[4].buffer_length = published_at.value().size();
-        bind[4].length = &p_published_at_value_len;
-    }
+    unsigned long p_published_at_len = published_at.has_value() ? published_at.value().size() : 0;
+    bind[4].length = &p_published_at_len;
+    bind[4].buffer_length = p_published_at_len;
+    my_bool published_at_is_null = !published_at.has_value();
+    bind[4].is_null = &published_at_is_null;
     stmt.bind_param(bind);
 
     stmt.execute();
@@ -299,8 +307,9 @@ std::optional<Book> get_book(MYSQL* db, std::int64_t id) {
     MYSQL_BIND bind[1];
     memset(bind, 0, sizeof(bind));
 
-    bind[0].buffer_type = MYSQL_TYPE_LONGLONG;
+    // id — bigint
     bind[0].buffer = const_cast<std::int64_t*>(&id);
+    bind[0].buffer_type = MYSQL_TYPE_LONGLONG;
     stmt.bind_param(bind);
 
     stmt.execute();
@@ -308,49 +317,55 @@ std::optional<Book> get_book(MYSQL* db, std::int64_t id) {
     MYSQL_BIND result_bind[6];
     memset(result_bind, 0, sizeof(result_bind));
 
+    // id — bigint
     std::int64_t id_val{};
-    my_bool id_is_null = false;
+    result_bind[0].buffer = &id_val;
     result_bind[0].buffer_type = MYSQL_TYPE_LONGLONG;
-    result_bind[0].buffer      = &id_val;
-    result_bind[0].is_null     = &id_is_null;
+    my_bool id_is_null = false;
+    result_bind[0].is_null = &id_is_null;
 
+    // author_id — bigint
     std::int64_t author_id_val{};
-    my_bool author_id_is_null = false;
+    result_bind[1].buffer = &author_id_val;
     result_bind[1].buffer_type = MYSQL_TYPE_LONGLONG;
-    result_bind[1].buffer      = &author_id_val;
-    result_bind[1].is_null     = &author_id_is_null;
+    my_bool author_id_is_null = false;
+    result_bind[1].is_null = &author_id_is_null;
 
+    // title — string (two-phase)
+    result_bind[2].buffer = nullptr; // filled below
+    result_bind[2].buffer_type = MYSQL_TYPE_STRING;
     unsigned long title_len = 0;
-    my_bool title_is_null = false;
-    result_bind[2].buffer_type   = MYSQL_TYPE_STRING;
-    result_bind[2].buffer        = nullptr;
+    result_bind[2].length = &title_len;
     result_bind[2].buffer_length = 0;
-    result_bind[2].length        = &title_len;
-    result_bind[2].is_null       = &title_is_null;
+    my_bool title_is_null = false;
+    result_bind[2].is_null = &title_is_null;
 
+    // genre — string (two-phase)
+    result_bind[3].buffer = nullptr; // filled below
+    result_bind[3].buffer_type = MYSQL_TYPE_STRING;
     unsigned long genre_len = 0;
-    my_bool genre_is_null = false;
-    result_bind[3].buffer_type   = MYSQL_TYPE_STRING;
-    result_bind[3].buffer        = nullptr;
+    result_bind[3].length = &genre_len;
     result_bind[3].buffer_length = 0;
-    result_bind[3].length        = &genre_len;
-    result_bind[3].is_null       = &genre_is_null;
+    my_bool genre_is_null = false;
+    result_bind[3].is_null = &genre_is_null;
 
+    // price — decimal (two-phase)
+    result_bind[4].buffer = nullptr; // filled below
+    result_bind[4].buffer_type = MYSQL_TYPE_STRING;
     unsigned long price_len = 0;
-    my_bool price_is_null = false;
-    result_bind[4].buffer_type   = MYSQL_TYPE_STRING;
-    result_bind[4].buffer        = nullptr;
+    result_bind[4].length = &price_len;
     result_bind[4].buffer_length = 0;
-    result_bind[4].length        = &price_len;
-    result_bind[4].is_null       = &price_is_null;
+    my_bool price_is_null = false;
+    result_bind[4].is_null = &price_is_null;
 
+    // published_at — date? (two-phase)
+    result_bind[5].buffer = nullptr; // filled below
+    result_bind[5].buffer_type = MYSQL_TYPE_STRING;
     unsigned long published_at_len = 0;
-    my_bool published_at_is_null = false;
-    result_bind[5].buffer_type   = MYSQL_TYPE_STRING;
-    result_bind[5].buffer        = nullptr;
+    result_bind[5].length = &published_at_len;
     result_bind[5].buffer_length = 0;
-    result_bind[5].length        = &published_at_len;
-    result_bind[5].is_null       = &published_at_is_null;
+    my_bool published_at_is_null = false;
+    result_bind[5].is_null = &published_at_is_null;
     stmt.bind_result(result_bind);
 
     if (!stmt.fetch_row()) return std::nullopt;
@@ -390,18 +405,19 @@ std::vector<Book> get_books_by_ids(MYSQL* db, const std::vector<std::int64_t>& i
 
     MYSQL_BIND bind[1];
     memset(bind, 0, sizeof(bind));
+
+    // ids — bigint[] (JSON)
     std::string p_ids_json = "[";
     for (size_t i = 0; i < ids.size(); ++i) {
         if (i > 0) p_ids_json += ",";
         p_ids_json += std::to_string(ids[i]);
     }
     p_ids_json += "]";
-    unsigned long p_ids_json_len = p_ids_json.size();
-
-    bind[0].buffer_type = MYSQL_TYPE_STRING;
     bind[0].buffer = const_cast<char*>(p_ids_json.c_str());
-    bind[0].buffer_length = p_ids_json.size();
+    bind[0].buffer_type = MYSQL_TYPE_STRING;
+    unsigned long p_ids_json_len = p_ids_json.size();
     bind[0].length = &p_ids_json_len;
+    bind[0].buffer_length = p_ids_json_len;
     stmt.bind_param(bind);
 
     stmt.execute();
@@ -409,49 +425,55 @@ std::vector<Book> get_books_by_ids(MYSQL* db, const std::vector<std::int64_t>& i
     MYSQL_BIND result_bind[6];
     memset(result_bind, 0, sizeof(result_bind));
 
+    // id — bigint
     std::int64_t id_val{};
-    my_bool id_is_null = false;
+    result_bind[0].buffer = &id_val;
     result_bind[0].buffer_type = MYSQL_TYPE_LONGLONG;
-    result_bind[0].buffer      = &id_val;
-    result_bind[0].is_null     = &id_is_null;
+    my_bool id_is_null = false;
+    result_bind[0].is_null = &id_is_null;
 
+    // author_id — bigint
     std::int64_t author_id_val{};
-    my_bool author_id_is_null = false;
+    result_bind[1].buffer = &author_id_val;
     result_bind[1].buffer_type = MYSQL_TYPE_LONGLONG;
-    result_bind[1].buffer      = &author_id_val;
-    result_bind[1].is_null     = &author_id_is_null;
+    my_bool author_id_is_null = false;
+    result_bind[1].is_null = &author_id_is_null;
 
+    // title — string (two-phase)
+    result_bind[2].buffer = nullptr; // filled below
+    result_bind[2].buffer_type = MYSQL_TYPE_STRING;
     unsigned long title_len = 0;
-    my_bool title_is_null = false;
-    result_bind[2].buffer_type   = MYSQL_TYPE_STRING;
-    result_bind[2].buffer        = nullptr;
+    result_bind[2].length = &title_len;
     result_bind[2].buffer_length = 0;
-    result_bind[2].length        = &title_len;
-    result_bind[2].is_null       = &title_is_null;
+    my_bool title_is_null = false;
+    result_bind[2].is_null = &title_is_null;
 
+    // genre — string (two-phase)
+    result_bind[3].buffer = nullptr; // filled below
+    result_bind[3].buffer_type = MYSQL_TYPE_STRING;
     unsigned long genre_len = 0;
-    my_bool genre_is_null = false;
-    result_bind[3].buffer_type   = MYSQL_TYPE_STRING;
-    result_bind[3].buffer        = nullptr;
+    result_bind[3].length = &genre_len;
     result_bind[3].buffer_length = 0;
-    result_bind[3].length        = &genre_len;
-    result_bind[3].is_null       = &genre_is_null;
+    my_bool genre_is_null = false;
+    result_bind[3].is_null = &genre_is_null;
 
+    // price — decimal (two-phase)
+    result_bind[4].buffer = nullptr; // filled below
+    result_bind[4].buffer_type = MYSQL_TYPE_STRING;
     unsigned long price_len = 0;
-    my_bool price_is_null = false;
-    result_bind[4].buffer_type   = MYSQL_TYPE_STRING;
-    result_bind[4].buffer        = nullptr;
+    result_bind[4].length = &price_len;
     result_bind[4].buffer_length = 0;
-    result_bind[4].length        = &price_len;
-    result_bind[4].is_null       = &price_is_null;
+    my_bool price_is_null = false;
+    result_bind[4].is_null = &price_is_null;
 
+    // published_at — date? (two-phase)
+    result_bind[5].buffer = nullptr; // filled below
+    result_bind[5].buffer_type = MYSQL_TYPE_STRING;
     unsigned long published_at_len = 0;
-    my_bool published_at_is_null = false;
-    result_bind[5].buffer_type   = MYSQL_TYPE_STRING;
-    result_bind[5].buffer        = nullptr;
+    result_bind[5].length = &published_at_len;
     result_bind[5].buffer_length = 0;
-    result_bind[5].length        = &published_at_len;
-    result_bind[5].is_null       = &published_at_is_null;
+    my_bool published_at_is_null = false;
+    result_bind[5].is_null = &published_at_is_null;
     stmt.bind_result(result_bind);
 
     std::vector<Book> rows;
@@ -494,12 +516,13 @@ std::vector<Book> list_books_by_genre(MYSQL* db, const std::string& genre) {
 
     MYSQL_BIND bind[1];
     memset(bind, 0, sizeof(bind));
-    unsigned long p_genre_len = genre.size();
 
-    bind[0].buffer_type = MYSQL_TYPE_STRING;
+    // genre — string
     bind[0].buffer = const_cast<char*>(genre.c_str());
-    bind[0].buffer_length = genre.size();
+    bind[0].buffer_type = MYSQL_TYPE_STRING;
+    unsigned long p_genre_len = genre.size();
     bind[0].length = &p_genre_len;
+    bind[0].buffer_length = p_genre_len;
     stmt.bind_param(bind);
 
     stmt.execute();
@@ -507,49 +530,55 @@ std::vector<Book> list_books_by_genre(MYSQL* db, const std::string& genre) {
     MYSQL_BIND result_bind[6];
     memset(result_bind, 0, sizeof(result_bind));
 
+    // id — bigint
     std::int64_t id_val{};
-    my_bool id_is_null = false;
+    result_bind[0].buffer = &id_val;
     result_bind[0].buffer_type = MYSQL_TYPE_LONGLONG;
-    result_bind[0].buffer      = &id_val;
-    result_bind[0].is_null     = &id_is_null;
+    my_bool id_is_null = false;
+    result_bind[0].is_null = &id_is_null;
 
+    // author_id — bigint
     std::int64_t author_id_val{};
-    my_bool author_id_is_null = false;
+    result_bind[1].buffer = &author_id_val;
     result_bind[1].buffer_type = MYSQL_TYPE_LONGLONG;
-    result_bind[1].buffer      = &author_id_val;
-    result_bind[1].is_null     = &author_id_is_null;
+    my_bool author_id_is_null = false;
+    result_bind[1].is_null = &author_id_is_null;
 
+    // title — string (two-phase)
+    result_bind[2].buffer = nullptr; // filled below
+    result_bind[2].buffer_type = MYSQL_TYPE_STRING;
     unsigned long title_len = 0;
-    my_bool title_is_null = false;
-    result_bind[2].buffer_type   = MYSQL_TYPE_STRING;
-    result_bind[2].buffer        = nullptr;
+    result_bind[2].length = &title_len;
     result_bind[2].buffer_length = 0;
-    result_bind[2].length        = &title_len;
-    result_bind[2].is_null       = &title_is_null;
+    my_bool title_is_null = false;
+    result_bind[2].is_null = &title_is_null;
 
+    // genre — string (two-phase)
+    result_bind[3].buffer = nullptr; // filled below
+    result_bind[3].buffer_type = MYSQL_TYPE_STRING;
     unsigned long genre_len = 0;
-    my_bool genre_is_null = false;
-    result_bind[3].buffer_type   = MYSQL_TYPE_STRING;
-    result_bind[3].buffer        = nullptr;
+    result_bind[3].length = &genre_len;
     result_bind[3].buffer_length = 0;
-    result_bind[3].length        = &genre_len;
-    result_bind[3].is_null       = &genre_is_null;
+    my_bool genre_is_null = false;
+    result_bind[3].is_null = &genre_is_null;
 
+    // price — decimal (two-phase)
+    result_bind[4].buffer = nullptr; // filled below
+    result_bind[4].buffer_type = MYSQL_TYPE_STRING;
     unsigned long price_len = 0;
-    my_bool price_is_null = false;
-    result_bind[4].buffer_type   = MYSQL_TYPE_STRING;
-    result_bind[4].buffer        = nullptr;
+    result_bind[4].length = &price_len;
     result_bind[4].buffer_length = 0;
-    result_bind[4].length        = &price_len;
-    result_bind[4].is_null       = &price_is_null;
+    my_bool price_is_null = false;
+    result_bind[4].is_null = &price_is_null;
 
+    // published_at — date? (two-phase)
+    result_bind[5].buffer = nullptr; // filled below
+    result_bind[5].buffer_type = MYSQL_TYPE_STRING;
     unsigned long published_at_len = 0;
-    my_bool published_at_is_null = false;
-    result_bind[5].buffer_type   = MYSQL_TYPE_STRING;
-    result_bind[5].buffer        = nullptr;
+    result_bind[5].length = &published_at_len;
     result_bind[5].buffer_length = 0;
-    result_bind[5].length        = &published_at_len;
-    result_bind[5].is_null       = &published_at_is_null;
+    my_bool published_at_is_null = false;
+    result_bind[5].is_null = &published_at_is_null;
     stmt.bind_result(result_bind);
 
     std::vector<Book> rows;
@@ -592,17 +621,19 @@ std::vector<Book> list_books_by_genre_or_all(MYSQL* db, const std::string& genre
 
     MYSQL_BIND bind[2];
     memset(bind, 0, sizeof(bind));
-    unsigned long p_genre_len = genre.size();
 
-    bind[0].buffer_type = MYSQL_TYPE_STRING;
+    // genre — string
     bind[0].buffer = const_cast<char*>(genre.c_str());
-    bind[0].buffer_length = genre.size();
+    bind[0].buffer_type = MYSQL_TYPE_STRING;
+    unsigned long p_genre_len = genre.size();
     bind[0].length = &p_genre_len;
+    bind[0].buffer_length = p_genre_len;
 
-    bind[1].buffer_type = MYSQL_TYPE_STRING;
+    // genre — string
     bind[1].buffer = const_cast<char*>(genre.c_str());
-    bind[1].buffer_length = genre.size();
+    bind[1].buffer_type = MYSQL_TYPE_STRING;
     bind[1].length = &p_genre_len;
+    bind[1].buffer_length = p_genre_len;
     stmt.bind_param(bind);
 
     stmt.execute();
@@ -610,49 +641,55 @@ std::vector<Book> list_books_by_genre_or_all(MYSQL* db, const std::string& genre
     MYSQL_BIND result_bind[6];
     memset(result_bind, 0, sizeof(result_bind));
 
+    // id — bigint
     std::int64_t id_val{};
-    my_bool id_is_null = false;
+    result_bind[0].buffer = &id_val;
     result_bind[0].buffer_type = MYSQL_TYPE_LONGLONG;
-    result_bind[0].buffer      = &id_val;
-    result_bind[0].is_null     = &id_is_null;
+    my_bool id_is_null = false;
+    result_bind[0].is_null = &id_is_null;
 
+    // author_id — bigint
     std::int64_t author_id_val{};
-    my_bool author_id_is_null = false;
+    result_bind[1].buffer = &author_id_val;
     result_bind[1].buffer_type = MYSQL_TYPE_LONGLONG;
-    result_bind[1].buffer      = &author_id_val;
-    result_bind[1].is_null     = &author_id_is_null;
+    my_bool author_id_is_null = false;
+    result_bind[1].is_null = &author_id_is_null;
 
+    // title — string (two-phase)
+    result_bind[2].buffer = nullptr; // filled below
+    result_bind[2].buffer_type = MYSQL_TYPE_STRING;
     unsigned long title_len = 0;
-    my_bool title_is_null = false;
-    result_bind[2].buffer_type   = MYSQL_TYPE_STRING;
-    result_bind[2].buffer        = nullptr;
+    result_bind[2].length = &title_len;
     result_bind[2].buffer_length = 0;
-    result_bind[2].length        = &title_len;
-    result_bind[2].is_null       = &title_is_null;
+    my_bool title_is_null = false;
+    result_bind[2].is_null = &title_is_null;
 
+    // genre — string (two-phase)
+    result_bind[3].buffer = nullptr; // filled below
+    result_bind[3].buffer_type = MYSQL_TYPE_STRING;
     unsigned long genre_len = 0;
-    my_bool genre_is_null = false;
-    result_bind[3].buffer_type   = MYSQL_TYPE_STRING;
-    result_bind[3].buffer        = nullptr;
+    result_bind[3].length = &genre_len;
     result_bind[3].buffer_length = 0;
-    result_bind[3].length        = &genre_len;
-    result_bind[3].is_null       = &genre_is_null;
+    my_bool genre_is_null = false;
+    result_bind[3].is_null = &genre_is_null;
 
+    // price — decimal (two-phase)
+    result_bind[4].buffer = nullptr; // filled below
+    result_bind[4].buffer_type = MYSQL_TYPE_STRING;
     unsigned long price_len = 0;
-    my_bool price_is_null = false;
-    result_bind[4].buffer_type   = MYSQL_TYPE_STRING;
-    result_bind[4].buffer        = nullptr;
+    result_bind[4].length = &price_len;
     result_bind[4].buffer_length = 0;
-    result_bind[4].length        = &price_len;
-    result_bind[4].is_null       = &price_is_null;
+    my_bool price_is_null = false;
+    result_bind[4].is_null = &price_is_null;
 
+    // published_at — date? (two-phase)
+    result_bind[5].buffer = nullptr; // filled below
+    result_bind[5].buffer_type = MYSQL_TYPE_STRING;
     unsigned long published_at_len = 0;
-    my_bool published_at_is_null = false;
-    result_bind[5].buffer_type   = MYSQL_TYPE_STRING;
-    result_bind[5].buffer        = nullptr;
+    result_bind[5].length = &published_at_len;
     result_bind[5].buffer_length = 0;
-    result_bind[5].length        = &published_at_len;
-    result_bind[5].is_null       = &published_at_is_null;
+    my_bool published_at_is_null = false;
+    result_bind[5].is_null = &published_at_is_null;
     stmt.bind_result(result_bind);
 
     std::vector<Book> rows;
@@ -695,18 +732,20 @@ void create_customer(MYSQL* db, const std::string& name, const std::string& emai
 
     MYSQL_BIND bind[2];
     memset(bind, 0, sizeof(bind));
-    unsigned long p_name_len = name.size();
-    unsigned long p_email_len = email.size();
 
-    bind[0].buffer_type = MYSQL_TYPE_STRING;
+    // name — string
     bind[0].buffer = const_cast<char*>(name.c_str());
-    bind[0].buffer_length = name.size();
+    bind[0].buffer_type = MYSQL_TYPE_STRING;
+    unsigned long p_name_len = name.size();
     bind[0].length = &p_name_len;
+    bind[0].buffer_length = p_name_len;
 
-    bind[1].buffer_type = MYSQL_TYPE_STRING;
+    // email — string
     bind[1].buffer = const_cast<char*>(email.c_str());
-    bind[1].buffer_length = email.size();
+    bind[1].buffer_type = MYSQL_TYPE_STRING;
+    unsigned long p_email_len = email.size();
     bind[1].length = &p_email_len;
+    bind[1].buffer_length = p_email_len;
     stmt.bind_param(bind);
 
     stmt.execute();
@@ -718,8 +757,9 @@ void create_sale(MYSQL* db, std::int64_t customer_id) {
     MYSQL_BIND bind[1];
     memset(bind, 0, sizeof(bind));
 
-    bind[0].buffer_type = MYSQL_TYPE_LONGLONG;
+    // customer_id — bigint
     bind[0].buffer = const_cast<std::int64_t*>(&customer_id);
+    bind[0].buffer_type = MYSQL_TYPE_LONGLONG;
     stmt.bind_param(bind);
 
     stmt.execute();
@@ -730,21 +770,25 @@ void add_sale_item(MYSQL* db, std::int64_t sale_id, std::int64_t book_id, std::i
 
     MYSQL_BIND bind[4];
     memset(bind, 0, sizeof(bind));
-    unsigned long p_unit_price_len = unit_price.size();
 
-    bind[0].buffer_type = MYSQL_TYPE_LONGLONG;
+    // sale_id — bigint
     bind[0].buffer = const_cast<std::int64_t*>(&sale_id);
+    bind[0].buffer_type = MYSQL_TYPE_LONGLONG;
 
-    bind[1].buffer_type = MYSQL_TYPE_LONGLONG;
+    // book_id — bigint
     bind[1].buffer = const_cast<std::int64_t*>(&book_id);
+    bind[1].buffer_type = MYSQL_TYPE_LONGLONG;
 
-    bind[2].buffer_type = MYSQL_TYPE_LONG;
+    // quantity — int
     bind[2].buffer = const_cast<std::int32_t*>(&quantity);
+    bind[2].buffer_type = MYSQL_TYPE_LONG;
 
-    bind[3].buffer_type = MYSQL_TYPE_STRING;
+    // unit_price — decimal
     bind[3].buffer = const_cast<char*>(unit_price.c_str());
-    bind[3].buffer_length = unit_price.size();
+    bind[3].buffer_type = MYSQL_TYPE_STRING;
+    unsigned long p_unit_price_len = unit_price.size();
     bind[3].length = &p_unit_price_len;
+    bind[3].buffer_length = p_unit_price_len;
     stmt.bind_param(bind);
 
     stmt.execute();
@@ -757,59 +801,66 @@ std::vector<ListBooksWithAuthorRow> list_books_with_author(MYSQL* db) {
     MYSQL_BIND result_bind[7];
     memset(result_bind, 0, sizeof(result_bind));
 
+    // id — bigint
     std::int64_t id_val{};
-    my_bool id_is_null = false;
+    result_bind[0].buffer = &id_val;
     result_bind[0].buffer_type = MYSQL_TYPE_LONGLONG;
-    result_bind[0].buffer      = &id_val;
-    result_bind[0].is_null     = &id_is_null;
+    my_bool id_is_null = false;
+    result_bind[0].is_null = &id_is_null;
 
+    // title — string (two-phase)
+    result_bind[1].buffer = nullptr; // filled below
+    result_bind[1].buffer_type = MYSQL_TYPE_STRING;
     unsigned long title_len = 0;
-    my_bool title_is_null = false;
-    result_bind[1].buffer_type   = MYSQL_TYPE_STRING;
-    result_bind[1].buffer        = nullptr;
+    result_bind[1].length = &title_len;
     result_bind[1].buffer_length = 0;
-    result_bind[1].length        = &title_len;
-    result_bind[1].is_null       = &title_is_null;
+    my_bool title_is_null = false;
+    result_bind[1].is_null = &title_is_null;
 
+    // genre — string (two-phase)
+    result_bind[2].buffer = nullptr; // filled below
+    result_bind[2].buffer_type = MYSQL_TYPE_STRING;
     unsigned long genre_len = 0;
-    my_bool genre_is_null = false;
-    result_bind[2].buffer_type   = MYSQL_TYPE_STRING;
-    result_bind[2].buffer        = nullptr;
+    result_bind[2].length = &genre_len;
     result_bind[2].buffer_length = 0;
-    result_bind[2].length        = &genre_len;
-    result_bind[2].is_null       = &genre_is_null;
+    my_bool genre_is_null = false;
+    result_bind[2].is_null = &genre_is_null;
 
+    // price — decimal (two-phase)
+    result_bind[3].buffer = nullptr; // filled below
+    result_bind[3].buffer_type = MYSQL_TYPE_STRING;
     unsigned long price_len = 0;
-    my_bool price_is_null = false;
-    result_bind[3].buffer_type   = MYSQL_TYPE_STRING;
-    result_bind[3].buffer        = nullptr;
+    result_bind[3].length = &price_len;
     result_bind[3].buffer_length = 0;
-    result_bind[3].length        = &price_len;
-    result_bind[3].is_null       = &price_is_null;
+    my_bool price_is_null = false;
+    result_bind[3].is_null = &price_is_null;
 
+    // published_at — date? (two-phase)
+    result_bind[4].buffer = nullptr; // filled below
+    result_bind[4].buffer_type = MYSQL_TYPE_STRING;
     unsigned long published_at_len = 0;
-    my_bool published_at_is_null = false;
-    result_bind[4].buffer_type   = MYSQL_TYPE_STRING;
-    result_bind[4].buffer        = nullptr;
+    result_bind[4].length = &published_at_len;
     result_bind[4].buffer_length = 0;
-    result_bind[4].length        = &published_at_len;
-    result_bind[4].is_null       = &published_at_is_null;
+    my_bool published_at_is_null = false;
+    result_bind[4].is_null = &published_at_is_null;
 
+    // author_name — string (two-phase)
+    result_bind[5].buffer = nullptr; // filled below
+    result_bind[5].buffer_type = MYSQL_TYPE_STRING;
     unsigned long author_name_len = 0;
-    my_bool author_name_is_null = false;
-    result_bind[5].buffer_type   = MYSQL_TYPE_STRING;
-    result_bind[5].buffer        = nullptr;
+    result_bind[5].length = &author_name_len;
     result_bind[5].buffer_length = 0;
-    result_bind[5].length        = &author_name_len;
-    result_bind[5].is_null       = &author_name_is_null;
+    my_bool author_name_is_null = false;
+    result_bind[5].is_null = &author_name_is_null;
 
+    // author_bio — string? (two-phase)
+    result_bind[6].buffer = nullptr; // filled below
+    result_bind[6].buffer_type = MYSQL_TYPE_STRING;
     unsigned long author_bio_len = 0;
-    my_bool author_bio_is_null = false;
-    result_bind[6].buffer_type   = MYSQL_TYPE_STRING;
-    result_bind[6].buffer        = nullptr;
+    result_bind[6].length = &author_bio_len;
     result_bind[6].buffer_length = 0;
-    result_bind[6].length        = &author_bio_len;
-    result_bind[6].is_null       = &author_bio_is_null;
+    my_bool author_bio_is_null = false;
+    result_bind[6].is_null = &author_bio_is_null;
     stmt.bind_result(result_bind);
 
     std::vector<ListBooksWithAuthorRow> rows;
@@ -865,49 +916,55 @@ std::vector<Book> get_books_never_ordered(MYSQL* db) {
     MYSQL_BIND result_bind[6];
     memset(result_bind, 0, sizeof(result_bind));
 
+    // id — bigint
     std::int64_t id_val{};
-    my_bool id_is_null = false;
+    result_bind[0].buffer = &id_val;
     result_bind[0].buffer_type = MYSQL_TYPE_LONGLONG;
-    result_bind[0].buffer      = &id_val;
-    result_bind[0].is_null     = &id_is_null;
+    my_bool id_is_null = false;
+    result_bind[0].is_null = &id_is_null;
 
+    // author_id — bigint
     std::int64_t author_id_val{};
-    my_bool author_id_is_null = false;
+    result_bind[1].buffer = &author_id_val;
     result_bind[1].buffer_type = MYSQL_TYPE_LONGLONG;
-    result_bind[1].buffer      = &author_id_val;
-    result_bind[1].is_null     = &author_id_is_null;
+    my_bool author_id_is_null = false;
+    result_bind[1].is_null = &author_id_is_null;
 
+    // title — string (two-phase)
+    result_bind[2].buffer = nullptr; // filled below
+    result_bind[2].buffer_type = MYSQL_TYPE_STRING;
     unsigned long title_len = 0;
-    my_bool title_is_null = false;
-    result_bind[2].buffer_type   = MYSQL_TYPE_STRING;
-    result_bind[2].buffer        = nullptr;
+    result_bind[2].length = &title_len;
     result_bind[2].buffer_length = 0;
-    result_bind[2].length        = &title_len;
-    result_bind[2].is_null       = &title_is_null;
+    my_bool title_is_null = false;
+    result_bind[2].is_null = &title_is_null;
 
+    // genre — string (two-phase)
+    result_bind[3].buffer = nullptr; // filled below
+    result_bind[3].buffer_type = MYSQL_TYPE_STRING;
     unsigned long genre_len = 0;
-    my_bool genre_is_null = false;
-    result_bind[3].buffer_type   = MYSQL_TYPE_STRING;
-    result_bind[3].buffer        = nullptr;
+    result_bind[3].length = &genre_len;
     result_bind[3].buffer_length = 0;
-    result_bind[3].length        = &genre_len;
-    result_bind[3].is_null       = &genre_is_null;
+    my_bool genre_is_null = false;
+    result_bind[3].is_null = &genre_is_null;
 
+    // price — decimal (two-phase)
+    result_bind[4].buffer = nullptr; // filled below
+    result_bind[4].buffer_type = MYSQL_TYPE_STRING;
     unsigned long price_len = 0;
-    my_bool price_is_null = false;
-    result_bind[4].buffer_type   = MYSQL_TYPE_STRING;
-    result_bind[4].buffer        = nullptr;
+    result_bind[4].length = &price_len;
     result_bind[4].buffer_length = 0;
-    result_bind[4].length        = &price_len;
-    result_bind[4].is_null       = &price_is_null;
+    my_bool price_is_null = false;
+    result_bind[4].is_null = &price_is_null;
 
+    // published_at — date? (two-phase)
+    result_bind[5].buffer = nullptr; // filled below
+    result_bind[5].buffer_type = MYSQL_TYPE_STRING;
     unsigned long published_at_len = 0;
-    my_bool published_at_is_null = false;
-    result_bind[5].buffer_type   = MYSQL_TYPE_STRING;
-    result_bind[5].buffer        = nullptr;
+    result_bind[5].length = &published_at_len;
     result_bind[5].buffer_length = 0;
-    result_bind[5].length        = &published_at_len;
-    result_bind[5].is_null       = &published_at_is_null;
+    my_bool published_at_is_null = false;
+    result_bind[5].is_null = &published_at_is_null;
     stmt.bind_result(result_bind);
 
     std::vector<Book> rows;
@@ -952,43 +1009,48 @@ std::vector<GetTopSellingBooksRow> get_top_selling_books(MYSQL* db) {
     MYSQL_BIND result_bind[5];
     memset(result_bind, 0, sizeof(result_bind));
 
+    // id — bigint
     std::int64_t id_val{};
-    my_bool id_is_null = false;
+    result_bind[0].buffer = &id_val;
     result_bind[0].buffer_type = MYSQL_TYPE_LONGLONG;
-    result_bind[0].buffer      = &id_val;
-    result_bind[0].is_null     = &id_is_null;
+    my_bool id_is_null = false;
+    result_bind[0].is_null = &id_is_null;
 
+    // title — string (two-phase)
+    result_bind[1].buffer = nullptr; // filled below
+    result_bind[1].buffer_type = MYSQL_TYPE_STRING;
     unsigned long title_len = 0;
-    my_bool title_is_null = false;
-    result_bind[1].buffer_type   = MYSQL_TYPE_STRING;
-    result_bind[1].buffer        = nullptr;
+    result_bind[1].length = &title_len;
     result_bind[1].buffer_length = 0;
-    result_bind[1].length        = &title_len;
-    result_bind[1].is_null       = &title_is_null;
+    my_bool title_is_null = false;
+    result_bind[1].is_null = &title_is_null;
 
+    // genre — string (two-phase)
+    result_bind[2].buffer = nullptr; // filled below
+    result_bind[2].buffer_type = MYSQL_TYPE_STRING;
     unsigned long genre_len = 0;
-    my_bool genre_is_null = false;
-    result_bind[2].buffer_type   = MYSQL_TYPE_STRING;
-    result_bind[2].buffer        = nullptr;
+    result_bind[2].length = &genre_len;
     result_bind[2].buffer_length = 0;
-    result_bind[2].length        = &genre_len;
-    result_bind[2].is_null       = &genre_is_null;
+    my_bool genre_is_null = false;
+    result_bind[2].is_null = &genre_is_null;
 
+    // price — decimal (two-phase)
+    result_bind[3].buffer = nullptr; // filled below
+    result_bind[3].buffer_type = MYSQL_TYPE_STRING;
     unsigned long price_len = 0;
-    my_bool price_is_null = false;
-    result_bind[3].buffer_type   = MYSQL_TYPE_STRING;
-    result_bind[3].buffer        = nullptr;
+    result_bind[3].length = &price_len;
     result_bind[3].buffer_length = 0;
-    result_bind[3].length        = &price_len;
-    result_bind[3].is_null       = &price_is_null;
+    my_bool price_is_null = false;
+    result_bind[3].is_null = &price_is_null;
 
+    // units_sold — decimal? (two-phase)
+    result_bind[4].buffer = nullptr; // filled below
+    result_bind[4].buffer_type = MYSQL_TYPE_STRING;
     unsigned long units_sold_len = 0;
-    my_bool units_sold_is_null = false;
-    result_bind[4].buffer_type   = MYSQL_TYPE_STRING;
-    result_bind[4].buffer        = nullptr;
+    result_bind[4].length = &units_sold_len;
     result_bind[4].buffer_length = 0;
-    result_bind[4].length        = &units_sold_len;
-    result_bind[4].is_null       = &units_sold_is_null;
+    my_bool units_sold_is_null = false;
+    result_bind[4].is_null = &units_sold_is_null;
     stmt.bind_result(result_bind);
 
     std::vector<GetTopSellingBooksRow> rows;
@@ -1032,35 +1094,39 @@ std::vector<GetBestCustomersRow> get_best_customers(MYSQL* db) {
     MYSQL_BIND result_bind[4];
     memset(result_bind, 0, sizeof(result_bind));
 
+    // id — bigint
     std::int64_t id_val{};
-    my_bool id_is_null = false;
+    result_bind[0].buffer = &id_val;
     result_bind[0].buffer_type = MYSQL_TYPE_LONGLONG;
-    result_bind[0].buffer      = &id_val;
-    result_bind[0].is_null     = &id_is_null;
+    my_bool id_is_null = false;
+    result_bind[0].is_null = &id_is_null;
 
+    // name — string (two-phase)
+    result_bind[1].buffer = nullptr; // filled below
+    result_bind[1].buffer_type = MYSQL_TYPE_STRING;
     unsigned long name_len = 0;
-    my_bool name_is_null = false;
-    result_bind[1].buffer_type   = MYSQL_TYPE_STRING;
-    result_bind[1].buffer        = nullptr;
+    result_bind[1].length = &name_len;
     result_bind[1].buffer_length = 0;
-    result_bind[1].length        = &name_len;
-    result_bind[1].is_null       = &name_is_null;
+    my_bool name_is_null = false;
+    result_bind[1].is_null = &name_is_null;
 
+    // email — string (two-phase)
+    result_bind[2].buffer = nullptr; // filled below
+    result_bind[2].buffer_type = MYSQL_TYPE_STRING;
     unsigned long email_len = 0;
-    my_bool email_is_null = false;
-    result_bind[2].buffer_type   = MYSQL_TYPE_STRING;
-    result_bind[2].buffer        = nullptr;
+    result_bind[2].length = &email_len;
     result_bind[2].buffer_length = 0;
-    result_bind[2].length        = &email_len;
-    result_bind[2].is_null       = &email_is_null;
+    my_bool email_is_null = false;
+    result_bind[2].is_null = &email_is_null;
 
+    // total_spent — decimal? (two-phase)
+    result_bind[3].buffer = nullptr; // filled below
+    result_bind[3].buffer_type = MYSQL_TYPE_STRING;
     unsigned long total_spent_len = 0;
-    my_bool total_spent_is_null = false;
-    result_bind[3].buffer_type   = MYSQL_TYPE_STRING;
-    result_bind[3].buffer        = nullptr;
+    result_bind[3].length = &total_spent_len;
     result_bind[3].buffer_length = 0;
-    result_bind[3].length        = &total_spent_len;
-    result_bind[3].is_null       = &total_spent_is_null;
+    my_bool total_spent_is_null = false;
+    result_bind[3].is_null = &total_spent_is_null;
     stmt.bind_result(result_bind);
 
     std::vector<GetBestCustomersRow> rows;

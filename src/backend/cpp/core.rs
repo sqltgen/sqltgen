@@ -653,9 +653,17 @@ fn emit_queries_source(
         writeln!(src)?;
     }
 
-    // Emit static helper functions (engine-specific, provided by the adapter).
-    for helper in contract.source_helpers {
-        writeln!(src, "{helper}")?;
+    // Emit static helper functions (engine-specific, provided by the adapter),
+    // bracketed by banner comments so the split between helpers and query
+    // functions is obvious when scanning the file.
+    if !contract.source_helpers.is_empty() {
+        writeln!(src, "// ---------- helpers ----------")?;
+        writeln!(src)?;
+        for helper in contract.source_helpers {
+            writeln!(src, "{helper}")?;
+        }
+        writeln!(src, "// ---------- query functions ----------")?;
+        writeln!(src)?;
     }
 
     // Function definitions.

@@ -410,7 +410,6 @@ fn emit_mysql_body(src: &mut String, ctx: &CppQueryContext<'_>) -> anyhow::Resul
             writeln!(src, "    while (stmt.fetch_row()) {{")?;
             let has_varlen = query.result_columns.iter().any(|c| mysql_is_varlen(&c.sql_type));
             if has_varlen {
-                writeln!(src)?;
                 emit_mysql_fetch_varlen_columns_indented(src, &query.result_columns, "        ")?;
                 writeln!(src)?;
             }
@@ -434,39 +433,117 @@ fn emit_mysql_bind_params(src: &mut String, query: &Query) -> anyhow::Result<()>
     writeln!(src, "    MYSQL_BIND bind[{n}];")?;
     writeln!(src, "    memset(bind, 0, sizeof(bind));")?;
 
-    for param in &query.params {
-        let name = to_snake_case(&param.name);
-        if param.is_list {
-            emit_mysql_bind_list_vars(src, &param.sql_type, &name)?;
-        } else if param.nullable {
-            let flag = format!("{name}_is_null");
-            writeln!(src, "    my_bool {flag} = !{name}.has_value();")?;
-            emit_mysql_bind_field_vars(src, &param.sql_type, &format!("{name}.value()"), true)?;
-        } else {
-            emit_mysql_bind_field_vars(src, &param.sql_type, &name, false)?;
-        }
-    }
+    let mut declared: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     for (slot, &param_idx) in bind_plan.iter().enumerate() {
         let param = by_idx[&param_idx];
         let name = to_snake_case(&param.name);
+        let first_time = declared.insert(name.clone());
         writeln!(src)?;
-        if param.is_list {
-            emit_mysql_bind_list_assign(src, slot, &name)?;
-        } else if param.nullable {
-            let flag = format!("{name}_is_null");
-            writeln!(src, "    bind[{slot}].is_null = &{flag};")?;
-            emit_mysql_bind_field_assign(src, &param.sql_type, slot, &format!("{name}.value()"), true)?;
-        } else {
-            emit_mysql_bind_field_assign(src, &param.sql_type, slot, &name, false)?;
-        }
+        emit_mysql_bind_param_block(src, param, slot, &name, first_time)?;
     }
 
     writeln!(src, "    stmt.bind_param(bind);")?;
     Ok(())
 }
 
-fn emit_mysql_bind_list_vars(src: &mut String, sql_type: &SqlType, name: &str) -> anyhow::Result<()> {
+/// Emit a single `bind[slot]` block in the canonical field order:
+/// `buffer`, `buffer_type`, (`length` preceded by its `p_*_len` local), `buffer_length`,
+/// (`is_null` preceded by its `*_is_null` flag). Helper locals (`p_*_len`, `*_is_null`,
+/// `*_val`, `p_*_json`) are emitted only the first time a given parameter name is seen,
+/// so the same param referenced in multiple slots doesn't redeclare them.
+fn emit_mysql_bind_param_block(
+    src: &mut String,
+    param: &Parameter,
+    slot: usize,
+    name: &str,
+    first_time: bool,
+) -> anyhow::Result<()> {
+    writeln!(src, "    // {name} — {}", mysql_param_shape_label(param))?;
+
+    // List params are encoded as a JSON blob string.
+    if param.is_list {
+        if first_time {
+            emit_mysql_bind_list_json(src, &param.sql_type, name)?;
+        }
+        writeln!(src, "    bind[{slot}].buffer = const_cast<char*>(p_{name}_json.c_str());")?;
+        writeln!(src, "    bind[{slot}].buffer_type = MYSQL_TYPE_STRING;")?;
+        if first_time {
+            writeln!(src, "    unsigned long p_{name}_json_len = p_{name}_json.size();")?;
+        }
+        writeln!(src, "    bind[{slot}].length = &p_{name}_json_len;")?;
+        writeln!(src, "    bind[{slot}].buffer_length = p_{name}_json_len;")?;
+        return Ok(());
+    }
+
+    let mysql_type = mysql_type_const(&param.sql_type);
+    let is_varlen = mysql_is_varlen(&param.sql_type);
+
+    // Nullable fixed-width scalar: can't take address of `value_or(0)` directly,
+    // so materialize into a named local first.
+    if param.nullable && !is_varlen {
+        let val_var = format!("{name}_val");
+        let cpp_ty = cpp_type(&param.sql_type, false);
+        if first_time {
+            writeln!(src, "    {cpp_ty} {val_var} = {name}.value_or({cpp_ty}{{}});")?;
+        }
+        writeln!(src, "    bind[{slot}].buffer = &{val_var};")?;
+        writeln!(src, "    bind[{slot}].buffer_type = {mysql_type};")?;
+        let flag = format!("{name}_is_null");
+        if first_time {
+            writeln!(src, "    my_bool {flag} = !{name}.has_value();")?;
+        }
+        writeln!(src, "    bind[{slot}].is_null = &{flag};")?;
+        return Ok(());
+    }
+
+    // Remaining cases: non-null scalar, non-null varlen, nullable varlen.
+    // For nullable varlen we inline a ternary so libmysql gets a valid (but ignored)
+    // pointer when the optional is empty — libmysql reads `is_null` first and skips
+    // the buffer side entirely when the flag is set.
+    let buf_expr: String = match (&param.sql_type, param.nullable) {
+        (SqlType::Bytes, true) => format!(
+            "const_cast<char*>({name}.has_value() ? reinterpret_cast<const char*>({name}.value().data()) : nullptr)"
+        ),
+        (_, true) => format!(
+            "const_cast<char*>({name}.has_value() ? {name}.value().c_str() : \"\")"
+        ),
+        _ => mysql_bind_info(&param.sql_type, name).1,
+    };
+
+    writeln!(src, "    bind[{slot}].buffer = {buf_expr};")?;
+    writeln!(src, "    bind[{slot}].buffer_type = {mysql_type};")?;
+
+    if is_varlen {
+        let len_var = format!("p_{name}_len");
+        if first_time {
+            if param.nullable {
+                writeln!(
+                    src,
+                    "    unsigned long {len_var} = {name}.has_value() ? {name}.value().size() : 0;"
+                )?;
+            } else {
+                writeln!(src, "    unsigned long {len_var} = {name}.size();")?;
+            }
+        }
+        writeln!(src, "    bind[{slot}].length = &{len_var};")?;
+        writeln!(src, "    bind[{slot}].buffer_length = {len_var};")?;
+    }
+
+    if param.nullable {
+        let flag = format!("{name}_is_null");
+        if first_time {
+            writeln!(src, "    my_bool {flag} = !{name}.has_value();")?;
+        }
+        writeln!(src, "    bind[{slot}].is_null = &{flag};")?;
+    }
+
+    Ok(())
+}
+
+/// Build the `p_{name}_json` blob local for a list parameter (without its length decl,
+/// which the caller emits at the canonical position right before `bind[i].length`).
+fn emit_mysql_bind_list_json(src: &mut String, sql_type: &SqlType, name: &str) -> anyhow::Result<()> {
     let inner_type = match sql_type {
         SqlType::Array(inner) => inner.as_ref(),
         _ => sql_type,
@@ -483,56 +560,47 @@ fn emit_mysql_bind_list_vars(src: &mut String, sql_type: &SqlType, name: &str) -
     writeln!(src, "        {to_str}")?;
     writeln!(src, "    }}")?;
     writeln!(src, "    p_{name}_json += \"]\";")?;
-    writeln!(src, "    unsigned long p_{name}_json_len = p_{name}_json.size();")?;
     Ok(())
 }
 
-fn emit_mysql_bind_list_assign(src: &mut String, slot: usize, name: &str) -> anyhow::Result<()> {
-    writeln!(src, "    bind[{slot}].buffer_type = MYSQL_TYPE_STRING;")?;
-    writeln!(src, "    bind[{slot}].buffer = const_cast<char*>(p_{name}_json.c_str());")?;
-    writeln!(src, "    bind[{slot}].buffer_length = p_{name}_json.size();")?;
-    writeln!(src, "    bind[{slot}].length = &p_{name}_json_len;")?;
-    Ok(())
+/// Terse, type-like tag for a bind-block header comment. Examples:
+/// `int`, `int?`, `string`, `string?`, `int[] (JSON)`. Encodes only the
+/// dimensions that change the block's shape (nullability, varlen-ness,
+/// list-ness); the exact MySQL/C++ type is already visible on the next line.
+fn mysql_param_shape_label(param: &Parameter) -> String {
+    if param.is_list {
+        let inner = match &param.sql_type {
+            SqlType::Array(inner) => inner.as_ref(),
+            other => other,
+        };
+        return format!("{}[] (JSON)", sql_type_short_label(inner));
+    }
+    let base = sql_type_short_label(&param.sql_type);
+    if param.nullable { format!("{base}?") } else { base }
 }
 
-fn emit_mysql_bind_field_vars(src: &mut String, sql_type: &SqlType, name: &str, guarded: bool) -> anyhow::Result<()> {
-    let (_, _, needs_length) = mysql_bind_info(sql_type, name);
-    if needs_length {
-        let indent = if guarded { "        " } else { "    " };
-        let len_var = format!("p_{}_len", name.replace('.', "_").replace("()", ""));
-        if guarded {
-            writeln!(src, "    unsigned long {len_var} = 0;")?;
-            writeln!(src, "    if ({name_root}.has_value()) {{", name_root = name.trim_end_matches(".value()"))?;
-            writeln!(src, "{indent}{len_var} = {name}.size();")?;
-            writeln!(src, "    }}")?;
-        } else {
-            writeln!(src, "    unsigned long {len_var} = {name}.size();")?;
-        }
+fn sql_type_short_label(sql_type: &SqlType) -> String {
+    match sql_type {
+        SqlType::Boolean => "bool".to_string(),
+        SqlType::SmallInt => "smallint".to_string(),
+        SqlType::Integer => "int".to_string(),
+        SqlType::BigInt => "bigint".to_string(),
+        SqlType::Real => "float".to_string(),
+        SqlType::Double => "double".to_string(),
+        SqlType::Decimal => "decimal".to_string(),
+        SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_) => "string".to_string(),
+        SqlType::Bytes => "bytes".to_string(),
+        SqlType::Date => "date".to_string(),
+        SqlType::Time => "time".to_string(),
+        SqlType::Timestamp => "timestamp".to_string(),
+        SqlType::TimestampTz => "timestamptz".to_string(),
+        SqlType::Interval => "interval".to_string(),
+        SqlType::Uuid => "uuid".to_string(),
+        SqlType::Json | SqlType::Jsonb => "json".to_string(),
+        SqlType::Array(inner) => format!("{}[]", sql_type_short_label(inner)),
+        SqlType::Enum(n) => n.clone(),
+        SqlType::Custom(n) => n.clone(),
     }
-    Ok(())
-}
-
-fn emit_mysql_bind_field_assign(src: &mut String, sql_type: &SqlType, slot: usize, name: &str, guarded: bool) -> anyhow::Result<()> {
-    let (mysql_type, buf_expr, needs_length) = mysql_bind_info(sql_type, name);
-    let indent = if guarded { "        " } else { "    " };
-
-    writeln!(src, "    bind[{slot}].buffer_type = {mysql_type};")?;
-
-    if guarded {
-        writeln!(src, "    if ({name_root}.has_value()) {{", name_root = name.trim_end_matches(".value()"))?;
-    }
-
-    writeln!(src, "{indent}bind[{slot}].buffer = {buf_expr};")?;
-    if needs_length {
-        let len_var = format!("p_{}_len", name.replace('.', "_").replace("()", ""));
-        writeln!(src, "{indent}bind[{slot}].buffer_length = {name}.size();")?;
-        writeln!(src, "{indent}bind[{slot}].length = &{len_var};")?;
-    }
-
-    if guarded {
-        writeln!(src, "    }}")?;
-    }
-    Ok(())
 }
 
 fn mysql_bind_info(sql_type: &SqlType, name: &str) -> (&'static str, String, bool) {
@@ -564,22 +632,33 @@ fn emit_mysql_bind_result_columns(src: &mut String, columns: &[ResultColumn]) ->
     for (i, col) in columns.iter().enumerate() {
         let col_name = to_snake_case(&col.name);
         let mysql_type = mysql_type_const(&col.sql_type);
+        let label = {
+            let mut s = sql_type_short_label(&col.sql_type);
+            if col.nullable {
+                s.push('?');
+            }
+            if mysql_is_varlen(&col.sql_type) {
+                s.push_str(" (two-phase)");
+            }
+            s
+        };
         writeln!(src)?;
+        writeln!(src, "    // {col_name} — {label}")?;
         if mysql_is_varlen(&col.sql_type) {
+            writeln!(src, "    result_bind[{i}].buffer = nullptr; // filled below")?;
+            writeln!(src, "    result_bind[{i}].buffer_type = {mysql_type};")?;
             writeln!(src, "    unsigned long {col_name}_len = 0;")?;
-            writeln!(src, "    my_bool {col_name}_is_null = false;")?;
-            writeln!(src, "    result_bind[{i}].buffer_type   = {mysql_type};")?;
-            writeln!(src, "    result_bind[{i}].buffer        = nullptr;")?;
+            writeln!(src, "    result_bind[{i}].length = &{col_name}_len;")?;
             writeln!(src, "    result_bind[{i}].buffer_length = 0;")?;
-            writeln!(src, "    result_bind[{i}].length        = &{col_name}_len;")?;
-            writeln!(src, "    result_bind[{i}].is_null       = &{col_name}_is_null;")?;
+            writeln!(src, "    my_bool {col_name}_is_null = false;")?;
+            writeln!(src, "    result_bind[{i}].is_null = &{col_name}_is_null;")?;
         } else {
             let cpp_ty = cpp_type(&col.sql_type, false);
             writeln!(src, "    {cpp_ty} {col_name}_val{{}};")?;
-            writeln!(src, "    my_bool {col_name}_is_null = false;")?;
+            writeln!(src, "    result_bind[{i}].buffer = &{col_name}_val;")?;
             writeln!(src, "    result_bind[{i}].buffer_type = {mysql_type};")?;
-            writeln!(src, "    result_bind[{i}].buffer      = &{col_name}_val;")?;
-            writeln!(src, "    result_bind[{i}].is_null     = &{col_name}_is_null;")?;
+            writeln!(src, "    my_bool {col_name}_is_null = false;")?;
+            writeln!(src, "    result_bind[{i}].is_null = &{col_name}_is_null;")?;
         }
     }
 
