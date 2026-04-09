@@ -6,8 +6,10 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <thread>
+#include <chrono>
 
-#include <mysql/mysql.h>
+#include <mysql.h>
 
 #include "gen/queries/queries.hpp"
 
@@ -139,12 +141,20 @@ int main() {
         std::string db_name = "sqltgen_cpp_" + random_hex();
         fs::path migrations_dir{migrations_env};
 
-        // Create temp database.
-        MYSQL* admin = mysql_init(nullptr);
-        if (!admin) { std::cerr << "mysql_init failed\n"; return 1; }
-        if (!mysql_real_connect(admin, host, user, password, database, port, nullptr, 0)) {
-            std::cerr << "admin connect: " << mysql_error(admin) << "\n";
+        // Wait for MySQL to be ready (service_started does not guarantee
+        // the server is accepting connections yet).
+        MYSQL* admin = nullptr;
+        for (int attempt = 0; attempt < 100; ++attempt) {
+            admin = mysql_init(nullptr);
+            if (!admin) { std::cerr << "mysql_init failed\n"; return 1; }
+            if (mysql_real_connect(admin, host, user, password, database, port, nullptr, 0))
+                break;
             mysql_close(admin);
+            admin = nullptr;
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+        if (!admin) {
+            std::cerr << "admin connect: could not connect after retries\n";
             return 1;
         }
         if (mysql_query(admin, ("CREATE DATABASE `" + db_name + "`").c_str()) != 0)

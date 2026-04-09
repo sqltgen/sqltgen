@@ -15,4 +15,4 @@ services:
       - ../../common/mysql/migrations:/app/migrations:ro
     depends_on:
       db:
-        condition: service_healthy
+        condition: service_started

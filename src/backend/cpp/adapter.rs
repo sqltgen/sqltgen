@@ -126,7 +126,7 @@ pub(super) fn resolve_contract(target: &super::CppTarget) -> CppCoreContract {
             emit_query_body: emit_sqlite3_body,
         },
         super::CppTarget::Libmysqlclient => CppCoreContract {
-            db_include: "<mysql/mysql.h>",
+            db_include: "<mysql.h>",
             conn_type: "MYSQL*",
             param_style: CppParamStyle::QuestionAnon,
             source_includes: &["<cstring>"],

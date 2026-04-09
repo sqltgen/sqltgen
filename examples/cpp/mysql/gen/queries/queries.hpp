@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-#include <mysql/mysql.h>
+#include <mysql.h>
 
 #include "../models/author.hpp"
 #include "../models/book.hpp"
