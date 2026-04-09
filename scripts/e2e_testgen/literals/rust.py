@@ -74,6 +74,16 @@ def render_value(kind: str, value: Any, engine: str, coercions: dict[str, str]) 
         return _rust_date(str(value))
     elif kind == "time":
         return _rust_time(str(value))
+    elif kind == "list":
+        if not value:
+            return "vec![]"
+        parts = []
+        for item in value:
+            item_kind, item_val = next(iter(item.items()))
+            if item_kind is None:
+                item_kind = "null"
+            parts.append(render_value(str(item_kind), item_val, engine, coercions))
+        return f"vec![{', '.join(parts)}]"
     elif kind == "var":
         return str(value)
     else:
@@ -96,6 +106,23 @@ def render_typed_arg(
 
     if kind == "null":
         return "None"
+
+    if kind == "list":
+        import re
+        m = re.match(r"Vec<(.+)>", inner_type)
+        elem_lang_type = m.group(1) if m else ""
+        if not value:
+            return "Some(vec![])" if is_option else "vec![]"
+        elements = []
+        for item in value:
+            item_kind, item_val = next(iter(item.items()))
+            if item_kind is None:
+                item_kind = "null"
+            elements.append(
+                render_typed_arg("_", elem_lang_type, str(item_kind), item_val, engine, coercions)
+            )
+        vec_expr = f"vec![{', '.join(elements)}]"
+        return f"Some({vec_expr})" if is_option else vec_expr
 
     if kind == "json":
         json_expr = _rust_json_for_type(inner_type, value)

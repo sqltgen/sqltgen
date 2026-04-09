@@ -136,4 +136,45 @@ class RuntimeGenTest {
         assertEquals(Priority.fromValue("critical"), updated.priority)
     }
 
+    // ─── enum array queries ────────────────────────────────────────────────────────────
+
+    @Test
+    fun testCreateWithEnumArrayGen() {
+        val task = Queries.createTaskWithTags(conn, "Tagged task", Priority.fromValue("high"), Status.fromValue("open"), null, listOf(Priority.fromValue("high"), Priority.fromValue("critical")))!!
+        assertNotNull(task)
+        assertEquals("Tagged task", task.title)
+        assertEquals(2, task.tags.size)
+        assertEquals(Priority.fromValue("high"), task.tags[0])
+        assertEquals(Priority.fromValue("critical"), task.tags[1])
+    }
+
+    @Test
+    fun testGetTaskTagsGen() {
+        Queries.createTaskWithTags(conn, "Read tags", Priority.fromValue("low"), Status.fromValue("open"), null, listOf(Priority.fromValue("low"), Priority.fromValue("medium"), Priority.fromValue("high")))
+        val row = Queries.getTaskTags(conn, 1L)!!
+        assertNotNull(row)
+        assertEquals(3, row.tags.size)
+        assertEquals(Priority.fromValue("low"), row.tags[0])
+        assertEquals(Priority.fromValue("medium"), row.tags[1])
+        assertEquals(Priority.fromValue("high"), row.tags[2])
+    }
+
+    @Test
+    fun testUpdateTaskTagsGen() {
+        Queries.createTaskWithTags(conn, "Update tags", Priority.fromValue("medium"), Status.fromValue("open"), null, listOf(Priority.fromValue("low")))
+        val updated = Queries.updateTaskTags(conn, listOf(Priority.fromValue("high"), Priority.fromValue("critical")), 1L)!!
+        assertNotNull(updated)
+        assertEquals(2, updated.tags.size)
+        assertEquals(Priority.fromValue("high"), updated.tags[0])
+        assertEquals(Priority.fromValue("critical"), updated.tags[1])
+    }
+
+    @Test
+    fun testEmptyEnumArrayGen() {
+        Queries.createTaskWithTags(conn, "No tags", Priority.fromValue("low"), Status.fromValue("open"), null, emptyList<Priority>())
+        val row = Queries.getTaskTags(conn, 1L)!!
+        assertNotNull(row)
+        assertEquals(0, row.tags.size)
+    }
+
 }

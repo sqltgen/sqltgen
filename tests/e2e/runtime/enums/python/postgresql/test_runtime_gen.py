@@ -94,6 +94,41 @@ def test_count_by_status(conn):
     assert len(counts) == 2
 
 
+def test_create_with_enum_array(conn):
+    task = queries.create_task_with_tags(conn, 'Tagged task', Priority('high'), Status('open'), None, [Priority('high'), Priority('critical')])
+    assert task is not None
+    assert task.title == 'Tagged task'
+    assert len(task.tags) == 2
+    assert task.tags[0] == Priority('high')
+    assert task.tags[1] == Priority('critical')
+
+
+def test_get_task_tags(conn):
+    queries.create_task_with_tags(conn, 'Read tags', Priority('low'), Status('open'), None, [Priority('low'), Priority('medium'), Priority('high')])
+    row = queries.get_task_tags(conn, 1)
+    assert row is not None
+    assert len(row.tags) == 3
+    assert row.tags[0] == Priority('low')
+    assert row.tags[1] == Priority('medium')
+    assert row.tags[2] == Priority('high')
+
+
+def test_update_task_tags(conn):
+    queries.create_task_with_tags(conn, 'Update tags', Priority('medium'), Status('open'), None, [Priority('low')])
+    updated = queries.update_task_tags(conn, [Priority('high'), Priority('critical')], 1)
+    assert updated is not None
+    assert len(updated.tags) == 2
+    assert updated.tags[0] == Priority('high')
+    assert updated.tags[1] == Priority('critical')
+
+
+def test_empty_enum_array(conn):
+    queries.create_task_with_tags(conn, 'No tags', Priority('low'), Status('open'), None, [])
+    row = queries.get_task_tags(conn, 1)
+    assert row is not None
+    assert len(row.tags) == 0
+
+
 def test_delete_task(conn):
     queries.create_task(conn, 'Temp', Priority('low'), Status('open'), None)
     queries.delete_task(conn, 1)

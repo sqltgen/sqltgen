@@ -253,3 +253,66 @@ func TestUpdateTaskStatusGen(t *testing.T) {
 	if updated.Priority != gen.Priority("critical") { t.Errorf("expected %v, got %v", gen.Priority("critical"), updated.Priority) }
 }
 
+// ─── enum array queries ────────────────────────────────────────────────────────────
+
+func TestCreateWithEnumArrayGen(t *testing.T) {
+	db, ctx := setupDB(t)
+	task, err := gen.CreateTaskWithTags(ctx, db, "Tagged task", gen.Priority("high"), gen.Status("open"), sql.NullString{}, []Priority{gen.Priority("high"), gen.Priority("critical")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = task
+	if task == nil { t.Fatalf("expected non-nil task") }
+	if task.Title != "Tagged task" { t.Errorf("expected %v, got %v", "Tagged task", task.Title) }
+	if len(task.Tags) != 2 { t.Fatalf("expected len=2, got %d", len(task.Tags)) }
+	if task.Tags[0] != gen.Priority("high") { t.Errorf("expected %v, got %v", gen.Priority("high"), task.Tags[0]) }
+	if task.Tags[1] != gen.Priority("critical") { t.Errorf("expected %v, got %v", gen.Priority("critical"), task.Tags[1]) }
+}
+
+func TestGetTaskTagsGen(t *testing.T) {
+	db, ctx := setupDB(t)
+	if _, err := gen.CreateTaskWithTags(ctx, db, "Read tags", gen.Priority("low"), gen.Status("open"), sql.NullString{}, []Priority{gen.Priority("low"), gen.Priority("medium"), gen.Priority("high")}); err != nil {
+		t.Fatal(err)
+	}
+	row, err := gen.GetTaskTags(ctx, db, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = row
+	if row == nil { t.Fatalf("expected non-nil row") }
+	if len(row.Tags) != 3 { t.Fatalf("expected len=3, got %d", len(row.Tags)) }
+	if row.Tags[0] != gen.Priority("low") { t.Errorf("expected %v, got %v", gen.Priority("low"), row.Tags[0]) }
+	if row.Tags[1] != gen.Priority("medium") { t.Errorf("expected %v, got %v", gen.Priority("medium"), row.Tags[1]) }
+	if row.Tags[2] != gen.Priority("high") { t.Errorf("expected %v, got %v", gen.Priority("high"), row.Tags[2]) }
+}
+
+func TestUpdateTaskTagsGen(t *testing.T) {
+	db, ctx := setupDB(t)
+	if _, err := gen.CreateTaskWithTags(ctx, db, "Update tags", gen.Priority("medium"), gen.Status("open"), sql.NullString{}, []Priority{gen.Priority("low")}); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := gen.UpdateTaskTags(ctx, db, []Priority{gen.Priority("high"), gen.Priority("critical")}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = updated
+	if updated == nil { t.Fatalf("expected non-nil updated") }
+	if len(updated.Tags) != 2 { t.Fatalf("expected len=2, got %d", len(updated.Tags)) }
+	if updated.Tags[0] != gen.Priority("high") { t.Errorf("expected %v, got %v", gen.Priority("high"), updated.Tags[0]) }
+	if updated.Tags[1] != gen.Priority("critical") { t.Errorf("expected %v, got %v", gen.Priority("critical"), updated.Tags[1]) }
+}
+
+func TestEmptyEnumArrayGen(t *testing.T) {
+	db, ctx := setupDB(t)
+	if _, err := gen.CreateTaskWithTags(ctx, db, "No tags", gen.Priority("low"), gen.Status("open"), sql.NullString{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	row, err := gen.GetTaskTags(ctx, db, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = row
+	if row == nil { t.Fatalf("expected non-nil row") }
+	if len(row.Tags) != 0 { t.Fatalf("expected len=0, got %d", len(row.Tags)) }
+}
+

@@ -39,8 +39,8 @@ pub(crate) struct NamedParam {
 /// - `IN (@name)` — a single named param inside an `IN (…)` clause marks it as a list.
 ///
 /// Explicit `-- @name type[]` annotations always take precedence over both.
-pub(crate) fn preprocess_named_params(sql: &str) -> Option<(String, Vec<NamedParam>)> {
-    let overrides = parse_param_annotations(sql);
+pub(crate) fn preprocess_named_params(sql: &str, enum_names: &[String]) -> Option<(String, Vec<NamedParam>)> {
+    let overrides = parse_param_annotations(sql, enum_names);
     let stripped = strip_sql_comment_lines(sql);
     let param_names = collect_named_param_order(&stripped);
 
@@ -57,20 +57,20 @@ pub(crate) fn preprocess_named_params(sql: &str) -> Option<(String, Vec<NamedPar
         }
     }
 
-    let inline_casts = detect_inline_type_casts(&stripped, &param_names);
+    let inline_casts = detect_inline_type_casts(&stripped, &param_names, enum_names);
     let name_to_index: HashMap<String, usize> = param_names.iter().enumerate().map(|(i, n)| (n.clone(), i + 1)).collect();
     let rewritten = rewrite_named_params_in_sql(&stripped, &name_to_index);
 
     let ordered_params: Vec<NamedParam> = param_names
         .into_iter()
         .map(|name| {
-            let (sql_type, nullable, is_list) = overrides.get(&name).cloned().unwrap_or_else(|| {
-                if let Some((t, il)) = inline_casts.get(&name) {
-                    (t.clone(), None, *il)
-                } else {
-                    (None, None, false)
-                }
-            });
+            let ann = overrides.get(&name);
+            let cast = inline_casts.get(&name);
+            // Explicit annotations take precedence, but when the annotation only
+            // specifies nullability (no type), the inline cast can fill in the type.
+            let sql_type = ann.as_ref().and_then(|(t, _, _)| t.clone()).or_else(|| cast.and_then(|(t, _)| t.clone()));
+            let nullable = ann.as_ref().and_then(|(_, n, _)| *n);
+            let is_list = ann.as_ref().map(|(_, _, l)| *l).unwrap_or_else(|| cast.map(|(_, l)| *l).unwrap_or(false));
             NamedParam { name, sql_type, nullable, is_list }
         })
         .collect();
@@ -109,7 +109,7 @@ pub(crate) fn apply_named_param_overrides(params: &mut [Parameter], named_params
 /// This lets users write `= ANY(@ids::bigint[])` without a separate `-- @ids bigint[]`
 /// annotation line. Explicit annotations always take priority (applied later by
 /// [`preprocess_named_params`]).  Only names that appear in `param_names` are examined.
-fn detect_inline_type_casts(sql: &str, param_names: &[String]) -> HashMap<String, (Option<SqlType>, bool)> {
+fn detect_inline_type_casts(sql: &str, param_names: &[String], enum_names: &[String]) -> HashMap<String, (Option<SqlType>, bool)> {
     let mut map = HashMap::new();
     let lower = sql.to_ascii_lowercase();
     for name in param_names {
@@ -117,7 +117,7 @@ fn detect_inline_type_casts(sql: &str, param_names: &[String]) -> HashMap<String
         if let Some(pos) = lower.find(&pattern) {
             let type_start = pos + pattern.len();
             let type_str: String = sql[type_start..].chars().take_while(|ch| !ch.is_whitespace() && *ch != ',' && *ch != ')' && *ch != ';').collect();
-            let (sql_type, _, is_list) = parse_type_and_nullability(type_str.trim());
+            let (sql_type, _, is_list) = parse_type_and_nullability(type_str.trim(), enum_names);
             if is_list || sql_type.is_some() {
                 map.insert(name.clone(), (sql_type, is_list));
             }
@@ -149,10 +149,10 @@ fn mark_in_clause_list_params(mut params: Vec<NamedParam>, rewritten_sql: &str) 
 /// `(type_override, nullable_override, is_list)` keyed by param name.
 type AnnotationMap = HashMap<String, (Option<SqlType>, Option<bool>, bool)>;
 
-fn parse_param_annotations(sql: &str) -> AnnotationMap {
+fn parse_param_annotations(sql: &str, enum_names: &[String]) -> AnnotationMap {
     let mut map = HashMap::new();
     for line in sql.lines() {
-        if let Some((name, sql_type, nullable, is_list)) = parse_annotation_line(line) {
+        if let Some((name, sql_type, nullable, is_list)) = parse_annotation_line(line, enum_names) {
             map.insert(name, (sql_type, nullable, is_list));
         }
     }
@@ -163,7 +163,7 @@ fn parse_param_annotations(sql: &str) -> AnnotationMap {
 ///
 /// Returns `(name, type_override, nullable_override, is_list)` or `None` if the line is
 /// not a param annotation.
-fn parse_annotation_line(line: &str) -> Option<(String, Option<SqlType>, Option<bool>, bool)> {
+fn parse_annotation_line(line: &str, enum_names: &[String]) -> Option<(String, Option<SqlType>, Option<bool>, bool)> {
     let rest = line.trim().strip_prefix("--")?.trim();
     let rest = rest.strip_prefix('@')?;
     let mut parts = rest.splitn(2, char::is_whitespace);
@@ -171,7 +171,7 @@ fn parse_annotation_line(line: &str) -> Option<(String, Option<SqlType>, Option<
     if name.is_empty() {
         return None;
     }
-    let (sql_type, nullable, is_list) = parse_type_and_nullability(parts.next().unwrap_or("").trim());
+    let (sql_type, nullable, is_list) = parse_type_and_nullability(parts.next().unwrap_or("").trim(), enum_names);
     Some((name, sql_type, nullable, is_list))
 }
 
@@ -180,7 +180,7 @@ fn parse_annotation_line(line: &str) -> Option<(String, Option<SqlType>, Option<
 ///
 /// Returns `(sql_type, nullable, is_list)`. The `is_list` flag is `true` when the type
 /// token ends with `[]`, e.g. `bigint[]`.
-fn parse_type_and_nullability(s: &str) -> (Option<SqlType>, Option<bool>, bool) {
+fn parse_type_and_nullability(s: &str, enum_names: &[String]) -> (Option<SqlType>, Option<bool>, bool) {
     let lower = s.to_lowercase();
     let tokens: Vec<&str> = lower.split_whitespace().collect();
 
@@ -199,7 +199,7 @@ fn parse_type_and_nullability(s: &str) -> (Option<SqlType>, Option<bool>, bool) 
     let sql_type = if type_str.is_empty() {
         None
     } else {
-        match parse_sql_type_str(&type_str) {
+        match parse_sql_type_str(&type_str, enum_names) {
             Some(t) => Some(t),
             None => {
                 eprintln!("warning: unknown type {type_str:?} in param annotation, ignoring");
@@ -215,7 +215,7 @@ fn parse_type_and_nullability(s: &str) -> (Option<SqlType>, Option<bool>, bool) 
 ///
 /// Covers the most common SQL type names. Unknown strings emit a warning via the
 /// caller and return `None`; type inference from SQL context is used instead.
-fn parse_sql_type_str(s: &str) -> Option<SqlType> {
+fn parse_sql_type_str(s: &str, enum_names: &[String]) -> Option<SqlType> {
     match s {
         "bool" | "boolean" => Some(SqlType::Boolean),
         "smallint" | "int2" => Some(SqlType::SmallInt),
@@ -234,7 +234,13 @@ fn parse_sql_type_str(s: &str) -> Option<SqlType> {
         "uuid" => Some(SqlType::Uuid),
         "json" => Some(SqlType::Json),
         "jsonb" => Some(SqlType::Jsonb),
-        _ => None,
+        _ => {
+            if enum_names.iter().any(|e| e.eq_ignore_ascii_case(s)) {
+                Some(SqlType::Enum(s.to_string()))
+            } else {
+                None
+            }
+        },
     }
 }
 
@@ -336,7 +342,7 @@ mod tests {
     #[test]
     fn test_named_param_basic_rewrite() {
         let sql = "SELECT id FROM users WHERE id = @user_id";
-        let (rewritten, params) = preprocess_named_params(sql).unwrap();
+        let (rewritten, params) = preprocess_named_params(sql, &[]).unwrap();
         assert_eq!(params.len(), 1);
         assert_eq!(params[0].name, "user_id");
         assert!(rewritten.contains("$1"));
@@ -346,7 +352,7 @@ mod tests {
     #[test]
     fn test_named_param_repeated_maps_to_same_index() {
         let sql = "UPDATE t SET a = @val WHERE b = @val";
-        let (rewritten, params) = preprocess_named_params(sql).unwrap();
+        let (rewritten, params) = preprocess_named_params(sql, &[]).unwrap();
         assert_eq!(params.len(), 1);
         assert_eq!(rewritten.matches("$1").count(), 2);
     }
@@ -354,7 +360,7 @@ mod tests {
     #[test]
     fn test_named_param_multiple_first_appearance_order() {
         let sql = "UPDATE t SET a = @foo WHERE b = @bar AND c = @foo";
-        let (rewritten, params) = preprocess_named_params(sql).unwrap();
+        let (rewritten, params) = preprocess_named_params(sql, &[]).unwrap();
         assert_eq!(params.len(), 2);
         assert_eq!(params[0].name, "foo");
         assert_eq!(params[1].name, "bar");
@@ -364,7 +370,7 @@ mod tests {
     #[test]
     fn test_annotation_type_override() {
         let sql = "-- @my_id bigint\nSELECT id FROM users WHERE id = @my_id";
-        let (rewritten, params) = preprocess_named_params(sql).unwrap();
+        let (rewritten, params) = preprocess_named_params(sql, &[]).unwrap();
         assert_eq!(params[0].name, "my_id");
         assert_eq!(params[0].sql_type, Some(SqlType::BigInt));
         assert!(!rewritten.contains("-- @my_id"));
@@ -373,14 +379,14 @@ mod tests {
     #[test]
     fn test_annotation_nullable_override() {
         let sql = "-- @bio null\nSELECT id FROM users WHERE bio = @bio";
-        let (_, params) = preprocess_named_params(sql).unwrap();
+        let (_, params) = preprocess_named_params(sql, &[]).unwrap();
         assert_eq!(params[0].nullable, Some(true));
     }
 
     #[test]
     fn test_annotation_not_null_with_type() {
         let sql = "-- @bio text not null\nSELECT id FROM users WHERE bio = @bio";
-        let (_, params) = preprocess_named_params(sql).unwrap();
+        let (_, params) = preprocess_named_params(sql, &[]).unwrap();
         assert_eq!(params[0].sql_type, Some(SqlType::Text));
         assert_eq!(params[0].nullable, Some(false));
     }
@@ -388,14 +394,14 @@ mod tests {
     #[test]
     fn test_no_named_params_returns_none() {
         let sql = "SELECT id FROM users WHERE id = $1";
-        assert!(preprocess_named_params(sql).is_none());
+        assert!(preprocess_named_params(sql, &[]).is_none());
     }
 
     #[test]
     fn test_named_param_in_regular_comment_skipped() {
         // @foo in a regular SQL comment should not become a param
         let sql = "-- just a comment mentioning @foo\nSELECT id FROM users WHERE id = @real_id";
-        let (_, params) = preprocess_named_params(sql).unwrap();
+        let (_, params) = preprocess_named_params(sql, &[]).unwrap();
         assert_eq!(params.len(), 1);
         assert_eq!(params[0].name, "real_id");
     }
@@ -403,7 +409,7 @@ mod tests {
     #[test]
     fn test_annotation_line_stripped_from_output_sql() {
         let sql = "-- @user_id bigint\nSELECT id FROM users WHERE id = @user_id";
-        let (rewritten, _) = preprocess_named_params(sql).unwrap();
+        let (rewritten, _) = preprocess_named_params(sql, &[]).unwrap();
         assert!(!rewritten.contains("-- @user_id"));
         assert!(rewritten.contains("$1"));
     }
@@ -413,7 +419,7 @@ mod tests {
         // Plain -- comments must be stripped so collapsing to a single line in codegen
         // does not turn them into an end-of-string comment that eats the SQL.
         let sql = "-- This query does something\nSELECT id FROM users WHERE id = @user_id";
-        let (rewritten, _) = preprocess_named_params(sql).unwrap();
+        let (rewritten, _) = preprocess_named_params(sql, &[]).unwrap();
         assert!(!rewritten.contains("-- This"));
         assert!(rewritten.contains("$1"));
     }
@@ -446,7 +452,7 @@ mod tests {
     #[test]
     fn test_annotation_list_suffix_sets_is_list() {
         let sql = "-- @ids bigint[] not null\nSELECT * FROM t WHERE id IN (@ids)";
-        let (_, params) = preprocess_named_params(sql).unwrap();
+        let (_, params) = preprocess_named_params(sql, &[]).unwrap();
         assert_eq!(params[0].name, "ids");
         assert_eq!(params[0].sql_type, Some(SqlType::BigInt));
         assert_eq!(params[0].nullable, Some(false));
@@ -456,8 +462,19 @@ mod tests {
     #[test]
     fn test_annotation_without_list_suffix_is_not_list() {
         let sql = "-- @id bigint not null\nSELECT * FROM t WHERE id = @id";
-        let (_, params) = preprocess_named_params(sql).unwrap();
+        let (_, params) = preprocess_named_params(sql, &[]).unwrap();
         assert!(!params[0].is_list);
+    }
+
+    #[test]
+    fn test_inline_cast_enum_type_recognized() {
+        let enums = vec!["priority".to_string()];
+        let sql = "-- @p null\nSELECT * FROM t WHERE (@p::priority IS NULL OR priority = @p::priority)";
+        let (_, params) = preprocess_named_params(sql, &enums).unwrap();
+        assert_eq!(params[0].name, "p");
+        assert_eq!(params[0].nullable, Some(true));
+        // The inline cast ::priority is recognized as an enum type.
+        assert_eq!(params[0].sql_type, Some(SqlType::Enum("priority".to_string())));
     }
 
     #[test]

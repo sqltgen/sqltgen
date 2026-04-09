@@ -147,6 +147,11 @@ impl JavaTypeMap {
             };
         }
         if let SqlType::Array(inner) = sql_type {
+            if let SqlType::Enum(name) = inner.as_ref() {
+                let ty = to_pascal_case(name);
+                let list_expr = format!("java.util.Arrays.stream((Object[]) rs.getArray({idx}).getArray()).map(it -> {ty}.fromValue((String) it)).collect(java.util.stream.Collectors.toList())");
+                return if nullable { format!("rs.getArray({idx}) == null ? null : {list_expr}") } else { list_expr };
+            }
             let inner_entry = self.get(inner);
             let boxed = self.java_type_boxed(inner);
             return jdbc_array_read_expr(inner_entry, &boxed, nullable, idx);
@@ -173,7 +178,8 @@ impl JavaTypeMap {
     /// Return the Java param type for a parameter, applying list and override logic.
     pub(super) fn java_param_type(&self, p: &Parameter) -> String {
         if let SqlType::Enum(name) = &p.sql_type {
-            return to_pascal_case(name);
+            let ty = to_pascal_case(name);
+            return if p.is_list { format!("List<{ty}>") } else { ty };
         }
         if let SqlType::Array(inner) = &p.sql_type {
             return format!("java.util.List<{}>", self.java_type_boxed(inner));
@@ -528,5 +534,27 @@ mod tests {
             expr,
             "java.util.Arrays.stream((Object[]) rs.getArray(1).getArray()).map(it -> ((java.sql.Timestamp) it).toInstant().atOffset(java.time.ZoneOffset.UTC)).collect(java.util.stream.Collectors.toList())"
         );
+    }
+
+    #[test]
+    fn test_array_enum_uses_from_value() {
+        let expr = read(SqlType::Array(Box::new(SqlType::Enum("status".to_string()))), false);
+        assert_eq!(
+            expr,
+            "java.util.Arrays.stream((Object[]) rs.getArray(1).getArray()).map(it -> Status.fromValue((String) it)).collect(java.util.stream.Collectors.toList())"
+        );
+    }
+
+    #[test]
+    fn test_array_enum_nullable_has_null_guard() {
+        let expr = read(SqlType::Array(Box::new(SqlType::Enum("status".to_string()))), true);
+        assert!(expr.starts_with("rs.getArray(1) == null ? null : "), "should have null guard: {expr}");
+        assert!(expr.contains("Status.fromValue((String) it)"), "should use fromValue: {expr}");
+    }
+
+    #[test]
+    fn test_array_enum_type_name() {
+        let map = build_java_type_map(&crate::config::OutputConfig::default());
+        assert_eq!(map.java_type(&SqlType::Array(Box::new(SqlType::Enum("priority".to_string()))), false), "java.util.List<Priority>");
     }
 }

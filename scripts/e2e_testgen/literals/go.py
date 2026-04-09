@@ -66,6 +66,16 @@ def render_value(kind: str, value: Any, engine: str, coercions: dict[str, str]) 
         return _parse_go_date(str(value))
     elif kind == "time":
         return _parse_go_time(str(value))
+    elif kind == "list":
+        if not value:
+            return "nil"
+        parts = []
+        for item in value:
+            item_kind, item_val = next(iter(item.items()))
+            if item_kind is None:
+                item_kind = "null"
+            parts.append(render_value(str(item_kind), item_val, engine, coercions))
+        return f"{{{', '.join(parts)}}}"
     elif kind == "var":
         return str(value)
     else:
@@ -85,6 +95,21 @@ def render_typed_arg(
     """Render a call argument using its exact Go lang_type from the manifest."""
     if kind == "null":
         return _go_null(lang_type)
+    if kind == "list":
+        import re
+        m = re.match(r"\[]\*?(.+)", lang_type)
+        elem_lang_type = m.group(1) if m else ""
+        if not value:
+            return "nil"
+        elements = []
+        for item in value:
+            item_kind, item_val = next(iter(item.items()))
+            if item_kind is None:
+                item_kind = "null"
+            elements.append(
+                render_typed_arg("_", elem_lang_type, str(item_kind), item_val, engine, coercions)
+            )
+        return f"{lang_type}{{{', '.join(elements)}}}"
     if kind == "json":
         return _go_json_arg(lang_type, value)
     if kind == "datetime":
