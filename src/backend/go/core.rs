@@ -319,7 +319,7 @@ fn collect_query_imports(queries: &[Query], _schema: &Schema, contract: &GoCoreC
                     },
                 }
             }
-            if matches!(&p.sql_type, SqlType::Array(_)) {
+            if matches!(&p.sql_type, SqlType::Array(_)) && contract.wrap_array_params {
                 imp.pq = true;
             }
         }
@@ -462,7 +462,9 @@ fn build_bind_args(query: &Query, contract: &GoCoreContract) -> String {
         GoBindMode::UniqueParams => query.params.iter().map(|p| p.name.as_str()).collect(),
         GoBindMode::Positional => positional_bind_names(query),
     };
-    // Wrap array params with pq.Array() so lib/pq can encode them.
+    if !contract.wrap_array_params {
+        return raw_names.join(", ");
+    }
     let wrapped: Vec<String> = raw_names
         .iter()
         .zip(query.params.iter())

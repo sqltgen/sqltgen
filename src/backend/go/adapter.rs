@@ -46,6 +46,8 @@ pub(super) struct GoCoreContract {
     pub(super) bind_mode: GoBindMode,
     /// JSON column representation.
     pub(super) json_mode: GoJsonMode,
+    /// Whether array parameters should be wrapped with `pq.Array()`.
+    pub(super) wrap_array_params: bool,
 }
 
 /// Resolve the Go adapter contract for the selected engine target.
@@ -56,18 +58,21 @@ pub(super) fn resolve_go_contract(target: &GoTarget) -> GoCoreContract {
             placeholder_mode: GoPlaceholderMode::NumberedDollar,
             bind_mode: GoBindMode::UniqueParams,
             json_mode: GoJsonMode::Bytes,
+            wrap_array_params: true,
         },
         GoTarget::Sqlite => GoCoreContract {
             driver_comment: "// Driver: modernc.org/sqlite",
             placeholder_mode: GoPlaceholderMode::QuestionMark,
             bind_mode: GoBindMode::Positional,
             json_mode: GoJsonMode::String,
+            wrap_array_params: false,
         },
         GoTarget::Mysql => GoCoreContract {
             driver_comment: "// Driver: github.com/go-sql-driver/mysql",
             placeholder_mode: GoPlaceholderMode::QuestionMark,
             bind_mode: GoBindMode::Positional,
             json_mode: GoJsonMode::String,
+            wrap_array_params: false,
         },
     }
 }
