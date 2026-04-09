@@ -584,7 +584,7 @@ func ListBooksByGenre(ctx context.Context, db *sql.DB, genre string) ([]Book, er
 
 // ListBooksByGenreOrAll executes the ListBooksByGenreOrAll query.
 func ListBooksByGenreOrAll(ctx context.Context, db *sql.DB, genre string) ([]Book, error) {
-	rows, err := db.QueryContext(ctx, SQL_LIST_BOOKS_BY_GENRE_OR_ALL, genre)
+	rows, err := db.QueryContext(ctx, SQL_LIST_BOOKS_BY_GENRE_OR_ALL, genre, genre)
 	if err != nil {
 		return nil, err
 	}

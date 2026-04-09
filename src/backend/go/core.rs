@@ -461,8 +461,14 @@ fn build_bind_args(query: &Query, contract: &GoCoreContract) -> String {
     };
     raw_names
         .iter()
-        .zip(query.params.iter())
-        .map(|(name, param)| if matches!(&param.sql_type, SqlType::Array(_)) { contract.array_param_expr.replace("{name}", name) } else { name.to_string() })
+        .map(|name| {
+            let is_array = query.params.iter().any(|p| p.name == *name && matches!(&p.sql_type, SqlType::Array(_)));
+            if is_array {
+                contract.array_param_expr.replace("{name}", name)
+            } else {
+                name.to_string()
+            }
+        })
         .collect::<Vec<_>>()
         .join(", ")
 }
