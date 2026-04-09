@@ -500,10 +500,7 @@ fn test_mysql_one_fetch_column_allocates_string_after_fetch_row() {
         "GetUser",
         "SELECT id, name FROM user WHERE id = ?1",
         vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
-        vec![
-            ResultColumn::not_nullable("id", SqlType::BigInt),
-            ResultColumn::not_nullable("name", SqlType::Text),
-        ],
+        vec![ResultColumn::not_nullable("id", SqlType::BigInt), ResultColumn::not_nullable("name", SqlType::Text)],
     );
     let files = mysql().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.cpp");
@@ -523,10 +520,7 @@ fn test_mysql_many_fetch_column_happens_inside_loop() {
         "ListNames",
         "SELECT id, name FROM user",
         vec![],
-        vec![
-            ResultColumn::not_nullable("id", SqlType::BigInt),
-            ResultColumn::not_nullable("name", SqlType::Text),
-        ],
+        vec![ResultColumn::not_nullable("id", SqlType::BigInt), ResultColumn::not_nullable("name", SqlType::Text)],
     );
     let files = mysql().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.cpp");
@@ -570,10 +564,7 @@ fn test_mysql_fixed_width_column_has_no_fetch_column_call() {
         "Q",
         "SELECT id, n FROM t",
         vec![],
-        vec![
-            ResultColumn::not_nullable("id", SqlType::BigInt),
-            ResultColumn::not_nullable("n", SqlType::Integer),
-        ],
+        vec![ResultColumn::not_nullable("id", SqlType::BigInt), ResultColumn::not_nullable("n", SqlType::Integer)],
     );
     let files = mysql().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.cpp");
@@ -587,10 +578,7 @@ fn test_mysql_many_loop_without_varlen_cols_has_no_per_row_allocations() {
         "Q",
         "SELECT id, n FROM t",
         vec![],
-        vec![
-            ResultColumn::not_nullable("id", SqlType::BigInt),
-            ResultColumn::not_nullable("n", SqlType::Integer),
-        ],
+        vec![ResultColumn::not_nullable("id", SqlType::BigInt), ResultColumn::not_nullable("n", SqlType::Integer)],
     );
     let files = mysql().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.cpp");
@@ -610,10 +598,7 @@ fn test_mysql_one_returns_row_type_with_moved_varlen_fields() {
         "GetUser",
         "SELECT id, name FROM user WHERE id = ?1",
         vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
-        vec![
-            ResultColumn::not_nullable("id", SqlType::BigInt),
-            ResultColumn::not_nullable("name", SqlType::Text),
-        ],
+        vec![ResultColumn::not_nullable("id", SqlType::BigInt), ResultColumn::not_nullable("name", SqlType::Text)],
     );
     let files = mysql().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.cpp");
@@ -630,10 +615,7 @@ fn test_mysql_many_pushes_row_with_moved_varlen_fields() {
         "ListUsers",
         "SELECT id, name FROM user",
         vec![],
-        vec![
-            ResultColumn::not_nullable("id", SqlType::BigInt),
-            ResultColumn::not_nullable("name", SqlType::Text),
-        ],
+        vec![ResultColumn::not_nullable("id", SqlType::BigInt), ResultColumn::not_nullable("name", SqlType::Text)],
     );
     let files = mysql().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.cpp");

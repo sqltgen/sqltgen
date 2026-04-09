@@ -501,13 +501,7 @@ fn emit_mysql_bind_params(src: &mut String, query: &Query) -> anyhow::Result<()>
 /// (`is_null` preceded by its `*_is_null` flag). Helper locals (`p_*_len`, `*_is_null`,
 /// `*_val`, `p_*_json`) are emitted only the first time a given parameter name is seen,
 /// so the same param referenced in multiple slots doesn't redeclare them.
-fn emit_mysql_bind_param_block(
-    src: &mut String,
-    param: &Parameter,
-    slot: usize,
-    name: &str,
-    first_time: bool,
-) -> anyhow::Result<()> {
+fn emit_mysql_bind_param_block(src: &mut String, param: &Parameter, slot: usize, name: &str, first_time: bool) -> anyhow::Result<()> {
     writeln!(src, "    // {name} — {}", mysql_param_shape_label(param))?;
 
     // List params are encoded as a JSON blob string.
@@ -551,12 +545,8 @@ fn emit_mysql_bind_param_block(
     // pointer when the optional is empty — libmysql reads `is_null` first and skips
     // the buffer side entirely when the flag is set.
     let buf_expr: String = match (&param.sql_type, param.nullable) {
-        (SqlType::Bytes, true) => format!(
-            "const_cast<char*>({name}.has_value() ? reinterpret_cast<const char*>({name}.value().data()) : nullptr)"
-        ),
-        (_, true) => format!(
-            "const_cast<char*>({name}.has_value() ? {name}.value().c_str() : \"\")"
-        ),
+        (SqlType::Bytes, true) => format!("const_cast<char*>({name}.has_value() ? reinterpret_cast<const char*>({name}.value().data()) : nullptr)"),
+        (_, true) => format!("const_cast<char*>({name}.has_value() ? {name}.value().c_str() : \"\")"),
         _ => mysql_bind_info(&param.sql_type, name).1,
     };
 
@@ -567,10 +557,7 @@ fn emit_mysql_bind_param_block(
         let len_var = format!("p_{name}_len");
         if first_time {
             if param.nullable {
-                writeln!(
-                    src,
-                    "    unsigned long {len_var} = {name}.has_value() ? {name}.value().size() : 0;"
-                )?;
+                writeln!(src, "    unsigned long {len_var} = {name}.has_value() ? {name}.value().size() : 0;")?;
             } else {
                 writeln!(src, "    unsigned long {len_var} = {name}.size();")?;
             }
@@ -625,7 +612,11 @@ fn mysql_param_shape_label(param: &Parameter) -> String {
         return format!("{}[] (JSON)", sql_type_short_label(inner));
     }
     let base = sql_type_short_label(&param.sql_type);
-    if param.nullable { format!("{base}?") } else { base }
+    if param.nullable {
+        format!("{base}?")
+    } else {
+        base
+    }
 }
 
 fn sql_type_short_label(sql_type: &SqlType) -> String {

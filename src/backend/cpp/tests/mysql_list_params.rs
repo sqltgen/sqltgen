@@ -22,8 +22,10 @@ fn test_mysql_list_param_native_sql_in_header_constant() {
     let query = Query::many(
         "GetByIds",
         "SELECT id FROM t WHERE id IN (?1)",
-        vec![Parameter::list(1, "ids", SqlType::BigInt, false)
-            .with_native_list("SELECT id FROM t WHERE id IN (SELECT value FROM JSON_TABLE(?, '$[*]' COLUMNS(value BIGINT PATH '$')) jt)", NativeListBind::Json)],
+        vec![Parameter::list(1, "ids", SqlType::BigInt, false).with_native_list(
+            "SELECT id FROM t WHERE id IN (SELECT value FROM JSON_TABLE(?, '$[*]' COLUMNS(value BIGINT PATH '$')) jt)",
+            NativeListBind::Json,
+        )],
         vec![ResultColumn::not_nullable("id", SqlType::BigInt)],
     );
     let files = mysql().generate(&schema, &[query], &cfg()).unwrap();
@@ -102,10 +104,7 @@ fn test_mysql_scalar_then_list_param_preserves_order() {
     let query = Query::many(
         "GetByIds",
         "SELECT id FROM t WHERE active = ?1 AND id IN (?2)",
-        vec![
-            Parameter::scalar(1, "active", SqlType::Boolean, false),
-            Parameter::list(2, "ids", SqlType::BigInt, false),
-        ],
+        vec![Parameter::scalar(1, "active", SqlType::Boolean, false), Parameter::list(2, "ids", SqlType::BigInt, false)],
         vec![ResultColumn::not_nullable("id", SqlType::BigInt)],
     );
     let files = mysql().generate(&schema, &[query], &cfg()).unwrap();
