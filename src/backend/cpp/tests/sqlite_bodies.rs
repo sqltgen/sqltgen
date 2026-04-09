@@ -38,50 +38,11 @@ fn test_sqlite_body_prepares_statement() {
     let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = ?1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.cpp");
-    assert!(src.contains("sqlite3_stmt* stmt;"));
-    assert!(src.contains("sqlite3_prepare_v2(db, SQL_DELETE_USER.c_str(), -1, &stmt, nullptr)"));
-}
-
-// ─── shared finalize / rc checks ────────────────────────────────────────
-
-#[test]
-fn test_sqlite_exec_finalizes_stmt() {
-    let schema = Schema::default();
-    let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = ?1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
-    let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
-    let src = get_file(&files, "queries.cpp");
-    assert!(src.contains("sqlite3_finalize(stmt);"));
+    assert!(src.contains("SqliteStmt stmt(db, SQL_DELETE_USER);"));
 }
 
 #[test]
-fn test_sqlite_execrows_finalizes_stmt() {
-    let schema = Schema::default();
-    let query = Query::exec_rows("DeleteUser", "DELETE FROM user WHERE id = ?1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
-    let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
-    let src = get_file(&files, "queries.cpp");
-    assert!(src.contains("sqlite3_finalize(stmt);"));
-}
-
-#[test]
-fn test_sqlite_one_finalizes_stmt() {
-    let schema = Schema::with_tables(vec![user_table()]);
-    let query = Query::one(
-        "GetUser",
-        "SELECT id, name, bio FROM user WHERE id = ?1",
-        vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
-        vec![
-            ResultColumn::not_nullable("id", SqlType::BigInt),
-            ResultColumn::not_nullable("name", SqlType::Text),
-            ResultColumn::nullable("bio", SqlType::Text),
-        ],
-    );
-    let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
-    let src = get_file(&files, "queries.cpp");
-    assert!(src.contains("sqlite3_finalize(stmt);"));
-}
-
-#[test]
-fn test_sqlite_many_finalizes_stmt() {
+fn test_sqlite_generator_never_emits_sqlite3_finalize() {
     let schema = Schema::with_tables(vec![user_table()]);
     let query = Query::many(
         "ListUsers",
@@ -95,26 +56,39 @@ fn test_sqlite_many_finalizes_stmt() {
     );
     let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.cpp");
-    assert!(src.contains("sqlite3_finalize(stmt);"));
+    // finalize only appears inside the SqliteStmt helper's destructor, never in
+    // generated query bodies — the RAII wrapper owns the lifecycle.
+    let body_start = src.find("void list_users").or_else(|| src.find("std::vector<User> list_users")).unwrap();
+    assert!(!src[body_start..].contains("sqlite3_finalize"));
 }
 
 #[test]
-fn test_sqlite_exec_checks_sqlite_done() {
+fn test_sqlite_emits_sqlite_stmt_helper_class() {
     let schema = Schema::default();
     let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = ?1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.cpp");
-    assert!(src.contains("if (rc != SQLITE_DONE) {"));
-    assert!(src.contains("throw std::runtime_error(sqlite3_errmsg(db));"));
+    assert!(src.contains("class SqliteStmt {"));
+}
+
+// ─── shared execute / step ──────────────────────────────────────────────
+
+#[test]
+fn test_sqlite_exec_uses_execute() {
+    let schema = Schema::default();
+    let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = ?1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
+    let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
+    let src = get_file(&files, "queries.cpp");
+    assert!(src.contains("stmt.execute();"));
 }
 
 #[test]
-fn test_sqlite_execrows_checks_sqlite_done() {
+fn test_sqlite_execrows_uses_execute() {
     let schema = Schema::default();
     let query = Query::exec_rows("DeleteUser", "DELETE FROM user WHERE id = ?1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.cpp");
-    assert!(src.contains("if (rc != SQLITE_DONE) {"));
+    assert!(src.contains("stmt.execute();"));
 }
 
 #[test]
@@ -133,8 +107,7 @@ fn test_sqlite_one_uses_row_collecting_loop() {
     let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.cpp");
     assert!(src.contains("std::vector<User> rows;"));
-    assert!(src.contains("int rc;"));
-    assert!(src.contains("while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {"));
+    assert!(src.contains("while (stmt.step()) {"));
 }
 
 #[test]
@@ -152,7 +125,7 @@ fn test_sqlite_many_uses_row_collecting_loop() {
     );
     let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.cpp");
-    assert!(src.contains("while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {"));
+    assert!(src.contains("while (stmt.step()) {"));
 }
 
 // ─── Exec ───────────────────────────────────────────────────────────────
@@ -172,11 +145,11 @@ fn test_sqlite_exec_body_with_params() {
     );
     let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.cpp");
-    assert!(src.contains("sqlite3_bind_int(stmt, 1, sale_id);"));
-    assert!(src.contains("sqlite3_bind_int(stmt, 2, book_id);"));
-    assert!(src.contains("sqlite3_bind_int(stmt, 3, quantity);"));
-    assert!(src.contains("sqlite3_bind_text(stmt, 4, unit_price.c_str(), -1, SQLITE_TRANSIENT);"));
-    assert!(src.contains("int rc = sqlite3_step(stmt);"));
+    assert!(src.contains("stmt.bind_int(1, sale_id);"));
+    assert!(src.contains("stmt.bind_int(2, book_id);"));
+    assert!(src.contains("stmt.bind_int(3, quantity);"));
+    assert!(src.contains("stmt.bind_text(4, unit_price);"));
+    assert!(src.contains("stmt.execute();"));
 }
 
 #[test]
@@ -185,8 +158,8 @@ fn test_sqlite_exec_body_no_params() {
     let query = Query::exec("DeleteAll", "DELETE FROM user", vec![]);
     let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.cpp");
-    assert!(!src.contains("sqlite3_bind_"), "no params should emit no bind calls");
-    assert!(src.contains("int rc = sqlite3_step(stmt);"));
+    assert!(!src.contains("stmt.bind_"), "no params should emit no bind calls");
+    assert!(src.contains("stmt.execute();"));
 }
 
 #[test]
@@ -199,39 +172,19 @@ fn test_sqlite_exec_body_binds_multiple_params() {
     );
     let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.cpp");
-    assert!(src.contains("sqlite3_bind_text(stmt, 1, name.c_str(), -1, SQLITE_TRANSIENT);"));
-    assert!(src.contains("sqlite3_bind_int64(stmt, 2, id);"));
+    assert!(src.contains("stmt.bind_text(1, name);"));
+    assert!(src.contains("stmt.bind_int64(2, id);"));
 }
 
 // ─── ExecRows ───────────────────────────────────────────────────────────
 
 #[test]
-fn test_sqlite_execrows_uses_changes64() {
+fn test_sqlite_execrows_returns_changes() {
     let schema = Schema::default();
     let query = Query::exec_rows("DeleteBookById", "DELETE FROM book WHERE id = ?1", vec![Parameter::scalar(1, "id", SqlType::Integer, false)]);
     let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.cpp");
-    assert!(src.contains("std::int64_t affected = sqlite3_changes64(db);"));
-}
-
-#[test]
-fn test_sqlite_execrows_returns_affected() {
-    let schema = Schema::default();
-    let query = Query::exec_rows("DeleteBookById", "DELETE FROM book WHERE id = ?1", vec![Parameter::scalar(1, "id", SqlType::Integer, false)]);
-    let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
-    let src = get_file(&files, "queries.cpp");
-    assert!(src.contains("return affected;"));
-}
-
-#[test]
-fn test_sqlite_execrows_reads_changes_before_return() {
-    let schema = Schema::default();
-    let query = Query::exec_rows("DeleteBookById", "DELETE FROM book WHERE id = ?1", vec![Parameter::scalar(1, "id", SqlType::Integer, false)]);
-    let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
-    let src = get_file(&files, "queries.cpp");
-    let changes_pos = src.find("sqlite3_changes64(db)").unwrap();
-    let finalize_pos = src.find("sqlite3_finalize(stmt);").unwrap();
-    assert!(changes_pos < finalize_pos, "changes64 should be read before finalize");
+    assert!(src.contains("return stmt.changes();"));
 }
 
 // ─── One ────────────────────────────────────────────────────────────────
@@ -344,7 +297,7 @@ fn test_sqlite_many_loops_over_sqlite_step() {
     );
     let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.cpp");
-    assert!(src.contains("while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {"));
+    assert!(src.contains("while (stmt.step()) {"));
 }
 
 #[test]
@@ -399,9 +352,9 @@ fn test_sqlite_bind_integer_types() {
     );
     let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.cpp");
-    assert!(src.contains("sqlite3_bind_int(stmt, 1, b);"));
-    assert!(src.contains("sqlite3_bind_int(stmt, 2, s);"));
-    assert!(src.contains("sqlite3_bind_int(stmt, 3, i);"));
+    assert!(src.contains("stmt.bind_int(1, static_cast<int>(b));"));
+    assert!(src.contains("stmt.bind_int(2, s);"));
+    assert!(src.contains("stmt.bind_int(3, i);"));
 }
 
 #[test]
@@ -410,7 +363,7 @@ fn test_sqlite_bind_bigint() {
     let query = Query::exec("Big", "SELECT ?1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.cpp");
-    assert!(src.contains("sqlite3_bind_int64(stmt, 1, id);"));
+    assert!(src.contains("stmt.bind_int64(1, id);"));
 }
 
 #[test]
@@ -419,8 +372,8 @@ fn test_sqlite_bind_double_types() {
     let query = Query::exec("Nums", "SELECT ?1, ?2", vec![Parameter::scalar(1, "r", SqlType::Real, false), Parameter::scalar(2, "d", SqlType::Double, false)]);
     let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.cpp");
-    assert!(src.contains("sqlite3_bind_double(stmt, 1, r);"));
-    assert!(src.contains("sqlite3_bind_double(stmt, 2, d);"));
+    assert!(src.contains("stmt.bind_double(1, r);"));
+    assert!(src.contains("stmt.bind_double(2, d);"));
 }
 
 #[test]
@@ -437,9 +390,9 @@ fn test_sqlite_bind_text_like_types() {
     );
     let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.cpp");
-    assert!(src.contains("sqlite3_bind_text(stmt, 1, name.c_str(), -1, SQLITE_TRANSIENT);"));
-    assert!(src.contains("sqlite3_bind_text(stmt, 2, price.c_str(), -1, SQLITE_TRANSIENT);"));
-    assert!(src.contains("sqlite3_bind_text(stmt, 3, when_.c_str(), -1, SQLITE_TRANSIENT);"));
+    assert!(src.contains("stmt.bind_text(1, name);"));
+    assert!(src.contains("stmt.bind_text(2, price);"));
+    assert!(src.contains("stmt.bind_text(3, when_);"));
 }
 
 #[test]
@@ -448,7 +401,7 @@ fn test_sqlite_bind_blob() {
     let query = Query::exec("Bloby", "SELECT ?1", vec![Parameter::scalar(1, "data", SqlType::Bytes, false)]);
     let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.cpp");
-    assert!(src.contains("sqlite3_bind_blob(stmt, 1, data.data(), static_cast<int>(data.size()), SQLITE_TRANSIENT);"));
+    assert!(src.contains("stmt.bind_blob(1, data);"));
 }
 
 #[test]
@@ -457,7 +410,7 @@ fn test_sqlite_bind_nullable_text() {
     let query = Query::exec("MaybeName", "SELECT ?1", vec![Parameter::scalar(1, "name", SqlType::Text, true)]);
     let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.cpp");
-    assert!(src.contains("name.has_value() ? sqlite3_bind_text(stmt, 1, name.value().c_str(), -1, SQLITE_TRANSIENT) : sqlite3_bind_null(stmt, 1);"));
+    assert!(src.contains("name.has_value() ? stmt.bind_text(1, name.value()) : stmt.bind_null(1);"));
 }
 
 #[test]
@@ -466,7 +419,7 @@ fn test_sqlite_bind_nullable_bigint() {
     let query = Query::exec("MaybeId", "SELECT ?1", vec![Parameter::scalar(1, "id", SqlType::BigInt, true)]);
     let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.cpp");
-    assert!(src.contains("id.has_value() ? sqlite3_bind_int64(stmt, 1, id.value()) : sqlite3_bind_null(stmt, 1);"));
+    assert!(src.contains("id.has_value() ? stmt.bind_int64(1, id.value()) : stmt.bind_null(1);"));
 }
 
 #[test]
@@ -481,7 +434,7 @@ fn test_sqlite_bind_list_param_serializes_json() {
     let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.cpp");
     assert!(src.contains("std::string ids_json = \"[\";"));
-    assert!(src.contains("sqlite3_bind_text(stmt, 1, ids_json.c_str(), -1, SQLITE_TRANSIENT);"));
+    assert!(src.contains("stmt.bind_text(1, ids_json);"));
 }
 
 #[test]
@@ -520,7 +473,7 @@ fn test_sqlite_read_bigint_column() {
     let query = Query::many("Ids", "SELECT id FROM user", vec![], vec![ResultColumn::not_nullable("id", SqlType::BigInt)]);
     let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.cpp");
-    assert!(src.contains("sqlite3_column_int64(stmt, 0)"));
+    assert!(src.contains("stmt.column_int64(0)"));
 }
 
 #[test]
@@ -529,7 +482,7 @@ fn test_sqlite_read_text_column() {
     let query = Query::many("Names", "SELECT name FROM user", vec![], vec![ResultColumn::not_nullable("name", SqlType::Text)]);
     let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.cpp");
-    assert!(src.contains("std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0)))"));
+    assert!(src.contains("stmt.column_text(0)"));
 }
 
 #[test]
@@ -538,8 +491,7 @@ fn test_sqlite_read_blob_column() {
     let query = Query::many("GetBlob", "SELECT thumbnail FROM product", vec![], vec![ResultColumn::not_nullable("thumbnail", SqlType::Bytes)]);
     let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.cpp");
-    assert!(src.contains("reinterpret_cast<const std::uint8_t*>(sqlite3_column_blob(stmt, 0))"));
-    assert!(src.contains("sqlite3_column_bytes(stmt, 0)"));
+    assert!(src.contains("stmt.column_blob(0)"));
 }
 
 #[test]
@@ -548,25 +500,25 @@ fn test_sqlite_read_boolean_column() {
     let query = Query::many("Flags", "SELECT active FROM product", vec![], vec![ResultColumn::not_nullable("active", SqlType::Boolean)]);
     let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.cpp");
-    assert!(src.contains("static_cast<bool>(sqlite3_column_int(stmt, 0))"));
+    assert!(src.contains("static_cast<bool>(stmt.column_int(0))"));
 }
 
 #[test]
-fn test_sqlite_nullable_text_column_uses_column_type() {
+fn test_sqlite_nullable_text_column_uses_is_null() {
     let schema = Schema::with_tables(vec![user_table()]);
     let query = Query::many("Names", "SELECT bio FROM user", vec![], vec![ResultColumn::nullable("bio", SqlType::Text)]);
     let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.cpp");
-    assert!(src.contains("sqlite3_column_type(stmt, 0) == SQLITE_NULL ? std::nullopt : std::optional<std::string>(std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0))))"));
+    assert!(src.contains("stmt.is_null(0) ? std::nullopt : std::optional<std::string>(stmt.column_text(0))"));
 }
 
 #[test]
-fn test_sqlite_nullable_integer_column_uses_column_type() {
+fn test_sqlite_nullable_integer_column_uses_is_null() {
     let schema = Schema::with_tables(vec![user_table()]);
     let query = Query::many("Years", "SELECT birth_year FROM user", vec![], vec![ResultColumn::nullable("birth_year", SqlType::Integer)]);
     let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.cpp");
-    assert!(src.contains("sqlite3_column_type(stmt, 0) == SQLITE_NULL ? std::nullopt : std::optional<std::int32_t>(sqlite3_column_int(stmt, 0))"));
+    assert!(src.contains("stmt.is_null(0) ? std::nullopt : std::optional<std::int32_t>(stmt.column_int(0))"));
 }
 
 // ─── row type construction ───────────────────────────────────────────────

@@ -11,9 +11,16 @@ pub fn sqlite() -> CppCodegen {
     CppCodegen { target: CppTarget::Sqlite3 }
 }
 
+pub fn mysql() -> CppCodegen {
+    CppCodegen { target: CppTarget::Libmysqlclient }
+}
+
 mod architecture;
 mod generate;
 mod grouping;
+mod mysql_bodies;
+mod mysql_list_params;
+mod mysql_params;
 mod postgres_bodies;
 mod postgres_list_params;
 mod postgres_params;

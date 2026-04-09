@@ -44,7 +44,7 @@ fn test_sqlite_list_param_binds_via_json_text() {
     let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.cpp");
     assert!(src.contains("std::string ids_json = \"[\";"));
-    assert!(src.contains("sqlite3_bind_text(stmt, 1, ids_json.c_str(), -1, SQLITE_TRANSIENT);"));
+    assert!(src.contains("stmt.bind_text(1, ids_json);"));
 }
 
 #[test]
@@ -62,7 +62,7 @@ fn test_sqlite_scalar_then_list_param_order_is_preserved() {
     );
     let files = sqlite().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.cpp");
-    let scalar_pos = src.find("sqlite3_bind_int(stmt, 1, active);").unwrap();
-    let list_pos = src.find("sqlite3_bind_text(stmt, 2, ids_json.c_str(), -1, SQLITE_TRANSIENT);").unwrap();
+    let scalar_pos = src.find("stmt.bind_int(1, static_cast<int>(active));").unwrap();
+    let list_pos = src.find("stmt.bind_text(2, ids_json);").unwrap();
     assert!(scalar_pos < list_pos, "scalar bind should precede list bind\n{src}");
 }
