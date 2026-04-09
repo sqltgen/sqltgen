@@ -574,7 +574,7 @@ mod tests {
         let mut src = String::new();
         emit_jdbc_binds(&mut src, &q, "", ";", "toArray()", JsonBindMode::TypesOther, |p| to_camel_case(&p.name)).unwrap();
         assert!(src.contains("statuses.stream().map(e -> e.getValue()).toArray(String[]::new)"), "Java enum array should map to String[]: {src}");
-        assert!(src.contains("createArrayOf(\"text\""), "should use text as PG type: {src}");
+        assert!(src.contains("createArrayOf(\"status\""), "should use enum type name as PG type: {src}");
     }
 
     #[test]
@@ -585,7 +585,7 @@ mod tests {
         let mut src = String::new();
         emit_jdbc_binds(&mut src, &q, "", "", "toTypedArray()", JsonBindMode::TypesOther, |p| to_camel_case(&p.name)).unwrap();
         assert!(src.contains("statuses.map { it.value }.toTypedArray()"), "Kotlin enum array should map to String[]: {src}");
-        assert!(src.contains("createArrayOf(\"text\""), "should use text as PG type: {src}");
+        assert!(src.contains("createArrayOf(\"status\""), "should use enum type name as PG type: {src}");
     }
 
     #[test]
