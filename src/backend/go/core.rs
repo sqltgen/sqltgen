@@ -37,12 +37,12 @@ struct GoImports {
     fmt: bool,
     strings: bool,
     time: bool,
-    pq: bool,
     extra: BTreeSet<String>,
 }
 
 impl GoImports {
-    /// Add a type-derived import path (as returned by `GoTypeMap::import_for`).
+    /// Add an import path. Standard-library paths recognised here are promoted
+    /// to dedicated bool flags; everything else goes into `extra`.
     fn add_import(&mut self, imp: Option<String>) {
         match imp.as_deref() {
             Some("\"time\"") => self.time = true,
@@ -56,35 +56,33 @@ impl GoImports {
 
     /// Return true if any import is needed.
     fn has_any(&self) -> bool {
-        self.context || self.database_sql || self.encoding_json || self.fmt || self.strings || self.time || self.pq || !self.extra.is_empty()
+        self.context || self.database_sql || self.encoding_json || self.fmt || self.strings || self.time || !self.extra.is_empty()
     }
 
     fn write(&self, src: &mut String) {
-        let mut imports: Vec<&str> = Vec::new();
+        let mut std_imports: Vec<&str> = Vec::new();
         if self.context {
-            imports.push("\"context\"");
+            std_imports.push("\"context\"");
         }
         if self.database_sql {
-            imports.push("\"database/sql\"");
+            std_imports.push("\"database/sql\"");
         }
         if self.encoding_json {
-            imports.push("\"encoding/json\"");
+            std_imports.push("\"encoding/json\"");
         }
         if self.fmt {
-            imports.push("\"fmt\"");
+            std_imports.push("\"fmt\"");
         }
         if self.strings {
-            imports.push("\"strings\"");
+            std_imports.push("\"strings\"");
         }
         if self.time {
-            imports.push("\"time\"");
+            std_imports.push("\"time\"");
         }
 
-        let std_imports: Vec<&str> = imports.clone();
-        let has_pq = self.pq;
         let extra: Vec<&str> = self.extra.iter().map(|s| s.as_str()).collect();
 
-        if std_imports.is_empty() && !has_pq && extra.is_empty() {
+        if std_imports.is_empty() && extra.is_empty() {
             return;
         }
 
@@ -92,12 +90,9 @@ impl GoImports {
         for imp in &std_imports {
             src.push_str(&format!("\t{imp}\n"));
         }
-        if has_pq || !extra.is_empty() {
+        if !extra.is_empty() {
             if !std_imports.is_empty() {
                 src.push('\n');
-            }
-            if has_pq {
-                src.push_str("\t\"github.com/lib/pq\"\n");
             }
             for imp in &extra {
                 src.push_str(&format!("\t{imp}\n"));
@@ -315,12 +310,14 @@ fn collect_query_imports(queries: &[Query], _schema: &Schema, contract: &GoCoreC
                     },
                     ListParamStrategy::Native => match &p.native_list_bind {
                         Some(NativeListBind::Json) | None => imp.encoding_json = true,
-                        Some(NativeListBind::Array) => imp.pq = true,
+                        Some(NativeListBind::Array) => imp.add_import(contract.array_param_import.map(str::to_string)),
                     },
                 }
             }
-            if matches!(&p.sql_type, SqlType::Array(_)) && contract.wrap_array_params {
-                imp.pq = true;
+            if matches!(&p.sql_type, SqlType::Array(_)) {
+                if let Some(arr_import) = contract.array_param_import {
+                    imp.add_import(Some(arr_import.to_string()));
+                }
             }
         }
 
@@ -462,15 +459,12 @@ fn build_bind_args(query: &Query, contract: &GoCoreContract) -> String {
         GoBindMode::UniqueParams => query.params.iter().map(|p| p.name.as_str()).collect(),
         GoBindMode::Positional => positional_bind_names(query),
     };
-    if !contract.wrap_array_params {
-        return raw_names.join(", ");
-    }
-    let wrapped: Vec<String> = raw_names
+    raw_names
         .iter()
         .zip(query.params.iter())
-        .map(|(name, param)| if matches!(&param.sql_type, SqlType::Array(_)) { format!("pq.Array({name})") } else { name.to_string() })
-        .collect();
-    wrapped.join(", ")
+        .map(|(name, param)| if matches!(&param.sql_type, SqlType::Array(_)) { contract.array_param_expr.replace("{name}", name) } else { name.to_string() })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Emit the Scan + return block for a `:one` query.
