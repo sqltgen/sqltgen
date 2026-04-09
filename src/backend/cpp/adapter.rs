@@ -39,6 +39,84 @@ const _PARSE_JSON: &str = r#"static simdjson::dom::element parse_json(simdjson::
 }
 "#;
 
+/// C++ RAII wrapper for `sqlite3_stmt*`.
+///
+/// Wraps the sqlite3 statement lifecycle so generated query functions don't
+/// have to track `sqlite3_finalize` on every error path. The class is
+/// intentionally thin — every method maps 1:1 to a single `sqlite3_*` call:
+///
+/// - constructor           → `sqlite3_prepare_v2`
+/// - destructor            → `sqlite3_finalize`
+/// - `bind_*`              → `sqlite3_bind_*`  (return code checked)
+/// - `step`                → `sqlite3_step`   (SQLITE_ROW → true, SQLITE_DONE → false, else throw)
+/// - `execute`             → `step()` once, require SQLITE_DONE (for non-row queries)
+/// - `changes`             → `sqlite3_changes64` on the stored connection
+/// - `is_null` / `column_*`→ `sqlite3_column_type` / `sqlite3_column_*`
+///
+/// The helper holds `sqlite3*` alongside the statement because
+/// `sqlite3_changes64` and `sqlite3_errmsg` are connection-scoped.
+const SQLITE_STMT_HELPER: &str = r#"class SqliteStmt {
+    sqlite3* db_;
+    sqlite3_stmt* stmt_ = nullptr;
+public:
+    SqliteStmt(sqlite3* db, const std::string& sql) : db_(db) {
+        if (sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt_, nullptr) != SQLITE_OK)
+            throw std::runtime_error(sqlite3_errmsg(db_));
+    }
+    ~SqliteStmt() { if (stmt_) sqlite3_finalize(stmt_); }
+    SqliteStmt(const SqliteStmt&) = delete;
+    SqliteStmt& operator=(const SqliteStmt&) = delete;
+
+    // Bind a parameter. `i` is 1-based, matching sqlite3's placeholder numbering.
+    void bind_int(int i, int v) { check(sqlite3_bind_int(stmt_, i, v)); }
+    void bind_int64(int i, std::int64_t v) { check(sqlite3_bind_int64(stmt_, i, v)); }
+    void bind_double(int i, double v) { check(sqlite3_bind_double(stmt_, i, v)); }
+    void bind_text(int i, const std::string& v) {
+        // SQLITE_TRANSIENT: sqlite copies the bytes, so `v` may be destroyed immediately.
+        check(sqlite3_bind_text(stmt_, i, v.c_str(), -1, SQLITE_TRANSIENT));
+    }
+    void bind_blob(int i, const std::vector<std::uint8_t>& v) {
+        check(sqlite3_bind_blob(stmt_, i, v.data(), static_cast<int>(v.size()), SQLITE_TRANSIENT));
+    }
+    void bind_null(int i) { check(sqlite3_bind_null(stmt_, i)); }
+
+    // Advance the cursor. Returns true on SQLITE_ROW, false on SQLITE_DONE.
+    // Throws on any other result code.
+    bool step() {
+        int rc = sqlite3_step(stmt_);
+        if (rc == SQLITE_ROW)  return true;
+        if (rc == SQLITE_DONE) return false;
+        throw std::runtime_error(sqlite3_errmsg(db_));
+    }
+    // Run a non-row-returning statement. Steps once and requires SQLITE_DONE.
+    void execute() {
+        if (step()) throw std::runtime_error("execute: unexpected row");
+    }
+    // Rows modified by the most recent write on this connection.
+    std::int64_t changes() const { return sqlite3_changes64(db_); }
+
+    // Column readers. `i` is 0-based, matching sqlite3's column numbering.
+    bool is_null(int i) const { return sqlite3_column_type(stmt_, i) == SQLITE_NULL; }
+    int column_int(int i) const { return sqlite3_column_int(stmt_, i); }
+    std::int64_t column_int64(int i) const { return sqlite3_column_int64(stmt_, i); }
+    double column_double(int i) const { return sqlite3_column_double(stmt_, i); }
+    std::string column_text(int i) const {
+        // sqlite3_column_text points to storage owned by the statement and is valid
+        // until the next step/reset/finalize — copying into std::string is deliberate.
+        return std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt_, i)));
+    }
+    std::vector<std::uint8_t> column_blob(int i) const {
+        auto* p = reinterpret_cast<const std::uint8_t*>(sqlite3_column_blob(stmt_, i));
+        return std::vector<std::uint8_t>(p, p + sqlite3_column_bytes(stmt_, i));
+    }
+
+private:
+    void check(int rc) {
+        if (rc != SQLITE_OK) throw std::runtime_error(sqlite3_errmsg(db_));
+    }
+};
+"#;
+
 /// C++ RAII wrapper for `MYSQL_STMT*`.
 /// Handles init+prepare in the constructor and close in the destructor,
 /// so generated query functions never need manual `mysql_stmt_close` on
@@ -122,7 +200,7 @@ pub(super) fn resolve_contract(target: &super::CppTarget) -> CppCoreContract {
             conn_type: "sqlite3*",
             param_style: CppParamStyle::QuestionNumbered,
             source_includes: &[],
-            source_helpers: &[JSON_ESCAPE],
+            source_helpers: &[JSON_ESCAPE, SQLITE_STMT_HELPER],
             emit_query_body: emit_sqlite3_body,
         },
         super::CppTarget::Libmysqlclient => CppCoreContract {
@@ -207,42 +285,32 @@ fn emit_pqxx_body(src: &mut String, ctx: &CppQueryContext<'_>) -> anyhow::Result
 
 /// Emit the function body for a sqlite3 query.
 ///
-/// Two groups share structure:
-/// - Exec/ExecRows: single step expecting SQLITE_DONE, no row reading.
-/// - One/Many: row-collecting loop with identical prepare→bind→loop→finalize→check,
-///   diverging only at the tail (One asserts at-most-one, Many returns the vector).
+/// Uses `SqliteStmt` (a generated RAII wrapper) for the statement lifecycle.
+/// The wrapper's constructor prepares the statement, its destructor finalizes
+/// it, and `step()` translates the result codes into `bool`/throw — so the
+/// generated bodies don't manage `sqlite3_finalize` or the `SQLITE_DONE` check
+/// on any path.
 fn emit_sqlite3_body(src: &mut String, ctx: &CppQueryContext<'_>) -> anyhow::Result<()> {
     let query = ctx.query;
     let const_name = crate::backend::common::sql_const_name(&query.name);
 
-    // Phase 1: prepare (all 4 cases)
-    emit_sqlite3_prepare(src, &const_name)?;
-
-    // Phase 2: bind params (all 4 cases)
+    writeln!(src, "    SqliteStmt stmt(db, {const_name});")?;
     emit_sqlite3_bind_params(src, &query.params)?;
 
-    // Phase 3: execute + read
     match query.cmd {
-        QueryCmd::Exec | QueryCmd::ExecRows => {
-            writeln!(src, "    int rc = sqlite3_step(stmt);")?;
-            if query.cmd == QueryCmd::ExecRows {
-                writeln!(src, "    std::int64_t affected = sqlite3_changes64(db);")?;
-            }
-            emit_sqlite3_finalize_and_check(src)?;
-            if query.cmd == QueryCmd::ExecRows {
-                writeln!(src, "    return affected;")?;
-            }
+        QueryCmd::Exec => {
+            writeln!(src, "    stmt.execute();")?;
+        },
+        QueryCmd::ExecRows => {
+            writeln!(src, "    stmt.execute();")?;
+            writeln!(src, "    return stmt.changes();")?;
         },
         QueryCmd::One | QueryCmd::Many => {
             let row_type = result_row_type(query, ctx.schema);
-            // Row-collecting loop (identical for One and Many).
             writeln!(src, "    std::vector<{row_type}> rows;")?;
-            writeln!(src, "    int rc;")?;
-            writeln!(src, "    while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {{")?;
+            writeln!(src, "    while (stmt.step()) {{")?;
             emit_sqlite3_row_push(src, &row_type, &query.result_columns, "        ")?;
             writeln!(src, "    }}")?;
-            emit_sqlite3_finalize_and_check(src)?;
-            // Tail: only divergence between One and Many.
             if query.cmd == QueryCmd::One {
                 writeln!(src, "    if (rows.size() > 1) {{")?;
                 writeln!(src, "        throw std::runtime_error(\"query returned more than one row\");")?;
@@ -256,16 +324,7 @@ fn emit_sqlite3_body(src: &mut String, ctx: &CppQueryContext<'_>) -> anyhow::Res
     Ok(())
 }
 
-/// Emit `sqlite3_prepare_v2` + error check.
-fn emit_sqlite3_prepare(src: &mut String, const_name: &str) -> anyhow::Result<()> {
-    writeln!(src, "    sqlite3_stmt* stmt;")?;
-    writeln!(src, "    if (sqlite3_prepare_v2(db, {const_name}.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {{")?;
-    writeln!(src, "        throw std::runtime_error(sqlite3_errmsg(db));")?;
-    writeln!(src, "    }}")?;
-    Ok(())
-}
-
-/// Emit `sqlite3_bind_*` calls for each parameter.
+/// Emit `stmt.bind_*` calls for each parameter.
 fn emit_sqlite3_bind_params(src: &mut String, params: &[Parameter]) -> anyhow::Result<()> {
     for param in params {
         let idx = param.index;
@@ -298,34 +357,24 @@ fn emit_sqlite3_bind_list(src: &mut String, sql_type: &SqlType, idx: usize, name
     writeln!(src, "        {to_str}")?;
     writeln!(src, "    }}")?;
     writeln!(src, "    {name}_json += \"]\";")?;
-    writeln!(src, "    sqlite3_bind_text(stmt, {idx}, {name}_json.c_str(), -1, SQLITE_TRANSIENT);")?;
+    writeln!(src, "    stmt.bind_text({idx}, {name}_json);")?;
     Ok(())
 }
 
-/// Return the appropriate `sqlite3_bind_*` expression for a parameter.
+/// Return the appropriate `stmt.bind_*` expression for a parameter.
 fn sqlite3_bind_call(sql_type: &SqlType, idx: usize, name: &str, nullable: bool) -> String {
     if nullable {
         let inner = sqlite3_bind_call(sql_type, idx, &format!("{name}.value()"), false);
-        return format!("{name}.has_value() ? {inner} : sqlite3_bind_null(stmt, {idx})");
+        return format!("{name}.has_value() ? {inner} : stmt.bind_null({idx})");
     }
     match sql_type {
-        SqlType::Boolean | SqlType::SmallInt | SqlType::Integer => format!("sqlite3_bind_int(stmt, {idx}, {name})"),
-        SqlType::BigInt => format!("sqlite3_bind_int64(stmt, {idx}, {name})"),
-        SqlType::Real | SqlType::Double => format!("sqlite3_bind_double(stmt, {idx}, {name})"),
-        SqlType::Bytes => {
-            format!("sqlite3_bind_blob(stmt, {idx}, {name}.data(), static_cast<int>({name}.size()), SQLITE_TRANSIENT)")
-        },
-        _ => format!("sqlite3_bind_text(stmt, {idx}, {name}.c_str(), -1, SQLITE_TRANSIENT)"),
+        SqlType::Boolean => format!("stmt.bind_int({idx}, static_cast<int>({name}))"),
+        SqlType::SmallInt | SqlType::Integer => format!("stmt.bind_int({idx}, {name})"),
+        SqlType::BigInt => format!("stmt.bind_int64({idx}, {name})"),
+        SqlType::Real | SqlType::Double => format!("stmt.bind_double({idx}, {name})"),
+        SqlType::Bytes => format!("stmt.bind_blob({idx}, {name})"),
+        _ => format!("stmt.bind_text({idx}, {name})"),
     }
-}
-
-/// Emit `sqlite3_finalize(stmt)` + `SQLITE_DONE` check. Shared by all 4 cases.
-fn emit_sqlite3_finalize_and_check(src: &mut String) -> anyhow::Result<()> {
-    writeln!(src, "    sqlite3_finalize(stmt);")?;
-    writeln!(src, "    if (rc != SQLITE_DONE) {{")?;
-    writeln!(src, "        throw std::runtime_error(sqlite3_errmsg(db));")?;
-    writeln!(src, "    }}")?;
-    Ok(())
 }
 
 /// Emit `rows.push_back(RowType{ col0, col1, ... });`
@@ -340,22 +389,22 @@ fn emit_sqlite3_row_push(src: &mut String, row_type: &str, columns: &[ResultColu
     Ok(())
 }
 
-/// Return the C++ expression to read a column value from a sqlite3_stmt.
+/// Return the C++ expression to read a column value via the `SqliteStmt` helper.
 fn sqlite3_column_expr(sql_type: &SqlType, idx: usize, nullable: bool) -> String {
     if nullable {
         let base_type = cpp_type(sql_type, false);
         let inner = sqlite3_column_expr(sql_type, idx, false);
-        return format!("sqlite3_column_type(stmt, {idx}) == SQLITE_NULL ? std::nullopt : std::optional<{base_type}>({inner})");
+        return format!("stmt.is_null({idx}) ? std::nullopt : std::optional<{base_type}>({inner})");
     }
     match sql_type {
-        SqlType::Boolean => format!("static_cast<bool>(sqlite3_column_int(stmt, {idx}))"),
-        SqlType::SmallInt => format!("static_cast<std::int16_t>(sqlite3_column_int(stmt, {idx}))"),
-        SqlType::Integer => format!("sqlite3_column_int(stmt, {idx})"),
-        SqlType::BigInt => format!("sqlite3_column_int64(stmt, {idx})"),
-        SqlType::Real => format!("static_cast<float>(sqlite3_column_double(stmt, {idx}))"),
-        SqlType::Double => format!("sqlite3_column_double(stmt, {idx})"),
-        SqlType::Bytes => format!("std::vector<std::uint8_t>(reinterpret_cast<const std::uint8_t*>(sqlite3_column_blob(stmt, {idx})), reinterpret_cast<const std::uint8_t*>(sqlite3_column_blob(stmt, {idx})) + sqlite3_column_bytes(stmt, {idx}))"),
-        _ => format!("std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt, {idx})))"),
+        SqlType::Boolean => format!("static_cast<bool>(stmt.column_int({idx}))"),
+        SqlType::SmallInt => format!("static_cast<std::int16_t>(stmt.column_int({idx}))"),
+        SqlType::Integer => format!("stmt.column_int({idx})"),
+        SqlType::BigInt => format!("stmt.column_int64({idx})"),
+        SqlType::Real => format!("static_cast<float>(stmt.column_double({idx}))"),
+        SqlType::Double => format!("stmt.column_double({idx})"),
+        SqlType::Bytes => format!("stmt.column_blob({idx})"),
+        _ => format!("stmt.column_text({idx})"),
     }
 }
 
