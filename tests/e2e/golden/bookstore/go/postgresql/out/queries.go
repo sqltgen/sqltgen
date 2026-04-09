@@ -1197,7 +1197,7 @@ func ListActiveProducts(ctx context.Context, db *sql.DB, active bool) ([]ListAct
 
 // InsertProduct executes the InsertProduct query.
 func InsertProduct(ctx context.Context, db *sql.DB, id string, sku string, name string, active bool, weight_kg *float32, rating sql.NullFloat64, tags []string, metadata *[]byte, thumbnail []byte, stock_count int16) (*Product, error) {
-	row := db.QueryRowContext(ctx, SQL_INSERT_PRODUCT, id, sku, name, active, weight_kg, rating, tags, metadata, thumbnail, stock_count)
+	row := db.QueryRowContext(ctx, SQL_INSERT_PRODUCT, id, sku, name, active, weight_kg, rating, pq.Array(tags), metadata, thumbnail, stock_count)
 	var r Product
 	err := row.Scan(&r.Id, &r.Sku, &r.Name, &r.Active, &r.WeightKg, &r.Rating, scanArray(&r.Tags), &r.Metadata, &r.Thumbnail, &r.CreatedAt, &r.StockCount)
 	if err == sql.ErrNoRows {
@@ -1330,7 +1330,7 @@ func CountSaleItems(ctx context.Context, db *sql.DB, sale_id int64) (*CountSaleI
 
 // UpsertProduct executes the UpsertProduct query.
 func UpsertProduct(ctx context.Context, db *sql.DB, id string, sku string, name string, active bool, tags []string, stock_count int16) (*UpsertProductRow, error) {
-	row := db.QueryRowContext(ctx, SQL_UPSERT_PRODUCT, id, sku, name, active, tags, stock_count)
+	row := db.QueryRowContext(ctx, SQL_UPSERT_PRODUCT, id, sku, name, active, pq.Array(tags), stock_count)
 	var r UpsertProductRow
 	err := row.Scan(&r.Id, &r.Sku, &r.Name, &r.Active, scanArray(&r.Tags), &r.StockCount)
 	if err == sql.ErrNoRows {

@@ -319,6 +319,9 @@ fn collect_query_imports(queries: &[Query], _schema: &Schema, contract: &GoCoreC
                     },
                 }
             }
+            if matches!(&p.sql_type, SqlType::Array(_)) {
+                imp.pq = true;
+            }
         }
 
         for col in &query.result_columns {
@@ -455,11 +458,17 @@ fn build_bind_args(query: &Query, contract: &GoCoreContract) -> String {
     if query.params.is_empty() {
         return String::new();
     }
-    let names: Vec<&str> = match contract.bind_mode {
+    let raw_names: Vec<&str> = match contract.bind_mode {
         GoBindMode::UniqueParams => query.params.iter().map(|p| p.name.as_str()).collect(),
         GoBindMode::Positional => positional_bind_names(query),
     };
-    names.join(", ")
+    // Wrap array params with pq.Array() so lib/pq can encode them.
+    let wrapped: Vec<String> = raw_names
+        .iter()
+        .zip(query.params.iter())
+        .map(|(name, param)| if matches!(&param.sql_type, SqlType::Array(_)) { format!("pq.Array({name})") } else { name.to_string() })
+        .collect();
+    wrapped.join(", ")
 }
 
 /// Emit the Scan + return block for a `:one` query.
@@ -523,6 +532,24 @@ fn scan_plan(cols: &[ResultColumn], type_map: &GoTypeMap) -> ScanPlan {
     for (i, col) in cols.iter().enumerate() {
         let field = field_name(&col.name);
         match &col.sql_type {
+            SqlType::Array(inner) if matches!(inner.as_ref(), SqlType::Enum(_)) => {
+                // Enum arrays: pq.Array can't scan into []EnumType directly;
+                // scan into []string then convert to the enum slice.
+                let tmp = format!("_arr{}", i + 1);
+                let enum_ty = type_map.field_type(inner, false);
+                pre_lines.push(format!("var {tmp} []string"));
+                scan_args.push(format!("pq.Array(&{tmp})"));
+                if col.nullable {
+                    post_lines.push(format!("if {tmp} != nil {{"));
+                    post_lines.push(format!("\t_conv{i} := make([]{enum_ty}, len({tmp}))"));
+                    post_lines.push(format!("\tfor _j, _s := range {tmp} {{ _conv{i}[_j] = {enum_ty}(_s) }}"));
+                    post_lines.push(format!("\tr.{field} = &_conv{i}"));
+                    post_lines.push("}".to_string());
+                } else {
+                    post_lines.push(format!("r.{field} = make([]{enum_ty}, len({tmp}))"));
+                    post_lines.push(format!("for _j, _s := range {tmp} {{ r.{field}[_j] = {enum_ty}(_s) }}"));
+                }
+            },
             SqlType::Array(inner) => {
                 if col.nullable {
                     let inner_ty = type_map.field_type(inner, false);

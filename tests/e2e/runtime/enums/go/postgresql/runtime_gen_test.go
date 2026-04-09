@@ -257,7 +257,7 @@ func TestUpdateTaskStatusGen(t *testing.T) {
 
 func TestCreateWithEnumArrayGen(t *testing.T) {
 	db, ctx := setupDB(t)
-	task, err := gen.CreateTaskWithTags(ctx, db, "Tagged task", gen.Priority("high"), gen.Status("open"), sql.NullString{}, []Priority{gen.Priority("high"), gen.Priority("critical")})
+	task, err := gen.CreateTaskWithTags(ctx, db, "Tagged task", gen.Priority("high"), gen.Status("open"), sql.NullString{}, []gen.Priority{gen.Priority("high"), gen.Priority("critical")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +271,7 @@ func TestCreateWithEnumArrayGen(t *testing.T) {
 
 func TestGetTaskTagsGen(t *testing.T) {
 	db, ctx := setupDB(t)
-	if _, err := gen.CreateTaskWithTags(ctx, db, "Read tags", gen.Priority("low"), gen.Status("open"), sql.NullString{}, []Priority{gen.Priority("low"), gen.Priority("medium"), gen.Priority("high")}); err != nil {
+	if _, err := gen.CreateTaskWithTags(ctx, db, "Read tags", gen.Priority("low"), gen.Status("open"), sql.NullString{}, []gen.Priority{gen.Priority("low"), gen.Priority("medium"), gen.Priority("high")}); err != nil {
 		t.Fatal(err)
 	}
 	row, err := gen.GetTaskTags(ctx, db, 1)
@@ -288,10 +288,10 @@ func TestGetTaskTagsGen(t *testing.T) {
 
 func TestUpdateTaskTagsGen(t *testing.T) {
 	db, ctx := setupDB(t)
-	if _, err := gen.CreateTaskWithTags(ctx, db, "Update tags", gen.Priority("medium"), gen.Status("open"), sql.NullString{}, []Priority{gen.Priority("low")}); err != nil {
+	if _, err := gen.CreateTaskWithTags(ctx, db, "Update tags", gen.Priority("medium"), gen.Status("open"), sql.NullString{}, []gen.Priority{gen.Priority("low")}); err != nil {
 		t.Fatal(err)
 	}
-	updated, err := gen.UpdateTaskTags(ctx, db, []Priority{gen.Priority("high"), gen.Priority("critical")}, 1)
+	updated, err := gen.UpdateTaskTags(ctx, db, []gen.Priority{gen.Priority("high"), gen.Priority("critical")}, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -304,7 +304,7 @@ func TestUpdateTaskTagsGen(t *testing.T) {
 
 func TestEmptyEnumArrayGen(t *testing.T) {
 	db, ctx := setupDB(t)
-	if _, err := gen.CreateTaskWithTags(ctx, db, "No tags", gen.Priority("low"), gen.Status("open"), sql.NullString{}, nil); err != nil {
+	if _, err := gen.CreateTaskWithTags(ctx, db, "No tags", gen.Priority("low"), gen.Status("open"), sql.NullString{}, []gen.Priority{}); err != nil {
 		t.Fatal(err)
 	}
 	row, err := gen.GetTaskTags(ctx, db, 1)

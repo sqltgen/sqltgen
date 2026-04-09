@@ -160,7 +160,13 @@ fn build_queries_file(
     writeln!(src, "{}", contract.runtime.db_import)?;
     writeln!(src, "from collections.abc import Callable")?;
     writeln!(src, "from contextlib import closing")?;
-    writeln!(src, "from ..sqltgen import execute, exec_stmt")?;
+    let needs_enum_array_parser =
+        queries.iter().any(|q| q.result_columns.iter().any(|col| matches!(&col.sql_type, SqlType::Array(inner) if matches!(inner.as_ref(), SqlType::Enum(_)))));
+    if needs_enum_array_parser {
+        writeln!(src, "from ..sqltgen import execute, exec_stmt, _parse_enum_array")?;
+    } else {
+        writeln!(src, "from ..sqltgen import execute, exec_stmt")?;
+    }
     imports.write(&mut src)?;
     if let Some(json_import) = contract.sql.json_param_import {
         let needs_json = queries.iter().any(|q| {
@@ -456,9 +462,15 @@ fn find_converter<'a>(sql_type: &SqlType, converters: &'a [FieldReadConverter]) 
 ///
 /// When no converters apply, returns `RowType(*row)`. When converters are needed,
 /// returns indexed access like `RowType(row[0], _to_time(row[1]), row[2])`.
+///
+/// Enum array columns (`Array(Enum(name))`) are handled specially: psycopg3
+/// returns them as raw PostgreSQL text like `'{low,medium,high}'`, so they
+/// are parsed into `list[EnumClass]` at construction time.
 fn build_row_expr(row_type: &str, row_var: &str, columns: &[crate::ir::ResultColumn], converters: &[FieldReadConverter]) -> String {
-    let any_converted = columns.iter().any(|col| find_converter(&col.sql_type, converters).is_some());
-    if !any_converted {
+    let needs_indexed = columns.iter().any(|col| {
+        find_converter(&col.sql_type, converters).is_some() || matches!(&col.sql_type, SqlType::Array(inner) if matches!(inner.as_ref(), SqlType::Enum(_)))
+    });
+    if !needs_indexed {
         return format!("{row_type}(*{row_var})");
     }
     let args: Vec<String> = columns
@@ -468,6 +480,13 @@ fn build_row_expr(row_type: &str, row_var: &str, columns: &[crate::ir::ResultCol
             let raw = format!("{row_var}[{i}]");
             if let Some(conv) = find_converter(&col.sql_type, converters) {
                 format!("{}({raw})", conv.fn_name)
+            } else if let SqlType::Array(inner) = &col.sql_type {
+                if let SqlType::Enum(name) = inner.as_ref() {
+                    let cls = to_pascal_case(name);
+                    format!("[{cls}(v) for v in {raw}] if isinstance({raw}, list) else _parse_enum_array({raw}, {cls})")
+                } else {
+                    raw
+                }
             } else {
                 raw
             }

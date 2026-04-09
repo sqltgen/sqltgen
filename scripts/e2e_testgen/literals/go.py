@@ -100,7 +100,10 @@ def render_typed_arg(
         m = re.match(r"\[]\*?(.+)", lang_type)
         elem_lang_type = m.group(1) if m else ""
         if not value:
-            return "nil"
+            go_type = lang_type
+            if _is_enum_type(elem_lang_type):
+                go_type = f"[]gen.{elem_lang_type}"
+            return f"{go_type}{{}}"
         elements = []
         for item in value:
             item_kind, item_val = next(iter(item.items()))
@@ -109,7 +112,11 @@ def render_typed_arg(
             elements.append(
                 render_typed_arg("_", elem_lang_type, str(item_kind), item_val, engine, coercions)
             )
-        return f"{lang_type}{{{', '.join(elements)}}}"
+        # Prefix enum slice types with gen. so they resolve in test files.
+        go_type = lang_type
+        if _is_enum_type(elem_lang_type):
+            go_type = f"[]gen.{elem_lang_type}"
+        return f"{go_type}{{{', '.join(elements)}}}"
     if kind == "json":
         return _go_json_arg(lang_type, value)
     if kind == "datetime":
