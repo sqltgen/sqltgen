@@ -26,9 +26,9 @@ public:
     SqliteStmt& operator=(const SqliteStmt&) = delete;
 
     // Bind a parameter. `i` is 1-based, matching sqlite3's placeholder numbering.
-    void bind_int(int i, int v)            { check(sqlite3_bind_int(stmt_, i, v)); }
+    void bind_int(int i, int v) { check(sqlite3_bind_int(stmt_, i, v)); }
     void bind_int64(int i, std::int64_t v) { check(sqlite3_bind_int64(stmt_, i, v)); }
-    void bind_double(int i, double v)      { check(sqlite3_bind_double(stmt_, i, v)); }
+    void bind_double(int i, double v) { check(sqlite3_bind_double(stmt_, i, v)); }
     void bind_text(int i, const std::string& v) {
         // SQLITE_TRANSIENT: sqlite copies the bytes, so `v` may be destroyed immediately.
         check(sqlite3_bind_text(stmt_, i, v.c_str(), -1, SQLITE_TRANSIENT));
@@ -54,11 +54,11 @@ public:
     std::int64_t changes() const { return sqlite3_changes64(db_); }
 
     // Column readers. `i` is 0-based, matching sqlite3's column numbering.
-    bool          is_null(int i)       const { return sqlite3_column_type(stmt_, i) == SQLITE_NULL; }
-    int           column_int(int i)    const { return sqlite3_column_int(stmt_, i); }
-    std::int64_t  column_int64(int i)  const { return sqlite3_column_int64(stmt_, i); }
-    double        column_double(int i) const { return sqlite3_column_double(stmt_, i); }
-    std::string   column_text(int i)   const {
+    bool is_null(int i) const { return sqlite3_column_type(stmt_, i) == SQLITE_NULL; }
+    int column_int(int i) const { return sqlite3_column_int(stmt_, i); }
+    std::int64_t column_int64(int i) const { return sqlite3_column_int64(stmt_, i); }
+    double column_double(int i) const { return sqlite3_column_double(stmt_, i); }
+    std::string column_text(int i) const {
         // sqlite3_column_text points to storage owned by the statement and is valid
         // until the next step/reset/finalize — copying into std::string is deliberate.
         return std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt_, i)));
