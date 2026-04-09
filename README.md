@@ -18,6 +18,8 @@ Inspired by [sqlc](https://sqlc.dev).
 4. Get fully typed, ready-to-use database access code.
 
 No reflection. No runtime query building. Just your SQL, compiled to code.
+The generated code uses only your language's standard database driver — no
+runtime library to depend on, no framework to lock into.
 
 ---
 

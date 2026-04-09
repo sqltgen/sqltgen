@@ -31,6 +31,15 @@ better-sqlite3 / mysql2 for TypeScript/JavaScript.
 **You already wrote the SQL.** ORMs ask you to translate your mental model into a
 different API; sqltgen lets you keep writing SQL and adds type safety around it.
 
+**It's not another dependency — it's your code.** The generated files are plain
+source code that belongs to your project. They use only your language's standard
+database driver (JDBC, sqlx, psycopg3, pg, etc.) — there is no `sqltgen-runtime`
+package, no framework sitting in your import path. If you stop using sqltgen
+tomorrow, your code still compiles and runs. You can read it, debug it, even
+hand-edit it. Stack traces go through your code and your driver, not through a
+library you don't control. Upgrading sqltgen is just re-running the generator and
+reviewing the diff — there is no runtime migration.
+
 **The generated code is readable.** Output looks like code a competent developer
 wrote by hand: idiomatic function names, proper nullability, correct types. There
 are no codegen artifacts to work around.
