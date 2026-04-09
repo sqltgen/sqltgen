@@ -194,6 +194,61 @@ fn derived_table_count_star_resolves_to_bigint() {
 }
 
 #[test]
+fn left_join_subquery_with_row_number_becomes_nullable() {
+    let sql = "-- name: GetUsersRanked :many\n\
+        SELECT u.id, sub.rn \
+        FROM users u LEFT JOIN (SELECT user_id, ROW_NUMBER() OVER (ORDER BY id) AS rn FROM posts) sub ON u.id = sub.user_id;";
+    let q = &parse_queries(sql, &make_join_schema()).unwrap()[0];
+    assert_eq!(q.result_columns.len(), 2);
+    assert!(!q.result_columns[0].nullable, "users.id should remain non-nullable");
+    assert!(q.result_columns[1].nullable, "ROW_NUMBER from LEFT JOIN subquery should become nullable");
+}
+
+#[test]
+fn left_join_subquery_with_count_becomes_nullable() {
+    let sql = "-- name: GetUserPostCounts :many\n\
+        SELECT u.id, sub.cnt \
+        FROM users u LEFT JOIN (SELECT user_id, COUNT(*) AS cnt FROM posts GROUP BY user_id) sub ON u.id = sub.user_id;";
+    let q = &parse_queries(sql, &make_join_schema()).unwrap()[0];
+    assert_eq!(q.result_columns.len(), 2);
+    assert!(!q.result_columns[0].nullable, "users.id should remain non-nullable");
+    assert!(q.result_columns[1].nullable, "COUNT from LEFT JOIN subquery should become nullable");
+}
+
+#[test]
+fn left_join_subquery_with_case_becomes_nullable() {
+    let sql = "-- name: GetUserFlags :many\n\
+        SELECT u.id, sub.flag \
+        FROM users u LEFT JOIN (SELECT user_id, CASE WHEN title = 'x' THEN 1 ELSE 0 END AS flag FROM posts) sub ON u.id = sub.user_id;";
+    let q = &parse_queries(sql, &make_join_schema()).unwrap()[0];
+    assert_eq!(q.result_columns.len(), 2);
+    assert!(!q.result_columns[0].nullable, "users.id should remain non-nullable");
+    assert!(q.result_columns[1].nullable, "CASE from LEFT JOIN subquery should become nullable");
+}
+
+#[test]
+fn left_join_subquery_with_arithmetic_becomes_nullable() {
+    let sql = "-- name: GetUserCalc :many\n\
+        SELECT u.id, sub.calc \
+        FROM users u LEFT JOIN (SELECT user_id, id + 1 AS calc FROM posts) sub ON u.id = sub.user_id;";
+    let q = &parse_queries(sql, &make_join_schema()).unwrap()[0];
+    assert_eq!(q.result_columns.len(), 2);
+    assert!(!q.result_columns[0].nullable, "users.id should remain non-nullable");
+    assert!(q.result_columns[1].nullable, "arithmetic expr from LEFT JOIN subquery should become nullable");
+}
+
+#[test]
+fn left_join_subquery_with_coalesce_becomes_nullable() {
+    let sql = "-- name: GetUserCoalesce :many\n\
+        SELECT u.id, sub.val \
+        FROM users u LEFT JOIN (SELECT user_id, COALESCE(title, 'none') AS val FROM posts) sub ON u.id = sub.user_id;";
+    let q = &parse_queries(sql, &make_join_schema()).unwrap()[0];
+    assert_eq!(q.result_columns.len(), 2);
+    assert!(!q.result_columns[0].nullable, "users.id should remain non-nullable");
+    assert!(q.result_columns[1].nullable, "COALESCE from LEFT JOIN subquery should become nullable");
+}
+
+#[test]
 fn qualified_star_expands_single_table() {
     // SELECT a.* should expand to all columns of `users`
     let sql = "-- name: ListUsers :many\nSELECT a.* FROM users a;";
