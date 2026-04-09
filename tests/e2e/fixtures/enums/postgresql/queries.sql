@@ -37,5 +37,19 @@ FROM task
 GROUP BY status
 ORDER BY status;
 
+-- name: CreateTaskWithTags :one
+INSERT INTO task (title, priority, status, description, tags)
+VALUES (@title, @priority, @status, @description, @tags)
+RETURNING *;
+
+-- name: GetTaskTags :one
+SELECT id, title, tags
+FROM task
+WHERE id = @id;
+
+-- name: UpdateTaskTags :one
+UPDATE task SET tags = @tags WHERE id = @id
+RETURNING *;
+
 -- name: DeleteTask :exec
 DELETE FROM task WHERE id = @id;

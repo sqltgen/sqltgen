@@ -232,23 +232,24 @@ pub fn jdbc_bind_sequence<'a>(query: &'a Query) -> Vec<(usize, &'a Parameter)> {
 /// Return the PostgreSQL type name for use with `conn.createArrayOf(typeName, …)`.
 ///
 /// Required for the PostgreSQL native list-param strategy in the Java and Kotlin JDBC backends.
-pub fn pg_array_type_name(sql_type: &SqlType) -> &'static str {
+pub fn pg_array_type_name(sql_type: &SqlType) -> String {
     match sql_type {
-        SqlType::SmallInt => "smallint",
-        SqlType::Integer => "integer",
-        SqlType::BigInt => "bigint",
-        SqlType::Real => "real",
-        SqlType::Double => "float8",
-        SqlType::Decimal => "numeric",
-        SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_) => "text",
-        SqlType::Boolean => "boolean",
-        SqlType::Date => "date",
-        SqlType::Time => "time",
-        SqlType::Timestamp => "timestamp",
-        SqlType::TimestampTz => "timestamptz",
-        SqlType::Uuid => "uuid",
-        SqlType::Bytes => "bytea",
-        _ => "text",
+        SqlType::SmallInt => "smallint".to_string(),
+        SqlType::Integer => "integer".to_string(),
+        SqlType::BigInt => "bigint".to_string(),
+        SqlType::Real => "real".to_string(),
+        SqlType::Double => "float8".to_string(),
+        SqlType::Decimal => "numeric".to_string(),
+        SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_) => "text".to_string(),
+        SqlType::Boolean => "boolean".to_string(),
+        SqlType::Date => "date".to_string(),
+        SqlType::Time => "time".to_string(),
+        SqlType::Timestamp => "timestamp".to_string(),
+        SqlType::TimestampTz => "timestamptz".to_string(),
+        SqlType::Uuid => "uuid".to_string(),
+        SqlType::Bytes => "bytea".to_string(),
+        SqlType::Enum(name) => name.clone(),
+        _ => "text".to_string(),
     }
 }
 

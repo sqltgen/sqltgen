@@ -19,7 +19,8 @@ use super::typemap::{KotlinTypeEntry, KotlinTypeMap};
 /// Return the Kotlin type string for a parameter, resolved from the type map.
 pub(super) fn kotlin_param_type(p: &Parameter, type_map: &KotlinTypeMap) -> String {
     if p.is_list {
-        format!("List<{}>", type_map.get(&p.sql_type).param_type)
+        let inner = if let SqlType::Enum(name) = &p.sql_type { to_pascal_case(name) } else { type_map.get(&p.sql_type).param_type.clone() };
+        format!("List<{inner}>")
     } else {
         type_map.kotlin_param_type(&p.sql_type, p.nullable)
     }
@@ -437,6 +438,14 @@ fn resultset_read_expr(sql_type: &SqlType, nullable: bool, idx: usize, type_map:
         return if nullable { format!("rs.getString({idx})?.let {{ {ty}.fromValue(it) }}") } else { format!("{ty}.fromValue(rs.getString({idx}))") };
     }
     if let SqlType::Array(inner) = sql_type {
+        if let SqlType::Enum(name) = inner.as_ref() {
+            let ty = to_pascal_case(name);
+            return if nullable {
+                format!("rs.getArray({idx})?.let {{ a -> (a.array as Array<*>).map {{ {ty}.fromValue(it as String) }}.toList() }}")
+            } else {
+                format!("(rs.getArray({idx}).array as Array<*>).map {{ {ty}.fromValue(it as String) }}.toList()")
+            };
+        }
         return jdbc_array_read_expr(inner, nullable, idx, type_map);
     }
     let entry = type_map.get(sql_type);

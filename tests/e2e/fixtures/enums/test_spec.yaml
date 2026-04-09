@@ -127,6 +127,80 @@ scenarios:
         bind: counts
       - assert_len: {var: counts, value: 2}
 
+  # ── enum array — create, read, update ────────────────────────────────
+
+  - name: create_with_enum_array
+    section: "enum array queries"
+    steps:
+      - call: create_task_with_tags
+        args:
+          title: {str: "Tagged task"}
+          priority: {str: "high"}
+          status: {str: "open"}
+          description: {null: true}
+          tags: {list: [{str: "high"}, {str: "critical"}]}
+        bind: task
+      - assert_not_null: task
+      - assert_eq: {field: task.title, value: {str: "Tagged task"}}
+      - assert_len: {var: task.tags, value: 2}
+      - assert_eq: {field: "task.tags[0]", value: {str: "high"}}
+      - assert_eq: {field: "task.tags[1]", value: {str: "critical"}}
+
+  - name: get_task_tags
+    section: "enum array queries"
+    steps:
+      - call: create_task_with_tags
+        args:
+          title: {str: "Read tags"}
+          priority: {str: "low"}
+          status: {str: "open"}
+          description: {null: true}
+          tags: {list: [{str: "low"}, {str: "medium"}, {str: "high"}]}
+      - call: get_task_tags
+        args: {id: {int: 1}}
+        bind: row
+      - assert_not_null: row
+      - assert_len: {var: row.tags, value: 3}
+      - assert_eq: {field: "row.tags[0]", value: {str: "low"}}
+      - assert_eq: {field: "row.tags[1]", value: {str: "medium"}}
+      - assert_eq: {field: "row.tags[2]", value: {str: "high"}}
+
+  - name: update_task_tags
+    section: "enum array queries"
+    steps:
+      - call: create_task_with_tags
+        args:
+          title: {str: "Update tags"}
+          priority: {str: "medium"}
+          status: {str: "open"}
+          description: {null: true}
+          tags: {list: [{str: "low"}]}
+      - call: update_task_tags
+        args:
+          tags: {list: [{str: "high"}, {str: "critical"}]}
+          id: {int: 1}
+        bind: updated
+      - assert_not_null: updated
+      - assert_len: {var: updated.tags, value: 2}
+      - assert_eq: {field: "updated.tags[0]", value: {str: "high"}}
+      - assert_eq: {field: "updated.tags[1]", value: {str: "critical"}}
+
+  - name: empty_enum_array
+    section: "enum array queries"
+    steps:
+      - call: create_task_with_tags
+        args:
+          title: {str: "No tags"}
+          priority: {str: "low"}
+          status: {str: "open"}
+          description: {null: true}
+          tags: {list: []}
+      - call: get_task_tags
+        args: {id: {int: 1}}
+        bind: row
+      - assert_not_null: row
+      - assert_len: {var: row.tags, value: 0}
+
   # ── :exec — delete ──────────────────────────────────────────────────
 
   - name: delete_task

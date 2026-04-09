@@ -147,3 +147,52 @@ async fn test_update_task_status_gen() {
     assert_eq!(updated.priority, "critical".parse::<Priority>().unwrap());
 }
 
+// ─── enum array queries ────────────────────────────────────────────────────────────
+
+#[allow(unused_variables)]
+#[tokio::test]
+async fn test_create_with_enum_array_gen() {
+    let pool = gen_setup_db().await;
+    let task = queries::create_task_with_tags(&pool, "Tagged task".to_string(), "high".parse::<Priority>().unwrap(), "open".parse::<Status>().unwrap(), None, vec!["high".parse::<Priority>().unwrap(), "critical".parse::<Priority>().unwrap()]).await.unwrap();
+    let task = task.expect("expected non-nil task");
+    assert_eq!(task.title, "Tagged task".to_string());
+    assert_eq!(task.tags.len(), 2);
+    assert_eq!(task.tags[0], "high".parse::<Priority>().unwrap());
+    assert_eq!(task.tags[1], "critical".parse::<Priority>().unwrap());
+}
+
+#[allow(unused_variables)]
+#[tokio::test]
+async fn test_get_task_tags_gen() {
+    let pool = gen_setup_db().await;
+    let _ = queries::create_task_with_tags(&pool, "Read tags".to_string(), "low".parse::<Priority>().unwrap(), "open".parse::<Status>().unwrap(), None, vec!["low".parse::<Priority>().unwrap(), "medium".parse::<Priority>().unwrap(), "high".parse::<Priority>().unwrap()]).await.unwrap();
+    let row = queries::get_task_tags(&pool, 1).await.unwrap();
+    let row = row.expect("expected non-nil row");
+    assert_eq!(row.tags.len(), 3);
+    assert_eq!(row.tags[0], "low".parse::<Priority>().unwrap());
+    assert_eq!(row.tags[1], "medium".parse::<Priority>().unwrap());
+    assert_eq!(row.tags[2], "high".parse::<Priority>().unwrap());
+}
+
+#[allow(unused_variables)]
+#[tokio::test]
+async fn test_update_task_tags_gen() {
+    let pool = gen_setup_db().await;
+    let _ = queries::create_task_with_tags(&pool, "Update tags".to_string(), "medium".parse::<Priority>().unwrap(), "open".parse::<Status>().unwrap(), None, vec!["low".parse::<Priority>().unwrap()]).await.unwrap();
+    let updated = queries::update_task_tags(&pool, vec!["high".parse::<Priority>().unwrap(), "critical".parse::<Priority>().unwrap()], 1).await.unwrap();
+    let updated = updated.expect("expected non-nil updated");
+    assert_eq!(updated.tags.len(), 2);
+    assert_eq!(updated.tags[0], "high".parse::<Priority>().unwrap());
+    assert_eq!(updated.tags[1], "critical".parse::<Priority>().unwrap());
+}
+
+#[allow(unused_variables)]
+#[tokio::test]
+async fn test_empty_enum_array_gen() {
+    let pool = gen_setup_db().await;
+    let _ = queries::create_task_with_tags(&pool, "No tags".to_string(), "low".parse::<Priority>().unwrap(), "open".parse::<Status>().unwrap(), None, vec![]).await.unwrap();
+    let row = queries::get_task_tags(&pool, 1).await.unwrap();
+    let row = row.expect("expected non-nil row");
+    assert_eq!(row.tags.len(), 0);
+}
+

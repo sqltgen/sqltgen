@@ -270,9 +270,15 @@ def _get_field_lang_type(
 
     Returns None for bare variables (no dot) or when the manifest doesn't have
     the necessary information.
+
+    When the field is accessed with an array index (e.g. 'task.tags[0]'), the
+    element type is extracted from the collection type so that assertions can
+    apply the correct type-aware rendering (e.g. enum wrapping).
     """
     if not manifest or "." not in field_expr:
         return None
+    # Check whether the final segment has an array index (e.g. 'tags[0]')
+    is_indexed = bool(re.search(r"\[\d+\]$", field_expr))
     # Strip array index notation: 'events[0].name' → 'events.name'
     clean = re.sub(r"\[\d+\]", "", field_expr)
     parts = clean.split(".", 1)
@@ -285,8 +291,39 @@ def _get_field_lang_type(
         return None
     for field in model.fields:
         if field.name == field_name:
-            return field.lang_type
+            lang_type = field.lang_type
+            if is_indexed:
+                lang_type = _unwrap_collection_element(lang_type)
+            return lang_type
     return None
+
+
+def _unwrap_collection_element(lang_type: str) -> str:
+    """Extract the element type from a collection type.
+
+    Handles: List<T>, java.util.List<T>, list[T], Vec<T>, T[].
+    Returns the original type if no collection wrapper is detected.
+    """
+    # Java/Kotlin: List<T> or java.util.List<T>
+    m = re.match(r"(?:java\.util\.)?List<(.+)>\??$", lang_type)
+    if m:
+        return m.group(1)
+    # Python: list[T]
+    m = re.match(r"list\[(.+)\]", lang_type)
+    if m:
+        return m.group(1)
+    # Rust: Vec<T>
+    m = re.match(r"Vec<(.+)>", lang_type)
+    if m:
+        return m.group(1)
+    # Go: []T
+    m = re.match(r"\[\](.+)", lang_type)
+    if m:
+        return m.group(1)
+    # TypeScript: T[]
+    if lang_type.endswith("[]"):
+        return lang_type[:-2]
+    return lang_type
 
 
 def _get_func_command(manifest: Manifest | None, func_name: str) -> str | None:

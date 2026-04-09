@@ -46,6 +46,12 @@ pub(super) struct GoCoreContract {
     pub(super) bind_mode: GoBindMode,
     /// JSON column representation.
     pub(super) json_mode: GoJsonMode,
+    /// Expression template for binding array parameters. `{name}` is replaced
+    /// with the Go variable name. Use `"pq.Array({name})"` for lib/pq or
+    /// `"{name}"` for drivers that accept slices directly.
+    pub(super) array_param_expr: &'static str,
+    /// Import required by `array_param_expr`, if any.
+    pub(super) array_param_import: Option<&'static str>,
 }
 
 /// Resolve the Go adapter contract for the selected engine target.
@@ -56,18 +62,24 @@ pub(super) fn resolve_go_contract(target: &GoTarget) -> GoCoreContract {
             placeholder_mode: GoPlaceholderMode::NumberedDollar,
             bind_mode: GoBindMode::UniqueParams,
             json_mode: GoJsonMode::Bytes,
+            array_param_expr: "pq.Array({name})",
+            array_param_import: Some("\"github.com/lib/pq\""),
         },
         GoTarget::Sqlite => GoCoreContract {
             driver_comment: "// Driver: modernc.org/sqlite",
             placeholder_mode: GoPlaceholderMode::QuestionMark,
             bind_mode: GoBindMode::Positional,
             json_mode: GoJsonMode::String,
+            array_param_expr: "{name}",
+            array_param_import: None,
         },
         GoTarget::Mysql => GoCoreContract {
             driver_comment: "// Driver: github.com/go-sql-driver/mysql",
             placeholder_mode: GoPlaceholderMode::QuestionMark,
             bind_mode: GoBindMode::Positional,
             json_mode: GoJsonMode::String,
+            array_param_expr: "{name}",
+            array_param_import: None,
         },
     }
 }

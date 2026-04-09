@@ -136,3 +136,55 @@ describe(':one queries', () => {
 
 });
 
+// ─── enum array queries ────────────────────────────────────────────────────────────
+
+describe('enum array queries', () => {
+  it('create with enum array', async () => {
+    const { db, schema } = await makeClient();
+    try {
+      const task = await queries.createTaskWithTags(db, 'Tagged task', 'high', 'open', null, ['high', 'critical'])
+      assert.ok(task)
+      assert.equal(task.title, 'Tagged task')
+      assert.equal(task.tags.length, 2)
+      assert.equal(task.tags[0], 'high')
+      assert.equal(task.tags[1], 'critical')
+    } finally { await teardown(db, schema); }
+  });
+
+  it('get task tags', async () => {
+    const { db, schema } = await makeClient();
+    try {
+      await queries.createTaskWithTags(db, 'Read tags', 'low', 'open', null, ['low', 'medium', 'high'])
+      const row = await queries.getTaskTags(db, 1)
+      assert.ok(row)
+      assert.equal(row.tags.length, 3)
+      assert.equal(row.tags[0], 'low')
+      assert.equal(row.tags[1], 'medium')
+      assert.equal(row.tags[2], 'high')
+    } finally { await teardown(db, schema); }
+  });
+
+  it('update task tags', async () => {
+    const { db, schema } = await makeClient();
+    try {
+      await queries.createTaskWithTags(db, 'Update tags', 'medium', 'open', null, ['low'])
+      const updated = await queries.updateTaskTags(db, ['high', 'critical'], 1)
+      assert.ok(updated)
+      assert.equal(updated.tags.length, 2)
+      assert.equal(updated.tags[0], 'high')
+      assert.equal(updated.tags[1], 'critical')
+    } finally { await teardown(db, schema); }
+  });
+
+  it('empty enum array', async () => {
+    const { db, schema } = await makeClient();
+    try {
+      await queries.createTaskWithTags(db, 'No tags', 'low', 'open', null, [])
+      const row = await queries.getTaskTags(db, 1)
+      assert.ok(row)
+      assert.equal(row.tags.length, 0)
+    } finally { await teardown(db, schema); }
+  });
+
+});
+

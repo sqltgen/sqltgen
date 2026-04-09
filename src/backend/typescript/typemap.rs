@@ -127,10 +127,22 @@ impl JsTypeMap {
             .result_columns
             .iter()
             .filter_map(|col| {
-                let entry = self.get(&col.sql_type);
-                let read_expr = entry.read_expr.as_ref()?;
-                let raw_access = format!("{raw_var}.{}", col.name);
-                Some(format!("{}: {}", col.name, read_expr.replace("{raw}", &raw_access)))
+                // Type-override read expressions.
+                if let Some(read_expr) = self.get(&col.sql_type).read_expr.as_ref() {
+                    let raw_access = format!("{raw_var}.{}", col.name);
+                    return Some(format!("{}: {}", col.name, read_expr.replace("{raw}", &raw_access)));
+                }
+                // Enum array columns: pg returns them as raw text ('{a,b,c}').
+                // Parse into a proper JS string array.
+                if let SqlType::Array(inner) = &col.sql_type {
+                    if matches!(inner.as_ref(), SqlType::Enum(_)) {
+                        let raw_access = format!("{raw_var}.{}", col.name);
+                        let parse =
+                            format!("typeof {raw_access} === 'string' ? {raw_access}.replace(/[{{}}]/g, '').split(',').filter(Boolean) : ({raw_access} ?? [])");
+                        return Some(format!("{}: {parse}", col.name));
+                    }
+                }
+                None
             })
             .collect();
         if transforms.is_empty() {

@@ -6,5 +6,6 @@ CREATE TABLE task (
     title       TEXT         NOT NULL,
     priority    priority     NOT NULL,
     status      status       NOT NULL DEFAULT 'open',
-    description TEXT
+    description TEXT,
+    tags        priority[]   NOT NULL DEFAULT '{}'
 );
