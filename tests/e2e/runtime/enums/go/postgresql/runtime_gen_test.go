@@ -9,14 +9,86 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"os"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	gen "e2e-enums-go-postgresql/gen"
+
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
-// ─── test helpers ─────────────────────────────────────────────────────────────
+// ─── test setup ──────────────────────────────────────────────────────────────
+
+func genDSN() string {
+	if v := os.Getenv("DATABASE_URL"); v != "" {
+		return v
+	}
+	return "postgres://sqltgen:sqltgen@localhost:15432/sqltgen_e2e"
+}
+
+func setupDB(t *testing.T) (*sql.DB, func()) {
+	t.Helper()
+	ctx := context.Background()
+
+	dbName := fmt.Sprintf("test_%d", rand.Int63())
+	admin, err := sql.Open("pgx", genDSN())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.ExecContext(ctx, fmt.Sprintf(`CREATE DATABASE "%s"`, dbName)); err != nil {
+		t.Fatal(err)
+	}
+	admin.Close()
+
+	dbURL := genReplaceLastSegment(genDSN(), dbName)
+	db, err := sql.Open("pgx", dbURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ddl, err := os.ReadFile("../../../../fixtures/enums/postgresql/schema.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, stmt := range genSplitStatements(string(ddl)) {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	cleanup := func() {
+		db.Close()
+		adm, _ := sql.Open("pgx", genDSN())
+		adm.ExecContext(ctx, fmt.Sprintf(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '%s' AND pid <> pg_backend_pid()`, dbName))
+		adm.ExecContext(ctx, fmt.Sprintf(`DROP DATABASE IF EXISTS "%s"`, dbName))
+		adm.Close()
+	}
+	return db, cleanup
+}
+
+func genReplaceLastSegment(url, replacement string) string {
+	i := strings.LastIndex(url, "/")
+	if i < 0 {
+		return url
+	}
+	return url[:i+1] + replacement
+}
+
+func genSplitStatements(ddl string) []string {
+	var stmts []string
+	for _, s := range strings.Split(ddl, ";") {
+		s = strings.TrimSpace(s)
+		if s != "" {
+			stmts = append(stmts, s)
+		}
+	}
+	return stmts
+}
+
+// ─── test helpers ────────────────────────────────────────────────────────────
 
 // genUUID generates a random UUID v4-like string for test row isolation.
 func genUUID() string {
@@ -107,9 +179,28 @@ func genAssertJSON(t *testing.T, got, want interface{}) {
 	}
 }
 
-// ─── scenarios ────────────────────────────────────────────────────────────────
+// mustJSON marshals v to JSON bytes. Used for JSON parameter binding.
+func mustJSON(v interface{}) []byte {
+	b, err := json.Marshal(v)
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
 
-// ─── :exec queries ────────────────────────────────────────────────────────────
+// ptrBytes returns a pointer to a byte slice copy.
+func ptrBytes(b []byte) *[]byte {
+	return &b
+}
+
+// testUUID returns a deterministic-looking UUID string for test assertions.
+func testUUID() string {
+	return fmt.Sprintf("%08x-0000-4000-8000-%012x", rand.Int63()&0xFFFFFFFF, rand.Int63()&0xFFFFFFFFFFFF)
+}
+
+// ─── scenarios ───────────────────────────────────────────────────────────────
+
+// ─── :exec queries ───────────────────────────────────────────────────────────
 
 func TestDeleteTaskGen(t *testing.T) {
 	db, cleanup := setupDB(t)
@@ -129,7 +220,7 @@ func TestDeleteTaskGen(t *testing.T) {
 	if result != nil { t.Fatalf("expected nil, got %v", result) }
 }
 
-// ─── :many queries ────────────────────────────────────────────────────────────
+// ─── :many queries ───────────────────────────────────────────────────────────
 
 func TestListByPriorityGen(t *testing.T) {
 	db, cleanup := setupDB(t)
@@ -221,7 +312,7 @@ func TestCountByStatusGen(t *testing.T) {
 	if len(counts) != 2 { t.Fatalf("expected len=2, got %d", len(counts)) }
 }
 
-// ─── :one queries ────────────────────────────────────────────────────────────
+// ─── :one queries ───────────────────────────────────────────────────────────
 
 func TestCreateAndGetTaskGen(t *testing.T) {
 	db, cleanup := setupDB(t)
@@ -270,7 +361,7 @@ func TestUpdateTaskStatusGen(t *testing.T) {
 	if updated.Priority != gen.Priority("critical") { t.Errorf("expected %v, got %v", gen.Priority("critical"), updated.Priority) }
 }
 
-// ─── enum array queries ────────────────────────────────────────────────────────────
+// ─── enum array queries ───────────────────────────────────────────────────────────
 
 func TestCreateWithEnumArrayGen(t *testing.T) {
 	db, cleanup := setupDB(t)

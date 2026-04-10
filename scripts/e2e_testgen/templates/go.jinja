@@ -4,21 +4,215 @@
 package main
 
 import (
-{% if engine != "sqlite" %}
 	"context"
+{% if engine == "mysql" %}
+	crand "crypto/rand"
+	"encoding/hex"
 {% endif %}
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"os"
 	"reflect"
+{% if engine != "sqlite" %}
+	"strings"
+{% endif %}
 	"testing"
 	"time"
 
 	gen "e2e-{{ spec.fixture | replace('_', '-') }}-go-{{ engine }}/{{ manifest.package }}"
+{% if engine == "postgresql" %}
+
+	_ "github.com/jackc/pgx/v5/stdlib"
+{% elif engine == "sqlite" %}
+
+	_ "modernc.org/sqlite"
+{% elif engine == "mysql" %}
+
+	_ "github.com/go-sql-driver/mysql"
+{% endif %}
 )
 
-// ─── test helpers ─────────────────────────────────────────────────────────────
+// ─── test setup ──────────────────────────────────────────────────────────────
+
+{% if engine == "sqlite" %}
+func setupDB(t *testing.T) (*sql.DB, context.Context) {
+	t.Helper()
+	ctx := context.Background()
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
+		t.Fatal(err)
+	}
+	ddl, err := os.ReadFile("../../../../fixtures/{{ spec.fixture }}/sqlite/schema.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(string(ddl)); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	return db, ctx
+}
+{% elif engine == "postgresql" %}
+func genDSN() string {
+	if v := os.Getenv("DATABASE_URL"); v != "" {
+		return v
+	}
+	return "postgres://sqltgen:sqltgen@localhost:15432/sqltgen_e2e"
+}
+
+func setupDB(t *testing.T) (*sql.DB, func()) {
+	t.Helper()
+	ctx := context.Background()
+
+	dbName := fmt.Sprintf("test_%d", rand.Int63())
+	admin, err := sql.Open("pgx", genDSN())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.ExecContext(ctx, fmt.Sprintf(`CREATE DATABASE "%s"`, dbName)); err != nil {
+		t.Fatal(err)
+	}
+	admin.Close()
+
+	dbURL := genReplaceLastSegment(genDSN(), dbName)
+	db, err := sql.Open("pgx", dbURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ddl, err := os.ReadFile("../../../../fixtures/{{ spec.fixture }}/postgresql/schema.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, stmt := range genSplitStatements(string(ddl)) {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	cleanup := func() {
+		db.Close()
+		adm, _ := sql.Open("pgx", genDSN())
+		adm.ExecContext(ctx, fmt.Sprintf(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '%s' AND pid <> pg_backend_pid()`, dbName))
+		adm.ExecContext(ctx, fmt.Sprintf(`DROP DATABASE IF EXISTS "%s"`, dbName))
+		adm.Close()
+	}
+	return db, cleanup
+}
+
+func genReplaceLastSegment(url, replacement string) string {
+	i := strings.LastIndex(url, "/")
+	if i < 0 {
+		return url
+	}
+	return url[:i+1] + replacement
+}
+
+func genSplitStatements(ddl string) []string {
+	var stmts []string
+	for _, s := range strings.Split(ddl, ";") {
+		s = strings.TrimSpace(s)
+		if s != "" {
+			stmts = append(stmts, s)
+		}
+	}
+	return stmts
+}
+{% elif engine == "mysql" %}
+func genMysqlDSN() string {
+	if v := os.Getenv("MYSQL_DSN"); v != "" {
+		return v
+	}
+	return "sqltgen:sqltgen@tcp(localhost:13306)/sqltgen_e2e?parseTime=true"
+}
+
+func genMysqlAdminDSN() string {
+	d := genMysqlDSN()
+	if idx := strings.LastIndex(d, "/"); idx != -1 {
+		rest := d[idx+1:]
+		if qIdx := strings.Index(rest, "?"); qIdx != -1 {
+			return d[:idx+1] + rest[qIdx:]
+		}
+		return d[:idx+1]
+	}
+	return d
+}
+
+func genRandomDBName() string {
+	b := make([]byte, 8)
+	_, _ = crand.Read(b)
+	return "test_" + hex.EncodeToString(b)
+}
+
+func setupDB(t *testing.T) (*sql.DB, func()) {
+	t.Helper()
+
+	admin, err := sql.Open("mysql", genMysqlAdminDSN())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dbName := genRandomDBName()
+	if _, err := admin.Exec("CREATE DATABASE " + dbName); err != nil {
+		admin.Close()
+		t.Fatal(err)
+	}
+
+	d := genMysqlDSN()
+	var testDSN string
+	if idx := strings.LastIndex(d, "/"); idx != -1 {
+		rest := d[idx+1:]
+		if qIdx := strings.Index(rest, "?"); qIdx != -1 {
+			testDSN = d[:idx+1] + dbName + rest[qIdx:]
+		} else {
+			testDSN = d[:idx+1] + dbName
+		}
+	} else {
+		testDSN = d + "/" + dbName
+	}
+
+	db, err := sql.Open("mysql", testDSN)
+	if err != nil {
+		admin.Exec("DROP DATABASE IF EXISTS " + dbName)
+		admin.Close()
+		t.Fatal(err)
+	}
+
+	ddl, err := os.ReadFile("../../../../fixtures/{{ spec.fixture }}/mysql/schema.sql")
+	if err != nil {
+		db.Close()
+		admin.Exec("DROP DATABASE IF EXISTS " + dbName)
+		admin.Close()
+		t.Fatal(err)
+	}
+	for _, stmt := range strings.Split(string(ddl), ";") {
+		stmt = strings.TrimSpace(stmt)
+		if stmt == "" {
+			continue
+		}
+		if _, err := db.Exec(stmt); err != nil {
+			db.Close()
+			admin.Exec("DROP DATABASE IF EXISTS " + dbName)
+			admin.Close()
+			t.Fatal(err)
+		}
+	}
+
+	cleanup := func() {
+		db.Close()
+		admin.Exec("DROP DATABASE IF EXISTS " + dbName)
+		admin.Close()
+	}
+	return db, cleanup
+}
+{% endif %}
+
+// ─── test helpers ────────────────────────────────────────────────────────────
 
 // genUUID generates a random UUID v4-like string for test row isolation.
 func genUUID() string {
@@ -109,10 +303,29 @@ func genAssertJSON(t *testing.T, got, want interface{}) {
 	}
 }
 
-// ─── scenarios ────────────────────────────────────────────────────────────────
+// mustJSON marshals v to JSON bytes. Used for JSON parameter binding.
+func mustJSON(v interface{}) []byte {
+	b, err := json.Marshal(v)
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+// ptrBytes returns a pointer to a byte slice copy.
+func ptrBytes(b []byte) *[]byte {
+	return &b
+}
+
+// testUUID returns a deterministic-looking UUID string for test assertions.
+func testUUID() string {
+	return fmt.Sprintf("%08x-0000-4000-8000-%012x", rand.Int63()&0xFFFFFFFF, rand.Int63()&0xFFFFFFFFFFFF)
+}
+
+// ─── scenarios ───────────────────────────────────────────────────────────────
 
 {% for section, section_scenarios in scenarios | groupby('section') %}
-// ─── {{ section }} ────────────────────────────────────────────────────────────
+// ─── {{ section }} ───────────────────────────────────────────────────────────
 
 {% for scenario in section_scenarios %}
 func Test{{ scenario.name | to_pascal_case }}Gen(t *testing.T) {

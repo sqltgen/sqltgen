@@ -378,9 +378,9 @@ def _go_json_arg(lang_type: str, value: Any) -> str:
     if lang_type == "*[]byte":
         return f"ptrBytes(mustJSON({go_map}))"
     if lang_type == "sql.NullString":
-        return f"sql.NullString{{String: mustJSON({go_map}), Valid: true}}"
+        return f"sql.NullString{{String: string(mustJSON({go_map})), Valid: true}}"
     # string (SQLite/MySQL non-nullable JSON stored as TEXT)
-    return f"mustJSON({go_map})"
+    return f"string(mustJSON({go_map}))"
 
 
 def _parse_go_datetime(s: str) -> str:
