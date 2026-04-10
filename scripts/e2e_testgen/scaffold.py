@@ -396,6 +396,33 @@ WRITERS = {
     "kotlin": write_kotlin,
 }
 
+# ── Lock file generation ─────────────────────────────────────────────────────
+
+def resolve_deps(lang: str, dest: Path) -> None:
+    """Run the language's dependency resolver to produce lock files."""
+    import subprocess
+
+    if lang == "rust":
+        subprocess.run(["cargo", "generate-lockfile"], cwd=dest, capture_output=True)
+    elif lang == "go":
+        # go mod tidy needs a .go file that imports the driver.
+        # pgx/v5 is the test setup driver; lib/pq is used by generated sqltgen code.
+        driver_imports = {
+            "postgresql": '_ "github.com/jackc/pgx/v5/stdlib"\n\t_ "github.com/lib/pq"',
+            "sqlite":     '_ "modernc.org/sqlite"',
+            "mysql":      '_ "github.com/go-sql-driver/mysql"',
+        }
+        engine = dest.name  # Last path component is the engine.
+        driver_import = driver_imports.get(engine, "")
+        stub = dest / "stub_test.go"
+        stub.write_text(f'package main\n\nimport (\n\t{driver_import}\n)\n')
+        subprocess.run(["go", "mod", "tidy"], cwd=dest, capture_output=True)
+        stub.unlink(missing_ok=True)
+    elif lang in ("typescript", "javascript"):
+        subprocess.run(["npm", "install", "--package-lock-only"], cwd=dest, capture_output=True)
+    # Java/Kotlin: Maven has no lock file mechanism — skip.
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def scaffold(fixture: str, lang: str, engine: str,
@@ -416,6 +443,9 @@ def scaffold(fixture: str, lang: str, engine: str,
 
     # Language-specific files
     WRITERS[lang](fixture, engine, dest)
+
+    # Generate lock files
+    resolve_deps(lang, dest)
 
     print(f"  created: {dest.relative_to(REPO_ROOT)}")
     return dest
