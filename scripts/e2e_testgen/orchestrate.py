@@ -24,6 +24,7 @@ from test_spec import TestSpec
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 FIXTURES_DIR = REPO_ROOT / "tests" / "e2e" / "fixtures"
 RUNTIME_DIR = REPO_ROOT / "tests" / "e2e" / "runtime"
+_runtime_dir = RUNTIME_DIR  # Mutable; overridden by --runtime-dir CLI flag.
 
 # Known dimensions for test generation.
 KNOWN_LANGUAGES = ["python", "go", "typescript", "rust", "java", "kotlin"]
@@ -72,7 +73,7 @@ class Combo:
 
     @property
     def runtime_dir(self) -> Path:
-        return RUNTIME_DIR / self.fixture / self.language / self.engine_dir
+        return _runtime_dir / self.fixture / self.language / self.engine_dir
 
     @property
     def spec_path(self) -> Path:
@@ -209,8 +210,14 @@ def main() -> None:
         p.add_argument("--engine", help="Database engine (e.g. postgresql)")
         p.add_argument("--variant", help="Non-default variant (e.g. gson)")
         p.add_argument("--sqltgen", default="cargo", help="sqltgen binary or 'cargo' (default)")
+        p.add_argument("--runtime-dir", help="Override runtime directory (default: tests/e2e/runtime)")
 
     args = parser.parse_args()
+
+    global _runtime_dir
+    if args.runtime_dir:
+        _runtime_dir = Path(args.runtime_dir).resolve()
+
     combos = discover_combos(args.fixture, args.lang, args.engine, args.variant)
 
     if not combos:
