@@ -1,8 +1,8 @@
 use std::collections::BTreeSet;
 use std::fmt::Write;
 
-use crate::backend::common::{infer_row_type_name, infer_table, jdbc_bind_sequence, jdbc_setter, pg_array_type_name, sql_const_name};
-use crate::backend::naming::{to_camel_case, to_pascal_case};
+use crate::backend::common::{infer_row_type_name, infer_table, jdbc_bind_sequence, jdbc_setter, model_name, pg_array_type_name, sql_const_name};
+use crate::backend::naming::to_camel_case;
 use crate::backend::sql_rewrite::{rewrite_to_anon_params, split_at_in_clause};
 use crate::config::{Engine, ExtraField, ListParamStrategy, OutputConfig, ResolvedType, TypeVariant};
 use crate::ir::{NativeListBind, Parameter, Query, QueryCmd, Schema, SqlType, Table};
@@ -111,8 +111,8 @@ pub fn result_row_type(query: &Query, schema: &Schema, fallback: &str) -> String
 ///
 /// `class_name` is the name of the enclosing class (e.g. `"Queries"`, `"UsersQueries"`).
 pub fn ds_result_row_type(query: &Query, schema: &Schema, fallback: &str, class_name: &str) -> String {
-    if let Some(table_name) = infer_table(query, schema) {
-        return to_pascal_case(table_name);
+    if let Some(table) = infer_table(query, schema) {
+        return model_name(table, schema.default_schema.as_deref());
     }
     if !query.result_columns.is_empty() {
         return format!("{class_name}.{}", crate::backend::common::row_type_name(&query.name));

@@ -25,20 +25,29 @@ const FIXTURES = join(__dirname, '../../../../fixtures/{{ spec.fixture }}/postgr
 const DATABASE_URL = process.env['DATABASE_URL']
   ?? 'postgresql://sqltgen:sqltgen@localhost:15432/sqltgen_e2e';
 
-async function makeClient(): Promise<{ db: Client; schema: string }> {
-  const schema = 'test_' + randomBytes(16).toString('hex');
+async function makeClient(): Promise<{ db: Client; dbName: string }> {
+  const dbName = 'test_' + randomBytes(16).toString('hex');
   const schemaSql = readFileSync(join(FIXTURES, 'schema.sql'), 'utf8');
-  const db = new Client({ connectionString: DATABASE_URL });
+  const base = DATABASE_URL.replace(/\/[^/]*$/, '');
+  const admin = new Client({ connectionString: DATABASE_URL });
+  await admin.connect();
+  await admin.query(`CREATE DATABASE "${dbName}"`);
+  await admin.end();
+  const db = new Client({ connectionString: `${base}/${dbName}` });
   await db.connect();
-  await db.query(`CREATE SCHEMA "${schema}"`);
-  await db.query(`SET search_path TO "${schema}"`);
-  await db.query(schemaSql);
-  return { db, schema };
+  for (const stmt of schemaSql.split(';').map((s: string) => s.trim()).filter(Boolean)) {
+    await db.query(stmt);
+  }
+  return { db, dbName };
 }
 
-async function teardown(db: Client, schema: string): Promise<void> {
-  await db.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+async function teardown(db: Client, dbName: string): Promise<void> {
   await db.end();
+  const admin = new Client({ connectionString: DATABASE_URL });
+  await admin.connect();
+  await admin.query(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${dbName}' AND pid <> pg_backend_pid()`);
+  await admin.query(`DROP DATABASE IF EXISTS "${dbName}"`);
+  await admin.end();
 }
 {% elif engine == "sqlite" %}
 const FIXTURES = join(__dirname, '../../../../fixtures/{{ spec.fixture }}/sqlite');
@@ -97,10 +106,10 @@ describe('{{ section }}', () => {
 {% for scenario in section_scenarios %}
   it('{{ scenario.name | replace("_", " ") }}', async () => {
 {% if engine == "postgresql" %}
-    const { db, schema } = await makeClient();
+    const { db, dbName } = await makeClient();
     try {
 {{ scenario.body | indent(2, first=True) }}
-    } finally { await teardown(db, schema); }
+    } finally { await teardown(db, dbName); }
 {% elif engine == "sqlite" %}
     const db = makeDb();
 {{ scenario.body }}

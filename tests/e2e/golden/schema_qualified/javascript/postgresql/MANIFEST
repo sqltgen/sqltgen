@@ -1,0 +1,7 @@
+out/index.js
+out/models/index.js
+out/models/internal_audit_log.js
+out/models/users.js
+out/queries/index.js
+out/queries/queries.js
+out/sqltgen.js

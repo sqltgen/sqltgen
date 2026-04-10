@@ -1,0 +1,4 @@
+out/mod.go
+out/models.go
+out/queries.go
+out/sqltgen.go

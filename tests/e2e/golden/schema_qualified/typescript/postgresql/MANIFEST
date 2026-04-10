@@ -1,0 +1,7 @@
+out/index.ts
+out/models/index.ts
+out/models/internal_audit_log.ts
+out/models/users.ts
+out/queries/index.ts
+out/queries/queries.ts
+out/sqltgen.ts

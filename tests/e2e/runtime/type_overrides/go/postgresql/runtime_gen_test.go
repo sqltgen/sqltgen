@@ -4,18 +4,91 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"os"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	gen "e2e-type-overrides-go-postgresql/gen"
+
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
-// ─── test helpers ─────────────────────────────────────────────────────────────
+// ─── test setup ──────────────────────────────────────────────────────────────
+
+func genDSN() string {
+	if v := os.Getenv("DATABASE_URL"); v != "" {
+		return v
+	}
+	return "postgres://sqltgen:sqltgen@localhost:15432/sqltgen_e2e"
+}
+
+func setupDB(t *testing.T) (*sql.DB, func()) {
+	t.Helper()
+	ctx := context.Background()
+
+	dbName := fmt.Sprintf("test_%d", rand.Int63())
+	admin, err := sql.Open("pgx", genDSN())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.ExecContext(ctx, fmt.Sprintf(`CREATE DATABASE "%s"`, dbName)); err != nil {
+		t.Fatal(err)
+	}
+	admin.Close()
+
+	dbURL := genReplaceLastSegment(genDSN(), dbName)
+	db, err := sql.Open("pgx", dbURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ddl, err := os.ReadFile("../../../../fixtures/type_overrides/postgresql/schema.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, stmt := range genSplitStatements(string(ddl)) {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	cleanup := func() {
+		db.Close()
+		adm, _ := sql.Open("pgx", genDSN())
+		adm.ExecContext(ctx, fmt.Sprintf(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '%s' AND pid <> pg_backend_pid()`, dbName))
+		adm.ExecContext(ctx, fmt.Sprintf(`DROP DATABASE IF EXISTS "%s"`, dbName))
+		adm.Close()
+	}
+	return db, cleanup
+}
+
+func genReplaceLastSegment(url, replacement string) string {
+	i := strings.LastIndex(url, "/")
+	if i < 0 {
+		return url
+	}
+	return url[:i+1] + replacement
+}
+
+func genSplitStatements(ddl string) []string {
+	var stmts []string
+	for _, s := range strings.Split(ddl, ";") {
+		s = strings.TrimSpace(s)
+		if s != "" {
+			stmts = append(stmts, s)
+		}
+	}
+	return stmts
+}
+
+// ─── test helpers ────────────────────────────────────────────────────────────
 
 // genUUID generates a random UUID v4-like string for test row isolation.
 func genUUID() string {
@@ -106,12 +179,33 @@ func genAssertJSON(t *testing.T, got, want interface{}) {
 	}
 }
 
-// ─── scenarios ────────────────────────────────────────────────────────────────
+// mustJSON marshals v to JSON bytes. Used for JSON parameter binding.
+func mustJSON(v interface{}) []byte {
+	b, err := json.Marshal(v)
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
 
-// ─── :exec queries ────────────────────────────────────────────────────────────
+// ptrBytes returns a pointer to a byte slice copy.
+func ptrBytes(b []byte) *[]byte {
+	return &b
+}
+
+// testUUID returns a deterministic-looking UUID string for test assertions.
+func testUUID() string {
+	return fmt.Sprintf("%08x-0000-4000-8000-%012x", rand.Int63()&0xFFFFFFFF, rand.Int63()&0xFFFFFFFFFFFF)
+}
+
+// ─── scenarios ───────────────────────────────────────────────────────────────
+
+// ─── :exec queries ───────────────────────────────────────────────────────────
 
 func TestUpdatePayloadGen(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	if err := gen.InsertEvent(ctx, db, "test", mustJSON(map[string]interface{}{"v": 1}), ptrBytes(mustJSON(map[string]interface{}{"source": "web"})), genUUID(), time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC), sql.NullTime{}, sql.NullTime{}, sql.NullTime{}); err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +223,9 @@ func TestUpdatePayloadGen(t *testing.T) {
 }
 
 func TestUpdateEventDateGen(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	if err := gen.InsertEvent(ctx, db, "dated", mustJSON(map[string]interface{}{}), nil, genUUID(), time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC), sql.NullTime{}, sql.NullTime{Time: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), Valid: true}, sql.NullTime{}); err != nil {
 		t.Fatal(err)
 	}
@@ -145,10 +241,12 @@ func TestUpdateEventDateGen(t *testing.T) {
 	if !_genTimeOf(ev.EventDate).Equal(time.Date(2024, 12, 31, 0, 0, 0, 0, time.UTC)) { t.Errorf("expected %v, got %v", time.Date(2024, 12, 31, 0, 0, 0, 0, time.UTC), _genTimeOf(ev.EventDate)) }
 }
 
-// ─── :execrows queries ────────────────────────────────────────────────────────────
+// ─── :execrows queries ───────────────────────────────────────────────────────────
 
 func TestInsertEventRowsGen(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	n, err := gen.InsertEventRows(ctx, db, "rowtest", mustJSON(map[string]interface{}{}), nil, genUUID(), time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC), sql.NullTime{}, sql.NullTime{}, sql.NullTime{})
 	if err != nil {
 		t.Fatal(err)
@@ -156,10 +254,12 @@ func TestInsertEventRowsGen(t *testing.T) {
 	if n != 1 { t.Errorf("expected %v, got %v", 1, n) }
 }
 
-// ─── :many queries ────────────────────────────────────────────────────────────
+// ─── :many queries ───────────────────────────────────────────────────────────
 
 func TestListEventsGen(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	ts := time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
 	if err := gen.InsertEvent(ctx, db, "alpha", mustJSON(map[string]interface{}{}), nil, genUUID(), ts, sql.NullTime{}, sql.NullTime{}, sql.NullTime{}); err != nil {
 		t.Fatal(err)
@@ -182,7 +282,9 @@ func TestListEventsGen(t *testing.T) {
 }
 
 func TestGetEventsByDateRangeGen(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	if err := gen.InsertEvent(ctx, db, "early", mustJSON(map[string]interface{}{}), nil, genUUID(), time.Date(2024, 1, 1, 10, 0, 0, 0, time.UTC), sql.NullTime{}, sql.NullTime{}, sql.NullTime{}); err != nil {
 		t.Fatal(err)
 	}
@@ -202,10 +304,12 @@ func TestGetEventsByDateRangeGen(t *testing.T) {
 	if events[1].Name != "mid" { t.Errorf("expected %v, got %v", "mid", events[1].Name) }
 }
 
-// ─── :one queries ────────────────────────────────────────────────────────────
+// ─── :one queries ───────────────────────────────────────────────────────────
 
 func TestInsertAndGetEventGen(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	doc_id := genUUID()
 	if err := gen.InsertEvent(ctx, db, "login", mustJSON(map[string]interface{}{"type": "click", "x": 10}), ptrBytes(mustJSON(map[string]interface{}{"source": "web"})), doc_id, time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC), sql.NullTime{Time: time.Date(2024, 6, 1, 14, 0, 0, 0, time.UTC), Valid: true}, sql.NullTime{Time: time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC), Valid: true}, sql.NullTime{}); err != nil {
 		t.Fatal(err)
@@ -227,7 +331,9 @@ func TestInsertAndGetEventGen(t *testing.T) {
 }
 
 func TestGetEventNotFoundGen(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	result, err := gen.GetEvent(ctx, db, 999)
 	if err != nil {
 		t.Fatal(err)
@@ -236,10 +342,12 @@ func TestGetEventNotFoundGen(t *testing.T) {
 	if result != nil { t.Fatalf("expected nil, got %v", result) }
 }
 
-// ─── count queries ────────────────────────────────────────────────────────────
+// ─── count queries ───────────────────────────────────────────────────────────
 
 func TestCountEventsGen(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	if err := gen.InsertEvent(ctx, db, "ev1", mustJSON(map[string]interface{}{}), nil, genUUID(), time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC), sql.NullTime{}, sql.NullTime{}, sql.NullTime{}); err != nil {
 		t.Fatal(err)
 	}
@@ -258,10 +366,12 @@ func TestCountEventsGen(t *testing.T) {
 	if row.Total != 3 { t.Errorf("expected %v, got %v", 3, row.Total) }
 }
 
-// ─── projection queries ────────────────────────────────────────────────────────────
+// ─── projection queries ───────────────────────────────────────────────────────────
 
 func TestFindByDateGen(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	target := time.Date(2024, 6, 15, 0, 0, 0, 0, time.UTC)
 	if err := gen.InsertEvent(ctx, db, "dated", mustJSON(map[string]interface{}{}), nil, genUUID(), time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC), sql.NullTime{}, sql.NullTime{Time: target, Valid: true}, sql.NullTime{}); err != nil {
 		t.Fatal(err)
@@ -276,7 +386,9 @@ func TestFindByDateGen(t *testing.T) {
 }
 
 func TestFindByUuidGen(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	doc_id := genUUID()
 	if err := gen.InsertEvent(ctx, db, "uuid-test", mustJSON(map[string]interface{}{}), nil, doc_id, time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC), sql.NullTime{}, sql.NullTime{}, sql.NullTime{}); err != nil {
 		t.Fatal(err)

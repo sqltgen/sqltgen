@@ -3,7 +3,8 @@ use std::fmt::Write;
 use std::path::PathBuf;
 
 use crate::backend::common::{
-    emit_package, group_queries, has_inline_rows, infer_table, needed_enums, pg_array_type_name, querier_class_name, queries_class_name, row_type_name,
+    emit_package, group_queries, has_inline_rows, infer_table, model_name, needed_enums, pg_array_type_name, querier_class_name, queries_class_name,
+    row_type_name,
 };
 use crate::backend::jdbc::{
     self, emit_dynamic_binds, emit_jdbc_binds, prepare_dynamic_sql_parts, prepare_sql_const, prepare_sql_const_from, ListAction, QuerierContext,
@@ -60,9 +61,11 @@ pub(super) fn generate_core_files(
 ) -> anyhow::Result<Vec<GeneratedFile>> {
     let mut files = Vec::new();
 
+    let ds = schema.default_schema.as_deref();
+
     // One data class per table
     for table in &schema.tables {
-        let class_name = to_pascal_case(&table.name);
+        let class_name = model_name(table, ds);
         let mut src = String::new();
         let mpkg = models_package(&config.package);
         emit_package(&mut src, &mpkg, "");
@@ -107,8 +110,8 @@ pub(super) fn generate_core_files(
         emit_package(&mut src, &qpkg, "");
         let mut model_imports: BTreeSet<String> = BTreeSet::new();
         for query in &group_queries {
-            if let Some(table_name) = infer_table(query, schema) {
-                let model_class = to_pascal_case(table_name);
+            if let Some(table) = infer_table(query, schema) {
+                let model_class = model_name(table, ds);
                 model_imports.insert(format!("{mpkg}.{model_class}"));
             }
         }
