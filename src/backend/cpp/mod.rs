@@ -10,8 +10,10 @@ pub enum CppTarget {
     Libpqxx,
     /// SQLite via sqlite3.
     Sqlite3,
-    /// MySQL via libmysqlclient.
-    Libmysqlclient,
+    /// MySQL via Oracle's libmysql (mysql-connector-c / libmysqlclient 8+).
+    Libmysql,
+    /// MySQL via MariaDB Connector/C (libmariadb).
+    Libmariadb,
 }
 
 impl CppTarget {
@@ -23,7 +25,8 @@ impl CppTarget {
         match (engine, driver) {
             (Engine::Postgresql, None | Some("libpqxx")) => Ok(CppTarget::Libpqxx),
             (Engine::Sqlite, None | Some("sqlite3")) => Ok(CppTarget::Sqlite3),
-            (Engine::Mysql, None | Some("libmysqlclient")) => Ok(CppTarget::Libmysqlclient),
+            (Engine::Mysql, None | Some("libmysql")) => Ok(CppTarget::Libmysql),
+            (Engine::Mysql, Some("libmariadb")) => Ok(CppTarget::Libmariadb),
             (_, Some(d)) => {
                 anyhow::bail!("driver {:?} is not supported for cpp/{}; supported drivers: {}", d, engine.as_str(), Self::supported_drivers(engine),)
             },
@@ -34,7 +37,7 @@ impl CppTarget {
         match engine {
             Engine::Postgresql => "libpqxx",
             Engine::Sqlite => "sqlite3",
-            Engine::Mysql => "libmysqlclient",
+            Engine::Mysql => "libmysql, libmariadb",
         }
     }
 }

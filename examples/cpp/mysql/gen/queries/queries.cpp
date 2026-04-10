@@ -199,7 +199,6 @@ std::vector<Author> list_authors(MYSQL* db) {
 
     std::vector<Author> rows;
     while (stmt.fetch_row()) {
-
         std::string name_val(name_len, '\0');
         result_bind[1].buffer = name_val.data();
         result_bind[1].buffer_length = name_len;
@@ -478,7 +477,6 @@ std::vector<Book> get_books_by_ids(MYSQL* db, const std::vector<std::int64_t>& i
 
     std::vector<Book> rows;
     while (stmt.fetch_row()) {
-
         std::string title_val(title_len, '\0');
         result_bind[2].buffer = title_val.data();
         result_bind[2].buffer_length = title_len;
@@ -583,7 +581,6 @@ std::vector<Book> list_books_by_genre(MYSQL* db, const std::string& genre) {
 
     std::vector<Book> rows;
     while (stmt.fetch_row()) {
-
         std::string title_val(title_len, '\0');
         result_bind[2].buffer = title_val.data();
         result_bind[2].buffer_length = title_len;
@@ -694,7 +691,6 @@ std::vector<Book> list_books_by_genre_or_all(MYSQL* db, const std::string& genre
 
     std::vector<Book> rows;
     while (stmt.fetch_row()) {
-
         std::string title_val(title_len, '\0');
         result_bind[2].buffer = title_val.data();
         result_bind[2].buffer_length = title_len;
@@ -865,7 +861,6 @@ std::vector<ListBooksWithAuthorRow> list_books_with_author(MYSQL* db) {
 
     std::vector<ListBooksWithAuthorRow> rows;
     while (stmt.fetch_row()) {
-
         std::string title_val(title_len, '\0');
         result_bind[1].buffer = title_val.data();
         result_bind[1].buffer_length = title_len;
@@ -969,7 +964,6 @@ std::vector<Book> get_books_never_ordered(MYSQL* db) {
 
     std::vector<Book> rows;
     while (stmt.fetch_row()) {
-
         std::string title_val(title_len, '\0');
         result_bind[2].buffer = title_val.data();
         result_bind[2].buffer_length = title_len;
@@ -1055,7 +1049,6 @@ std::vector<GetTopSellingBooksRow> get_top_selling_books(MYSQL* db) {
 
     std::vector<GetTopSellingBooksRow> rows;
     while (stmt.fetch_row()) {
-
         std::string title_val(title_len, '\0');
         result_bind[1].buffer = title_val.data();
         result_bind[1].buffer_length = title_len;
@@ -1131,7 +1124,6 @@ std::vector<GetBestCustomersRow> get_best_customers(MYSQL* db) {
 
     std::vector<GetBestCustomersRow> rows;
     while (stmt.fetch_row()) {
-
         std::string name_val(name_len, '\0');
         result_bind[1].buffer = name_val.data();
         result_bind[1].buffer_length = name_len;

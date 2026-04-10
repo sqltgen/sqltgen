@@ -475,7 +475,7 @@ fn emit_function_def(src: &mut String, query: &Query, schema: &Schema, contract:
     let ret = query_return_type(query, schema);
     let params = params_signature(query, contract.conn_type);
     writeln!(src, "{ret} {fn_name}({params}) {{")?;
-    let ctx = CppQueryContext { query, schema };
+    let ctx = CppQueryContext { query, schema, null_flag_type: contract.null_flag_type };
     (contract.emit_query_body)(src, &ctx)?;
     writeln!(src, "}}")?;
     Ok(())

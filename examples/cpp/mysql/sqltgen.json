@@ -4,6 +4,6 @@
   "schema": "../../common/mysql/migrations",
   "queries": "../../common/mysql/queries.sql",
   "gen": {
-    "cpp": { "out": "gen", "package": "" }
+    "cpp": { "out": "gen", "package": "", "driver": "libmariadb" }
   }
 }

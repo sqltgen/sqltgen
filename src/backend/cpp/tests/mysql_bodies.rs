@@ -2,6 +2,31 @@ use super::*;
 use crate::backend::Codegen;
 use crate::ir::{Parameter, Query, ResultColumn};
 
+// ─── libmariadb driver: null-flag type is `my_bool` ──────────────────────
+
+#[test]
+fn test_mariadb_nullable_param_uses_my_bool_flag() {
+    let schema = Schema::default();
+    let query = Query::exec("Q", "SELECT ?1", vec![Parameter::scalar(1, "id", SqlType::BigInt, true)]);
+    let files = mysql_mariadb().generate(&schema, &[query], &cfg()).unwrap();
+    let src = get_file(&files, "queries.cpp");
+    assert!(src.contains("my_bool id_is_null = !id.has_value();"), "expected my_bool flag for libmariadb\n{src}");
+}
+
+#[test]
+fn test_mariadb_result_column_uses_my_bool_flag() {
+    let schema = Schema::default();
+    let query = Query::one(
+        "GetUser",
+        "SELECT id FROM user WHERE id = ?1",
+        vec![Parameter::scalar(1, "id", SqlType::BigInt, false)],
+        vec![ResultColumn::not_nullable("id", SqlType::BigInt)],
+    );
+    let files = mysql_mariadb().generate(&schema, &[query], &cfg()).unwrap();
+    let src = get_file(&files, "queries.cpp");
+    assert!(src.contains("my_bool id_is_null = false;"), "expected my_bool flag for libmariadb result column\n{src}");
+}
+
 // ─── basic mysql shape ───────────────────────────────────────────────────
 
 #[test]
@@ -242,7 +267,7 @@ fn test_mysql_bind_nullable_fixed_width_materializes_local() {
     assert!(src.contains("std::int64_t id_val = id.value_or(std::int64_t{});"));
     assert!(src.contains("bind[0].buffer = &id_val;"));
     assert!(src.contains("bind[0].buffer_type = MYSQL_TYPE_LONGLONG;"));
-    assert!(src.contains("my_bool id_is_null = !id.has_value();"));
+    assert!(src.contains("bool id_is_null = !id.has_value();"));
     assert!(src.contains("bind[0].is_null = &id_is_null;"));
 }
 
@@ -254,7 +279,7 @@ fn test_mysql_bind_nullable_text_uses_ternary_for_buffer() {
     let src = get_file(&files, "queries.cpp");
     assert!(src.contains("bind[0].buffer = const_cast<char*>(bio.has_value() ? bio.value().c_str() : \"\");"));
     assert!(src.contains("unsigned long p_bio_len = bio.has_value() ? bio.value().size() : 0;"));
-    assert!(src.contains("my_bool bio_is_null = !bio.has_value();"));
+    assert!(src.contains("bool bio_is_null = !bio.has_value();"));
     assert!(src.contains("bind[0].is_null = &bio_is_null;"));
 }
 
@@ -265,7 +290,7 @@ fn test_mysql_bind_nullable_bytes_uses_nullptr_for_empty() {
     let files = mysql().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.cpp");
     assert!(src.contains("data.has_value() ? reinterpret_cast<const char*>(data.value().data()) : nullptr"));
-    assert!(src.contains("my_bool data_is_null = !data.has_value();"));
+    assert!(src.contains("bool data_is_null = !data.has_value();"));
 }
 
 // ─── repeated placeholders ──────────────────────────────────────────────
@@ -298,7 +323,7 @@ fn test_mysql_repeated_nullable_param_declares_is_null_flag_once() {
     );
     let files = mysql().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.cpp");
-    let flag_count = src.matches("my_bool bio_is_null = !bio.has_value();").count();
+    let flag_count = src.matches("bool bio_is_null = !bio.has_value();").count();
     assert_eq!(flag_count, 1, "bio_is_null flag should be declared once, got {flag_count}\n{src}");
 }
 
@@ -412,7 +437,7 @@ fn test_mysql_result_bind_fixed_width_column_allocates_local() {
     assert!(src.contains("std::int64_t id_val{};"));
     assert!(src.contains("result_bind[0].buffer = &id_val;"));
     assert!(src.contains("result_bind[0].buffer_type = MYSQL_TYPE_LONGLONG;"));
-    assert!(src.contains("my_bool id_is_null = false;"));
+    assert!(src.contains("bool id_is_null = false;"));
     assert!(src.contains("result_bind[0].is_null = &id_is_null;"));
 }
 

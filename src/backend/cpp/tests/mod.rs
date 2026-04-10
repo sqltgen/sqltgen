@@ -12,7 +12,11 @@ pub fn sqlite() -> CppCodegen {
 }
 
 pub fn mysql() -> CppCodegen {
-    CppCodegen { target: CppTarget::Libmysqlclient }
+    CppCodegen { target: CppTarget::Libmysql }
+}
+
+pub fn mysql_mariadb() -> CppCodegen {
+    CppCodegen { target: CppTarget::Libmariadb }
 }
 
 mod architecture;

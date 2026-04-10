@@ -176,12 +176,17 @@ pub(super) struct CppCoreContract {
     pub(super) source_helpers: &'static [&'static str],
     /// Engine-specific query body emitter.
     pub(super) emit_query_body: for<'a> fn(&mut String, &CppQueryContext<'a>) -> anyhow::Result<()>,
+    /// C++ type used for `MYSQL_BIND::is_null` flag locals. `"bool"` for Oracle's
+    /// libmysql 8+, `"my_bool"` for MariaDB Connector/C. Unused by non-MySQL targets.
+    pub(super) null_flag_type: &'static str,
 }
 
 /// Per-query context forwarded from the generic core to the adapter-specific emitter.
 pub(super) struct CppQueryContext<'a> {
     pub(super) query: &'a Query,
     pub(super) schema: &'a Schema,
+    /// Null-flag C++ type for MySQL targets; see `CppCoreContract::null_flag_type`.
+    pub(super) null_flag_type: &'static str,
 }
 
 /// Resolve the engine-specific C++ generation contract for the selected backend.
@@ -194,6 +199,7 @@ pub(super) fn resolve_contract(target: &super::CppTarget) -> CppCoreContract {
             source_includes: &[],
             source_helpers: &[],
             emit_query_body: emit_pqxx_body,
+            null_flag_type: "",
         },
         super::CppTarget::Sqlite3 => CppCoreContract {
             db_include: "<sqlite3.h>",
@@ -202,14 +208,27 @@ pub(super) fn resolve_contract(target: &super::CppTarget) -> CppCoreContract {
             source_includes: &[],
             source_helpers: &[JSON_ESCAPE, SQLITE_STMT_HELPER],
             emit_query_body: emit_sqlite3_body,
+            null_flag_type: "",
         },
-        super::CppTarget::Libmysqlclient => CppCoreContract {
+        super::CppTarget::Libmysql => CppCoreContract {
             db_include: "<mysql.h>",
             conn_type: "MYSQL*",
             param_style: CppParamStyle::QuestionAnon,
             source_includes: &["<cstring>"],
             source_helpers: &[JSON_ESCAPE, MYSQL_STMT_HELPER],
             emit_query_body: emit_mysql_body,
+            // Oracle libmysql 8+ removed `my_bool`; `MYSQL_BIND::is_null` is `bool*`.
+            null_flag_type: "bool",
+        },
+        super::CppTarget::Libmariadb => CppCoreContract {
+            db_include: "<mysql.h>",
+            conn_type: "MYSQL*",
+            param_style: CppParamStyle::QuestionAnon,
+            source_includes: &["<cstring>"],
+            source_helpers: &[JSON_ESCAPE, MYSQL_STMT_HELPER],
+            emit_query_body: emit_mysql_body,
+            // MariaDB Connector/C keeps the historic `my_bool` typedef.
+            null_flag_type: "my_bool",
         },
     }
 }
@@ -415,13 +434,14 @@ fn sqlite3_column_expr(sql_type: &SqlType, idx: usize, nullable: bool) -> String
 /// statement, so no manual `mysql_stmt_close` is needed on any path.
 fn emit_mysql_body(src: &mut String, ctx: &CppQueryContext<'_>) -> anyhow::Result<()> {
     let query = ctx.query;
+    let null_flag = ctx.null_flag_type;
     let const_name = crate::backend::common::sql_const_name(&query.name);
 
     writeln!(src, "    MysqlStmt stmt(db, {const_name});")?;
     if !query.params.is_empty() {
         writeln!(src)?;
     }
-    emit_mysql_bind_params(src, query)?;
+    emit_mysql_bind_params(src, query, null_flag)?;
     if !query.params.is_empty() {
         writeln!(src)?;
     }
@@ -438,7 +458,7 @@ fn emit_mysql_body(src: &mut String, ctx: &CppQueryContext<'_>) -> anyhow::Resul
             let row_type = result_row_type(query, ctx.schema);
             writeln!(src, "    stmt.execute();")?;
             writeln!(src)?;
-            emit_mysql_bind_result_columns(src, &query.result_columns)?;
+            emit_mysql_bind_result_columns(src, &query.result_columns, null_flag)?;
             writeln!(src)?;
             writeln!(src, "    if (!stmt.fetch_row()) return std::nullopt;")?;
             let has_varlen = query.result_columns.iter().any(|c| mysql_is_varlen(&c.sql_type));
@@ -453,7 +473,7 @@ fn emit_mysql_body(src: &mut String, ctx: &CppQueryContext<'_>) -> anyhow::Resul
             let row_type = result_row_type(query, ctx.schema);
             writeln!(src, "    stmt.execute();")?;
             writeln!(src)?;
-            emit_mysql_bind_result_columns(src, &query.result_columns)?;
+            emit_mysql_bind_result_columns(src, &query.result_columns, null_flag)?;
             writeln!(src)?;
             writeln!(src, "    std::vector<{row_type}> rows;")?;
             writeln!(src, "    while (stmt.fetch_row()) {{")?;
@@ -471,7 +491,7 @@ fn emit_mysql_body(src: &mut String, ctx: &CppQueryContext<'_>) -> anyhow::Resul
 }
 
 /// Emit `MYSQL_BIND` array setup and `mysql_stmt_bind_param` for all parameters.
-fn emit_mysql_bind_params(src: &mut String, query: &Query) -> anyhow::Result<()> {
+fn emit_mysql_bind_params(src: &mut String, query: &Query, null_flag: &str) -> anyhow::Result<()> {
     if query.params.is_empty() {
         return Ok(());
     }
@@ -489,7 +509,7 @@ fn emit_mysql_bind_params(src: &mut String, query: &Query) -> anyhow::Result<()>
         let name = to_snake_case(&param.name);
         let first_time = declared.insert(name.clone());
         writeln!(src)?;
-        emit_mysql_bind_param_block(src, param, slot, &name, first_time)?;
+        emit_mysql_bind_param_block(src, param, slot, &name, first_time, null_flag)?;
     }
 
     writeln!(src, "    stmt.bind_param(bind);")?;
@@ -501,7 +521,7 @@ fn emit_mysql_bind_params(src: &mut String, query: &Query) -> anyhow::Result<()>
 /// (`is_null` preceded by its `*_is_null` flag). Helper locals (`p_*_len`, `*_is_null`,
 /// `*_val`, `p_*_json`) are emitted only the first time a given parameter name is seen,
 /// so the same param referenced in multiple slots doesn't redeclare them.
-fn emit_mysql_bind_param_block(src: &mut String, param: &Parameter, slot: usize, name: &str, first_time: bool) -> anyhow::Result<()> {
+fn emit_mysql_bind_param_block(src: &mut String, param: &Parameter, slot: usize, name: &str, first_time: bool, null_flag: &str) -> anyhow::Result<()> {
     writeln!(src, "    // {name} — {}", mysql_param_shape_label(param))?;
 
     // List params are encoded as a JSON blob string.
@@ -534,7 +554,7 @@ fn emit_mysql_bind_param_block(src: &mut String, param: &Parameter, slot: usize,
         writeln!(src, "    bind[{slot}].buffer_type = {mysql_type};")?;
         let flag = format!("{name}_is_null");
         if first_time {
-            writeln!(src, "    my_bool {flag} = !{name}.has_value();")?;
+            writeln!(src, "    {null_flag} {flag} = !{name}.has_value();")?;
         }
         writeln!(src, "    bind[{slot}].is_null = &{flag};")?;
         return Ok(());
@@ -569,7 +589,7 @@ fn emit_mysql_bind_param_block(src: &mut String, param: &Parameter, slot: usize,
     if param.nullable {
         let flag = format!("{name}_is_null");
         if first_time {
-            writeln!(src, "    my_bool {flag} = !{name}.has_value();")?;
+            writeln!(src, "    {null_flag} {flag} = !{name}.has_value();")?;
         }
         writeln!(src, "    bind[{slot}].is_null = &{flag};")?;
     }
@@ -664,7 +684,7 @@ fn mysql_type_const(sql_type: &SqlType) -> &'static str {
     mysql_bind_info(sql_type, "x").0
 }
 
-fn emit_mysql_bind_result_columns(src: &mut String, columns: &[ResultColumn]) -> anyhow::Result<()> {
+fn emit_mysql_bind_result_columns(src: &mut String, columns: &[ResultColumn], null_flag: &str) -> anyhow::Result<()> {
     let n = columns.len();
     writeln!(src, "    MYSQL_BIND result_bind[{n}];")?;
     writeln!(src, "    memset(result_bind, 0, sizeof(result_bind));")?;
@@ -690,14 +710,14 @@ fn emit_mysql_bind_result_columns(src: &mut String, columns: &[ResultColumn]) ->
             writeln!(src, "    unsigned long {col_name}_len = 0;")?;
             writeln!(src, "    result_bind[{i}].length = &{col_name}_len;")?;
             writeln!(src, "    result_bind[{i}].buffer_length = 0;")?;
-            writeln!(src, "    my_bool {col_name}_is_null = false;")?;
+            writeln!(src, "    {null_flag} {col_name}_is_null = false;")?;
             writeln!(src, "    result_bind[{i}].is_null = &{col_name}_is_null;")?;
         } else {
             let cpp_ty = cpp_type(&col.sql_type, false);
             writeln!(src, "    {cpp_ty} {col_name}_val{{}};")?;
             writeln!(src, "    result_bind[{i}].buffer = &{col_name}_val;")?;
             writeln!(src, "    result_bind[{i}].buffer_type = {mysql_type};")?;
-            writeln!(src, "    my_bool {col_name}_is_null = false;")?;
+            writeln!(src, "    {null_flag} {col_name}_is_null = false;")?;
             writeln!(src, "    result_bind[{i}].is_null = &{col_name}_is_null;")?;
         }
     }
