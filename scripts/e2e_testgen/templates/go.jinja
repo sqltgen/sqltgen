@@ -4,7 +4,7 @@
 package main
 
 import (
-{% if engine == "mysql" %}
+{% if engine != "sqlite" %}
 	"context"
 {% endif %}
 	"database/sql"
@@ -116,12 +116,12 @@ func genAssertJSON(t *testing.T, got, want interface{}) {
 
 {% for scenario in section_scenarios %}
 func Test{{ scenario.name | to_pascal_case }}Gen(t *testing.T) {
-{% if engine == "mysql" %}
+{% if engine == "sqlite" %}
+	db, ctx := setupDB(t)
+{% else %}
 	db, cleanup := setupDB(t)
 	defer cleanup()
 	ctx := context.Background()
-{% else %}
-	db, ctx := setupDB(t)
 {% endif %}
 {{ scenario.body }}
 }

@@ -4,6 +4,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -111,7 +112,9 @@ func genAssertJSON(t *testing.T, got, want interface{}) {
 // ─── :exec queries ────────────────────────────────────────────────────────────
 
 func TestDeleteTaskGen(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	if _, err := gen.CreateTask(ctx, db, "Temp", gen.Priority("low"), gen.Status("open"), sql.NullString{}); err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +132,9 @@ func TestDeleteTaskGen(t *testing.T) {
 // ─── :many queries ────────────────────────────────────────────────────────────
 
 func TestListByPriorityGen(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	if _, err := gen.CreateTask(ctx, db, "Low task", gen.Priority("low"), gen.Status("open"), sql.NullString{}); err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +155,9 @@ func TestListByPriorityGen(t *testing.T) {
 }
 
 func TestListByStatusGen(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	if _, err := gen.CreateTask(ctx, db, "Open 1", gen.Priority("low"), gen.Status("open"), sql.NullString{}); err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +176,9 @@ func TestListByStatusGen(t *testing.T) {
 }
 
 func TestListByPriorityOrAllGen(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	if _, err := gen.CreateTask(ctx, db, "Low", gen.Priority("low"), gen.Status("open"), sql.NullString{}); err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +201,9 @@ func TestListByPriorityOrAllGen(t *testing.T) {
 }
 
 func TestCountByStatusGen(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	if _, err := gen.CreateTask(ctx, db, "A", gen.Priority("low"), gen.Status("open"), sql.NullString{}); err != nil {
 		t.Fatal(err)
 	}
@@ -213,7 +224,9 @@ func TestCountByStatusGen(t *testing.T) {
 // ─── :one queries ────────────────────────────────────────────────────────────
 
 func TestCreateAndGetTaskGen(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	task, err := gen.CreateTask(ctx, db, "Fix bug", gen.Priority("high"), gen.Status("open"), sql.NullString{String: "Fix the login bug", Valid: true})
 	if err != nil {
 		t.Fatal(err)
@@ -227,7 +240,9 @@ func TestCreateAndGetTaskGen(t *testing.T) {
 }
 
 func TestGetTaskNotFoundGen(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	result, err := gen.GetTask(ctx, db, 999)
 	if err != nil {
 		t.Fatal(err)
@@ -237,7 +252,9 @@ func TestGetTaskNotFoundGen(t *testing.T) {
 }
 
 func TestUpdateTaskStatusGen(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	task, err := gen.CreateTask(ctx, db, "Deploy", gen.Priority("critical"), gen.Status("open"), sql.NullString{})
 	if err != nil {
 		t.Fatal(err)
@@ -256,7 +273,9 @@ func TestUpdateTaskStatusGen(t *testing.T) {
 // ─── enum array queries ────────────────────────────────────────────────────────────
 
 func TestCreateWithEnumArrayGen(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	task, err := gen.CreateTaskWithTags(ctx, db, "Tagged task", gen.Priority("high"), gen.Status("open"), sql.NullString{}, []gen.Priority{gen.Priority("high"), gen.Priority("critical")})
 	if err != nil {
 		t.Fatal(err)
@@ -270,7 +289,9 @@ func TestCreateWithEnumArrayGen(t *testing.T) {
 }
 
 func TestGetTaskTagsGen(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	if _, err := gen.CreateTaskWithTags(ctx, db, "Read tags", gen.Priority("low"), gen.Status("open"), sql.NullString{}, []gen.Priority{gen.Priority("low"), gen.Priority("medium"), gen.Priority("high")}); err != nil {
 		t.Fatal(err)
 	}
@@ -287,7 +308,9 @@ func TestGetTaskTagsGen(t *testing.T) {
 }
 
 func TestUpdateTaskTagsGen(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	if _, err := gen.CreateTaskWithTags(ctx, db, "Update tags", gen.Priority("medium"), gen.Status("open"), sql.NullString{}, []gen.Priority{gen.Priority("low")}); err != nil {
 		t.Fatal(err)
 	}
@@ -303,7 +326,9 @@ func TestUpdateTaskTagsGen(t *testing.T) {
 }
 
 func TestEmptyEnumArrayGen(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	if _, err := gen.CreateTaskWithTags(ctx, db, "No tags", gen.Priority("low"), gen.Status("open"), sql.NullString{}, []gen.Priority{}); err != nil {
 		t.Fatal(err)
 	}

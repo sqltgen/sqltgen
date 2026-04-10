@@ -4,6 +4,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -111,7 +112,9 @@ func genAssertJSON(t *testing.T, got, want interface{}) {
 // ─── :exec queries ────────────────────────────────────────────────────────────
 
 func TestUpdatePayloadGen(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	if err := gen.InsertEvent(ctx, db, "test", mustJSON(map[string]interface{}{"v": 1}), ptrBytes(mustJSON(map[string]interface{}{"source": "web"})), genUUID(), time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC), sql.NullTime{}, sql.NullTime{}, sql.NullTime{}); err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +132,9 @@ func TestUpdatePayloadGen(t *testing.T) {
 }
 
 func TestUpdateEventDateGen(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	if err := gen.InsertEvent(ctx, db, "dated", mustJSON(map[string]interface{}{}), nil, genUUID(), time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC), sql.NullTime{}, sql.NullTime{Time: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), Valid: true}, sql.NullTime{}); err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +153,9 @@ func TestUpdateEventDateGen(t *testing.T) {
 // ─── :execrows queries ────────────────────────────────────────────────────────────
 
 func TestInsertEventRowsGen(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	n, err := gen.InsertEventRows(ctx, db, "rowtest", mustJSON(map[string]interface{}{}), nil, genUUID(), time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC), sql.NullTime{}, sql.NullTime{}, sql.NullTime{})
 	if err != nil {
 		t.Fatal(err)
@@ -159,7 +166,9 @@ func TestInsertEventRowsGen(t *testing.T) {
 // ─── :many queries ────────────────────────────────────────────────────────────
 
 func TestListEventsGen(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	ts := time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
 	if err := gen.InsertEvent(ctx, db, "alpha", mustJSON(map[string]interface{}{}), nil, genUUID(), ts, sql.NullTime{}, sql.NullTime{}, sql.NullTime{}); err != nil {
 		t.Fatal(err)
@@ -182,7 +191,9 @@ func TestListEventsGen(t *testing.T) {
 }
 
 func TestGetEventsByDateRangeGen(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	if err := gen.InsertEvent(ctx, db, "early", mustJSON(map[string]interface{}{}), nil, genUUID(), time.Date(2024, 1, 1, 10, 0, 0, 0, time.UTC), sql.NullTime{}, sql.NullTime{}, sql.NullTime{}); err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +216,9 @@ func TestGetEventsByDateRangeGen(t *testing.T) {
 // ─── :one queries ────────────────────────────────────────────────────────────
 
 func TestInsertAndGetEventGen(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	doc_id := genUUID()
 	if err := gen.InsertEvent(ctx, db, "login", mustJSON(map[string]interface{}{"type": "click", "x": 10}), ptrBytes(mustJSON(map[string]interface{}{"source": "web"})), doc_id, time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC), sql.NullTime{Time: time.Date(2024, 6, 1, 14, 0, 0, 0, time.UTC), Valid: true}, sql.NullTime{Time: time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC), Valid: true}, sql.NullTime{}); err != nil {
 		t.Fatal(err)
@@ -227,7 +240,9 @@ func TestInsertAndGetEventGen(t *testing.T) {
 }
 
 func TestGetEventNotFoundGen(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	result, err := gen.GetEvent(ctx, db, 999)
 	if err != nil {
 		t.Fatal(err)
@@ -239,7 +254,9 @@ func TestGetEventNotFoundGen(t *testing.T) {
 // ─── count queries ────────────────────────────────────────────────────────────
 
 func TestCountEventsGen(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	if err := gen.InsertEvent(ctx, db, "ev1", mustJSON(map[string]interface{}{}), nil, genUUID(), time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC), sql.NullTime{}, sql.NullTime{}, sql.NullTime{}); err != nil {
 		t.Fatal(err)
 	}
@@ -261,7 +278,9 @@ func TestCountEventsGen(t *testing.T) {
 // ─── projection queries ────────────────────────────────────────────────────────────
 
 func TestFindByDateGen(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	target := time.Date(2024, 6, 15, 0, 0, 0, 0, time.UTC)
 	if err := gen.InsertEvent(ctx, db, "dated", mustJSON(map[string]interface{}{}), nil, genUUID(), time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC), sql.NullTime{}, sql.NullTime{Time: target, Valid: true}, sql.NullTime{}); err != nil {
 		t.Fatal(err)
@@ -276,7 +295,9 @@ func TestFindByDateGen(t *testing.T) {
 }
 
 func TestFindByUuidGen(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	doc_id := genUUID()
 	if err := gen.InsertEvent(ctx, db, "uuid-test", mustJSON(map[string]interface{}{}), nil, doc_id, time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC), sql.NullTime{}, sql.NullTime{}, sql.NullTime{}); err != nil {
 		t.Fatal(err)

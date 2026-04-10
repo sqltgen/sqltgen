@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"strings"
 	"testing"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -20,22 +21,25 @@ func dsn() string {
 	return defaultDSN
 }
 
-// setupDB creates an isolated schema, applies the DDL, and returns a connected *sql.DB.
-// The schema is dropped when the test completes.
-func setupDB(t *testing.T) (*sql.DB, context.Context) {
+// setupDB creates an isolated database, applies the DDL, and returns a connected *sql.DB
+// plus a cleanup function that drops the database.
+func setupDB(t *testing.T) (*sql.DB, func()) {
 	t.Helper()
 	ctx := context.Background()
 
-	db, err := sql.Open("pgx", dsn())
+	dbName := fmt.Sprintf("test_%d", rand.Int63())
+	admin, err := sql.Open("pgx", dsn())
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	schema := fmt.Sprintf("test_%d", rand.Int63())
-	if _, err := db.ExecContext(ctx, fmt.Sprintf(`CREATE SCHEMA "%s"`, schema)); err != nil {
+	if _, err := admin.ExecContext(ctx, fmt.Sprintf(`CREATE DATABASE "%s"`, dbName)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.ExecContext(ctx, fmt.Sprintf(`SET search_path TO "%s"`, schema)); err != nil {
+	admin.Close()
+
+	dbURL := replaceLastSegment(dsn(), dbName)
+	db, err := sql.Open("pgx", dbURL)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -43,14 +47,38 @@ func setupDB(t *testing.T) (*sql.DB, context.Context) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.ExecContext(ctx, string(ddl)); err != nil {
-		t.Fatal(err)
+	for _, stmt := range splitStatements(string(ddl)) {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			t.Fatal(err)
+		}
 	}
 
-	t.Cleanup(func() {
-		db.ExecContext(ctx, fmt.Sprintf(`DROP SCHEMA IF EXISTS "%s" CASCADE`, schema))
+	cleanup := func() {
 		db.Close()
-	})
+		adm, _ := sql.Open("pgx", dsn())
+		adm.ExecContext(ctx, fmt.Sprintf(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '%s' AND pid <> pg_backend_pid()`, dbName))
+		adm.ExecContext(ctx, fmt.Sprintf(`DROP DATABASE IF EXISTS "%s"`, dbName))
+		adm.Close()
+	}
 
-	return db, ctx
+	return db, cleanup
+}
+
+func replaceLastSegment(url, replacement string) string {
+	i := strings.LastIndex(url, "/")
+	if i < 0 {
+		return url
+	}
+	return url[:i+1] + replacement
+}
+
+func splitStatements(ddl string) []string {
+	var stmts []string
+	for _, s := range strings.Split(ddl, ";") {
+		s = strings.TrimSpace(s)
+		if s != "" {
+			stmts = append(stmts, s)
+		}
+	}
+	return stmts
 }

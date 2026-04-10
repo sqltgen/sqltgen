@@ -40,6 +40,9 @@ pub(super) fn generate_core_files(
         if !enum_imports.is_empty() {
             writeln!(src)?;
         }
+        if struct_name.contains('_') {
+            writeln!(src, "#[allow(non_camel_case_types)]")?;
+        }
         writeln!(src, "#[derive(Debug, sqlx::FromRow)]")?;
         writeln!(src, "pub struct {struct_name} {{")?;
         for col in &table.columns {

@@ -1,3 +1,4 @@
+#[allow(non_camel_case_types)]
 #[derive(Debug, sqlx::FromRow)]
 pub struct Internal_AuditLog {
     pub id: i64,
