@@ -1,0 +1,12 @@
+{
+  "name": "e2e-bookstore-javascript-sqlite",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test runtime_gen.test.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.7.0"
+  }
+}

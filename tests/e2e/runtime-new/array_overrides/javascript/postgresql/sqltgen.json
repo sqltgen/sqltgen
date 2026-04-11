@@ -1,0 +1,12 @@
+{
+    "version": "1",
+    "engine": "postgresql",
+    "schema": "../../../../fixtures/array_overrides/postgresql/schema.sql",
+    "queries": "../../../../fixtures/array_overrides/postgresql/queries.sql",
+    "gen": {
+        "javascript": {
+            "out": "gen",
+            "package": ""
+        }
+    }
+}

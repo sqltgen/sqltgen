@@ -27,7 +27,7 @@ RUNTIME_DIR = REPO_ROOT / "tests" / "e2e" / "runtime"
 _runtime_dir = RUNTIME_DIR  # Mutable; overridden by --runtime-dir CLI flag.
 
 # Known dimensions for test generation.
-KNOWN_LANGUAGES = ["python", "go", "typescript", "rust", "java", "kotlin"]
+KNOWN_LANGUAGES = ["python", "go", "typescript", "javascript", "rust", "java", "kotlin"]
 KNOWN_ENGINES = ["postgresql", "sqlite", "mysql"]
 
 # Non-default variants available per language.
@@ -43,6 +43,7 @@ TEST_FILE_NAMES = {
     "python": "test_runtime_gen.py",
     "go": "runtime_gen_test.go",
     "typescript": "runtime_gen.test.ts",
+    "javascript": "runtime_gen.test.js",
     "rust": "tests/runtime_gen.rs",
     "java": "src/test/java/com/example/db/RuntimeGenTest.java",
     "kotlin": "src/test/kotlin/com/example/db/RuntimeGenTest.kt",

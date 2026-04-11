@@ -23,9 +23,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 FIXTURES_DIR = REPO_ROOT / "tests" / "e2e" / "fixtures"
 RUNTIME_DIR = REPO_ROOT / "tests" / "e2e" / "runtime-new"
 
-# Languages with working test generation templates in orchestrate.py.
-# JavaScript is excluded until a JS Jinja template is added.
-ALL_LANGUAGES = ["rust", "go", "python", "typescript", "java", "kotlin"]
+ALL_LANGUAGES = ["rust", "go", "python", "typescript", "javascript", "java", "kotlin"]
 ALL_ENGINES = ["postgresql", "sqlite", "mysql"]
 
 # ── sqltgen.json ──────────────────────────────────────────────────────────────
@@ -289,6 +287,7 @@ def write_javascript(fixture: str, engine: str, dest: Path) -> None:
         "name": pkg_name,
         "version": "0.0.0",
         "private": True,
+        "type": "module",
         "scripts": {"test": "node --test runtime_gen.test.js"},
         "dependencies": TS_DEPS[engine],
     }
