@@ -6,7 +6,7 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/lib/pq"
+	"github.com/jackc/pgx/v5"
 )
 
 const SQL_CREATE_AUTHOR = `
@@ -534,11 +534,11 @@ type GetBookPriceAggregatesRow struct {
 }
 
 // CreateAuthor executes the CreateAuthor query.
-func CreateAuthor(ctx context.Context, db *sql.DB, name string, bio sql.NullString, birth_year sql.NullInt32) (*Author, error) {
-	row := db.QueryRowContext(ctx, SQL_CREATE_AUTHOR, name, bio, birth_year)
+func CreateAuthor(ctx context.Context, db DBTX, name string, bio sql.NullString, birth_year sql.NullInt32) (*Author, error) {
+	row := db.QueryRow(ctx, SQL_CREATE_AUTHOR, name, bio, birth_year)
 	var r Author
 	err := row.Scan(&r.Id, &r.Name, &r.Bio, &r.BirthYear)
-	if err == sql.ErrNoRows {
+	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
@@ -548,11 +548,11 @@ func CreateAuthor(ctx context.Context, db *sql.DB, name string, bio sql.NullStri
 }
 
 // GetAuthor executes the GetAuthor query.
-func GetAuthor(ctx context.Context, db *sql.DB, id int64) (*Author, error) {
-	row := db.QueryRowContext(ctx, SQL_GET_AUTHOR, id)
+func GetAuthor(ctx context.Context, db DBTX, id int64) (*Author, error) {
+	row := db.QueryRow(ctx, SQL_GET_AUTHOR, id)
 	var r Author
 	err := row.Scan(&r.Id, &r.Name, &r.Bio, &r.BirthYear)
-	if err == sql.ErrNoRows {
+	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
@@ -562,8 +562,8 @@ func GetAuthor(ctx context.Context, db *sql.DB, id int64) (*Author, error) {
 }
 
 // ListAuthors executes the ListAuthors query.
-func ListAuthors(ctx context.Context, db *sql.DB) ([]Author, error) {
-	rows, err := db.QueryContext(ctx, SQL_LIST_AUTHORS)
+func ListAuthors(ctx context.Context, db DBTX) ([]Author, error) {
+	rows, err := db.Query(ctx, SQL_LIST_AUTHORS)
 	if err != nil {
 		return nil, err
 	}
@@ -583,11 +583,11 @@ func ListAuthors(ctx context.Context, db *sql.DB) ([]Author, error) {
 }
 
 // UpdateAuthorBio executes the UpdateAuthorBio query.
-func UpdateAuthorBio(ctx context.Context, db *sql.DB, bio sql.NullString, id int64) (*Author, error) {
-	row := db.QueryRowContext(ctx, SQL_UPDATE_AUTHOR_BIO, bio, id)
+func UpdateAuthorBio(ctx context.Context, db DBTX, bio sql.NullString, id int64) (*Author, error) {
+	row := db.QueryRow(ctx, SQL_UPDATE_AUTHOR_BIO, bio, id)
 	var r Author
 	err := row.Scan(&r.Id, &r.Name, &r.Bio, &r.BirthYear)
-	if err == sql.ErrNoRows {
+	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
@@ -597,11 +597,11 @@ func UpdateAuthorBio(ctx context.Context, db *sql.DB, bio sql.NullString, id int
 }
 
 // DeleteAuthor executes the DeleteAuthor query.
-func DeleteAuthor(ctx context.Context, db *sql.DB, id int64) (*DeleteAuthorRow, error) {
-	row := db.QueryRowContext(ctx, SQL_DELETE_AUTHOR, id)
+func DeleteAuthor(ctx context.Context, db DBTX, id int64) (*DeleteAuthorRow, error) {
+	row := db.QueryRow(ctx, SQL_DELETE_AUTHOR, id)
 	var r DeleteAuthorRow
 	err := row.Scan(&r.Id, &r.Name)
-	if err == sql.ErrNoRows {
+	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
@@ -611,11 +611,11 @@ func DeleteAuthor(ctx context.Context, db *sql.DB, id int64) (*DeleteAuthorRow, 
 }
 
 // CreateBook executes the CreateBook query.
-func CreateBook(ctx context.Context, db *sql.DB, author_id int64, title string, genre string, price string, published_at sql.NullTime) (*Book, error) {
-	row := db.QueryRowContext(ctx, SQL_CREATE_BOOK, author_id, title, genre, price, published_at)
+func CreateBook(ctx context.Context, db DBTX, author_id int64, title string, genre string, price string, published_at sql.NullTime) (*Book, error) {
+	row := db.QueryRow(ctx, SQL_CREATE_BOOK, author_id, title, genre, price, published_at)
 	var r Book
 	err := row.Scan(&r.Id, &r.AuthorId, &r.Title, &r.Genre, &r.Price, &r.PublishedAt)
-	if err == sql.ErrNoRows {
+	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
@@ -625,11 +625,11 @@ func CreateBook(ctx context.Context, db *sql.DB, author_id int64, title string, 
 }
 
 // GetBook executes the GetBook query.
-func GetBook(ctx context.Context, db *sql.DB, id int64) (*Book, error) {
-	row := db.QueryRowContext(ctx, SQL_GET_BOOK, id)
+func GetBook(ctx context.Context, db DBTX, id int64) (*Book, error) {
+	row := db.QueryRow(ctx, SQL_GET_BOOK, id)
 	var r Book
 	err := row.Scan(&r.Id, &r.AuthorId, &r.Title, &r.Genre, &r.Price, &r.PublishedAt)
-	if err == sql.ErrNoRows {
+	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
@@ -639,8 +639,8 @@ func GetBook(ctx context.Context, db *sql.DB, id int64) (*Book, error) {
 }
 
 // GetBooksByIds executes the GetBooksByIds query.
-func GetBooksByIds(ctx context.Context, db *sql.DB, ids []int64) ([]Book, error) {
-	rows, err := db.QueryContext(ctx, SQL_GET_BOOKS_BY_IDS, pq.Array(ids))
+func GetBooksByIds(ctx context.Context, db DBTX, ids []int64) ([]Book, error) {
+	rows, err := db.Query(ctx, SQL_GET_BOOKS_BY_IDS, ids)
 	if err != nil {
 		return nil, err
 	}
@@ -660,8 +660,8 @@ func GetBooksByIds(ctx context.Context, db *sql.DB, ids []int64) ([]Book, error)
 }
 
 // ListBooksByGenre executes the ListBooksByGenre query.
-func ListBooksByGenre(ctx context.Context, db *sql.DB, genre string) ([]Book, error) {
-	rows, err := db.QueryContext(ctx, SQL_LIST_BOOKS_BY_GENRE, genre)
+func ListBooksByGenre(ctx context.Context, db DBTX, genre string) ([]Book, error) {
+	rows, err := db.Query(ctx, SQL_LIST_BOOKS_BY_GENRE, genre)
 	if err != nil {
 		return nil, err
 	}
@@ -681,8 +681,8 @@ func ListBooksByGenre(ctx context.Context, db *sql.DB, genre string) ([]Book, er
 }
 
 // ListBooksByGenreOrAll executes the ListBooksByGenreOrAll query.
-func ListBooksByGenreOrAll(ctx context.Context, db *sql.DB, genre string) ([]Book, error) {
-	rows, err := db.QueryContext(ctx, SQL_LIST_BOOKS_BY_GENRE_OR_ALL, genre)
+func ListBooksByGenreOrAll(ctx context.Context, db DBTX, genre string) ([]Book, error) {
+	rows, err := db.Query(ctx, SQL_LIST_BOOKS_BY_GENRE_OR_ALL, genre)
 	if err != nil {
 		return nil, err
 	}
@@ -702,11 +702,11 @@ func ListBooksByGenreOrAll(ctx context.Context, db *sql.DB, genre string) ([]Boo
 }
 
 // CreateCustomer executes the CreateCustomer query.
-func CreateCustomer(ctx context.Context, db *sql.DB, name string, email string) (*CreateCustomerRow, error) {
-	row := db.QueryRowContext(ctx, SQL_CREATE_CUSTOMER, name, email)
+func CreateCustomer(ctx context.Context, db DBTX, name string, email string) (*CreateCustomerRow, error) {
+	row := db.QueryRow(ctx, SQL_CREATE_CUSTOMER, name, email)
 	var r CreateCustomerRow
 	err := row.Scan(&r.Id)
-	if err == sql.ErrNoRows {
+	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
@@ -716,11 +716,11 @@ func CreateCustomer(ctx context.Context, db *sql.DB, name string, email string) 
 }
 
 // CreateSale executes the CreateSale query.
-func CreateSale(ctx context.Context, db *sql.DB, customer_id int64) (*CreateSaleRow, error) {
-	row := db.QueryRowContext(ctx, SQL_CREATE_SALE, customer_id)
+func CreateSale(ctx context.Context, db DBTX, customer_id int64) (*CreateSaleRow, error) {
+	row := db.QueryRow(ctx, SQL_CREATE_SALE, customer_id)
 	var r CreateSaleRow
 	err := row.Scan(&r.Id)
-	if err == sql.ErrNoRows {
+	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
@@ -730,14 +730,14 @@ func CreateSale(ctx context.Context, db *sql.DB, customer_id int64) (*CreateSale
 }
 
 // AddSaleItem executes the AddSaleItem query.
-func AddSaleItem(ctx context.Context, db *sql.DB, sale_id int64, book_id int64, quantity int32, unit_price string) error {
-	_, err := db.ExecContext(ctx, SQL_ADD_SALE_ITEM, sale_id, book_id, quantity, unit_price)
+func AddSaleItem(ctx context.Context, db DBTX, sale_id int64, book_id int64, quantity int32, unit_price string) error {
+	_, err := db.Exec(ctx, SQL_ADD_SALE_ITEM, sale_id, book_id, quantity, unit_price)
 	return err
 }
 
 // ListBooksWithAuthor executes the ListBooksWithAuthor query.
-func ListBooksWithAuthor(ctx context.Context, db *sql.DB) ([]ListBooksWithAuthorRow, error) {
-	rows, err := db.QueryContext(ctx, SQL_LIST_BOOKS_WITH_AUTHOR)
+func ListBooksWithAuthor(ctx context.Context, db DBTX) ([]ListBooksWithAuthorRow, error) {
+	rows, err := db.Query(ctx, SQL_LIST_BOOKS_WITH_AUTHOR)
 	if err != nil {
 		return nil, err
 	}
@@ -757,8 +757,8 @@ func ListBooksWithAuthor(ctx context.Context, db *sql.DB) ([]ListBooksWithAuthor
 }
 
 // ListBookSummariesView executes the ListBookSummariesView query.
-func ListBookSummariesView(ctx context.Context, db *sql.DB) ([]BookSummaries, error) {
-	rows, err := db.QueryContext(ctx, SQL_LIST_BOOK_SUMMARIES_VIEW)
+func ListBookSummariesView(ctx context.Context, db DBTX) ([]BookSummaries, error) {
+	rows, err := db.Query(ctx, SQL_LIST_BOOK_SUMMARIES_VIEW)
 	if err != nil {
 		return nil, err
 	}
@@ -778,8 +778,8 @@ func ListBookSummariesView(ctx context.Context, db *sql.DB) ([]BookSummaries, er
 }
 
 // GetBooksNeverOrdered executes the GetBooksNeverOrdered query.
-func GetBooksNeverOrdered(ctx context.Context, db *sql.DB) ([]Book, error) {
-	rows, err := db.QueryContext(ctx, SQL_GET_BOOKS_NEVER_ORDERED)
+func GetBooksNeverOrdered(ctx context.Context, db DBTX) ([]Book, error) {
+	rows, err := db.Query(ctx, SQL_GET_BOOKS_NEVER_ORDERED)
 	if err != nil {
 		return nil, err
 	}
@@ -799,8 +799,8 @@ func GetBooksNeverOrdered(ctx context.Context, db *sql.DB) ([]Book, error) {
 }
 
 // GetTopSellingBooks executes the GetTopSellingBooks query.
-func GetTopSellingBooks(ctx context.Context, db *sql.DB) ([]GetTopSellingBooksRow, error) {
-	rows, err := db.QueryContext(ctx, SQL_GET_TOP_SELLING_BOOKS)
+func GetTopSellingBooks(ctx context.Context, db DBTX) ([]GetTopSellingBooksRow, error) {
+	rows, err := db.Query(ctx, SQL_GET_TOP_SELLING_BOOKS)
 	if err != nil {
 		return nil, err
 	}
@@ -820,8 +820,8 @@ func GetTopSellingBooks(ctx context.Context, db *sql.DB) ([]GetTopSellingBooksRo
 }
 
 // GetBestCustomers executes the GetBestCustomers query.
-func GetBestCustomers(ctx context.Context, db *sql.DB) ([]GetBestCustomersRow, error) {
-	rows, err := db.QueryContext(ctx, SQL_GET_BEST_CUSTOMERS)
+func GetBestCustomers(ctx context.Context, db DBTX) ([]GetBestCustomersRow, error) {
+	rows, err := db.Query(ctx, SQL_GET_BEST_CUSTOMERS)
 	if err != nil {
 		return nil, err
 	}
@@ -841,8 +841,8 @@ func GetBestCustomers(ctx context.Context, db *sql.DB) ([]GetBestCustomersRow, e
 }
 
 // CountBooksByGenre executes the CountBooksByGenre query.
-func CountBooksByGenre(ctx context.Context, db *sql.DB) ([]CountBooksByGenreRow, error) {
-	rows, err := db.QueryContext(ctx, SQL_COUNT_BOOKS_BY_GENRE)
+func CountBooksByGenre(ctx context.Context, db DBTX) ([]CountBooksByGenreRow, error) {
+	rows, err := db.Query(ctx, SQL_COUNT_BOOKS_BY_GENRE)
 	if err != nil {
 		return nil, err
 	}
@@ -862,8 +862,8 @@ func CountBooksByGenre(ctx context.Context, db *sql.DB) ([]CountBooksByGenreRow,
 }
 
 // ListBooksWithLimit executes the ListBooksWithLimit query.
-func ListBooksWithLimit(ctx context.Context, db *sql.DB, limit int64, offset int64) ([]ListBooksWithLimitRow, error) {
-	rows, err := db.QueryContext(ctx, SQL_LIST_BOOKS_WITH_LIMIT, limit, offset)
+func ListBooksWithLimit(ctx context.Context, db DBTX, limit int64, offset int64) ([]ListBooksWithLimitRow, error) {
+	rows, err := db.Query(ctx, SQL_LIST_BOOKS_WITH_LIMIT, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -883,8 +883,8 @@ func ListBooksWithLimit(ctx context.Context, db *sql.DB, limit int64, offset int
 }
 
 // SearchBooksByTitle executes the SearchBooksByTitle query.
-func SearchBooksByTitle(ctx context.Context, db *sql.DB, title string) ([]SearchBooksByTitleRow, error) {
-	rows, err := db.QueryContext(ctx, SQL_SEARCH_BOOKS_BY_TITLE, title)
+func SearchBooksByTitle(ctx context.Context, db DBTX, title string) ([]SearchBooksByTitleRow, error) {
+	rows, err := db.Query(ctx, SQL_SEARCH_BOOKS_BY_TITLE, title)
 	if err != nil {
 		return nil, err
 	}
@@ -904,8 +904,8 @@ func SearchBooksByTitle(ctx context.Context, db *sql.DB, title string) ([]Search
 }
 
 // GetBooksByPriceRange executes the GetBooksByPriceRange query.
-func GetBooksByPriceRange(ctx context.Context, db *sql.DB, price string, price_2 string) ([]GetBooksByPriceRangeRow, error) {
-	rows, err := db.QueryContext(ctx, SQL_GET_BOOKS_BY_PRICE_RANGE, price, price_2)
+func GetBooksByPriceRange(ctx context.Context, db DBTX, price string, price_2 string) ([]GetBooksByPriceRangeRow, error) {
+	rows, err := db.Query(ctx, SQL_GET_BOOKS_BY_PRICE_RANGE, price, price_2)
 	if err != nil {
 		return nil, err
 	}
@@ -925,8 +925,8 @@ func GetBooksByPriceRange(ctx context.Context, db *sql.DB, price string, price_2
 }
 
 // GetBooksInGenres executes the GetBooksInGenres query.
-func GetBooksInGenres(ctx context.Context, db *sql.DB, genre string, genre_2 string, genre_3 string) ([]GetBooksInGenresRow, error) {
-	rows, err := db.QueryContext(ctx, SQL_GET_BOOKS_IN_GENRES, genre, genre_2, genre_3)
+func GetBooksInGenres(ctx context.Context, db DBTX, genre string, genre_2 string, genre_3 string) ([]GetBooksInGenresRow, error) {
+	rows, err := db.Query(ctx, SQL_GET_BOOKS_IN_GENRES, genre, genre_2, genre_3)
 	if err != nil {
 		return nil, err
 	}
@@ -946,8 +946,8 @@ func GetBooksInGenres(ctx context.Context, db *sql.DB, genre string, genre_2 str
 }
 
 // GetBookPriceLabel executes the GetBookPriceLabel query.
-func GetBookPriceLabel(ctx context.Context, db *sql.DB, price string) ([]GetBookPriceLabelRow, error) {
-	rows, err := db.QueryContext(ctx, SQL_GET_BOOK_PRICE_LABEL, price)
+func GetBookPriceLabel(ctx context.Context, db DBTX, price string) ([]GetBookPriceLabelRow, error) {
+	rows, err := db.Query(ctx, SQL_GET_BOOK_PRICE_LABEL, price)
 	if err != nil {
 		return nil, err
 	}
@@ -967,8 +967,8 @@ func GetBookPriceLabel(ctx context.Context, db *sql.DB, price string) ([]GetBook
 }
 
 // GetBookPriceOrDefault executes the GetBookPriceOrDefault query.
-func GetBookPriceOrDefault(ctx context.Context, db *sql.DB, price sql.NullString) ([]GetBookPriceOrDefaultRow, error) {
-	rows, err := db.QueryContext(ctx, SQL_GET_BOOK_PRICE_OR_DEFAULT, price)
+func GetBookPriceOrDefault(ctx context.Context, db DBTX, price sql.NullString) ([]GetBookPriceOrDefaultRow, error) {
+	rows, err := db.Query(ctx, SQL_GET_BOOK_PRICE_OR_DEFAULT, price)
 	if err != nil {
 		return nil, err
 	}
@@ -988,13 +988,13 @@ func GetBookPriceOrDefault(ctx context.Context, db *sql.DB, price sql.NullString
 }
 
 // DeleteBookById executes the DeleteBookById query.
-func DeleteBookById(ctx context.Context, db *sql.DB, id int64) (int64, error) {
+func DeleteBookById(ctx context.Context, db DBTX, id int64) (int64, error) {
 	return execRows(ctx, db, SQL_DELETE_BOOK_BY_ID, id)
 }
 
 // GetGenresWithManyBooks executes the GetGenresWithManyBooks query.
-func GetGenresWithManyBooks(ctx context.Context, db *sql.DB, count int64) ([]GetGenresWithManyBooksRow, error) {
-	rows, err := db.QueryContext(ctx, SQL_GET_GENRES_WITH_MANY_BOOKS, count)
+func GetGenresWithManyBooks(ctx context.Context, db DBTX, count int64) ([]GetGenresWithManyBooksRow, error) {
+	rows, err := db.Query(ctx, SQL_GET_GENRES_WITH_MANY_BOOKS, count)
 	if err != nil {
 		return nil, err
 	}
@@ -1014,8 +1014,8 @@ func GetGenresWithManyBooks(ctx context.Context, db *sql.DB, count int64) ([]Get
 }
 
 // GetBooksByAuthorParam executes the GetBooksByAuthorParam query.
-func GetBooksByAuthorParam(ctx context.Context, db *sql.DB, birth_year sql.NullInt32) ([]GetBooksByAuthorParamRow, error) {
-	rows, err := db.QueryContext(ctx, SQL_GET_BOOKS_BY_AUTHOR_PARAM, birth_year)
+func GetBooksByAuthorParam(ctx context.Context, db DBTX, birth_year sql.NullInt32) ([]GetBooksByAuthorParamRow, error) {
+	rows, err := db.Query(ctx, SQL_GET_BOOKS_BY_AUTHOR_PARAM, birth_year)
 	if err != nil {
 		return nil, err
 	}
@@ -1035,8 +1035,8 @@ func GetBooksByAuthorParam(ctx context.Context, db *sql.DB, birth_year sql.NullI
 }
 
 // GetAllBookFields executes the GetAllBookFields query.
-func GetAllBookFields(ctx context.Context, db *sql.DB) ([]Book, error) {
-	rows, err := db.QueryContext(ctx, SQL_GET_ALL_BOOK_FIELDS)
+func GetAllBookFields(ctx context.Context, db DBTX) ([]Book, error) {
+	rows, err := db.Query(ctx, SQL_GET_ALL_BOOK_FIELDS)
 	if err != nil {
 		return nil, err
 	}
@@ -1056,8 +1056,8 @@ func GetAllBookFields(ctx context.Context, db *sql.DB) ([]Book, error) {
 }
 
 // GetBooksNotByAuthor executes the GetBooksNotByAuthor query.
-func GetBooksNotByAuthor(ctx context.Context, db *sql.DB, name string) ([]GetBooksNotByAuthorRow, error) {
-	rows, err := db.QueryContext(ctx, SQL_GET_BOOKS_NOT_BY_AUTHOR, name)
+func GetBooksNotByAuthor(ctx context.Context, db DBTX, name string) ([]GetBooksNotByAuthorRow, error) {
+	rows, err := db.Query(ctx, SQL_GET_BOOKS_NOT_BY_AUTHOR, name)
 	if err != nil {
 		return nil, err
 	}
@@ -1077,8 +1077,8 @@ func GetBooksNotByAuthor(ctx context.Context, db *sql.DB, name string) ([]GetBoo
 }
 
 // GetBooksWithRecentSales executes the GetBooksWithRecentSales query.
-func GetBooksWithRecentSales(ctx context.Context, db *sql.DB, ordered_at time.Time) ([]GetBooksWithRecentSalesRow, error) {
-	rows, err := db.QueryContext(ctx, SQL_GET_BOOKS_WITH_RECENT_SALES, ordered_at)
+func GetBooksWithRecentSales(ctx context.Context, db DBTX, ordered_at time.Time) ([]GetBooksWithRecentSalesRow, error) {
+	rows, err := db.Query(ctx, SQL_GET_BOOKS_WITH_RECENT_SALES, ordered_at)
 	if err != nil {
 		return nil, err
 	}
@@ -1098,8 +1098,8 @@ func GetBooksWithRecentSales(ctx context.Context, db *sql.DB, ordered_at time.Ti
 }
 
 // GetBookWithAuthorName executes the GetBookWithAuthorName query.
-func GetBookWithAuthorName(ctx context.Context, db *sql.DB) ([]GetBookWithAuthorNameRow, error) {
-	rows, err := db.QueryContext(ctx, SQL_GET_BOOK_WITH_AUTHOR_NAME)
+func GetBookWithAuthorName(ctx context.Context, db DBTX) ([]GetBookWithAuthorNameRow, error) {
+	rows, err := db.Query(ctx, SQL_GET_BOOK_WITH_AUTHOR_NAME)
 	if err != nil {
 		return nil, err
 	}
@@ -1119,8 +1119,8 @@ func GetBookWithAuthorName(ctx context.Context, db *sql.DB) ([]GetBookWithAuthor
 }
 
 // GetAuthorStats executes the GetAuthorStats query.
-func GetAuthorStats(ctx context.Context, db *sql.DB) ([]GetAuthorStatsRow, error) {
-	rows, err := db.QueryContext(ctx, SQL_GET_AUTHOR_STATS)
+func GetAuthorStats(ctx context.Context, db DBTX) ([]GetAuthorStatsRow, error) {
+	rows, err := db.Query(ctx, SQL_GET_AUTHOR_STATS)
 	if err != nil {
 		return nil, err
 	}
@@ -1140,8 +1140,8 @@ func GetAuthorStats(ctx context.Context, db *sql.DB) ([]GetAuthorStatsRow, error
 }
 
 // ArchiveAndReturnBooks executes the ArchiveAndReturnBooks query.
-func ArchiveAndReturnBooks(ctx context.Context, db *sql.DB, published_at sql.NullTime) ([]ArchiveAndReturnBooksRow, error) {
-	rows, err := db.QueryContext(ctx, SQL_ARCHIVE_AND_RETURN_BOOKS, published_at)
+func ArchiveAndReturnBooks(ctx context.Context, db DBTX, published_at sql.NullTime) ([]ArchiveAndReturnBooksRow, error) {
+	rows, err := db.Query(ctx, SQL_ARCHIVE_AND_RETURN_BOOKS, published_at)
 	if err != nil {
 		return nil, err
 	}
@@ -1161,11 +1161,11 @@ func ArchiveAndReturnBooks(ctx context.Context, db *sql.DB, published_at sql.Nul
 }
 
 // GetProduct executes the GetProduct query.
-func GetProduct(ctx context.Context, db *sql.DB, id string) (*Product, error) {
-	row := db.QueryRowContext(ctx, SQL_GET_PRODUCT, id)
+func GetProduct(ctx context.Context, db DBTX, id string) (*Product, error) {
+	row := db.QueryRow(ctx, SQL_GET_PRODUCT, id)
 	var r Product
-	err := row.Scan(&r.Id, &r.Sku, &r.Name, &r.Active, &r.WeightKg, &r.Rating, scanArray(&r.Tags), &r.Metadata, &r.Thumbnail, &r.CreatedAt, &r.StockCount)
-	if err == sql.ErrNoRows {
+	err := row.Scan(&r.Id, &r.Sku, &r.Name, &r.Active, &r.WeightKg, &r.Rating, &r.Tags, &r.Metadata, &r.Thumbnail, &r.CreatedAt, &r.StockCount)
+	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
@@ -1175,8 +1175,8 @@ func GetProduct(ctx context.Context, db *sql.DB, id string) (*Product, error) {
 }
 
 // ListActiveProducts executes the ListActiveProducts query.
-func ListActiveProducts(ctx context.Context, db *sql.DB, active bool) ([]ListActiveProductsRow, error) {
-	rows, err := db.QueryContext(ctx, SQL_LIST_ACTIVE_PRODUCTS, active)
+func ListActiveProducts(ctx context.Context, db DBTX, active bool) ([]ListActiveProductsRow, error) {
+	rows, err := db.Query(ctx, SQL_LIST_ACTIVE_PRODUCTS, active)
 	if err != nil {
 		return nil, err
 	}
@@ -1184,7 +1184,7 @@ func ListActiveProducts(ctx context.Context, db *sql.DB, active bool) ([]ListAct
 	var results []ListActiveProductsRow
 	for rows.Next() {
 		var r ListActiveProductsRow
-		if err := rows.Scan(&r.Id, &r.Sku, &r.Name, &r.Active, &r.WeightKg, &r.Rating, scanArray(&r.Tags), &r.Metadata, &r.CreatedAt, &r.StockCount); err != nil {
+		if err := rows.Scan(&r.Id, &r.Sku, &r.Name, &r.Active, &r.WeightKg, &r.Rating, &r.Tags, &r.Metadata, &r.CreatedAt, &r.StockCount); err != nil {
 			return nil, err
 		}
 		results = append(results, r)
@@ -1196,11 +1196,11 @@ func ListActiveProducts(ctx context.Context, db *sql.DB, active bool) ([]ListAct
 }
 
 // InsertProduct executes the InsertProduct query.
-func InsertProduct(ctx context.Context, db *sql.DB, id string, sku string, name string, active bool, weight_kg *float32, rating sql.NullFloat64, tags []string, metadata *[]byte, thumbnail []byte, stock_count int16) (*Product, error) {
-	row := db.QueryRowContext(ctx, SQL_INSERT_PRODUCT, id, sku, name, active, weight_kg, rating, pq.Array(tags), metadata, thumbnail, stock_count)
+func InsertProduct(ctx context.Context, db DBTX, id string, sku string, name string, active bool, weight_kg *float32, rating sql.NullFloat64, tags []string, metadata *[]byte, thumbnail []byte, stock_count int16) (*Product, error) {
+	row := db.QueryRow(ctx, SQL_INSERT_PRODUCT, id, sku, name, active, weight_kg, rating, tags, metadata, thumbnail, stock_count)
 	var r Product
-	err := row.Scan(&r.Id, &r.Sku, &r.Name, &r.Active, &r.WeightKg, &r.Rating, scanArray(&r.Tags), &r.Metadata, &r.Thumbnail, &r.CreatedAt, &r.StockCount)
-	if err == sql.ErrNoRows {
+	err := row.Scan(&r.Id, &r.Sku, &r.Name, &r.Active, &r.WeightKg, &r.Rating, &r.Tags, &r.Metadata, &r.Thumbnail, &r.CreatedAt, &r.StockCount)
+	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
@@ -1210,8 +1210,8 @@ func InsertProduct(ctx context.Context, db *sql.DB, id string, sku string, name 
 }
 
 // GetAuthorsWithNullBio executes the GetAuthorsWithNullBio query.
-func GetAuthorsWithNullBio(ctx context.Context, db *sql.DB) ([]GetAuthorsWithNullBioRow, error) {
-	rows, err := db.QueryContext(ctx, SQL_GET_AUTHORS_WITH_NULL_BIO)
+func GetAuthorsWithNullBio(ctx context.Context, db DBTX) ([]GetAuthorsWithNullBioRow, error) {
+	rows, err := db.Query(ctx, SQL_GET_AUTHORS_WITH_NULL_BIO)
 	if err != nil {
 		return nil, err
 	}
@@ -1231,8 +1231,8 @@ func GetAuthorsWithNullBio(ctx context.Context, db *sql.DB) ([]GetAuthorsWithNul
 }
 
 // GetAuthorsWithBio executes the GetAuthorsWithBio query.
-func GetAuthorsWithBio(ctx context.Context, db *sql.DB) ([]Author, error) {
-	rows, err := db.QueryContext(ctx, SQL_GET_AUTHORS_WITH_BIO)
+func GetAuthorsWithBio(ctx context.Context, db DBTX) ([]Author, error) {
+	rows, err := db.Query(ctx, SQL_GET_AUTHORS_WITH_BIO)
 	if err != nil {
 		return nil, err
 	}
@@ -1252,8 +1252,8 @@ func GetAuthorsWithBio(ctx context.Context, db *sql.DB) ([]Author, error) {
 }
 
 // GetBooksPublishedBetween executes the GetBooksPublishedBetween query.
-func GetBooksPublishedBetween(ctx context.Context, db *sql.DB, published_at sql.NullTime, published_at_2 sql.NullTime) ([]GetBooksPublishedBetweenRow, error) {
-	rows, err := db.QueryContext(ctx, SQL_GET_BOOKS_PUBLISHED_BETWEEN, published_at, published_at_2)
+func GetBooksPublishedBetween(ctx context.Context, db DBTX, published_at sql.NullTime, published_at_2 sql.NullTime) ([]GetBooksPublishedBetweenRow, error) {
+	rows, err := db.Query(ctx, SQL_GET_BOOKS_PUBLISHED_BETWEEN, published_at, published_at_2)
 	if err != nil {
 		return nil, err
 	}
@@ -1273,8 +1273,8 @@ func GetBooksPublishedBetween(ctx context.Context, db *sql.DB, published_at sql.
 }
 
 // GetDistinctGenres executes the GetDistinctGenres query.
-func GetDistinctGenres(ctx context.Context, db *sql.DB) ([]GetDistinctGenresRow, error) {
-	rows, err := db.QueryContext(ctx, SQL_GET_DISTINCT_GENRES)
+func GetDistinctGenres(ctx context.Context, db DBTX) ([]GetDistinctGenresRow, error) {
+	rows, err := db.Query(ctx, SQL_GET_DISTINCT_GENRES)
 	if err != nil {
 		return nil, err
 	}
@@ -1294,8 +1294,8 @@ func GetDistinctGenres(ctx context.Context, db *sql.DB) ([]GetDistinctGenresRow,
 }
 
 // GetBooksWithSalesCount executes the GetBooksWithSalesCount query.
-func GetBooksWithSalesCount(ctx context.Context, db *sql.DB) ([]GetBooksWithSalesCountRow, error) {
-	rows, err := db.QueryContext(ctx, SQL_GET_BOOKS_WITH_SALES_COUNT)
+func GetBooksWithSalesCount(ctx context.Context, db DBTX) ([]GetBooksWithSalesCountRow, error) {
+	rows, err := db.Query(ctx, SQL_GET_BOOKS_WITH_SALES_COUNT)
 	if err != nil {
 		return nil, err
 	}
@@ -1315,11 +1315,11 @@ func GetBooksWithSalesCount(ctx context.Context, db *sql.DB) ([]GetBooksWithSale
 }
 
 // CountSaleItems executes the CountSaleItems query.
-func CountSaleItems(ctx context.Context, db *sql.DB, sale_id int64) (*CountSaleItemsRow, error) {
-	row := db.QueryRowContext(ctx, SQL_COUNT_SALE_ITEMS, sale_id)
+func CountSaleItems(ctx context.Context, db DBTX, sale_id int64) (*CountSaleItemsRow, error) {
+	row := db.QueryRow(ctx, SQL_COUNT_SALE_ITEMS, sale_id)
 	var r CountSaleItemsRow
 	err := row.Scan(&r.ItemCount)
-	if err == sql.ErrNoRows {
+	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
@@ -1329,11 +1329,11 @@ func CountSaleItems(ctx context.Context, db *sql.DB, sale_id int64) (*CountSaleI
 }
 
 // UpsertProduct executes the UpsertProduct query.
-func UpsertProduct(ctx context.Context, db *sql.DB, id string, sku string, name string, active bool, tags []string, stock_count int16) (*UpsertProductRow, error) {
-	row := db.QueryRowContext(ctx, SQL_UPSERT_PRODUCT, id, sku, name, active, pq.Array(tags), stock_count)
+func UpsertProduct(ctx context.Context, db DBTX, id string, sku string, name string, active bool, tags []string, stock_count int16) (*UpsertProductRow, error) {
+	row := db.QueryRow(ctx, SQL_UPSERT_PRODUCT, id, sku, name, active, tags, stock_count)
 	var r UpsertProductRow
-	err := row.Scan(&r.Id, &r.Sku, &r.Name, &r.Active, scanArray(&r.Tags), &r.StockCount)
-	if err == sql.ErrNoRows {
+	err := row.Scan(&r.Id, &r.Sku, &r.Name, &r.Active, &r.Tags, &r.StockCount)
+	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
@@ -1343,11 +1343,11 @@ func UpsertProduct(ctx context.Context, db *sql.DB, id string, sku string, name 
 }
 
 // GetSaleItemQuantityAggregates executes the GetSaleItemQuantityAggregates query.
-func GetSaleItemQuantityAggregates(ctx context.Context, db *sql.DB) (*GetSaleItemQuantityAggregatesRow, error) {
-	row := db.QueryRowContext(ctx, SQL_GET_SALE_ITEM_QUANTITY_AGGREGATES)
+func GetSaleItemQuantityAggregates(ctx context.Context, db DBTX) (*GetSaleItemQuantityAggregatesRow, error) {
+	row := db.QueryRow(ctx, SQL_GET_SALE_ITEM_QUANTITY_AGGREGATES)
 	var r GetSaleItemQuantityAggregatesRow
 	err := row.Scan(&r.MinQty, &r.MaxQty, &r.SumQty, &r.AvgQty)
-	if err == sql.ErrNoRows {
+	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
@@ -1357,11 +1357,11 @@ func GetSaleItemQuantityAggregates(ctx context.Context, db *sql.DB) (*GetSaleIte
 }
 
 // GetBookPriceAggregates executes the GetBookPriceAggregates query.
-func GetBookPriceAggregates(ctx context.Context, db *sql.DB) (*GetBookPriceAggregatesRow, error) {
-	row := db.QueryRowContext(ctx, SQL_GET_BOOK_PRICE_AGGREGATES)
+func GetBookPriceAggregates(ctx context.Context, db DBTX) (*GetBookPriceAggregatesRow, error) {
+	row := db.QueryRow(ctx, SQL_GET_BOOK_PRICE_AGGREGATES)
 	var r GetBookPriceAggregatesRow
 	err := row.Scan(&r.MinPrice, &r.MaxPrice, &r.SumPrice, &r.AvgPrice)
-	if err == sql.ErrNoRows {
+	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
@@ -1370,13 +1370,13 @@ func GetBookPriceAggregates(ctx context.Context, db *sql.DB) (*GetBookPriceAggre
 	return &r, nil
 }
 
-// Querier wraps a *sql.DB and exposes named query methods.
+// Querier wraps a DBTX and exposes named query methods.
 type Querier struct {
-	db *sql.DB
+	db DBTX
 }
 
 // NewQuerier returns a new Querier backed by db.
-func NewQuerier(db *sql.DB) *Querier {
+func NewQuerier(db DBTX) *Querier {
 	return &Querier{db: db}
 }
 

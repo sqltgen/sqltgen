@@ -20,7 +20,6 @@ func execRows(ctx context.Context, db *sql.DB, query string, args ...any) (int64
 }
 
 // buildInClause constructs an IN clause with n positional placeholders.
-// It returns the assembled SQL and a flat args slice.
 func buildInClause(prefix, suffix string, startIdx int, count int) string {
 	placeholders := make([]string, count)
 	for i := range count {

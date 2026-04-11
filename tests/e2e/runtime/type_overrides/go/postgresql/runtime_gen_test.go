@@ -17,6 +17,7 @@ import (
 
 	gen "e2e-type-overrides-go-postgresql/gen"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
@@ -29,7 +30,7 @@ func genDSN() string {
 	return "postgres://sqltgen:sqltgen@localhost:15432/sqltgen_e2e"
 }
 
-func setupDB(t *testing.T) (*sql.DB, func()) {
+func setupDB(t *testing.T) (*pgxpool.Pool, func()) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -44,7 +45,7 @@ func setupDB(t *testing.T) (*sql.DB, func()) {
 	admin.Close()
 
 	dbURL := genReplaceLastSegment(genDSN(), dbName)
-	db, err := sql.Open("pgx", dbURL)
+	pool, err := pgxpool.New(ctx, dbURL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,19 +55,19 @@ func setupDB(t *testing.T) (*sql.DB, func()) {
 		t.Fatal(err)
 	}
 	for _, stmt := range genSplitStatements(string(ddl)) {
-		if _, err := db.ExecContext(ctx, stmt); err != nil {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
 			t.Fatal(err)
 		}
 	}
 
 	cleanup := func() {
-		db.Close()
+		pool.Close()
 		adm, _ := sql.Open("pgx", genDSN())
 		adm.ExecContext(ctx, fmt.Sprintf(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '%s' AND pid <> pg_backend_pid()`, dbName))
 		adm.ExecContext(ctx, fmt.Sprintf(`DROP DATABASE IF EXISTS "%s"`, dbName))
 		adm.Close()
 	}
-	return db, cleanup
+	return pool, cleanup
 }
 
 func genReplaceLastSegment(url, replacement string) string {
