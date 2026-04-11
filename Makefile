@@ -398,9 +398,13 @@ e2e-new-test: e2e-new-test-sqlite e2e-new-test-postgresql e2e-new-test-mysql
 
 e2e-new-test-sqlite: $(SQLTGEN) $(E2E_NEW_SQLITE_TARGETS)
 
-e2e-new-test-postgresql: $(SQLTGEN) e2e-db-up $(E2E_NEW_PG_TARGETS)
+e2e-new-test-postgresql: $(SQLTGEN) $(E2E_NEW_PG_TARGETS)
 
-e2e-new-test-mysql: $(SQLTGEN) e2e-db-up $(E2E_NEW_MYSQL_TARGETS)
+e2e-new-test-mysql: $(SQLTGEN) $(E2E_NEW_MYSQL_TARGETS)
+
+# Ensure Docker is running before any PG/MySQL combo starts.
+$(E2E_NEW_PG_TARGETS): | e2e-db-up
+$(E2E_NEW_MYSQL_TARGETS): | e2e-db-up
 
 # Pattern rule: run one combo's tests.
 .e2e-new/%:
