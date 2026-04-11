@@ -400,7 +400,11 @@ fn emit_standard_query_func(src: &mut String, query: &Query, schema: &Schema, co
     writeln!(src, "// {fn_name} executes the {name} query.", name = query.name)?;
     writeln!(src, "func {fn_name}({sig}) {ret} {{")?;
 
-    let args = build_bind_args(query, contract);
+    let plan = build_bind_plan(query, contract);
+    for line in &plan.pre_lines {
+        writeln!(src, "\t{line}")?;
+    }
+    let args = &plan.args;
 
     let exec = contract.exec_method;
     let query_m = contract.query_method;
@@ -448,27 +452,50 @@ fn emit_standard_query_func(src: &mut String, query: &Query, schema: &Schema, co
     Ok(())
 }
 
-/// Build the bind argument list for a standard (non-list) query.
-fn build_bind_args(query: &Query, contract: &GoCoreContract) -> String {
+/// Pre-bind lines and argument list for a standard (non-list) query.
+///
+/// When the driver handles arrays natively (no wrapper like `pq.Array`),
+/// enum array parameters (`[]EnumType`) must be converted to `[]string`
+/// before binding because the driver cannot encode custom Go string types
+/// into PostgreSQL enum arrays.
+struct BindPlan {
+    /// Lines emitted before the query call (e.g. enum-array conversions).
+    pre_lines: Vec<String>,
+    /// Comma-separated argument expression for the query call.
+    args: String,
+}
+
+fn build_bind_plan(query: &Query, contract: &GoCoreContract) -> BindPlan {
     if query.params.is_empty() {
-        return String::new();
+        return BindPlan { pre_lines: Vec::new(), args: String::new() };
     }
     let raw_names: Vec<&str> = match contract.bind_mode {
         GoBindMode::UniqueParams => query.params.iter().map(|p| p.name.as_str()).collect(),
         GoBindMode::Positional => positional_bind_names(query),
     };
-    raw_names
+    let native_arrays = contract.array_param_expr == "{name}";
+    let mut pre_lines = Vec::new();
+    let args = raw_names
         .iter()
         .map(|name| {
-            let is_array = query.params.iter().any(|p| p.name == *name && matches!(&p.sql_type, SqlType::Array(_)));
-            if is_array {
+            let param = query.params.iter().find(|p| p.name == *name);
+            let is_enum_array = param.is_some_and(|p| matches!(&p.sql_type, SqlType::Array(inner) if matches!(inner.as_ref(), SqlType::Enum(_))));
+            let is_array = param.is_some_and(|p| matches!(&p.sql_type, SqlType::Array(_)));
+            if is_enum_array && native_arrays {
+                // Convert []EnumType to []string for native drivers
+                let tmp = format!("_{name}Str");
+                pre_lines.push(format!("{tmp} := make([]string, len({name}))"));
+                pre_lines.push(format!("for _i, _v := range {name} {{ {tmp}[_i] = string(_v) }}"));
+                tmp
+            } else if is_array {
                 contract.array_param_expr.replace("{name}", name)
             } else {
                 name.to_string()
             }
         })
         .collect::<Vec<_>>()
-        .join(", ")
+        .join(", ");
+    BindPlan { pre_lines, args }
 }
 
 /// Emit the Scan + return block for a `:one` query.
