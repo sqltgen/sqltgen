@@ -457,11 +457,12 @@ def scaffold(fixture: str, lang: str, engine: str,
 # These must be scaffolded individually with --fixture, not via --all.
 FIXTURES_REQUIRING_CUSTOM_CONFIG = {"type_overrides"}
 
-# Known-broken combos. Use (fixture, lang, engine) for specific combos,
-# or (None, lang, engine) to exclude a lang×engine pair across all fixtures.
-# TODO: Go+PostgreSQL blocked until Go backend migrates from lib/pq to pgx native.
+# Known-broken combos (fixture, lang, engine).
 EXCLUDED_COMBOS = {
-    (None, "go", "postgresql"),
+    # pq.Array cannot scan time.Time elements (lib/pq limitation).
+    ("array_overrides", "go", "postgresql"),
+    # sqltgen Go backend emits unused "time" import for schema_qualified queries.
+    ("schema_qualified", "go", "postgresql"),
 }
 
 
