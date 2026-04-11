@@ -38,7 +38,7 @@ pub(super) enum GoJsonMode {
 /// Captures all engine/driver differences so core.rs can emit clean,
 /// branch-free code.
 pub(super) struct GoCoreContract {
-    /// One-line comment naming the recommended driver, emitted in `_sqltgen.go`.
+    /// One-line comment naming the recommended driver, emitted in `sqltgen.go`.
     pub(super) driver_comment: &'static str,
     /// Placeholder format used when rewriting SQL.
     pub(super) placeholder_mode: GoPlaceholderMode,
@@ -47,11 +47,32 @@ pub(super) struct GoCoreContract {
     /// JSON column representation.
     pub(super) json_mode: GoJsonMode,
     /// Expression template for binding array parameters. `{name}` is replaced
-    /// with the Go variable name. Use `"pq.Array({name})"` for lib/pq or
-    /// `"{name}"` for drivers that accept slices directly.
+    /// with the Go variable name (e.g. `"pq.Array({name})"` or `"{name}"`).
     pub(super) array_param_expr: &'static str,
     /// Import required by `array_param_expr`, if any.
     pub(super) array_param_import: Option<&'static str>,
+
+    // ── DB interface abstraction ──────────────────────────────────────────────
+    /// Go type used in function signatures for the DB handle (e.g. `"*sql.DB"`).
+    pub(super) db_type: &'static str,
+    /// Method name for exec statements (e.g. `"ExecContext"`).
+    pub(super) exec_method: &'static str,
+    /// Method name for multi-row queries (e.g. `"QueryContext"`).
+    pub(super) query_method: &'static str,
+    /// Method name for single-row queries (e.g. `"QueryRowContext"`).
+    pub(super) query_row_method: &'static str,
+    /// Expression for the "no rows" error sentinel (e.g. `"sql.ErrNoRows"`).
+    pub(super) no_rows_expr: &'static str,
+    /// Import required by `no_rows_expr` if not already covered by other imports.
+    pub(super) no_rows_import: Option<&'static str>,
+    /// Expression template for scanning array result columns. `{dest}` is
+    /// replaced with the destination expression (e.g. `"scanArray({dest})"` or
+    /// `"{dest}"` when the driver handles arrays natively).
+    pub(super) array_scan_expr: &'static str,
+    /// Whether the queries file needs `"database/sql"` imported unconditionally.
+    /// False when the driver provides its own DB interface (nullable types that
+    /// need `database/sql` are handled separately by the type map).
+    pub(super) needs_database_sql_import: bool,
 }
 
 /// Resolve the Go adapter contract for the selected engine target.
@@ -64,6 +85,14 @@ pub(super) fn resolve_go_contract(target: &GoTarget) -> GoCoreContract {
             json_mode: GoJsonMode::Bytes,
             array_param_expr: "pq.Array({name})",
             array_param_import: Some("\"github.com/lib/pq\""),
+            db_type: "*sql.DB",
+            exec_method: "ExecContext",
+            query_method: "QueryContext",
+            query_row_method: "QueryRowContext",
+            no_rows_expr: "sql.ErrNoRows",
+            no_rows_import: None,
+            array_scan_expr: "scanArray({dest})",
+            needs_database_sql_import: true,
         },
         GoTarget::Sqlite => GoCoreContract {
             driver_comment: "// Driver: modernc.org/sqlite",
@@ -72,6 +101,14 @@ pub(super) fn resolve_go_contract(target: &GoTarget) -> GoCoreContract {
             json_mode: GoJsonMode::String,
             array_param_expr: "{name}",
             array_param_import: None,
+            db_type: "*sql.DB",
+            exec_method: "ExecContext",
+            query_method: "QueryContext",
+            query_row_method: "QueryRowContext",
+            no_rows_expr: "sql.ErrNoRows",
+            no_rows_import: None,
+            array_scan_expr: "scanArray({dest})",
+            needs_database_sql_import: true,
         },
         GoTarget::Mysql => GoCoreContract {
             driver_comment: "// Driver: github.com/go-sql-driver/mysql",
@@ -80,6 +117,14 @@ pub(super) fn resolve_go_contract(target: &GoTarget) -> GoCoreContract {
             json_mode: GoJsonMode::String,
             array_param_expr: "{name}",
             array_param_import: None,
+            db_type: "*sql.DB",
+            exec_method: "ExecContext",
+            query_method: "QueryContext",
+            query_row_method: "QueryRowContext",
+            no_rows_expr: "sql.ErrNoRows",
+            no_rows_import: None,
+            array_scan_expr: "scanArray({dest})",
+            needs_database_sql_import: true,
         },
     }
 }
@@ -108,9 +153,11 @@ fn build_helper_content(contract: &GoCoreContract, package_name: &str) -> String
     }
     _ = writeln!(src, ")");
     _ = writeln!(src);
+    let db_type = contract.db_type;
+    let exec_method = contract.exec_method;
     _ = writeln!(src, "// execRows runs a statement and returns the number of affected rows.");
-    _ = writeln!(src, "func execRows(ctx context.Context, db *sql.DB, query string, args ...any) (int64, error) {{");
-    _ = writeln!(src, "\tresult, err := db.ExecContext(ctx, query, args...)");
+    _ = writeln!(src, "func execRows(ctx context.Context, db {db_type}, query string, args ...any) (int64, error) {{");
+    _ = writeln!(src, "\tresult, err := db.{exec_method}(ctx, query, args...)");
     _ = writeln!(src, "\tif err != nil {{");
     _ = writeln!(src, "\t\treturn 0, err");
     _ = writeln!(src, "\t}}");
