@@ -180,9 +180,9 @@ class RuntimeGenTest {
     @Test
     void testGetBooksByPriceRangeGen() throws Exception {
         Queries.createAuthor(conn, "A", null, 1900);
-        Queries.createBook(conn, 1L, "Cheap", "sci-fi", new java.math.BigDecimal("5.0"), null);
-        Queries.createBook(conn, 1L, "Mid", "sci-fi", new java.math.BigDecimal("10.0"), null);
-        Queries.createBook(conn, 1L, "Expensive", "sci-fi", new java.math.BigDecimal("20.0"), null);
+        Queries.createBook(conn, 1L, "Cheap", "sci-fi", new java.math.BigDecimal("5.99"), null);
+        Queries.createBook(conn, 1L, "Mid", "sci-fi", new java.math.BigDecimal("10.5"), null);
+        Queries.createBook(conn, 1L, "Expensive", "sci-fi", new java.math.BigDecimal("20.99"), null);
         var books = Queries.getBooksByPriceRange(conn, new java.math.BigDecimal("7.0"), new java.math.BigDecimal("15.0"));
         assertEquals(1, books.size());
         assertEquals("Mid", books.get(0).title());

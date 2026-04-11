@@ -76,8 +76,8 @@ class RuntimeGenTest {
 
     @Test
     void testCreateAndListAuditLogsGen() throws Exception {
-        Queries.createAuditLog(conn, 1, "login");
-        Queries.createAuditLog(conn, 1, "view_dashboard");
+        Queries.createAuditLog(conn, 1L, "login");
+        Queries.createAuditLog(conn, 1L, "view_dashboard");
         var logs = Queries.listAuditLogs(conn);
         assertEquals(2, logs.size());
         assertEquals("view_dashboard", logs.get(0).action());
@@ -89,7 +89,7 @@ class RuntimeGenTest {
 
     @Test
     void testGetUserFromPublicSchemaGen() throws Exception {
-        var result = Queries.getUser(conn, 999);
+        var result = Queries.getUser(conn, 999L);
         assertTrue(result.isEmpty());
     }
 

@@ -8,6 +8,7 @@ generate:
 	$(SQLTGEN) generate --config sqltgen.json
 
 test: generate
+	go mod tidy
 	go test -v -count=1 ./...
 
 clean:

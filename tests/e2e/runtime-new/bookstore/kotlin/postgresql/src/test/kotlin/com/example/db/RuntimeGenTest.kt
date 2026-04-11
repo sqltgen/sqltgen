@@ -174,9 +174,9 @@ class RuntimeGenTest {
     @Test
     fun testGetBooksByPriceRangeGen() {
         Queries.createAuthor(conn, "A", null, 1900)
-        Queries.createBook(conn, 1L, "Cheap", "sci-fi", java.math.BigDecimal("5.0"), null)
-        Queries.createBook(conn, 1L, "Mid", "sci-fi", java.math.BigDecimal("10.0"), null)
-        Queries.createBook(conn, 1L, "Expensive", "sci-fi", java.math.BigDecimal("20.0"), null)
+        Queries.createBook(conn, 1L, "Cheap", "sci-fi", java.math.BigDecimal("5.99"), null)
+        Queries.createBook(conn, 1L, "Mid", "sci-fi", java.math.BigDecimal("10.5"), null)
+        Queries.createBook(conn, 1L, "Expensive", "sci-fi", java.math.BigDecimal("20.99"), null)
         val books = Queries.getBooksByPriceRange(conn, java.math.BigDecimal("7.0"), java.math.BigDecimal("15.0"))
         assertEquals(1, books.size)
         assertEquals("Mid", books[0].title)

@@ -39,6 +39,7 @@ SQLTGEN := ./target/debug/sqltgen
        e2e-runtime-enums-rust-postgresql \
        e2e-db-up e2e-db-down \
        e2e-testgen-setup e2e-testgen-generate e2e-testgen-generate-python \
+       e2e-new-scaffold e2e-new-test e2e-new-test-sqlite e2e-new-test-postgresql e2e-new-test-mysql \
        ci-fmt ci-clippy ci-test ci-check-suite ci-examples-drift ci-testgen-mypy ci-testgen-drift ci-build ci-runtime-sqlite ci-runtime-postgresql ci-runtime-mysql ci-runtime-db
 
 all: build test
@@ -362,6 +363,34 @@ e2e-testgen-generate-python: $(E2E_TESTGEN_STAMP) $(SQLTGEN)
 	$(E2E_TESTGEN_PYTHON) $(E2E_TESTGEN)/orchestrate.py generate \
 	    --lang python \
 	    --sqltgen $(abspath $(SQLTGEN))
+
+# ── E2E runtime-new (auto-discovered, fully generated) ───────────────────────
+
+E2E_NEW_DIR := tests/e2e/runtime-new
+
+# Scaffold all projects + generate test files from test_spec.yaml.
+e2e-new-scaffold: $(E2E_TESTGEN_STAMP) $(SQLTGEN)
+	$(E2E_TESTGEN_PYTHON) $(E2E_TESTGEN)/scaffold.py --all
+	$(E2E_TESTGEN_PYTHON) $(E2E_TESTGEN)/orchestrate.py generate \
+	    --runtime-dir $(E2E_NEW_DIR) \
+	    --sqltgen $(abspath $(SQLTGEN))
+
+# Run all runtime-new tests. Each sub-Makefile invokes sqltgen and runs tests.
+E2E_NEW_COMBOS := $(shell find $(E2E_NEW_DIR) -name sqltgen.json -not -path '*/node_modules/*' -printf '%h\n' 2>/dev/null | sort)
+E2E_NEW_SQLITE := $(filter %/sqlite, $(E2E_NEW_COMBOS))
+E2E_NEW_PG     := $(filter %/postgresql, $(E2E_NEW_COMBOS))
+E2E_NEW_MYSQL  := $(filter %/mysql, $(E2E_NEW_COMBOS))
+
+e2e-new-test: e2e-new-test-sqlite e2e-new-test-postgresql e2e-new-test-mysql
+
+e2e-new-test-sqlite: $(SQLTGEN)
+	@for d in $(E2E_NEW_SQLITE); do echo "── $$d ──" && $(MAKE) -C $$d test || exit 1; done
+
+e2e-new-test-postgresql: $(SQLTGEN) e2e-db-up
+	@for d in $(E2E_NEW_PG); do echo "── $$d ──" && $(MAKE) -C $$d test || exit 1; done
+
+e2e-new-test-mysql: $(SQLTGEN) e2e-db-up
+	@for d in $(E2E_NEW_MYSQL); do echo "── $$d ──" && $(MAKE) -C $$d test || exit 1; done
 
 # ── CI targets ────────────────────────────────────────────────────────────────
 

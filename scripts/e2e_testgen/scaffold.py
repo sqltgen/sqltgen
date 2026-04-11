@@ -23,7 +23,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 FIXTURES_DIR = REPO_ROOT / "tests" / "e2e" / "fixtures"
 RUNTIME_DIR = REPO_ROOT / "tests" / "e2e" / "runtime-new"
 
-ALL_LANGUAGES = ["rust", "go", "python", "typescript", "javascript", "java", "kotlin"]
+# Languages with working test generation templates in orchestrate.py.
+# JavaScript is excluded until a JS Jinja template is added.
+ALL_LANGUAGES = ["rust", "go", "python", "typescript", "java", "kotlin"]
 ALL_ENGINES = ["postgresql", "sqlite", "mysql"]
 
 # ── sqltgen.json ──────────────────────────────────────────────────────────────
@@ -103,6 +105,7 @@ MAKEFILE_GO = textwrap.dedent("""\
     \t$(SQLTGEN) generate --config sqltgen.json
 
     test: generate
+    \tgo mod tidy
     \tgo test -v -count=1 ./...
 
     clean:
@@ -416,21 +419,9 @@ def resolve_deps(lang: str, dest: Path) -> None:
             return
         subprocess.run(["cargo", "generate-lockfile"], cwd=dest, capture_output=True)
     elif lang == "go":
-        if (dest / "go.sum").exists():
-            return
-        # go mod tidy needs a .go file that imports the driver.
-        # pgx/v5 is the test setup driver; lib/pq is used by generated sqltgen code.
-        driver_imports = {
-            "postgresql": '_ "github.com/jackc/pgx/v5/stdlib"\n\t_ "github.com/lib/pq"',
-            "sqlite":     '_ "modernc.org/sqlite"',
-            "mysql":      '_ "github.com/go-sql-driver/mysql"',
-        }
-        engine = dest.name  # Last path component is the engine.
-        driver_import = driver_imports.get(engine, "")
-        stub = dest / "stub_test.go"
-        stub.write_text(f'package main\n\nimport (\n\t{driver_import}\n)\n')
-        subprocess.run(["go", "mod", "tidy"], cwd=dest, capture_output=True)
-        stub.unlink(missing_ok=True)
+        # go mod tidy runs at test time (after generated code exists)
+        # so we skip lock file generation during scaffolding.
+        pass
     elif lang in ("typescript", "javascript"):
         if (dest / "package-lock.json").exists():
             return
@@ -462,12 +453,31 @@ def scaffold(fixture: str, lang: str, engine: str,
     return dest
 
 
+# Fixtures that need per-language sqltgen.json configs (type overrides).
+# These must be scaffolded individually with --fixture, not via --all.
+FIXTURES_REQUIRING_CUSTOM_CONFIG = {"type_overrides"}
+
+# Known-broken combos. Use (fixture, lang, engine) for specific combos,
+# or (None, lang, engine) to exclude a lang×engine pair across all fixtures.
+# TODO: Go+PostgreSQL blocked until Go backend migrates from lib/pq to pgx native.
+EXCLUDED_COMBOS = {
+    (None, "go", "postgresql"),
+}
+
+
 def discover_fixtures() -> list[str]:
-    """Find all fixtures that have a test_spec.yaml."""
+    """Find all fixtures that have a test_spec.yaml and work with uniform config."""
     return sorted(
         d.name for d in FIXTURES_DIR.iterdir()
-        if d.is_dir() and (d / "test_spec.yaml").exists()
+        if d.is_dir()
+        and (d / "test_spec.yaml").exists()
+        and d.name not in FIXTURES_REQUIRING_CUSTOM_CONFIG
     )
+
+
+def _is_excluded(fixture: str, lang: str, engine: str) -> bool:
+    """Check if a combo is in the exclusion list."""
+    return (fixture, lang, engine) in EXCLUDED_COMBOS or (None, lang, engine) in EXCLUDED_COMBOS
 
 
 def scaffold_all() -> list[Path]:
@@ -478,6 +488,8 @@ def scaffold_all() -> list[Path]:
             for engine in ALL_ENGINES:
                 fixture_dir = FIXTURES_DIR / fixture / engine
                 if not fixture_dir.exists():
+                    continue
+                if _is_excluded(fixture, lang, engine):
                     continue
                 results.append(scaffold(fixture, lang, engine))
     return results

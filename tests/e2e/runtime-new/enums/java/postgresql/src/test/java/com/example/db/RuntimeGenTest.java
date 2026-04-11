@@ -77,8 +77,8 @@ class RuntimeGenTest {
     @Test
     void testDeleteTaskGen() throws Exception {
         Queries.createTask(conn, "Temp", Priority.fromValue("low"), Status.fromValue("open"), null);
-        Queries.deleteTask(conn, 1);
-        var result = Queries.getTask(conn, 1);
+        Queries.deleteTask(conn, 1L);
+        var result = Queries.getTask(conn, 1L);
         assertTrue(result.isEmpty());
     }
 
@@ -138,14 +138,14 @@ class RuntimeGenTest {
 
     @Test
     void testGetTaskNotFoundGen() throws Exception {
-        var result = Queries.getTask(conn, 999);
+        var result = Queries.getTask(conn, 999L);
         assertTrue(result.isEmpty());
     }
 
     @Test
     void testUpdateTaskStatusGen() throws Exception {
         var task = Queries.createTask(conn, "Deploy", Priority.fromValue("critical"), Status.fromValue("open"), null).orElseThrow();
-        var updated = Queries.updateTaskStatus(conn, Status.fromValue("in_progress"), 1).orElseThrow();
+        var updated = Queries.updateTaskStatus(conn, Status.fromValue("in_progress"), 1L).orElseThrow();
         assertNotNull(updated);
         assertEquals(Status.fromValue("in_progress"), updated.status());
         assertEquals(Priority.fromValue("critical"), updated.priority());
@@ -166,7 +166,7 @@ class RuntimeGenTest {
     @Test
     void testGetTaskTagsGen() throws Exception {
         Queries.createTaskWithTags(conn, "Read tags", Priority.fromValue("low"), Status.fromValue("open"), null, List.of(Priority.fromValue("low"), Priority.fromValue("medium"), Priority.fromValue("high")));
-        var row = Queries.getTaskTags(conn, 1).orElseThrow();
+        var row = Queries.getTaskTags(conn, 1L).orElseThrow();
         assertNotNull(row);
         assertEquals(3, row.tags().size());
         assertEquals(Priority.fromValue("low"), row.tags().get(0));
@@ -177,7 +177,7 @@ class RuntimeGenTest {
     @Test
     void testUpdateTaskTagsGen() throws Exception {
         Queries.createTaskWithTags(conn, "Update tags", Priority.fromValue("medium"), Status.fromValue("open"), null, List.of(Priority.fromValue("low")));
-        var updated = Queries.updateTaskTags(conn, List.of(Priority.fromValue("high"), Priority.fromValue("critical")), 1).orElseThrow();
+        var updated = Queries.updateTaskTags(conn, List.of(Priority.fromValue("high"), Priority.fromValue("critical")), 1L).orElseThrow();
         assertNotNull(updated);
         assertEquals(2, updated.tags().size());
         assertEquals(Priority.fromValue("high"), updated.tags().get(0));
@@ -187,7 +187,7 @@ class RuntimeGenTest {
     @Test
     void testEmptyEnumArrayGen() throws Exception {
         Queries.createTaskWithTags(conn, "No tags", Priority.fromValue("low"), Status.fromValue("open"), null, List.of());
-        var row = Queries.getTaskTags(conn, 1).orElseThrow();
+        var row = Queries.getTaskTags(conn, 1L).orElseThrow();
         assertNotNull(row);
         assertEquals(0, row.tags().size());
     }

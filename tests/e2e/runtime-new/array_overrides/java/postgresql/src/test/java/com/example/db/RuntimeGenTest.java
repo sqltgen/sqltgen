@@ -79,7 +79,7 @@ class RuntimeGenTest {
         var uid1 = UUID.randomUUID();
         var uid2 = UUID.randomUUID();
         Queries.insertRecord(conn, "test", List.of(LocalDateTime.of(2024, 1, 15, 10, 30, 0), LocalDateTime.of(2024, 6, 1, 12, 0, 0)), List.of(uid1, uid2));
-        var row = Queries.getRecord(conn, 1).orElseThrow();
+        var row = Queries.getRecord(conn, 1L).orElseThrow();
         assertNotNull(row);
         assertEquals("test", row.label());
         assertEquals(2, row.timestamps().size());
@@ -92,14 +92,14 @@ class RuntimeGenTest {
 
     @Test
     void testGetRecordNotFoundGen() throws Exception {
-        var result = Queries.getRecord(conn, 999);
+        var result = Queries.getRecord(conn, 999L);
         assertTrue(result.isEmpty());
     }
 
     @Test
     void testEmptyArraysGen() throws Exception {
         Queries.insertRecord(conn, "empty", List.of(), List.of());
-        var row = Queries.getRecord(conn, 1).orElseThrow();
+        var row = Queries.getRecord(conn, 1L).orElseThrow();
         assertNotNull(row);
         assertEquals(0, row.timestamps().size());
         assertEquals(0, row.uuids().size());
