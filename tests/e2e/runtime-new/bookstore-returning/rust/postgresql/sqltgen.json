@@ -1,0 +1,12 @@
+{
+    "version": "1",
+    "engine": "postgresql",
+    "schema": "../../../../fixtures/bookstore-returning/postgresql/schema.sql",
+    "queries": "../../../../fixtures/bookstore-returning/postgresql/queries.sql",
+    "gen": {
+        "rust": {
+            "out": "src/db",
+            "package": "db"
+        }
+    }
+}
