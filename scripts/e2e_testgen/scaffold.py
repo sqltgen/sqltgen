@@ -33,8 +33,8 @@ LANG_OUTPUT = {
     "rust":       {"out": "src/db", "package": "db"},
     "go":         {"out": "gen",    "package": "gen"},
     "python":     {"out": "gen",    "package": "gen"},
-    "typescript": {"out": "src/gen","package": ""},
-    "javascript": {"out": "src/gen","package": ""},
+    "typescript": {"out": "gen",    "package": ""},
+    "javascript": {"out": "gen",    "package": ""},
     "java":       {"out": "src/main/java/com/example/db", "package": "com.example.db"},
     "kotlin":     {"out": "src/main/kotlin/com/example/db", "package": "com.example.db"},
 }
@@ -136,14 +136,14 @@ MAKEFILE_TS = textwrap.dedent("""\
     \tnpm install
 
     generate:
-    \trm -rf src/gen
+    \trm -rf gen
     \t$(SQLTGEN) generate --config sqltgen.json
 
     test: install generate
     \tnpm test
 
     clean:
-    \trm -rf src/gen node_modules
+    \trm -rf gen node_modules
 """)
 
 MAKEFILE_JAVA = textwrap.dedent("""\
@@ -222,7 +222,7 @@ GO_DRIVERS = {
 }
 
 def write_go(fixture: str, engine: str, dest: Path) -> None:
-    mod_name = f"e2e-{fixture}-go-{engine}"
+    mod_name = f"e2e-{fixture.replace('_', '-')}-go-{engine}"
     driver_mod, driver_ver = GO_DRIVERS[engine]
     (dest / "go.mod").write_text(textwrap.dedent(f"""\
         module {mod_name}
@@ -325,6 +325,11 @@ def _pom_xml(fixture: str, lang: str, engine: str, extra_deps: str = "") -> str:
               <artifactId>{artifact_id}</artifactId>
               <version>{version}</version>
             </dependency>
+            <dependency>
+              <groupId>com.fasterxml.jackson.core</groupId>
+              <artifactId>jackson-databind</artifactId>
+              <version>2.18.3</version>
+            </dependency>
         {extra_deps}
             <dependency>
               <groupId>org.junit.jupiter</groupId>
@@ -399,12 +404,20 @@ WRITERS = {
 # ── Lock file generation ─────────────────────────────────────────────────────
 
 def resolve_deps(lang: str, dest: Path) -> None:
-    """Run the language's dependency resolver to produce lock files."""
+    """Run the language's dependency resolver to produce lock files.
+
+    Skips resolution if the lock file already exists (deps rarely change;
+    delete the lock file to force re-resolution).
+    """
     import subprocess
 
     if lang == "rust":
+        if (dest / "Cargo.lock").exists():
+            return
         subprocess.run(["cargo", "generate-lockfile"], cwd=dest, capture_output=True)
     elif lang == "go":
+        if (dest / "go.sum").exists():
+            return
         # go mod tidy needs a .go file that imports the driver.
         # pgx/v5 is the test setup driver; lib/pq is used by generated sqltgen code.
         driver_imports = {
@@ -419,6 +432,8 @@ def resolve_deps(lang: str, dest: Path) -> None:
         subprocess.run(["go", "mod", "tidy"], cwd=dest, capture_output=True)
         stub.unlink(missing_ok=True)
     elif lang in ("typescript", "javascript"):
+        if (dest / "package-lock.json").exists():
+            return
         subprocess.run(["npm", "install", "--package-lock-only"], cwd=dest, capture_output=True)
     # Java/Kotlin: Maven has no lock file mechanism — skip.
 
@@ -429,10 +444,6 @@ def scaffold(fixture: str, lang: str, engine: str,
              type_overrides: dict[str, str] | None = None) -> Path:
     """Create project boilerplate for one combo. Returns the directory path."""
     dest = RUNTIME_DIR / fixture / lang / engine
-    if dest.exists():
-        print(f"  skip (exists): {dest.relative_to(REPO_ROOT)}")
-        return dest
-
     dest.mkdir(parents=True, exist_ok=True)
 
     # sqltgen.json
@@ -451,15 +462,44 @@ def scaffold(fixture: str, lang: str, engine: str,
     return dest
 
 
+def discover_fixtures() -> list[str]:
+    """Find all fixtures that have a test_spec.yaml."""
+    return sorted(
+        d.name for d in FIXTURES_DIR.iterdir()
+        if d.is_dir() and (d / "test_spec.yaml").exists()
+    )
+
+
+def scaffold_all() -> list[Path]:
+    """Scaffold every valid fixture × language × engine combo."""
+    results = []
+    for fixture in discover_fixtures():
+        for lang in ALL_LANGUAGES:
+            for engine in ALL_ENGINES:
+                fixture_dir = FIXTURES_DIR / fixture / engine
+                if not fixture_dir.exists():
+                    continue
+                results.append(scaffold(fixture, lang, engine))
+    return results
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Scaffold e2e runtime test projects")
-    parser.add_argument("--fixture", required=True, help="Fixture name")
+    parser.add_argument("--all", action="store_true", help="Scaffold all fixtures × languages × engines")
+    parser.add_argument("--fixture", help="Fixture name")
     parser.add_argument("--lang", help="Language (or --all-langs)")
     parser.add_argument("--all-langs", action="store_true", help="All languages")
     parser.add_argument("--engine", help="Engine (or --all-engines)")
     parser.add_argument("--all-engines", action="store_true", help="All engines")
 
     args = parser.parse_args()
+
+    if args.all:
+        scaffold_all()
+        return
+
+    if not args.fixture:
+        parser.error("Specify --fixture or --all")
 
     langs = ALL_LANGUAGES if args.all_langs else ([args.lang] if args.lang else [])
     engines = ALL_ENGINES if args.all_engines else ([args.engine] if args.engine else [])

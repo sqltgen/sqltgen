@@ -2,8 +2,8 @@
 **/rust/**/src/db/
 **/go/**/gen/
 **/python/**/gen/
-**/typescript/**/src/gen/
-**/javascript/**/src/gen/
+**/typescript/**/gen/
+**/javascript/**/gen/
 **/java/**/src/main/java/com/example/db/
 **/kotlin/**/src/main/kotlin/com/example/db/
 

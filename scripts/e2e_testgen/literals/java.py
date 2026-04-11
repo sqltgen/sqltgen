@@ -226,7 +226,14 @@ def render_typed_arg(
         return _java_str(str(value))
 
     if kind == "int":
+        if "long" in inner.lower() or "Long" in inner:
+            return f"{int(value)}L"
         return str(int(value))
+
+    if kind == "float":
+        if "BigDecimal" in inner:
+            return f'new java.math.BigDecimal("{value}")'
+        return str(float(value))
 
     if kind == "var":
         return str(value)
@@ -285,6 +292,8 @@ def render_assert_eq_typed(
     inner = _strip_java_time(field_lang_type or "")
 
     if kind == "int":
+        if field_lang_type in ("Integer", "int", "short", "Short"):
+            return f"assertEquals({expected}, {field_expr});"
         return f"assertEquals({expected}L, {field_expr});"
 
     if kind == "datetime" and "OffsetDateTime" in inner:

@@ -155,6 +155,13 @@ def render_typed_arg(
         n = str(int(value))
         return f"Some({n})" if is_option else n
 
+    if kind == "float":
+        if "Decimal" in inner_type:
+            d_expr = f'rust_decimal::Decimal::from_str("{value}").unwrap()'
+            return f"Some({d_expr})" if is_option else d_expr
+        f_expr = str(float(value))
+        return f"Some({f_expr})" if is_option else f_expr
+
     if kind == "var":
         var_name = str(value)
         need_clone = "String" in inner_type

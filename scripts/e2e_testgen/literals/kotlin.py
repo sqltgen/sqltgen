@@ -223,6 +223,11 @@ def render_typed_arg(
             return f"{int(value)}L"
         return str(int(value))
 
+    if kind == "float":
+        if "BigDecimal" in inner:
+            return f'java.math.BigDecimal("{value}")'
+        return str(float(value))
+
     if kind == "var":
         return str(value)
 

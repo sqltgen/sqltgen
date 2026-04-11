@@ -1,0 +1,12 @@
+{
+    "version": "1",
+    "engine": "postgresql",
+    "schema": "../../../../fixtures/schema_qualified/postgresql/schema.sql",
+    "queries": "../../../../fixtures/schema_qualified/postgresql/queries.sql",
+    "gen": {
+        "typescript": {
+            "out": "src/gen",
+            "package": ""
+        }
+    }
+}

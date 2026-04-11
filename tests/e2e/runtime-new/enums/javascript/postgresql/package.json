@@ -1,0 +1,11 @@
+{
+  "name": "e2e-enums-javascript-postgresql",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "test": "node --test runtime_gen.test.js"
+  },
+  "dependencies": {
+    "pg": "^8.13.3"
+  }
+}

@@ -1,0 +1,12 @@
+{
+    "version": "1",
+    "engine": "mysql",
+    "schema": "../../../../fixtures/type_overrides/mysql/schema.sql",
+    "queries": "../../../../fixtures/type_overrides/mysql/queries.sql",
+    "gen": {
+        "kotlin": {
+            "out": "src/main/kotlin/com/example/db",
+            "package": "com.example.db"
+        }
+    }
+}

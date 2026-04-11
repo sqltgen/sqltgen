@@ -1,0 +1,12 @@
+{
+    "version": "1",
+    "engine": "mysql",
+    "schema": "../../../../fixtures/bookstore/mysql/schema.sql",
+    "queries": "../../../../fixtures/bookstore/mysql/queries.sql",
+    "gen": {
+        "go": {
+            "out": "gen",
+            "package": "gen"
+        }
+    }
+}

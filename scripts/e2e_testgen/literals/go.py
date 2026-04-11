@@ -152,7 +152,31 @@ def render_typed_arg(
         if lang_type == "sql.NullString":
             return f'sql.NullString{{String: {_go_str(value)}, Valid: true}}'
 
-    # For str, int, float, bool, uuid — fall back to render_value.
+    if kind == "int":
+        n = str(int(value))
+        if lang_type == "sql.NullInt32":
+            return f"sql.NullInt32{{Int32: {n}, Valid: true}}"
+        if lang_type == "sql.NullInt64":
+            return f"sql.NullInt64{{Int64: {n}, Valid: true}}"
+        return n
+
+    if kind == "float":
+        # Go maps NUMERIC/DECIMAL to string via database/sql.
+        if lang_type == "string":
+            return f'"{value}"'
+        if lang_type == "sql.NullString":
+            return f'sql.NullString{{String: "{value}", Valid: true}}'
+        return str(float(value))
+
+    if kind == "bool":
+        return "true" if value else "false"
+
+    if kind == "uuid":
+        if str(value) == "random":
+            return "genUUID()"
+        return _go_str(str(value))
+
+    # Fallback for unknown kinds.
     return render_value(kind, value, engine, coercions)
 
 
@@ -248,8 +272,16 @@ def render_assert_eq_typed(
             f"if !{field_expr}.Valid || {field_expr}.String != {expected} "
             f"{{ t.Errorf(\"expected %v, got %v\", {expected}, {field_expr}) }}"
         )
-    if kind == "int":
-        return f"if {field_expr} != {expected} {{ t.Errorf(\"expected %v, got %v\", {expected}, {field_expr}) }}"
+    if kind == "int" and field_lang_type == "sql.NullInt32":
+        return (
+            f"if !{field_expr}.Valid || {field_expr}.Int32 != {expected} "
+            f"{{ t.Errorf(\"expected %v, got %v\", {expected}, {field_expr}) }}"
+        )
+    if kind == "int" and field_lang_type == "sql.NullInt64":
+        return (
+            f"if !{field_expr}.Valid || {field_expr}.Int64 != {expected} "
+            f"{{ t.Errorf(\"expected %v, got %v\", {expected}, {field_expr}) }}"
+        )
     return f"if {field_expr} != {expected} {{ t.Errorf(\"expected %v, got %v\", {expected}, {field_expr}) }}"
 
 

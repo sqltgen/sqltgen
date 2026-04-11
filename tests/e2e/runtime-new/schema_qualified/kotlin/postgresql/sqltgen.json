@@ -1,0 +1,12 @@
+{
+    "version": "1",
+    "engine": "postgresql",
+    "schema": "../../../../fixtures/schema_qualified/postgresql/schema.sql",
+    "queries": "../../../../fixtures/schema_qualified/postgresql/queries.sql",
+    "gen": {
+        "kotlin": {
+            "out": "src/main/kotlin/com/example/db",
+            "package": "com.example.db"
+        }
+    }
+}
