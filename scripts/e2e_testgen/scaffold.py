@@ -454,15 +454,13 @@ def scaffold(fixture: str, lang: str, engine: str,
 
 # Fixtures that need per-language sqltgen.json configs (type overrides).
 # These must be scaffolded individually with --fixture, not via --all.
-FIXTURES_REQUIRING_CUSTOM_CONFIG = {"type_overrides"}
+# Fixtures excluded from --all scaffolding.
+# type_overrides: needs per-language sqltgen.json configs (type override split).
+# schema_qualified: Go backend has unused import bug; will be added after fix.
+FIXTURES_REQUIRING_CUSTOM_CONFIG = {"type_overrides", "schema_qualified"}
 
 # Known-broken combos (fixture, lang, engine).
-EXCLUDED_COMBOS = {
-    # pq.Array cannot scan time.Time elements (lib/pq limitation).
-    ("array_overrides", "go", "postgresql"),
-    # sqltgen Go backend emits unused "time" import for schema_qualified queries.
-    ("schema_qualified", "go", "postgresql"),
-}
+EXCLUDED_COMBOS: set[tuple[str | None, str, str]] = set()
 
 
 def discover_fixtures() -> list[str]:

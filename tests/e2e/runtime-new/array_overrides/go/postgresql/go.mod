@@ -1,4 +1,4 @@
-module e2e-enums-go-postgresql
+module e2e-array-overrides-go-postgresql
 
 go 1.25.0
 

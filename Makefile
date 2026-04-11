@@ -368,6 +368,10 @@ e2e-testgen-generate-python: $(E2E_TESTGEN_STAMP) $(SQLTGEN)
 
 E2E_NEW_DIR := tests/e2e/runtime-new
 
+# Remove all scaffolded projects (keeps .gitignore and STATUS.md).
+e2e-new-clean:
+	find $(E2E_NEW_DIR) -mindepth 1 -maxdepth 1 -type d -exec rm -rf {} +
+
 # Scaffold all projects + generate test files from test_spec.yaml.
 e2e-new-scaffold: $(E2E_TESTGEN_STAMP) $(SQLTGEN)
 	$(E2E_TESTGEN_PYTHON) $(E2E_TESTGEN)/scaffold.py --all
