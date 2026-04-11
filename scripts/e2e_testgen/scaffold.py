@@ -224,6 +224,10 @@ GO_DRIVERS = {
 
 def write_go(fixture: str, engine: str, dest: Path) -> None:
     mod_name = f"e2e-{fixture.replace('_', '-')}-go-{engine}"
+    # go.mod is only written if it doesn't exist. go mod tidy (at test time)
+    # updates the go directive and deps, so we don't overwrite it.
+    if (dest / "go.mod").exists():
+        return
     driver_mod, driver_ver = GO_DRIVERS[engine]
     (dest / "go.mod").write_text(textwrap.dedent(f"""\
         module {mod_name}
