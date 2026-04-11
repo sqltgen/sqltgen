@@ -28,7 +28,13 @@ fn test_generate_helper_file_postgres() {
     let src = get_file(&files, "sqltgen.go");
     assert!(src.contains("package out"));
     assert!(src.contains("pgx"));
+    assert!(src.contains("type DBTX interface {"));
+    assert!(src.contains("pgconn.CommandTag"));
     assert!(src.contains("func execRows("));
+    assert!(src.contains("tag.RowsAffected()"));
+    // No scanArray or pq.Array for pgx native
+    assert!(!src.contains("scanArray"));
+    assert!(!src.contains("pq.Array"));
 }
 
 #[test]
@@ -57,8 +63,8 @@ fn test_generate_exec_query() {
     let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.go");
-    assert!(src.contains("func DeleteUser(ctx context.Context, db *sql.DB, id int64) error {"));
-    assert!(src.contains("db.ExecContext(ctx, SQL_DELETE_USER, id)"));
+    assert!(src.contains("func DeleteUser(ctx context.Context, db DBTX, id int64) error {"));
+    assert!(src.contains("db.Exec(ctx, SQL_DELETE_USER, id)"));
     assert!(src.contains("return err"));
 }
 
@@ -79,9 +85,9 @@ fn test_generate_one_query_infers_table_return_type() {
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.go");
-    assert!(src.contains("func GetUser(ctx context.Context, db *sql.DB, id int64) (*User, error) {"));
+    assert!(src.contains("func GetUser(ctx context.Context, db DBTX, id int64) (*User, error) {"));
     assert!(src.contains("row.Scan("));
-    assert!(src.contains("sql.ErrNoRows"));
+    assert!(src.contains("pgx.ErrNoRows"));
     assert!(src.contains("return &r, nil"));
 }
 
@@ -102,7 +108,7 @@ fn test_generate_many_query_infers_table_return_type() {
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.go");
-    assert!(src.contains("func ListUsers(ctx context.Context, db *sql.DB) ([]User, error) {"));
+    assert!(src.contains("func ListUsers(ctx context.Context, db DBTX) ([]User, error) {"));
     assert!(src.contains("rows.Next()"));
     assert!(src.contains("rows.Scan("));
     assert!(src.contains("return results, nil"));
@@ -116,7 +122,7 @@ fn test_generate_execrows_query() {
     let query = Query::exec_rows("DeleteUsers", "DELETE FROM user WHERE active = $1", vec![Parameter::scalar(1, "active", SqlType::Boolean, false)]);
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.go");
-    assert!(src.contains("func DeleteUsers(ctx context.Context, db *sql.DB, active bool) (int64, error) {"));
+    assert!(src.contains("func DeleteUsers(ctx context.Context, db DBTX, active bool) (int64, error) {"));
     assert!(src.contains("execRows(ctx, db, SQL_DELETE_USERS, active)"));
 }
 
@@ -146,7 +152,7 @@ fn test_generate_querier_struct() {
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.go");
     assert!(src.contains("type Querier struct {"));
-    assert!(src.contains("func NewQuerier(db *sql.DB) *Querier {"));
+    assert!(src.contains("func NewQuerier(db DBTX) *Querier {"));
     assert!(src.contains("func (q *Querier) DeleteUser(ctx context.Context, id int64) error {"));
     assert!(src.contains("return DeleteUser(ctx, q.db, id)"));
 }
@@ -181,7 +187,7 @@ fn test_generate_mysql_rewrites_placeholders() {
 }
 
 #[test]
-fn test_generate_postgres_scans_array_columns_with_pq_array() {
+fn test_generate_postgres_scans_array_columns_natively() {
     let schema = Schema::default();
     let query = Query::one(
         "GetProductTags",
@@ -191,7 +197,7 @@ fn test_generate_postgres_scans_array_columns_with_pq_array() {
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.go");
-    assert!(src.contains("row.Scan(scanArray(&r.Tags))"));
+    assert!(src.contains("row.Scan(&r.Tags)"));
 }
 
 // ─── generate: package name from out path ───────────────────────────────────
@@ -230,5 +236,5 @@ fn test_generate_no_param_query() {
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.go");
     // No trailing comma after the SQL constant
-    assert!(src.contains("db.QueryContext(ctx, SQL_LIST_USERS)"));
+    assert!(src.contains("db.Query(ctx, SQL_LIST_USERS)"));
 }

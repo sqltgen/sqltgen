@@ -3,8 +3,9 @@ package db
 
 import (
 	"context"
-	"database/sql"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 const SQL_GET_USER = `
@@ -18,11 +19,11 @@ INSERT INTO internal.audit_log (user_id, action) VALUES ($1, $2)
 `
 
 // GetUser executes the GetUser query.
-func GetUser(ctx context.Context, db *sql.DB, id int64) (*Users, error) {
-	row := db.QueryRowContext(ctx, SQL_GET_USER, id)
+func GetUser(ctx context.Context, db DBTX, id int64) (*Users, error) {
+	row := db.QueryRow(ctx, SQL_GET_USER, id)
 	var r Users
 	err := row.Scan(&r.Id, &r.Name, &r.Email)
-	if err == sql.ErrNoRows {
+	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
@@ -32,8 +33,8 @@ func GetUser(ctx context.Context, db *sql.DB, id int64) (*Users, error) {
 }
 
 // ListAuditLogs executes the ListAuditLogs query.
-func ListAuditLogs(ctx context.Context, db *sql.DB) ([]Internal_AuditLog, error) {
-	rows, err := db.QueryContext(ctx, SQL_LIST_AUDIT_LOGS)
+func ListAuditLogs(ctx context.Context, db DBTX) ([]Internal_AuditLog, error) {
+	rows, err := db.Query(ctx, SQL_LIST_AUDIT_LOGS)
 	if err != nil {
 		return nil, err
 	}
@@ -53,18 +54,18 @@ func ListAuditLogs(ctx context.Context, db *sql.DB) ([]Internal_AuditLog, error)
 }
 
 // CreateAuditLog executes the CreateAuditLog query.
-func CreateAuditLog(ctx context.Context, db *sql.DB, user_id int64, action string) error {
-	_, err := db.ExecContext(ctx, SQL_CREATE_AUDIT_LOG, user_id, action)
+func CreateAuditLog(ctx context.Context, db DBTX, user_id int64, action string) error {
+	_, err := db.Exec(ctx, SQL_CREATE_AUDIT_LOG, user_id, action)
 	return err
 }
 
-// Querier wraps a *sql.DB and exposes named query methods.
+// Querier wraps a DBTX and exposes named query methods.
 type Querier struct {
-	db *sql.DB
+	db DBTX
 }
 
 // NewQuerier returns a new Querier backed by db.
-func NewQuerier(db *sql.DB) *Querier {
+func NewQuerier(db DBTX) *Querier {
 	return &Querier{db: db}
 }
 

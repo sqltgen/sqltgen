@@ -3,7 +3,8 @@ package db
 
 import (
 	"context"
-	"database/sql"
+
+	"github.com/jackc/pgx/v5"
 )
 
 const SQL_LIST_BOOK_SUMMARIES = `
@@ -24,8 +25,8 @@ ORDER BY title
 `
 
 // ListBookSummaries executes the ListBookSummaries query.
-func ListBookSummaries(ctx context.Context, db *sql.DB) ([]BookSummaries, error) {
-	rows, err := db.QueryContext(ctx, SQL_LIST_BOOK_SUMMARIES)
+func ListBookSummaries(ctx context.Context, db DBTX) ([]BookSummaries, error) {
+	rows, err := db.Query(ctx, SQL_LIST_BOOK_SUMMARIES)
 	if err != nil {
 		return nil, err
 	}
@@ -45,8 +46,8 @@ func ListBookSummaries(ctx context.Context, db *sql.DB) ([]BookSummaries, error)
 }
 
 // ListBookSummariesByGenre executes the ListBookSummariesByGenre query.
-func ListBookSummariesByGenre(ctx context.Context, db *sql.DB, genre string) ([]BookSummaries, error) {
-	rows, err := db.QueryContext(ctx, SQL_LIST_BOOK_SUMMARIES_BY_GENRE, genre)
+func ListBookSummariesByGenre(ctx context.Context, db DBTX, genre string) ([]BookSummaries, error) {
+	rows, err := db.Query(ctx, SQL_LIST_BOOK_SUMMARIES_BY_GENRE, genre)
 	if err != nil {
 		return nil, err
 	}
@@ -66,8 +67,8 @@ func ListBookSummariesByGenre(ctx context.Context, db *sql.DB, genre string) ([]
 }
 
 // ListSciFiBooks executes the ListSciFiBooks query.
-func ListSciFiBooks(ctx context.Context, db *sql.DB) ([]SciFiBooks, error) {
-	rows, err := db.QueryContext(ctx, SQL_LIST_SCI_FI_BOOKS)
+func ListSciFiBooks(ctx context.Context, db DBTX) ([]SciFiBooks, error) {
+	rows, err := db.Query(ctx, SQL_LIST_SCI_FI_BOOKS)
 	if err != nil {
 		return nil, err
 	}
@@ -86,13 +87,13 @@ func ListSciFiBooks(ctx context.Context, db *sql.DB) ([]SciFiBooks, error) {
 	return results, nil
 }
 
-// Querier wraps a *sql.DB and exposes named query methods.
+// Querier wraps a DBTX and exposes named query methods.
 type Querier struct {
-	db *sql.DB
+	db DBTX
 }
 
 // NewQuerier returns a new Querier backed by db.
-func NewQuerier(db *sql.DB) *Querier {
+func NewQuerier(db DBTX) *Querier {
 	return &Querier{db: db}
 }
 

@@ -291,7 +291,8 @@ pub(super) fn build_queries_file(
 
 /// Collect all imports needed for the queries file.
 fn collect_query_imports(queries: &[Query], _schema: &Schema, contract: &GoCoreContract, type_map: &GoTypeMap, strategy: &ListParamStrategy) -> GoImports {
-    let mut imp = GoImports { context: true, database_sql: true, ..Default::default() };
+    let mut imp = GoImports { context: true, database_sql: contract.needs_database_sql_import, ..Default::default() };
+    imp.add_import(contract.no_rows_import.map(str::to_string));
 
     for query in queries {
         for p in &query.params {
@@ -380,8 +381,8 @@ fn result_row_type(query: &Query, schema: &Schema) -> String {
 }
 
 /// Build the parameter list for a query function signature.
-fn params_sig(query: &Query, type_map: &GoTypeMap) -> String {
-    let mut parts: Vec<String> = vec!["ctx context.Context".to_string(), "db *sql.DB".to_string()];
+fn params_sig(query: &Query, contract: &GoCoreContract, type_map: &GoTypeMap) -> String {
+    let mut parts: Vec<String> = vec!["ctx context.Context".to_string(), format!("db {}", contract.db_type)];
     for p in &query.params {
         let ty = if p.is_list { format!("[]{}", type_map.param_type(&p.sql_type, false)) } else { type_map.param_type(&p.sql_type, p.nullable) };
         parts.push(format!("{} {ty}", p.name));
@@ -393,20 +394,28 @@ fn params_sig(query: &Query, type_map: &GoTypeMap) -> String {
 fn emit_standard_query_func(src: &mut String, query: &Query, schema: &Schema, contract: &GoCoreContract, type_map: &GoTypeMap) -> anyhow::Result<()> {
     let fn_name = to_pascal_case(&query.name);
     let ret = query_return_type(query, schema);
-    let sig = params_sig(query, type_map);
+    let sig = params_sig(query, contract, type_map);
     let const_name = sql_const_name(&query.name);
 
     writeln!(src, "// {fn_name} executes the {name} query.", name = query.name)?;
     writeln!(src, "func {fn_name}({sig}) {ret} {{")?;
 
-    let args = build_bind_args(query, contract);
+    let plan = build_bind_plan(query, contract);
+    for line in &plan.pre_lines {
+        writeln!(src, "\t{line}")?;
+    }
+    let args = &plan.args;
+
+    let exec = contract.exec_method;
+    let query_m = contract.query_method;
+    let query_row = contract.query_row_method;
 
     match query.cmd {
         QueryCmd::Exec => {
             if args.is_empty() {
-                writeln!(src, "\t_, err := db.ExecContext(ctx, {const_name})")?;
+                writeln!(src, "\t_, err := db.{exec}(ctx, {const_name})")?;
             } else {
-                writeln!(src, "\t_, err := db.ExecContext(ctx, {const_name}, {args})")?;
+                writeln!(src, "\t_, err := db.{exec}(ctx, {const_name}, {args})")?;
             }
             writeln!(src, "\treturn err")?;
         },
@@ -419,17 +428,17 @@ fn emit_standard_query_func(src: &mut String, query: &Query, schema: &Schema, co
         },
         QueryCmd::One => {
             if args.is_empty() {
-                writeln!(src, "\trow := db.QueryRowContext(ctx, {const_name})")?;
+                writeln!(src, "\trow := db.{query_row}(ctx, {const_name})")?;
             } else {
-                writeln!(src, "\trow := db.QueryRowContext(ctx, {const_name}, {args})")?;
+                writeln!(src, "\trow := db.{query_row}(ctx, {const_name}, {args})")?;
             }
             emit_scan_one(src, query, schema, contract, type_map)?;
         },
         QueryCmd::Many => {
             if args.is_empty() {
-                writeln!(src, "\trows, err := db.QueryContext(ctx, {const_name})")?;
+                writeln!(src, "\trows, err := db.{query_m}(ctx, {const_name})")?;
             } else {
-                writeln!(src, "\trows, err := db.QueryContext(ctx, {const_name}, {args})")?;
+                writeln!(src, "\trows, err := db.{query_m}(ctx, {const_name}, {args})")?;
             }
             writeln!(src, "\tif err != nil {{")?;
             writeln!(src, "\t\treturn nil, err")?;
@@ -443,39 +452,63 @@ fn emit_standard_query_func(src: &mut String, query: &Query, schema: &Schema, co
     Ok(())
 }
 
-/// Build the bind argument list for a standard (non-list) query.
-fn build_bind_args(query: &Query, contract: &GoCoreContract) -> String {
+/// Pre-bind lines and argument list for a standard (non-list) query.
+///
+/// When the driver handles arrays natively (no wrapper like `pq.Array`),
+/// enum array parameters (`[]EnumType`) must be converted to `[]string`
+/// before binding because the driver cannot encode custom Go string types
+/// into PostgreSQL enum arrays.
+struct BindPlan {
+    /// Lines emitted before the query call (e.g. enum-array conversions).
+    pre_lines: Vec<String>,
+    /// Comma-separated argument expression for the query call.
+    args: String,
+}
+
+fn build_bind_plan(query: &Query, contract: &GoCoreContract) -> BindPlan {
     if query.params.is_empty() {
-        return String::new();
+        return BindPlan { pre_lines: Vec::new(), args: String::new() };
     }
     let raw_names: Vec<&str> = match contract.bind_mode {
         GoBindMode::UniqueParams => query.params.iter().map(|p| p.name.as_str()).collect(),
         GoBindMode::Positional => positional_bind_names(query),
     };
-    raw_names
+    let native_arrays = contract.array_param_expr == "{name}";
+    let mut pre_lines = Vec::new();
+    let args = raw_names
         .iter()
         .map(|name| {
-            let is_array = query.params.iter().any(|p| p.name == *name && matches!(&p.sql_type, SqlType::Array(_)));
-            if is_array {
+            let param = query.params.iter().find(|p| p.name == *name);
+            let is_enum_array = param.is_some_and(|p| matches!(&p.sql_type, SqlType::Array(inner) if matches!(inner.as_ref(), SqlType::Enum(_))));
+            let is_array = param.is_some_and(|p| matches!(&p.sql_type, SqlType::Array(_)));
+            if is_enum_array && native_arrays {
+                // Convert []EnumType to []string for native drivers
+                let tmp = format!("_{name}Str");
+                pre_lines.push(format!("{tmp} := make([]string, len({name}))"));
+                pre_lines.push(format!("for _i, _v := range {name} {{ {tmp}[_i] = string(_v) }}"));
+                tmp
+            } else if is_array {
                 contract.array_param_expr.replace("{name}", name)
             } else {
                 name.to_string()
             }
         })
         .collect::<Vec<_>>()
-        .join(", ")
+        .join(", ");
+    BindPlan { pre_lines, args }
 }
 
 /// Emit the Scan + return block for a `:one` query.
-fn emit_scan_one(src: &mut String, query: &Query, schema: &Schema, _contract: &GoCoreContract, type_map: &GoTypeMap) -> anyhow::Result<()> {
+fn emit_scan_one(src: &mut String, query: &Query, schema: &Schema, contract: &GoCoreContract, type_map: &GoTypeMap) -> anyhow::Result<()> {
     let row_type = result_row_type(query, schema);
-    let plan = scan_plan(&query.result_columns, type_map);
+    let plan = scan_plan(&query.result_columns, contract, type_map);
     writeln!(src, "\tvar r {row_type}")?;
     for line in &plan.pre_lines {
         writeln!(src, "\t{line}")?;
     }
     writeln!(src, "\terr := row.Scan({})", plan.scan_args.join(", "))?;
-    writeln!(src, "\tif err == sql.ErrNoRows {{")?;
+    let no_rows = contract.no_rows_expr;
+    writeln!(src, "\tif err == {no_rows} {{")?;
     writeln!(src, "\t\treturn nil, nil")?;
     writeln!(src, "\t}}")?;
     writeln!(src, "\tif err != nil {{")?;
@@ -489,9 +522,9 @@ fn emit_scan_one(src: &mut String, query: &Query, schema: &Schema, _contract: &G
 }
 
 /// Emit the rows.Next() loop for a `:many` query.
-fn emit_scan_many(src: &mut String, query: &Query, schema: &Schema, _contract: &GoCoreContract, type_map: &GoTypeMap) -> anyhow::Result<()> {
+fn emit_scan_many(src: &mut String, query: &Query, schema: &Schema, contract: &GoCoreContract, type_map: &GoTypeMap) -> anyhow::Result<()> {
     let row_type = result_row_type(query, schema);
-    let plan = scan_plan(&query.result_columns, type_map);
+    let plan = scan_plan(&query.result_columns, contract, type_map);
     writeln!(src, "\tvar results []{row_type}")?;
     writeln!(src, "\tfor rows.Next() {{")?;
     writeln!(src, "\t\tvar r {row_type}")?;
@@ -519,7 +552,7 @@ struct ScanPlan {
     post_lines: Vec<String>,
 }
 
-fn scan_plan(cols: &[ResultColumn], type_map: &GoTypeMap) -> ScanPlan {
+fn scan_plan(cols: &[ResultColumn], contract: &GoCoreContract, type_map: &GoTypeMap) -> ScanPlan {
     let mut pre_lines = Vec::new();
     let mut scan_args = Vec::new();
     let mut post_lines = Vec::new();
@@ -528,12 +561,11 @@ fn scan_plan(cols: &[ResultColumn], type_map: &GoTypeMap) -> ScanPlan {
         let field = field_name(&col.name);
         match &col.sql_type {
             SqlType::Array(inner) if matches!(inner.as_ref(), SqlType::Enum(_)) => {
-                // Enum arrays: pq.Array can't scan into []EnumType directly;
-                // scan into []string then convert to the enum slice.
+                // Enum arrays: scan into []string then convert to the enum slice.
                 let tmp = format!("_arr{}", i + 1);
                 let enum_ty = type_map.field_type(inner, false);
                 pre_lines.push(format!("var {tmp} []string"));
-                scan_args.push(format!("pq.Array(&{tmp})"));
+                scan_args.push(contract.array_scan_expr.replace("{dest}", &format!("&{tmp}")));
                 if col.nullable {
                     post_lines.push(format!("if {tmp} != nil {{"));
                     post_lines.push(format!("\t_conv{i} := make([]{enum_ty}, len({tmp}))"));
@@ -550,12 +582,12 @@ fn scan_plan(cols: &[ResultColumn], type_map: &GoTypeMap) -> ScanPlan {
                     let inner_ty = type_map.field_type(inner, false);
                     let tmp = format!("arr{}", i + 1);
                     pre_lines.push(format!("var {tmp} []{inner_ty}"));
-                    scan_args.push(format!("scanArray(&{tmp})"));
+                    scan_args.push(contract.array_scan_expr.replace("{dest}", &format!("&{tmp}")));
                     post_lines.push(format!("if {tmp} != nil {{"));
                     post_lines.push(format!("\tr.{field} = &{tmp}"));
                     post_lines.push("}".to_string());
                 } else {
-                    scan_args.push(format!("scanArray(&r.{field})"));
+                    scan_args.push(contract.array_scan_expr.replace("{dest}", &format!("&r.{field}")));
                 }
             },
             _ => scan_args.push(format!("&r.{field}")),
@@ -579,7 +611,7 @@ fn emit_list_query_func(
 ) -> anyhow::Result<()> {
     let fn_name = to_pascal_case(&query.name);
     let ret = query_return_type(query, schema);
-    let sig = params_sig(query, type_map);
+    let sig = params_sig(query, contract, type_map);
     let const_name = sql_const_name(&query.name);
 
     writeln!(src, "// {fn_name} executes the {name} query.", name = query.name)?;
@@ -608,8 +640,7 @@ fn emit_native_list_body(
 
     match &lp.native_list_bind {
         Some(NativeListBind::Array) => {
-            // PostgreSQL: use pq.Array
-            let args = build_native_pg_args(&scalar_params, lp);
+            let args = build_native_array_args(&scalar_params, lp, contract);
             emit_list_exec(src, query, schema, contract, type_map, const_name, &args)
         },
         Some(NativeListBind::Json) | None => {
@@ -635,12 +666,12 @@ fn error_zero_return(query: &Query) -> &'static str {
     }
 }
 
-fn build_native_pg_args(scalar_params: &[&Parameter], lp: &Parameter) -> String {
+fn build_native_array_args(scalar_params: &[&Parameter], lp: &Parameter, contract: &GoCoreContract) -> String {
     let mut args: Vec<String> = Vec::new();
     let before: Vec<String> = scalar_params.iter().filter(|p| p.index < lp.index).map(|p| p.name.clone()).collect();
     let after: Vec<String> = scalar_params.iter().filter(|p| p.index > lp.index).map(|p| p.name.clone()).collect();
     args.extend(before);
-    args.push(format!("pq.Array({})", lp.name));
+    args.push(contract.array_param_expr.replace("{name}", &lp.name));
     args.extend(after);
     args.join(", ")
 }
@@ -708,20 +739,23 @@ fn emit_dynamic_list_body(
 
     // Exec with the dynamic SQL
     let query_sql_var = "sql";
+    let exec = contract.exec_method;
+    let query_m = contract.query_method;
+    let query_row = contract.query_row_method;
     match query.cmd {
         QueryCmd::Exec => {
-            writeln!(src, "\t_, err := db.ExecContext(ctx, {query_sql_var}, args...)")?;
+            writeln!(src, "\t_, err := db.{exec}(ctx, {query_sql_var}, args...)")?;
             writeln!(src, "\treturn err")?;
         },
         QueryCmd::ExecRows => {
             writeln!(src, "\treturn execRows(ctx, db, {query_sql_var}, args...)")?;
         },
         QueryCmd::One => {
-            writeln!(src, "\trow := db.QueryRowContext(ctx, {query_sql_var}, args...)")?;
+            writeln!(src, "\trow := db.{query_row}(ctx, {query_sql_var}, args...)")?;
             emit_scan_one(src, query, schema, contract, type_map)?;
         },
         QueryCmd::Many => {
-            writeln!(src, "\trows, err := db.QueryContext(ctx, {query_sql_var}, args...)")?;
+            writeln!(src, "\trows, err := db.{query_m}(ctx, {query_sql_var}, args...)")?;
             writeln!(src, "\tif err != nil {{")?;
             writeln!(src, "\t\treturn nil, err")?;
             writeln!(src, "\t}}")?;
@@ -743,21 +777,23 @@ fn emit_list_exec(
     const_name: &str,
     args: &str,
 ) -> anyhow::Result<()> {
-    let _ = contract;
+    let exec = contract.exec_method;
+    let query_m = contract.query_method;
+    let query_row = contract.query_row_method;
     match query.cmd {
         QueryCmd::Exec => {
-            writeln!(src, "\t_, err := db.ExecContext(ctx, {const_name}, {args})")?;
+            writeln!(src, "\t_, err := db.{exec}(ctx, {const_name}, {args})")?;
             writeln!(src, "\treturn err")?;
         },
         QueryCmd::ExecRows => {
             writeln!(src, "\treturn execRows(ctx, db, {const_name}, {args})")?;
         },
         QueryCmd::One => {
-            writeln!(src, "\trow := db.QueryRowContext(ctx, {const_name}, {args})")?;
+            writeln!(src, "\trow := db.{query_row}(ctx, {const_name}, {args})")?;
             emit_scan_one(src, query, schema, contract, type_map)?;
         },
         QueryCmd::Many => {
-            writeln!(src, "\trows, err := db.QueryContext(ctx, {const_name}, {args})")?;
+            writeln!(src, "\trows, err := db.{query_m}(ctx, {const_name}, {args})")?;
             writeln!(src, "\tif err != nil {{")?;
             writeln!(src, "\t\treturn nil, err")?;
             writeln!(src, "\t}}")?;
@@ -773,13 +809,14 @@ fn emit_list_exec(
 /// Emit the `Querier` struct and its constructor + methods.
 fn emit_querier(src: &mut String, group: &str, queries: &[Query], schema: &Schema, contract: &GoCoreContract, type_map: &GoTypeMap) -> anyhow::Result<()> {
     let struct_name = querier_class_name(group);
-    writeln!(src, "// {struct_name} wraps a *sql.DB and exposes named query methods.")?;
+    let db_type = contract.db_type;
+    writeln!(src, "// {struct_name} wraps a {db_type} and exposes named query methods.")?;
     writeln!(src, "type {struct_name} struct {{")?;
-    writeln!(src, "\tdb *sql.DB")?;
+    writeln!(src, "\tdb {db_type}")?;
     writeln!(src, "}}")?;
     writeln!(src)?;
     writeln!(src, "// New{struct_name} returns a new {struct_name} backed by db.")?;
-    writeln!(src, "func New{struct_name}(db *sql.DB) *{struct_name} {{")?;
+    writeln!(src, "func New{struct_name}(db {db_type}) *{struct_name} {{")?;
     writeln!(src, "\treturn &{struct_name}{{db: db}}")?;
     writeln!(src, "}}")?;
 

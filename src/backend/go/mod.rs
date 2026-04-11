@@ -13,7 +13,7 @@ mod typemap;
 
 /// Database engine target for Go output.
 pub enum GoTarget {
-    /// PostgreSQL via pgx registered as database/sql driver.
+    /// PostgreSQL via pgx/v5 native interface (DBTX).
     Postgres,
     /// SQLite via modernc.org/sqlite.
     Sqlite,
@@ -34,8 +34,8 @@ impl From<Engine> for GoTarget {
 impl GoTarget {
     /// Resolve the target from an engine and optional driver string.
     ///
-    /// Go codegen generates `database/sql` compatible code; the concrete driver
-    /// is a runtime dependency only. No driver variants exist yet — omit the key.
+    /// PostgreSQL uses pgx native; SQLite and MySQL use `database/sql`.
+    /// No driver variants exist yet — omit the key.
     pub fn from_engine_and_driver(engine: Engine, driver: Option<&str>) -> anyhow::Result<Self> {
         if let Some(d) = driver {
             anyhow::bail!("driver {:?} is not supported for go/{}; driver selection is not yet available for go", d, engine.as_str(),);
@@ -52,7 +52,7 @@ impl GoTarget {
     }
 }
 
-/// Code generator for Go using `database/sql`.
+/// Code generator for Go. PostgreSQL uses pgx native; SQLite and MySQL use `database/sql`.
 pub struct GoCodegen {
     /// Database driver target.
     pub target: GoTarget,

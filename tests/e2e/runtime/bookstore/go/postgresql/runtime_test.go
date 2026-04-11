@@ -12,6 +12,7 @@ import (
 
 	gen "e2e-go-postgresql/gen"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
@@ -24,9 +25,9 @@ func dsn() string {
 	return defaultDSN
 }
 
-// setupDB creates an isolated database, applies the DDL, and returns a connected *sql.DB
+// setupDB creates an isolated database, applies the DDL, and returns a connected *pgxpool.Pool
 // plus a cleanup function that drops the database.
-func setupDB(t *testing.T) (*sql.DB, func()) {
+func setupDB(t *testing.T) (*pgxpool.Pool, func()) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -41,7 +42,7 @@ func setupDB(t *testing.T) (*sql.DB, func()) {
 	admin.Close()
 
 	dbURL := replaceLastSegment(dsn(), dbName)
-	db, err := sql.Open("pgx", dbURL)
+	pool, err := pgxpool.New(ctx, dbURL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,20 +52,20 @@ func setupDB(t *testing.T) (*sql.DB, func()) {
 		t.Fatal(err)
 	}
 	for _, stmt := range splitStatements(string(ddl)) {
-		if _, err := db.ExecContext(ctx, stmt); err != nil {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
 			t.Fatal(err)
 		}
 	}
 
 	cleanup := func() {
-		db.Close()
-		admin, _ := sql.Open("pgx", dsn())
-		admin.ExecContext(ctx, fmt.Sprintf(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '%s' AND pid <> pg_backend_pid()`, dbName))
-		admin.ExecContext(ctx, fmt.Sprintf(`DROP DATABASE IF EXISTS "%s"`, dbName))
-		admin.Close()
+		pool.Close()
+		adm, _ := sql.Open("pgx", dsn())
+		adm.ExecContext(ctx, fmt.Sprintf(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '%s' AND pid <> pg_backend_pid()`, dbName))
+		adm.ExecContext(ctx, fmt.Sprintf(`DROP DATABASE IF EXISTS "%s"`, dbName))
+		adm.Close()
 	}
 
-	return db, cleanup
+	return pool, cleanup
 }
 
 func replaceLastSegment(url, replacement string) string {
@@ -88,7 +89,7 @@ func splitStatements(ddl string) []string {
 }
 
 // seed populates the database with a standard dataset.
-func seed(t *testing.T, ctx context.Context, db *sql.DB) {
+func seed(t *testing.T, ctx context.Context, db *pgxpool.Pool) {
 	t.Helper()
 
 	// 3 authors
@@ -641,7 +642,7 @@ func TestArchiveAndReturnBooks(t *testing.T) {
 	seed(t, ctx, db)
 
 	// Delete sale_items first so the CTE DELETE on book can succeed
-	if _, err := db.ExecContext(ctx, "DELETE FROM sale_item"); err != nil {
+	if _, err := db.Exec(ctx, "DELETE FROM sale_item"); err != nil {
 		t.Fatal(err)
 	}
 
