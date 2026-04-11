@@ -120,19 +120,32 @@ def render_typed_arg(
     if kind == "json":
         return _go_json_arg(lang_type, value)
     if kind == "datetime":
+        if coercions.get("datetime") == "string":
+            s = _go_str(str(value))
+            if lang_type == "sql.NullString":
+                return f"sql.NullString{{String: {s}, Valid: true}}"
+            return s
         dt = _parse_go_datetime(str(value))
         if lang_type == "sql.NullTime":
             return f"sql.NullTime{{Time: {dt}, Valid: true}}"
         return dt
     if kind == "date":
+        if coercions.get("date") == "string":
+            s = _go_str(str(value))
+            if lang_type == "sql.NullString":
+                return f"sql.NullString{{String: {s}, Valid: true}}"
+            return s
         d = _parse_go_date(str(value))
         if lang_type == "sql.NullTime":
             return f"sql.NullTime{{Time: {d}, Valid: true}}"
         return d
     if kind == "time":
-        # Go database/sql drivers (lib/pq, go-sqlite3, go-sql-driver/mysql) return
-        # TIME columns as strings, which sql.Scan cannot convert to time.Time.
-        # Always store null to avoid scan failures on read-back.
+        if coercions.get("time") == "string":
+            s = _go_str(str(value))
+            if lang_type == "sql.NullString":
+                return f"sql.NullString{{String: {s}, Valid: true}}"
+            return s
+        # Go database/sql drivers return TIME columns as strings.
         return "sql.NullTime{}"
     if kind == "var":
         var_name = str(value)

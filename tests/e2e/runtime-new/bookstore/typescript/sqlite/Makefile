@@ -7,11 +7,11 @@ install:
 	npm install
 
 generate:
-	rm -rf src/gen
+	rm -rf gen
 	$(SQLTGEN) generate --config sqltgen.json
 
 test: install generate
 	npm test
 
 clean:
-	rm -rf src/gen node_modules
+	rm -rf gen node_modules

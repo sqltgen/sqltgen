@@ -127,7 +127,7 @@ class RuntimeGenTest {
         assertNotNull(author);
         assertEquals("Asimov", author.name());
         assertEquals("Sci-fi master", author.bio());
-        assertEquals(1920L, author.birthYear());
+        assertEquals(1920, author.birthYear());
     }
 
     @Test
@@ -139,7 +139,7 @@ class RuntimeGenTest {
     @Test
     void testGetBookGen() throws Exception {
         Queries.createAuthor(conn, "Herbert", null, 1920);
-        Queries.createBook(conn, 1, "Dune", "sci-fi", 12.99, LocalDate.of(1965, 6, 1));
+        Queries.createBook(conn, 1, "Dune", "sci-fi", 12.99, "1965-06-01");
         var book = Queries.getBook(conn, 1).orElseThrow();
         assertNotNull(book);
         assertEquals("Dune", book.title());
@@ -163,9 +163,9 @@ class RuntimeGenTest {
     @Test
     void testGetBooksByPriceRangeGen() throws Exception {
         Queries.createAuthor(conn, "A", null, 1900);
-        Queries.createBook(conn, 1, "Cheap", "sci-fi", 5.0, null);
-        Queries.createBook(conn, 1, "Mid", "sci-fi", 10.0, null);
-        Queries.createBook(conn, 1, "Expensive", "sci-fi", 20.0, null);
+        Queries.createBook(conn, 1, "Cheap", "sci-fi", 5.99, null);
+        Queries.createBook(conn, 1, "Mid", "sci-fi", 10.5, null);
+        Queries.createBook(conn, 1, "Expensive", "sci-fi", 20.99, null);
         var books = Queries.getBooksByPriceRange(conn, 7.0, 15.0);
         assertEquals(1, books.size());
         assertEquals("Mid", books.get(0).title());

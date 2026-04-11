@@ -193,14 +193,20 @@ def render_typed_arg(
         return f'genJson({_kotlin_str(_json.dumps(value))})'
 
     if kind == "datetime":
+        if coercions.get("datetime") == "string":
+            return _kotlin_str(str(value))
         if "OffsetDateTime" in inner:
             return _kotlin_offset_datetime(str(value))
         return _kotlin_local_datetime(str(value))
 
     if kind == "date":
+        if coercions.get("date") == "string":
+            return _kotlin_str(str(value))
         return _kotlin_local_date(str(value))
 
     if kind == "time":
+        if coercions.get("time") == "string":
+            return _kotlin_str(str(value))
         return _kotlin_local_time(str(value))
 
     if kind == "uuid":

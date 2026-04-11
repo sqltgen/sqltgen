@@ -193,11 +193,11 @@ scenarios:
       - call: create_author
         args: {name: {str: "A"}, bio: {null: true}, birth_year: {int: 1900}}
       - call: create_book
-        args: {author_id: {int: 1}, title: {str: "Cheap"}, genre: {str: "sci-fi"}, price: {float: 5.0}, published_at: {null: true}}
+        args: {author_id: {int: 1}, title: {str: "Cheap"}, genre: {str: "sci-fi"}, price: {float: 5.99}, published_at: {null: true}}
       - call: create_book
-        args: {author_id: {int: 1}, title: {str: "Mid"}, genre: {str: "sci-fi"}, price: {float: 10.0}, published_at: {null: true}}
+        args: {author_id: {int: 1}, title: {str: "Mid"}, genre: {str: "sci-fi"}, price: {float: 10.50}, published_at: {null: true}}
       - call: create_book
-        args: {author_id: {int: 1}, title: {str: "Expensive"}, genre: {str: "sci-fi"}, price: {float: 20.0}, published_at: {null: true}}
+        args: {author_id: {int: 1}, title: {str: "Expensive"}, genre: {str: "sci-fi"}, price: {float: 20.99}, published_at: {null: true}}
       - call: get_books_by_price_range
         args: {price: {float: 7.0}, price_2: {float: 15.0}}
         bind: books

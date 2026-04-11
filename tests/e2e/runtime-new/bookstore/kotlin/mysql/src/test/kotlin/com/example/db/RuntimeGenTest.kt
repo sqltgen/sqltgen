@@ -77,9 +77,9 @@ class RuntimeGenTest {
     fun testAddSaleItemGen() {
         Queries.createAuthor(conn, "A", null, 1900)
         Queries.createCustomer(conn, "Customer", "c@example.com")
-        Queries.createBook(conn, 1L, "Book", "sci-fi", 10.0, null)
+        Queries.createBook(conn, 1L, "Book", "sci-fi", java.math.BigDecimal("10.0"), null)
         Queries.createSale(conn, 1L)
-        Queries.addSaleItem(conn, 1L, 1L, 3, 10.0)
+        Queries.addSaleItem(conn, 1L, 1L, 3, java.math.BigDecimal("10.0"))
     }
 
     // ─── :execrows queries ────────────────────────────────────────────────────────────
@@ -87,7 +87,7 @@ class RuntimeGenTest {
     @Test
     fun testDeleteBookByIdGen() {
         Queries.createAuthor(conn, "A", null, 1900)
-        Queries.createBook(conn, 1L, "Book1", "sci-fi", 10.0, null)
+        Queries.createBook(conn, 1L, "Book1", "sci-fi", java.math.BigDecimal("10.0"), null)
         val affected = Queries.deleteBookById(conn, 1L)
         assertEquals(1L, affected)
     }
@@ -107,8 +107,8 @@ class RuntimeGenTest {
     @Test
     fun testListBooksByGenreGen() {
         Queries.createAuthor(conn, "A", null, 1900)
-        Queries.createBook(conn, 1L, "SciFi1", "sci-fi", 9.99, null)
-        Queries.createBook(conn, 1L, "Fantasy1", "fantasy", 11.99, null)
+        Queries.createBook(conn, 1L, "SciFi1", "sci-fi", java.math.BigDecimal("9.99"), null)
+        Queries.createBook(conn, 1L, "Fantasy1", "fantasy", java.math.BigDecimal("11.99"), null)
         val books = Queries.listBooksByGenre(conn, "sci-fi")
         assertEquals(1, books.size)
         assertEquals("SciFi1", books[0].title)
@@ -117,8 +117,8 @@ class RuntimeGenTest {
     @Test
     fun testListBooksByGenreOrAllGen() {
         Queries.createAuthor(conn, "A", null, 1900)
-        Queries.createBook(conn, 1L, "B1", "sci-fi", 9.99, null)
-        Queries.createBook(conn, 1L, "B2", "fantasy", 9.99, null)
+        Queries.createBook(conn, 1L, "B1", "sci-fi", java.math.BigDecimal("9.99"), null)
+        Queries.createBook(conn, 1L, "B2", "fantasy", java.math.BigDecimal("9.99"), null)
         val all_books = Queries.listBooksByGenreOrAll(conn, null)
         assertEquals(2, all_books.size)
         val scifi = Queries.listBooksByGenreOrAll(conn, "sci-fi")
@@ -128,7 +128,7 @@ class RuntimeGenTest {
     @Test
     fun testListBooksWithAuthorJoinGen() {
         Queries.createAuthor(conn, "Author A", "Bio A", 1920)
-        Queries.createBook(conn, 1L, "Book A", "sci-fi", 9.99, null)
+        Queries.createBook(conn, 1L, "Book A", "sci-fi", java.math.BigDecimal("9.99"), null)
         val rows = Queries.listBooksWithAuthor(conn)
         assertEquals(1, rows.size)
         assertEquals("Author A", rows[0].authorName)
@@ -155,7 +155,7 @@ class RuntimeGenTest {
     @Test
     fun testGetBookGen() {
         Queries.createAuthor(conn, "Herbert", null, 1920)
-        Queries.createBook(conn, 1L, "Dune", "sci-fi", 12.99, LocalDate.of(1965, 6, 1))
+        Queries.createBook(conn, 1L, "Dune", "sci-fi", java.math.BigDecimal("12.99"), LocalDate.of(1965, 6, 1))
         val book = Queries.getBook(conn, 1L)!!
         assertNotNull(book)
         assertEquals("Dune", book.title)
@@ -167,9 +167,9 @@ class RuntimeGenTest {
     @Test
     fun testCountBooksByGenreGen() {
         Queries.createAuthor(conn, "A", null, 1900)
-        Queries.createBook(conn, 1L, "B1", "sci-fi", 10.0, null)
-        Queries.createBook(conn, 1L, "B2", "sci-fi", 10.0, null)
-        Queries.createBook(conn, 1L, "B3", "fantasy", 10.0, null)
+        Queries.createBook(conn, 1L, "B1", "sci-fi", java.math.BigDecimal("10.0"), null)
+        Queries.createBook(conn, 1L, "B2", "sci-fi", java.math.BigDecimal("10.0"), null)
+        Queries.createBook(conn, 1L, "B3", "fantasy", java.math.BigDecimal("10.0"), null)
         val counts = Queries.countBooksByGenre(conn)
         assertEquals(2, counts.size)
     }
@@ -179,10 +179,10 @@ class RuntimeGenTest {
     @Test
     fun testGetBooksByPriceRangeGen() {
         Queries.createAuthor(conn, "A", null, 1900)
-        Queries.createBook(conn, 1L, "Cheap", "sci-fi", 5.0, null)
-        Queries.createBook(conn, 1L, "Mid", "sci-fi", 10.0, null)
-        Queries.createBook(conn, 1L, "Expensive", "sci-fi", 20.0, null)
-        val books = Queries.getBooksByPriceRange(conn, 7.0, 15.0)
+        Queries.createBook(conn, 1L, "Cheap", "sci-fi", java.math.BigDecimal("5.99"), null)
+        Queries.createBook(conn, 1L, "Mid", "sci-fi", java.math.BigDecimal("10.5"), null)
+        Queries.createBook(conn, 1L, "Expensive", "sci-fi", java.math.BigDecimal("20.99"), null)
+        val books = Queries.getBooksByPriceRange(conn, java.math.BigDecimal("7.0"), java.math.BigDecimal("15.0"))
         assertEquals(1, books.size)
         assertEquals("Mid", books[0].title)
     }
@@ -190,8 +190,8 @@ class RuntimeGenTest {
     @Test
     fun testSearchBooksByTitleGen() {
         Queries.createAuthor(conn, "A", null, 1900)
-        Queries.createBook(conn, 1L, "Foundation", "sci-fi", 9.99, null)
-        Queries.createBook(conn, 1L, "Dune", "sci-fi", 12.99, null)
+        Queries.createBook(conn, 1L, "Foundation", "sci-fi", java.math.BigDecimal("9.99"), null)
+        Queries.createBook(conn, 1L, "Dune", "sci-fi", java.math.BigDecimal("12.99"), null)
         val books = Queries.searchBooksByTitle(conn, "%ound%")
         assertEquals(1, books.size)
         assertEquals("Foundation", books[0].title)

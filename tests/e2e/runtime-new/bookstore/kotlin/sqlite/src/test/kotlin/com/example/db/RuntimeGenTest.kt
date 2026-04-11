@@ -134,7 +134,7 @@ class RuntimeGenTest {
     @Test
     fun testGetBookGen() {
         Queries.createAuthor(conn, "Herbert", null, 1920)
-        Queries.createBook(conn, 1, "Dune", "sci-fi", 12.99, LocalDate.of(1965, 6, 1))
+        Queries.createBook(conn, 1, "Dune", "sci-fi", 12.99, "1965-06-01")
         val book = Queries.getBook(conn, 1)!!
         assertNotNull(book)
         assertEquals("Dune", book.title)
@@ -158,9 +158,9 @@ class RuntimeGenTest {
     @Test
     fun testGetBooksByPriceRangeGen() {
         Queries.createAuthor(conn, "A", null, 1900)
-        Queries.createBook(conn, 1, "Cheap", "sci-fi", 5.0, null)
-        Queries.createBook(conn, 1, "Mid", "sci-fi", 10.0, null)
-        Queries.createBook(conn, 1, "Expensive", "sci-fi", 20.0, null)
+        Queries.createBook(conn, 1, "Cheap", "sci-fi", 5.99, null)
+        Queries.createBook(conn, 1, "Mid", "sci-fi", 10.5, null)
+        Queries.createBook(conn, 1, "Expensive", "sci-fi", 20.99, null)
         val books = Queries.getBooksByPriceRange(conn, 7.0, 15.0)
         assertEquals(1, books.size)
         assertEquals("Mid", books[0].title)

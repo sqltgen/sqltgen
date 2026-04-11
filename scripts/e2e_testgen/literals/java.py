@@ -201,14 +201,20 @@ def render_typed_arg(
         return f'genJson({_java_str(_json.dumps(value))})'
 
     if kind == "datetime":
+        if coercions.get("datetime") == "string":
+            return _java_str(str(value))
         if "OffsetDateTime" in inner:
             return _java_offset_datetime(str(value))
         return _java_local_datetime(str(value))
 
     if kind == "date":
+        if coercions.get("date") == "string":
+            return _java_str(str(value))
         return _java_local_date(str(value))
 
     if kind == "time":
+        if coercions.get("time") == "string":
+            return _java_str(str(value))
         return _java_local_time(str(value))
 
     if kind == "uuid":

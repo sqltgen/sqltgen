@@ -71,18 +71,31 @@ _DB_HOST = os.environ.get("MYSQL_HOST", "127.0.0.1")
 _DB_PORT = int(os.environ.get("MYSQL_PORT", "13306"))
 _DB_USER = os.environ.get("MYSQL_USER", "sqltgen")
 _DB_PASS = os.environ.get("MYSQL_PASS", "sqltgen")
+_DB_ROOT_USER = os.environ.get("MYSQL_ROOT_USER", "root")
+_DB_ROOT_PASS = os.environ.get("MYSQL_ROOT_PASS", "sqltgen")
 _DB_NAME = os.environ.get("MYSQL_DB", "sqltgen_e2e")
 
 
 @pytest.fixture()
 def conn():
-    """Yield a MySQL connection with a clean event table."""
+    """Yield a MySQL connection with an isolated database; drop it on teardown."""
+    db_name = "test_" + uuid.uuid4().hex
     schema_sql = (_FIXTURES / "schema.sql").read_text()
+
+    # Create isolated database.
+    admin = mysql.connector.connect(
+        host=_DB_HOST, port=_DB_PORT, user=_DB_ROOT_USER, password=_DB_ROOT_PASS, database=_DB_NAME
+    )
+    cur = admin.cursor()
+    cur.execute(f"CREATE DATABASE `{db_name}`")
+    cur.execute(f"GRANT ALL ON `{db_name}`.* TO '{_DB_USER}'@'%'")
+    cur.close()
+    admin.close()
+
     c = mysql.connector.connect(
-        host=_DB_HOST, port=_DB_PORT, user=_DB_USER, password=_DB_PASS, database=_DB_NAME
+        host=_DB_HOST, port=_DB_PORT, user=_DB_USER, password=_DB_PASS, database=db_name
     )
     cur = c.cursor()
-    cur.execute("DROP TABLE IF EXISTS event")
     for stmt in schema_sql.split(";"):
         stmt = stmt.strip()
         if stmt:
@@ -90,11 +103,16 @@ def conn():
     c.commit()
     cur.close()
     yield c
-    cur = c.cursor()
-    cur.execute("DROP TABLE IF EXISTS event")
-    c.commit()
-    cur.close()
     c.close()
+
+    # Drop the test database.
+    admin = mysql.connector.connect(
+        host=_DB_HOST, port=_DB_PORT, user=_DB_ROOT_USER, password=_DB_ROOT_PASS, database=_DB_NAME
+    )
+    cur = admin.cursor()
+    cur.execute(f"DROP DATABASE IF EXISTS `{db_name}`")
+    cur.close()
+    admin.close()
 {% endif %}
 
 

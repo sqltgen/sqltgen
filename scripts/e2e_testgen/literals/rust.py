@@ -129,14 +129,23 @@ def render_typed_arg(
         return f"Some({json_expr})" if is_option else json_expr
 
     if kind == "datetime":
+        if coercions.get("datetime") == "string":
+            s_expr = f'"{_escape_str(str(value))}".to_string()'
+            return f"Some({s_expr})" if is_option else s_expr
         dt_expr = _rust_datetime_for_type(inner_type, str(value))
         return f"Some({dt_expr})" if is_option else dt_expr
 
     if kind == "date":
+        if coercions.get("date") == "string":
+            s_expr = f'"{_escape_str(str(value))}".to_string()'
+            return f"Some({s_expr})" if is_option else s_expr
         d_expr = _rust_date(str(value))
         return f"Some({d_expr})" if is_option else d_expr
 
     if kind == "time":
+        if coercions.get("time") == "string":
+            s_expr = f'"{_escape_str(str(value))}".to_string()'
+            return f"Some({s_expr})" if is_option else s_expr
         t_expr = _rust_time(str(value))
         return f"Some({t_expr})" if is_option else t_expr
 

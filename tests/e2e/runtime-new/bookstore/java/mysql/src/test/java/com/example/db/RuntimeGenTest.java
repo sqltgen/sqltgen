@@ -83,9 +83,9 @@ class RuntimeGenTest {
     void testAddSaleItemGen() throws Exception {
         Queries.createAuthor(conn, "A", null, 1900);
         Queries.createCustomer(conn, "Customer", "c@example.com");
-        Queries.createBook(conn, 1, "Book", "sci-fi", 10.0, null);
-        Queries.createSale(conn, 1);
-        Queries.addSaleItem(conn, 1, 1, 3, 10.0);
+        Queries.createBook(conn, 1L, "Book", "sci-fi", new java.math.BigDecimal("10.0"), null);
+        Queries.createSale(conn, 1L);
+        Queries.addSaleItem(conn, 1L, 1L, 3, new java.math.BigDecimal("10.0"));
     }
 
     // ─── :execrows queries ────────────────────────────────────────────────────────────
@@ -93,8 +93,8 @@ class RuntimeGenTest {
     @Test
     void testDeleteBookByIdGen() throws Exception {
         Queries.createAuthor(conn, "A", null, 1900);
-        Queries.createBook(conn, 1, "Book1", "sci-fi", 10.0, null);
-        var affected = Queries.deleteBookById(conn, 1);
+        Queries.createBook(conn, 1L, "Book1", "sci-fi", new java.math.BigDecimal("10.0"), null);
+        var affected = Queries.deleteBookById(conn, 1L);
         assertEquals(1L, affected);
     }
 
@@ -113,8 +113,8 @@ class RuntimeGenTest {
     @Test
     void testListBooksByGenreGen() throws Exception {
         Queries.createAuthor(conn, "A", null, 1900);
-        Queries.createBook(conn, 1, "SciFi1", "sci-fi", 9.99, null);
-        Queries.createBook(conn, 1, "Fantasy1", "fantasy", 11.99, null);
+        Queries.createBook(conn, 1L, "SciFi1", "sci-fi", new java.math.BigDecimal("9.99"), null);
+        Queries.createBook(conn, 1L, "Fantasy1", "fantasy", new java.math.BigDecimal("11.99"), null);
         var books = Queries.listBooksByGenre(conn, "sci-fi");
         assertEquals(1, books.size());
         assertEquals("SciFi1", books.get(0).title());
@@ -123,8 +123,8 @@ class RuntimeGenTest {
     @Test
     void testListBooksByGenreOrAllGen() throws Exception {
         Queries.createAuthor(conn, "A", null, 1900);
-        Queries.createBook(conn, 1, "B1", "sci-fi", 9.99, null);
-        Queries.createBook(conn, 1, "B2", "fantasy", 9.99, null);
+        Queries.createBook(conn, 1L, "B1", "sci-fi", new java.math.BigDecimal("9.99"), null);
+        Queries.createBook(conn, 1L, "B2", "fantasy", new java.math.BigDecimal("9.99"), null);
         var all_books = Queries.listBooksByGenreOrAll(conn, null);
         assertEquals(2, all_books.size());
         var scifi = Queries.listBooksByGenreOrAll(conn, "sci-fi");
@@ -134,7 +134,7 @@ class RuntimeGenTest {
     @Test
     void testListBooksWithAuthorJoinGen() throws Exception {
         Queries.createAuthor(conn, "Author A", "Bio A", 1920);
-        Queries.createBook(conn, 1, "Book A", "sci-fi", 9.99, null);
+        Queries.createBook(conn, 1L, "Book A", "sci-fi", new java.math.BigDecimal("9.99"), null);
         var rows = Queries.listBooksWithAuthor(conn);
         assertEquals(1, rows.size());
         assertEquals("Author A", rows.get(0).authorName());
@@ -145,24 +145,24 @@ class RuntimeGenTest {
     @Test
     void testGetAuthorGen() throws Exception {
         Queries.createAuthor(conn, "Asimov", "Sci-fi master", 1920);
-        var author = Queries.getAuthor(conn, 1).orElseThrow();
+        var author = Queries.getAuthor(conn, 1L).orElseThrow();
         assertNotNull(author);
         assertEquals("Asimov", author.name());
         assertEquals("Sci-fi master", author.bio());
-        assertEquals(1920L, author.birthYear());
+        assertEquals(1920, author.birthYear());
     }
 
     @Test
     void testGetAuthorNotFoundGen() throws Exception {
-        var result = Queries.getAuthor(conn, 999);
+        var result = Queries.getAuthor(conn, 999L);
         assertTrue(result.isEmpty());
     }
 
     @Test
     void testGetBookGen() throws Exception {
         Queries.createAuthor(conn, "Herbert", null, 1920);
-        Queries.createBook(conn, 1, "Dune", "sci-fi", 12.99, LocalDate.of(1965, 6, 1));
-        var book = Queries.getBook(conn, 1).orElseThrow();
+        Queries.createBook(conn, 1L, "Dune", "sci-fi", new java.math.BigDecimal("12.99"), LocalDate.of(1965, 6, 1));
+        var book = Queries.getBook(conn, 1L).orElseThrow();
         assertNotNull(book);
         assertEquals("Dune", book.title());
         assertEquals("sci-fi", book.genre());
@@ -173,9 +173,9 @@ class RuntimeGenTest {
     @Test
     void testCountBooksByGenreGen() throws Exception {
         Queries.createAuthor(conn, "A", null, 1900);
-        Queries.createBook(conn, 1, "B1", "sci-fi", 10.0, null);
-        Queries.createBook(conn, 1, "B2", "sci-fi", 10.0, null);
-        Queries.createBook(conn, 1, "B3", "fantasy", 10.0, null);
+        Queries.createBook(conn, 1L, "B1", "sci-fi", new java.math.BigDecimal("10.0"), null);
+        Queries.createBook(conn, 1L, "B2", "sci-fi", new java.math.BigDecimal("10.0"), null);
+        Queries.createBook(conn, 1L, "B3", "fantasy", new java.math.BigDecimal("10.0"), null);
         var counts = Queries.countBooksByGenre(conn);
         assertEquals(2, counts.size());
     }
@@ -185,10 +185,10 @@ class RuntimeGenTest {
     @Test
     void testGetBooksByPriceRangeGen() throws Exception {
         Queries.createAuthor(conn, "A", null, 1900);
-        Queries.createBook(conn, 1, "Cheap", "sci-fi", 5.0, null);
-        Queries.createBook(conn, 1, "Mid", "sci-fi", 10.0, null);
-        Queries.createBook(conn, 1, "Expensive", "sci-fi", 20.0, null);
-        var books = Queries.getBooksByPriceRange(conn, 7.0, 15.0);
+        Queries.createBook(conn, 1L, "Cheap", "sci-fi", new java.math.BigDecimal("5.99"), null);
+        Queries.createBook(conn, 1L, "Mid", "sci-fi", new java.math.BigDecimal("10.5"), null);
+        Queries.createBook(conn, 1L, "Expensive", "sci-fi", new java.math.BigDecimal("20.99"), null);
+        var books = Queries.getBooksByPriceRange(conn, new java.math.BigDecimal("7.0"), new java.math.BigDecimal("15.0"));
         assertEquals(1, books.size());
         assertEquals("Mid", books.get(0).title());
     }
@@ -196,8 +196,8 @@ class RuntimeGenTest {
     @Test
     void testSearchBooksByTitleGen() throws Exception {
         Queries.createAuthor(conn, "A", null, 1900);
-        Queries.createBook(conn, 1, "Foundation", "sci-fi", 9.99, null);
-        Queries.createBook(conn, 1, "Dune", "sci-fi", 12.99, null);
+        Queries.createBook(conn, 1L, "Foundation", "sci-fi", new java.math.BigDecimal("9.99"), null);
+        Queries.createBook(conn, 1L, "Dune", "sci-fi", new java.math.BigDecimal("12.99"), null);
         var books = Queries.searchBooksByTitle(conn, "%ound%");
         assertEquals(1, books.size());
         assertEquals("Foundation", books.get(0).title());
