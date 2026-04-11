@@ -39,7 +39,7 @@ SQLTGEN := ./target/debug/sqltgen
        e2e-runtime-enums-rust-postgresql \
        e2e-db-up e2e-db-down \
        e2e-testgen-setup e2e-testgen-generate e2e-testgen-generate-python \
-       e2e-new-scaffold e2e-new-test e2e-new-test-sqlite e2e-new-test-postgresql e2e-new-test-mysql \
+       e2e-new-clean e2e-new-scaffold e2e-new-test e2e-new-test-sqlite e2e-new-test-postgresql e2e-new-test-mysql \
        ci-fmt ci-clippy ci-test ci-check-suite ci-examples-drift ci-testgen-mypy ci-testgen-drift ci-build ci-runtime-sqlite ci-runtime-postgresql ci-runtime-mysql ci-runtime-db
 
 all: build test
@@ -379,22 +379,33 @@ e2e-new-scaffold: $(E2E_TESTGEN_STAMP) $(SQLTGEN)
 	    --runtime-dir $(E2E_NEW_DIR) \
 	    --sqltgen $(abspath $(SQLTGEN))
 
-# Run all runtime-new tests. Each sub-Makefile invokes sqltgen and runs tests.
+# Run all runtime-new tests. Each combo is its own target for parallelism.
+# Usage:
+#   make e2e-new-test                    # sequential (all engines)
+#   make -j8 --output-sync e2e-new-test  # parallel with clean output
+#   make -j4 --output-sync e2e-new-test-sqlite  # parallel within one engine
 E2E_NEW_COMBOS := $(shell find $(E2E_NEW_DIR) -name sqltgen.json -not -path '*/node_modules/*' -printf '%h\n' 2>/dev/null | sort)
 E2E_NEW_SQLITE := $(filter %/sqlite, $(E2E_NEW_COMBOS))
 E2E_NEW_PG     := $(filter %/postgresql, $(E2E_NEW_COMBOS))
 E2E_NEW_MYSQL  := $(filter %/mysql, $(E2E_NEW_COMBOS))
 
+# Per-combo targets: tests/e2e/runtime-new/<fixture>/<lang>/<engine> → .e2e-new/<fixture>/<lang>/<engine>
+E2E_NEW_SQLITE_TARGETS := $(patsubst $(E2E_NEW_DIR)/%,.e2e-new/%,$(E2E_NEW_SQLITE))
+E2E_NEW_PG_TARGETS     := $(patsubst $(E2E_NEW_DIR)/%,.e2e-new/%,$(E2E_NEW_PG))
+E2E_NEW_MYSQL_TARGETS  := $(patsubst $(E2E_NEW_DIR)/%,.e2e-new/%,$(E2E_NEW_MYSQL))
+
 e2e-new-test: e2e-new-test-sqlite e2e-new-test-postgresql e2e-new-test-mysql
 
-e2e-new-test-sqlite: $(SQLTGEN)
-	@for d in $(E2E_NEW_SQLITE); do echo "── $$d ──" && $(MAKE) -C $$d test || exit 1; done
+e2e-new-test-sqlite: $(SQLTGEN) $(E2E_NEW_SQLITE_TARGETS)
 
-e2e-new-test-postgresql: $(SQLTGEN) e2e-db-up
-	@for d in $(E2E_NEW_PG); do echo "── $$d ──" && $(MAKE) -C $$d test || exit 1; done
+e2e-new-test-postgresql: $(SQLTGEN) e2e-db-up $(E2E_NEW_PG_TARGETS)
 
-e2e-new-test-mysql: $(SQLTGEN) e2e-db-up
-	@for d in $(E2E_NEW_MYSQL); do echo "── $$d ──" && $(MAKE) -C $$d test || exit 1; done
+e2e-new-test-mysql: $(SQLTGEN) e2e-db-up $(E2E_NEW_MYSQL_TARGETS)
+
+# Pattern rule: run one combo's tests.
+.e2e-new/%:
+	@echo "── $(E2E_NEW_DIR)/$* ──"
+	@$(MAKE) -C $(E2E_NEW_DIR)/$* test
 
 # ── CI targets ────────────────────────────────────────────────────────────────
 
