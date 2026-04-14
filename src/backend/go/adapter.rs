@@ -33,6 +33,19 @@ pub(super) enum GoJsonMode {
     String,
 }
 
+/// Whether nullable TIME columns need a scan wrapper.
+///
+/// pgx returns TIME as a string internally; `sql.NullTime.Scan()` cannot
+/// handle string input. When this flag is set, the scan plan uses a
+/// `*time.Time` intermediate and converts to `sql.NullTime` after scanning.
+#[derive(Clone, Copy)]
+pub(super) enum GoTimeScanMode {
+    /// Scan directly into `sql.NullTime` — works with `database/sql` drivers.
+    Direct,
+    /// Scan into `*time.Time`, then convert to `sql.NullTime` — needed for pgx.
+    ViaPointer,
+}
+
 /// Compile-time adapter contract consumed by the Go core emitter.
 ///
 /// Captures all engine/driver differences so core.rs can emit clean,
@@ -73,6 +86,8 @@ pub(super) struct GoCoreContract {
     /// False when the driver provides its own DB interface (nullable types that
     /// need `database/sql` are handled separately by the type map).
     pub(super) needs_database_sql_import: bool,
+    /// How nullable TIME columns are scanned.
+    pub(super) time_scan_mode: GoTimeScanMode,
 }
 
 /// Resolve the Go adapter contract for the selected engine target.
@@ -93,6 +108,7 @@ pub(super) fn resolve_go_contract(target: &GoTarget) -> GoCoreContract {
             no_rows_import: Some("\"github.com/jackc/pgx/v5\""),
             array_scan_expr: "{dest}",
             needs_database_sql_import: false,
+            time_scan_mode: GoTimeScanMode::ViaPointer,
         },
         GoTarget::Sqlite => GoCoreContract {
             driver_comment: "// Driver: modernc.org/sqlite",
@@ -109,6 +125,7 @@ pub(super) fn resolve_go_contract(target: &GoTarget) -> GoCoreContract {
             no_rows_import: None,
             array_scan_expr: "scanArray({dest})",
             needs_database_sql_import: true,
+            time_scan_mode: GoTimeScanMode::Direct,
         },
         GoTarget::Mysql => GoCoreContract {
             driver_comment: "// Driver: github.com/go-sql-driver/mysql",
@@ -125,6 +142,7 @@ pub(super) fn resolve_go_contract(target: &GoTarget) -> GoCoreContract {
             no_rows_import: None,
             array_scan_expr: "scanArray({dest})",
             needs_database_sql_import: true,
+            time_scan_mode: GoTimeScanMode::Direct,
         },
     }
 }

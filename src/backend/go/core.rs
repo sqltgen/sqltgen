@@ -11,7 +11,7 @@ use crate::backend::GeneratedFile;
 use crate::config::{ListParamStrategy, OutputConfig};
 use crate::ir::{EnumType, NativeListBind, Parameter, Query, QueryCmd, ResultColumn, Schema, SqlType};
 
-use super::adapter::{GoBindMode, GoCoreContract, GoPlaceholderMode};
+use super::adapter::{GoBindMode, GoCoreContract, GoPlaceholderMode, GoTimeScanMode};
 use super::typemap::GoTypeMap;
 
 // ─── Package name ─────────────────────────────────────────────────────────────
@@ -317,6 +317,11 @@ fn collect_query_imports(queries: &[Query], _schema: &Schema, contract: &GoCoreC
 
         for col in &query.result_columns {
             imp.add_import(type_map.import_for(&col.sql_type, col.nullable));
+            // ViaPointer scan wrapper uses *time.Time + sql.NullTime conversion
+            if col.nullable && matches!(col.sql_type, SqlType::Time) && matches!(contract.time_scan_mode, GoTimeScanMode::ViaPointer) {
+                imp.add_import(Some("\"time\"".to_string()));
+                imp.database_sql = true;
+            }
         }
 
         for p in &query.params {
@@ -589,6 +594,14 @@ fn scan_plan(cols: &[ResultColumn], contract: &GoCoreContract, type_map: &GoType
                 } else {
                     scan_args.push(contract.array_scan_expr.replace("{dest}", &format!("&r.{field}")));
                 }
+            },
+            SqlType::Time if col.nullable && matches!(contract.time_scan_mode, GoTimeScanMode::ViaPointer) => {
+                let tmp = format!("_time{}", i + 1);
+                pre_lines.push(format!("var {tmp} *time.Time"));
+                scan_args.push(format!("&{tmp}"));
+                post_lines.push(format!("if {tmp} != nil {{"));
+                post_lines.push(format!("\tr.{field} = sql.NullTime{{Time: *{tmp}, Valid: true}}"));
+                post_lines.push("}".to_string());
             },
             _ => scan_args.push(format!("&r.{field}")),
         }
