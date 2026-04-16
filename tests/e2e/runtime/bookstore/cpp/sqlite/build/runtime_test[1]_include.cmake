@@ -1,0 +1,5 @@
+if(EXISTS "/Users/joao/Desktop/sqltgen/tests/e2e/runtime/bookstore/cpp/sqlite/build/runtime_test[1]_tests.cmake")
+  include("/Users/joao/Desktop/sqltgen/tests/e2e/runtime/bookstore/cpp/sqlite/build/runtime_test[1]_tests.cmake")
+else()
+  add_test(runtime_test_NOT_BUILT runtime_test_NOT_BUILT)
+endif()

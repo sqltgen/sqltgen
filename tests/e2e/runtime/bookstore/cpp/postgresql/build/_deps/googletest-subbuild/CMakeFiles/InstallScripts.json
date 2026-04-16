@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"/Users/joao/Desktop/sqltgen/tests/e2e/runtime/bookstore/cpp/postgresql/build/_deps/googletest-subbuild/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

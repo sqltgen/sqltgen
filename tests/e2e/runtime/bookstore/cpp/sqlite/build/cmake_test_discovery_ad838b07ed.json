@@ -1,0 +1,127 @@
+{
+  "tests": 23,
+  "name": "AllTests",
+  "testsuites": [
+    {
+      "name": "BookstoreTest",
+      "tests": 23,
+      "testsuite": [
+        {
+          "name": "GetAuthor",
+          "file": "\/Users\/joao\/Desktop\/sqltgen\/tests\/e2e\/runtime\/bookstore\/cpp\/sqlite\/runtime_test.cpp",
+          "line": 77
+        },
+        {
+          "name": "GetAuthorNotFound",
+          "file": "\/Users\/joao\/Desktop\/sqltgen\/tests\/e2e\/runtime\/bookstore\/cpp\/sqlite\/runtime_test.cpp",
+          "line": 86
+        },
+        {
+          "name": "GetBook",
+          "file": "\/Users\/joao\/Desktop\/sqltgen\/tests\/e2e\/runtime\/bookstore\/cpp\/sqlite\/runtime_test.cpp",
+          "line": 91
+        },
+        {
+          "name": "GetBookNotFound",
+          "file": "\/Users\/joao\/Desktop\/sqltgen\/tests\/e2e\/runtime\/bookstore\/cpp\/sqlite\/runtime_test.cpp",
+          "line": 100
+        },
+        {
+          "name": "ListAuthors",
+          "file": "\/Users\/joao\/Desktop\/sqltgen\/tests\/e2e\/runtime\/bookstore\/cpp\/sqlite\/runtime_test.cpp",
+          "line": 107
+        },
+        {
+          "name": "ListBooksByGenre",
+          "file": "\/Users\/joao\/Desktop\/sqltgen\/tests\/e2e\/runtime\/bookstore\/cpp\/sqlite\/runtime_test.cpp",
+          "line": 117
+        },
+        {
+          "name": "ListBooksByGenreOrAll",
+          "file": "\/Users\/joao\/Desktop\/sqltgen\/tests\/e2e\/runtime\/bookstore\/cpp\/sqlite\/runtime_test.cpp",
+          "line": 130
+        },
+        {
+          "name": "GetBooksByIds",
+          "file": "\/Users\/joao\/Desktop\/sqltgen\/tests\/e2e\/runtime\/bookstore\/cpp\/sqlite\/runtime_test.cpp",
+          "line": 139
+        },
+        {
+          "name": "GetBooksByIdsEmpty",
+          "file": "\/Users\/joao\/Desktop\/sqltgen\/tests\/e2e\/runtime\/bookstore\/cpp\/sqlite\/runtime_test.cpp",
+          "line": 151
+        },
+        {
+          "name": "CreateAuthorNullableBio",
+          "file": "\/Users\/joao\/Desktop\/sqltgen\/tests\/e2e\/runtime\/bookstore\/cpp\/sqlite\/runtime_test.cpp",
+          "line": 159
+        },
+        {
+          "name": "CreateBookNullPublishedAt",
+          "file": "\/Users\/joao\/Desktop\/sqltgen\/tests\/e2e\/runtime\/bookstore\/cpp\/sqlite\/runtime_test.cpp",
+          "line": 168
+        },
+        {
+          "name": "UpdateAuthorBio",
+          "file": "\/Users\/joao\/Desktop\/sqltgen\/tests\/e2e\/runtime\/bookstore\/cpp\/sqlite\/runtime_test.cpp",
+          "line": 178
+        },
+        {
+          "name": "UpdateAuthorBioNull",
+          "file": "\/Users\/joao\/Desktop\/sqltgen\/tests\/e2e\/runtime\/bookstore\/cpp\/sqlite\/runtime_test.cpp",
+          "line": 186
+        },
+        {
+          "name": "DeleteAuthor",
+          "file": "\/Users\/joao\/Desktop\/sqltgen\/tests\/e2e\/runtime\/bookstore\/cpp\/sqlite\/runtime_test.cpp",
+          "line": 194
+        },
+        {
+          "name": "DeleteBookById",
+          "file": "\/Users\/joao\/Desktop\/sqltgen\/tests\/e2e\/runtime\/bookstore\/cpp\/sqlite\/runtime_test.cpp",
+          "line": 203
+        },
+        {
+          "name": "ListBooksWithAuthor",
+          "file": "\/Users\/joao\/Desktop\/sqltgen\/tests\/e2e\/runtime\/bookstore\/cpp\/sqlite\/runtime_test.cpp",
+          "line": 215
+        },
+        {
+          "name": "GetBooksNeverOrdered",
+          "file": "\/Users\/joao\/Desktop\/sqltgen\/tests\/e2e\/runtime\/bookstore\/cpp\/sqlite\/runtime_test.cpp",
+          "line": 233
+        },
+        {
+          "name": "GetTopSellingBooks",
+          "file": "\/Users\/joao\/Desktop\/sqltgen\/tests\/e2e\/runtime\/bookstore\/cpp\/sqlite\/runtime_test.cpp",
+          "line": 248
+        },
+        {
+          "name": "GetBestCustomers",
+          "file": "\/Users\/joao\/Desktop\/sqltgen\/tests\/e2e\/runtime\/bookstore\/cpp\/sqlite\/runtime_test.cpp",
+          "line": 257
+        },
+        {
+          "name": "CountBooksByGenre",
+          "file": "\/Users\/joao\/Desktop\/sqltgen\/tests\/e2e\/runtime\/bookstore\/cpp\/sqlite\/runtime_test.cpp",
+          "line": 269
+        },
+        {
+          "name": "InsertAndGetProduct",
+          "file": "\/Users\/joao\/Desktop\/sqltgen\/tests\/e2e\/runtime\/bookstore\/cpp\/sqlite\/runtime_test.cpp",
+          "line": 285
+        },
+        {
+          "name": "UpsertProduct",
+          "file": "\/Users\/joao\/Desktop\/sqltgen\/tests\/e2e\/runtime\/bookstore\/cpp\/sqlite\/runtime_test.cpp",
+          "line": 302
+        },
+        {
+          "name": "GetProductNotFound",
+          "file": "\/Users\/joao\/Desktop\/sqltgen\/tests\/e2e\/runtime\/bookstore\/cpp\/sqlite\/runtime_test.cpp",
+          "line": 319
+        }
+      ]
+    }
+  ]
+}

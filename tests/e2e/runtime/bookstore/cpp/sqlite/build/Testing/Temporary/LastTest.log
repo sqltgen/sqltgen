@@ -1,0 +1,73 @@
+Start testing: Apr 16 16:14 -03
+----------------------------------------------------------
+1/1 Testing: runtime_test
+1/1 Test: runtime_test
+Command: "/Users/joao/Desktop/sqltgen/tests/e2e/runtime/bookstore/cpp/sqlite/build/runtime_test"
+Directory: /Users/joao/Desktop/sqltgen/tests/e2e/runtime/bookstore/cpp/sqlite/build
+"runtime_test" start time: Apr 16 16:14 -03
+Output:
+----------------------------------------------------------
+Running main() from /Users/joao/Desktop/sqltgen/tests/e2e/runtime/bookstore/cpp/sqlite/build/_deps/googletest-src/googletest/src/gtest_main.cc
+[==========] Running 23 tests from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 23 tests from BookstoreTest
+[ RUN      ] BookstoreTest.GetAuthor
+[       OK ] BookstoreTest.GetAuthor (6 ms)
+[ RUN      ] BookstoreTest.GetAuthorNotFound
+[       OK ] BookstoreTest.GetAuthorNotFound (0 ms)
+[ RUN      ] BookstoreTest.GetBook
+[       OK ] BookstoreTest.GetBook (0 ms)
+[ RUN      ] BookstoreTest.GetBookNotFound
+[       OK ] BookstoreTest.GetBookNotFound (0 ms)
+[ RUN      ] BookstoreTest.ListAuthors
+[       OK ] BookstoreTest.ListAuthors (0 ms)
+[ RUN      ] BookstoreTest.ListBooksByGenre
+[       OK ] BookstoreTest.ListBooksByGenre (0 ms)
+[ RUN      ] BookstoreTest.ListBooksByGenreOrAll
+[       OK ] BookstoreTest.ListBooksByGenreOrAll (0 ms)
+[ RUN      ] BookstoreTest.GetBooksByIds
+[       OK ] BookstoreTest.GetBooksByIds (2 ms)
+[ RUN      ] BookstoreTest.GetBooksByIdsEmpty
+[       OK ] BookstoreTest.GetBooksByIdsEmpty (0 ms)
+[ RUN      ] BookstoreTest.CreateAuthorNullableBio
+[       OK ] BookstoreTest.CreateAuthorNullableBio (0 ms)
+[ RUN      ] BookstoreTest.CreateBookNullPublishedAt
+[       OK ] BookstoreTest.CreateBookNullPublishedAt (0 ms)
+[ RUN      ] BookstoreTest.UpdateAuthorBio
+[       OK ] BookstoreTest.UpdateAuthorBio (0 ms)
+[ RUN      ] BookstoreTest.UpdateAuthorBioNull
+[       OK ] BookstoreTest.UpdateAuthorBioNull (0 ms)
+[ RUN      ] BookstoreTest.DeleteAuthor
+[       OK ] BookstoreTest.DeleteAuthor (0 ms)
+[ RUN      ] BookstoreTest.DeleteBookById
+[       OK ] BookstoreTest.DeleteBookById (0 ms)
+[ RUN      ] BookstoreTest.ListBooksWithAuthor
+[       OK ] BookstoreTest.ListBooksWithAuthor (0 ms)
+[ RUN      ] BookstoreTest.GetBooksNeverOrdered
+[       OK ] BookstoreTest.GetBooksNeverOrdered (0 ms)
+[ RUN      ] BookstoreTest.GetTopSellingBooks
+[       OK ] BookstoreTest.GetTopSellingBooks (0 ms)
+[ RUN      ] BookstoreTest.GetBestCustomers
+[       OK ] BookstoreTest.GetBestCustomers (0 ms)
+[ RUN      ] BookstoreTest.CountBooksByGenre
+[       OK ] BookstoreTest.CountBooksByGenre (0 ms)
+[ RUN      ] BookstoreTest.InsertAndGetProduct
+[       OK ] BookstoreTest.InsertAndGetProduct (0 ms)
+[ RUN      ] BookstoreTest.UpsertProduct
+[       OK ] BookstoreTest.UpsertProduct (0 ms)
+[ RUN      ] BookstoreTest.GetProductNotFound
+[       OK ] BookstoreTest.GetProductNotFound (0 ms)
+[----------] 23 tests from BookstoreTest (16 ms total)
+
+[----------] Global test environment tear-down
+[==========] 23 tests from 1 test suite ran. (16 ms total)
+[  PASSED  ] 23 tests.
+<end of output>
+Test time =   0.27 sec
+----------------------------------------------------------
+Test Passed.
+"runtime_test" end time: Apr 16 16:14 -03
+"runtime_test" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Apr 16 16:14 -03

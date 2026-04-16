@@ -1,17 +1,14 @@
 include ../../../common.mk
 
-.PHONY: generate build test clean
+.PHONY: generate test clean
 
 generate:
 	rm -rf gen
 	$(SQLTGEN) generate --config sqltgen.json
 
-build: generate
-	cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
-	cmake --build build
-
-test: build
-	cd build && ctest --output-on-failure
+test: generate
+	docker compose up --build --abort-on-container-exit test
+	@ret=$$?; docker compose rm -f test; exit $$ret
 
 clean:
-	rm -rf gen build
+	rm -rf gen
