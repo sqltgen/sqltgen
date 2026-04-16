@@ -11,37 +11,42 @@ use time::macros::{date, datetime, time};
 
 // ─── test setup ───────────────────────────────────────────────────────────────
 
-async fn gen_setup_db() -> PgPool {
+async fn gen_setup_db() -> (PgPool, String) {
     let url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://sqltgen:sqltgen@localhost:15432/sqltgen_e2e".into());
     let bootstrap = PgPool::connect(&url).await.unwrap();
-    let schema = format!("test_{}", uuid::Uuid::new_v4().simple());
-    sqlx::query(&format!("CREATE SCHEMA \"{schema}\""))
+    let db_name = format!("test_{}", uuid::Uuid::new_v4().simple());
+    sqlx::query(&format!("CREATE DATABASE \"{db_name}\""))
         .execute(&bootstrap)
         .await
         .unwrap();
     bootstrap.close().await;
+    let base = url.rsplit_once('/').map(|(b, _)| b).unwrap_or(&url);
     let pool = PgPoolOptions::new()
-        .after_connect({
-            let schema = schema.clone();
-            move |conn, _meta| {
-                let schema = schema.clone();
-                Box::pin(async move {
-                    sqlx::query(&format!("SET search_path TO \"{schema}\""))
-                        .execute(&mut *conn)
-                        .await?;
-                    Ok(())
-                })
-            }
-        })
-        .connect(&url)
+        .connect(&format!("{base}/{db_name}"))
         .await
         .unwrap();
     let ddl = include_str!("../../../../../fixtures/enums/postgresql/schema.sql");
     for stmt in ddl.split(';').map(str::trim).filter(|s| !s.is_empty()) {
         sqlx::query(stmt).execute(&pool).await.unwrap();
     }
-    pool
+    (pool, db_name)
+}
+
+async fn gen_teardown(pool: PgPool, db_name: String) {
+    pool.close().await;
+    let url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://sqltgen:sqltgen@localhost:15432/sqltgen_e2e".into());
+    let admin = PgPool::connect(&url).await.unwrap();
+    let _ = sqlx::query(&format!(
+        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{db_name}' AND pid <> pg_backend_pid()"
+    ))
+    .execute(&admin)
+    .await;
+    let _ = sqlx::query(&format!("DROP DATABASE IF EXISTS \"{db_name}\""))
+        .execute(&admin)
+        .await;
+    admin.close().await;
 }
 
 #[allow(dead_code)]
@@ -57,11 +62,12 @@ fn gen_assert_json_str(got: &str, want: serde_json::Value) {
 #[allow(unused_variables)]
 #[tokio::test]
 async fn test_delete_task_gen() {
-    let pool = gen_setup_db().await;
+    let (pool, db_name) = gen_setup_db().await;
     let _ = queries::create_task(&pool, "Temp".to_string(), "low".parse::<Priority>().unwrap(), "open".parse::<Status>().unwrap(), None).await.unwrap();
     queries::delete_task(&pool, 1).await.unwrap();
     let result = queries::get_task(&pool, 1).await.unwrap();
     assert!(result.is_none());
+    gen_teardown(pool, db_name).await;
 }
 
 // ─── :many queries ────────────────────────────────────────────────────────────
@@ -69,7 +75,7 @@ async fn test_delete_task_gen() {
 #[allow(unused_variables)]
 #[tokio::test]
 async fn test_list_by_priority_gen() {
-    let pool = gen_setup_db().await;
+    let (pool, db_name) = gen_setup_db().await;
     let _ = queries::create_task(&pool, "Low task".to_string(), "low".parse::<Priority>().unwrap(), "open".parse::<Status>().unwrap(), None).await.unwrap();
     let _ = queries::create_task(&pool, "High task 1".to_string(), "high".parse::<Priority>().unwrap(), "open".parse::<Status>().unwrap(), None).await.unwrap();
     let _ = queries::create_task(&pool, "High task 2".to_string(), "high".parse::<Priority>().unwrap(), "done".parse::<Status>().unwrap(), None).await.unwrap();
@@ -77,23 +83,25 @@ async fn test_list_by_priority_gen() {
     assert_eq!(tasks.len(), 2);
     assert_eq!(tasks[0].title, "High task 1".to_string());
     assert_eq!(tasks[1].title, "High task 2".to_string());
+    gen_teardown(pool, db_name).await;
 }
 
 #[allow(unused_variables)]
 #[tokio::test]
 async fn test_list_by_status_gen() {
-    let pool = gen_setup_db().await;
+    let (pool, db_name) = gen_setup_db().await;
     let _ = queries::create_task(&pool, "Open 1".to_string(), "low".parse::<Priority>().unwrap(), "open".parse::<Status>().unwrap(), None).await.unwrap();
     let _ = queries::create_task(&pool, "Done 1".to_string(), "medium".parse::<Priority>().unwrap(), "done".parse::<Status>().unwrap(), None).await.unwrap();
     let _ = queries::create_task(&pool, "Open 2".to_string(), "high".parse::<Priority>().unwrap(), "open".parse::<Status>().unwrap(), None).await.unwrap();
     let tasks = queries::list_tasks_by_status(&pool, "open".parse::<Status>().unwrap()).await.unwrap();
     assert_eq!(tasks.len(), 2);
+    gen_teardown(pool, db_name).await;
 }
 
 #[allow(unused_variables)]
 #[tokio::test]
 async fn test_list_by_priority_or_all_gen() {
-    let pool = gen_setup_db().await;
+    let (pool, db_name) = gen_setup_db().await;
     let _ = queries::create_task(&pool, "Low".to_string(), "low".parse::<Priority>().unwrap(), "open".parse::<Status>().unwrap(), None).await.unwrap();
     let _ = queries::create_task(&pool, "High".to_string(), "high".parse::<Priority>().unwrap(), "open".parse::<Status>().unwrap(), None).await.unwrap();
     let all_tasks = queries::list_tasks_by_priority_or_all(&pool, None).await.unwrap();
@@ -101,17 +109,19 @@ async fn test_list_by_priority_or_all_gen() {
     let high_tasks = queries::list_tasks_by_priority_or_all(&pool, Some("high".parse::<Priority>().unwrap())).await.unwrap();
     assert_eq!(high_tasks.len(), 1);
     assert_eq!(high_tasks[0].title, "High".to_string());
+    gen_teardown(pool, db_name).await;
 }
 
 #[allow(unused_variables)]
 #[tokio::test]
 async fn test_count_by_status_gen() {
-    let pool = gen_setup_db().await;
+    let (pool, db_name) = gen_setup_db().await;
     let _ = queries::create_task(&pool, "A".to_string(), "low".parse::<Priority>().unwrap(), "open".parse::<Status>().unwrap(), None).await.unwrap();
     let _ = queries::create_task(&pool, "B".to_string(), "low".parse::<Priority>().unwrap(), "open".parse::<Status>().unwrap(), None).await.unwrap();
     let _ = queries::create_task(&pool, "C".to_string(), "high".parse::<Priority>().unwrap(), "done".parse::<Status>().unwrap(), None).await.unwrap();
     let counts = queries::count_by_status(&pool).await.unwrap();
     assert_eq!(counts.len(), 2);
+    gen_teardown(pool, db_name).await;
 }
 
 // ─── :one queries ────────────────────────────────────────────────────────────
@@ -119,31 +129,87 @@ async fn test_count_by_status_gen() {
 #[allow(unused_variables)]
 #[tokio::test]
 async fn test_create_and_get_task_gen() {
-    let pool = gen_setup_db().await;
+    let (pool, db_name) = gen_setup_db().await;
     let task = queries::create_task(&pool, "Fix bug".to_string(), "high".parse::<Priority>().unwrap(), "open".parse::<Status>().unwrap(), Some("Fix the login bug".to_string())).await.unwrap();
     let task = task.expect("expected non-nil task");
     assert_eq!(task.title, "Fix bug".to_string());
     assert_eq!(task.priority, "high".parse::<Priority>().unwrap());
     assert_eq!(task.status, "open".parse::<Status>().unwrap());
     assert_eq!(task.description, Some("Fix the login bug".to_string()));
+    gen_teardown(pool, db_name).await;
 }
 
 #[allow(unused_variables)]
 #[tokio::test]
 async fn test_get_task_not_found_gen() {
-    let pool = gen_setup_db().await;
+    let (pool, db_name) = gen_setup_db().await;
     let result = queries::get_task(&pool, 999).await.unwrap();
     assert!(result.is_none());
+    gen_teardown(pool, db_name).await;
 }
 
 #[allow(unused_variables)]
 #[tokio::test]
 async fn test_update_task_status_gen() {
-    let pool = gen_setup_db().await;
+    let (pool, db_name) = gen_setup_db().await;
     let task = queries::create_task(&pool, "Deploy".to_string(), "critical".parse::<Priority>().unwrap(), "open".parse::<Status>().unwrap(), None).await.unwrap();
     let updated = queries::update_task_status(&pool, "in_progress".parse::<Status>().unwrap(), 1).await.unwrap();
     let updated = updated.expect("expected non-nil updated");
     assert_eq!(updated.status, "in_progress".parse::<Status>().unwrap());
     assert_eq!(updated.priority, "critical".parse::<Priority>().unwrap());
+    gen_teardown(pool, db_name).await;
+}
+
+// ─── enum array queries ────────────────────────────────────────────────────────────
+
+#[allow(unused_variables)]
+#[tokio::test]
+async fn test_create_with_enum_array_gen() {
+    let (pool, db_name) = gen_setup_db().await;
+    let task = queries::create_task_with_tags(&pool, "Tagged task".to_string(), "high".parse::<Priority>().unwrap(), "open".parse::<Status>().unwrap(), None, vec!["high".parse::<Priority>().unwrap(), "critical".parse::<Priority>().unwrap()]).await.unwrap();
+    let task = task.expect("expected non-nil task");
+    assert_eq!(task.title, "Tagged task".to_string());
+    assert_eq!(task.tags.len(), 2);
+    assert_eq!(task.tags[0], "high".parse::<Priority>().unwrap());
+    assert_eq!(task.tags[1], "critical".parse::<Priority>().unwrap());
+    gen_teardown(pool, db_name).await;
+}
+
+#[allow(unused_variables)]
+#[tokio::test]
+async fn test_get_task_tags_gen() {
+    let (pool, db_name) = gen_setup_db().await;
+    let _ = queries::create_task_with_tags(&pool, "Read tags".to_string(), "low".parse::<Priority>().unwrap(), "open".parse::<Status>().unwrap(), None, vec!["low".parse::<Priority>().unwrap(), "medium".parse::<Priority>().unwrap(), "high".parse::<Priority>().unwrap()]).await.unwrap();
+    let row = queries::get_task_tags(&pool, 1).await.unwrap();
+    let row = row.expect("expected non-nil row");
+    assert_eq!(row.tags.len(), 3);
+    assert_eq!(row.tags[0], "low".parse::<Priority>().unwrap());
+    assert_eq!(row.tags[1], "medium".parse::<Priority>().unwrap());
+    assert_eq!(row.tags[2], "high".parse::<Priority>().unwrap());
+    gen_teardown(pool, db_name).await;
+}
+
+#[allow(unused_variables)]
+#[tokio::test]
+async fn test_update_task_tags_gen() {
+    let (pool, db_name) = gen_setup_db().await;
+    let _ = queries::create_task_with_tags(&pool, "Update tags".to_string(), "medium".parse::<Priority>().unwrap(), "open".parse::<Status>().unwrap(), None, vec!["low".parse::<Priority>().unwrap()]).await.unwrap();
+    let updated = queries::update_task_tags(&pool, vec!["high".parse::<Priority>().unwrap(), "critical".parse::<Priority>().unwrap()], 1).await.unwrap();
+    let updated = updated.expect("expected non-nil updated");
+    assert_eq!(updated.tags.len(), 2);
+    assert_eq!(updated.tags[0], "high".parse::<Priority>().unwrap());
+    assert_eq!(updated.tags[1], "critical".parse::<Priority>().unwrap());
+    gen_teardown(pool, db_name).await;
+}
+
+#[allow(unused_variables)]
+#[tokio::test]
+async fn test_empty_enum_array_gen() {
+    let (pool, db_name) = gen_setup_db().await;
+    let _ = queries::create_task_with_tags(&pool, "No tags".to_string(), "low".parse::<Priority>().unwrap(), "open".parse::<Status>().unwrap(), None, vec![]).await.unwrap();
+    let row = queries::get_task_tags(&pool, 1).await.unwrap();
+    let row = row.expect("expected non-nil row");
+    assert_eq!(row.tags.len(), 0);
+    gen_teardown(pool, db_name).await;
 }
 

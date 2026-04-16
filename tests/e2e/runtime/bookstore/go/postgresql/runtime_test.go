@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	gen "e2e-go-postgresql/gen"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
@@ -23,22 +25,25 @@ func dsn() string {
 	return defaultDSN
 }
 
-// setupDB creates an isolated schema, applies the DDL, and returns a connected *sql.DB.
-// The schema is dropped when the test completes.
-func setupDB(t *testing.T) (*sql.DB, context.Context) {
+// setupDB creates an isolated database, applies the DDL, and returns a connected *pgxpool.Pool
+// plus a cleanup function that drops the database.
+func setupDB(t *testing.T) (*pgxpool.Pool, func()) {
 	t.Helper()
 	ctx := context.Background()
 
-	db, err := sql.Open("pgx", dsn())
+	dbName := fmt.Sprintf("test_%d", rand.Int63())
+	admin, err := sql.Open("pgx", dsn())
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	schema := fmt.Sprintf("test_%d", rand.Int63())
-	if _, err := db.ExecContext(ctx, fmt.Sprintf(`CREATE SCHEMA "%s"`, schema)); err != nil {
+	if _, err := admin.ExecContext(ctx, fmt.Sprintf(`CREATE DATABASE "%s"`, dbName)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.ExecContext(ctx, fmt.Sprintf(`SET search_path TO "%s"`, schema)); err != nil {
+	admin.Close()
+
+	dbURL := replaceLastSegment(dsn(), dbName)
+	pool, err := pgxpool.New(ctx, dbURL)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -46,20 +51,45 @@ func setupDB(t *testing.T) (*sql.DB, context.Context) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.ExecContext(ctx, string(ddl)); err != nil {
-		t.Fatal(err)
+	for _, stmt := range splitStatements(string(ddl)) {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
+			t.Fatal(err)
+		}
 	}
 
-	t.Cleanup(func() {
-		db.ExecContext(ctx, fmt.Sprintf(`DROP SCHEMA IF EXISTS "%s" CASCADE`, schema))
-		db.Close()
-	})
+	cleanup := func() {
+		pool.Close()
+		adm, _ := sql.Open("pgx", dsn())
+		adm.ExecContext(ctx, fmt.Sprintf(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '%s' AND pid <> pg_backend_pid()`, dbName))
+		adm.ExecContext(ctx, fmt.Sprintf(`DROP DATABASE IF EXISTS "%s"`, dbName))
+		adm.Close()
+	}
 
-	return db, ctx
+	return pool, cleanup
+}
+
+func replaceLastSegment(url, replacement string) string {
+	i := strings.LastIndex(url, "/")
+	if i < 0 {
+		return url
+	}
+	return url[:i+1] + replacement
+}
+
+// splitStatements splits a SQL string on semicolons, trimming whitespace.
+func splitStatements(ddl string) []string {
+	var stmts []string
+	for _, s := range strings.Split(ddl, ";") {
+		s = strings.TrimSpace(s)
+		if s != "" {
+			stmts = append(stmts, s)
+		}
+	}
+	return stmts
 }
 
 // seed populates the database with a standard dataset.
-func seed(t *testing.T, ctx context.Context, db *sql.DB) {
+func seed(t *testing.T, ctx context.Context, db *pgxpool.Pool) {
 	t.Helper()
 
 	// 3 authors
@@ -136,7 +166,9 @@ func seed(t *testing.T, ctx context.Context, db *sql.DB) {
 // ─── :one tests ────────────────────────────────────────────────────────
 
 func TestCreateAuthor(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 
 	author, err := gen.CreateAuthor(ctx, db, "Test", sql.NullString{String: "bio", Valid: true}, sql.NullInt32{Int32: 1980, Valid: true})
 	if err != nil {
@@ -157,7 +189,9 @@ func TestCreateAuthor(t *testing.T) {
 }
 
 func TestGetAuthor(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	seed(t, ctx, db)
 
 	author, err := gen.GetAuthor(ctx, db, 1)
@@ -188,7 +222,9 @@ func TestGetAuthor(t *testing.T) {
 }
 
 func TestUpdateAuthorBio(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	seed(t, ctx, db)
 
 	updated, err := gen.UpdateAuthorBio(ctx, db, sql.NullString{String: "Updated bio", Valid: true}, 1)
@@ -207,7 +243,9 @@ func TestUpdateAuthorBio(t *testing.T) {
 }
 
 func TestDeleteAuthor(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 
 	_, err := gen.CreateAuthor(ctx, db, "Temp", sql.NullString{}, sql.NullInt32{})
 	if err != nil {
@@ -235,7 +273,9 @@ func TestDeleteAuthor(t *testing.T) {
 }
 
 func TestGetBook(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	seed(t, ctx, db)
 
 	book, err := gen.GetBook(ctx, db, 1)
@@ -260,7 +300,9 @@ func TestGetBook(t *testing.T) {
 }
 
 func TestCreateBook(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	seed(t, ctx, db)
 
 	book, err := gen.CreateBook(ctx, db, 1, "New Book", "mystery", "14.50", sql.NullTime{})
@@ -284,7 +326,9 @@ func TestCreateBook(t *testing.T) {
 // ─── :many tests ──────────────────────────────────────────────────────
 
 func TestListAuthors(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	seed(t, ctx, db)
 
 	authors, err := gen.ListAuthors(ctx, db)
@@ -307,7 +351,9 @@ func TestListAuthors(t *testing.T) {
 }
 
 func TestListBooksByGenre(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	seed(t, ctx, db)
 
 	scifi, err := gen.ListBooksByGenre(ctx, db, "sci-fi")
@@ -331,7 +377,9 @@ func TestListBooksByGenre(t *testing.T) {
 }
 
 func TestListBooksByGenreOrAll(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	seed(t, ctx, db)
 
 	all, err := gen.ListBooksByGenreOrAll(ctx, db, "all")
@@ -352,7 +400,9 @@ func TestListBooksByGenreOrAll(t *testing.T) {
 }
 
 func TestGetBooksByIds(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	seed(t, ctx, db)
 
 	books, err := gen.GetBooksByIds(ctx, db, []int64{1, 3})
@@ -386,7 +436,9 @@ func TestGetBooksByIds(t *testing.T) {
 // ─── :exec tests ──────────────────────────────────────────────────────
 
 func TestAddSaleItem(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	seed(t, ctx, db)
 
 	// Should not return error
@@ -399,7 +451,9 @@ func TestAddSaleItem(t *testing.T) {
 // ─── :execrows tests ──────────────────────────────────────────────────
 
 func TestDeleteBookById(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	seed(t, ctx, db)
 
 	// Book 2 (I Robot) has no sale_items
@@ -423,7 +477,9 @@ func TestDeleteBookById(t *testing.T) {
 // ─── JOIN tests ───────────────────────────────────────────────────────
 
 func TestListBooksWithAuthor(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	seed(t, ctx, db)
 
 	rows, err := gen.ListBooksWithAuthor(ctx, db)
@@ -464,7 +520,9 @@ func TestListBooksWithAuthor(t *testing.T) {
 }
 
 func TestListBookSummariesView(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	seed(t, ctx, db)
 
 	rows, err := gen.ListBookSummariesView(ctx, db)
@@ -483,7 +541,9 @@ func TestListBookSummariesView(t *testing.T) {
 }
 
 func TestGetBooksNeverOrdered(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	seed(t, ctx, db)
 
 	books, err := gen.GetBooksNeverOrdered(ctx, db)
@@ -502,7 +562,9 @@ func TestGetBooksNeverOrdered(t *testing.T) {
 // ─── CTE tests ────────────────────────────────────────────────────────
 
 func TestGetTopSellingBooks(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	seed(t, ctx, db)
 
 	rows, err := gen.GetTopSellingBooks(ctx, db)
@@ -522,7 +584,9 @@ func TestGetTopSellingBooks(t *testing.T) {
 }
 
 func TestGetBestCustomers(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	seed(t, ctx, db)
 
 	rows, err := gen.GetBestCustomers(ctx, db)
@@ -542,7 +606,9 @@ func TestGetBestCustomers(t *testing.T) {
 }
 
 func TestGetAuthorStats(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	seed(t, ctx, db)
 
 	rows, err := gen.GetAuthorStats(ctx, db)
@@ -570,11 +636,13 @@ func TestGetAuthorStats(t *testing.T) {
 // ─── Data-modifying CTE ───────────────────────────────────────────────
 
 func TestArchiveAndReturnBooks(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	seed(t, ctx, db)
 
 	// Delete sale_items first so the CTE DELETE on book can succeed
-	if _, err := db.ExecContext(ctx, "DELETE FROM sale_item"); err != nil {
+	if _, err := db.Exec(ctx, "DELETE FROM sale_item"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -610,7 +678,9 @@ func TestArchiveAndReturnBooks(t *testing.T) {
 // ─── Aggregate tests ──────────────────────────────────────────────────
 
 func TestCountBooksByGenre(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	seed(t, ctx, db)
 
 	rows, err := gen.CountBooksByGenre(ctx, db)
@@ -636,7 +706,9 @@ func TestCountBooksByGenre(t *testing.T) {
 // ─── LIMIT/OFFSET tests ──────────────────────────────────────────────
 
 func TestListBooksWithLimit(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	seed(t, ctx, db)
 
 	page1, err := gen.ListBooksWithLimit(ctx, db, 2, 0)
@@ -670,7 +742,9 @@ func TestListBooksWithLimit(t *testing.T) {
 // ─── LIKE tests ───────────────────────────────────────────────────────
 
 func TestSearchBooksByTitle(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	seed(t, ctx, db)
 
 	results, err := gen.SearchBooksByTitle(ctx, db, "%ound%")
@@ -696,7 +770,9 @@ func TestSearchBooksByTitle(t *testing.T) {
 // ─── BETWEEN tests ───────────────────────────────────────────────────
 
 func TestGetBooksByPriceRange(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	seed(t, ctx, db)
 
 	results, err := gen.GetBooksByPriceRange(ctx, db, "8.00", "10.00")
@@ -712,7 +788,9 @@ func TestGetBooksByPriceRange(t *testing.T) {
 // ─── IN list tests ────────────────────────────────────────────────────
 
 func TestGetBooksInGenres(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	seed(t, ctx, db)
 
 	results, err := gen.GetBooksInGenres(ctx, db, "sci-fi", "fantasy", "horror")
@@ -727,7 +805,9 @@ func TestGetBooksInGenres(t *testing.T) {
 // ─── CASE / COALESCE tests ──────────────────────────────────────────
 
 func TestGetBookPriceLabel(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	seed(t, ctx, db)
 
 	rows, err := gen.GetBookPriceLabel(ctx, db, "10.00")
@@ -751,7 +831,9 @@ func TestGetBookPriceLabel(t *testing.T) {
 }
 
 func TestGetBookPriceOrDefault(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	seed(t, ctx, db)
 
 	rows, err := gen.GetBookPriceOrDefault(ctx, db, sql.NullString{String: "0.00", Valid: true})
@@ -779,7 +861,9 @@ func TestGetBookPriceOrDefault(t *testing.T) {
 // ─── HAVING tests ─────────────────────────────────────────────────────
 
 func TestGetGenresWithManyBooks(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	seed(t, ctx, db)
 
 	results, err := gen.GetGenresWithManyBooks(ctx, db, 1)
@@ -800,7 +884,9 @@ func TestGetGenresWithManyBooks(t *testing.T) {
 // ─── Subquery tests ──────────────────────────────────────────────────
 
 func TestGetBooksNotByAuthor(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	seed(t, ctx, db)
 
 	results, err := gen.GetBooksNotByAuthor(ctx, db, "Asimov")
@@ -820,7 +906,9 @@ func TestGetBooksNotByAuthor(t *testing.T) {
 // ─── JOIN with param tests ───────────────────────────────────────────
 
 func TestGetBooksByAuthorParam(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	seed(t, ctx, db)
 
 	// birth_year > 1925 → only Le Guin (1929)
@@ -839,7 +927,9 @@ func TestGetBooksByAuthorParam(t *testing.T) {
 // ─── Qualified wildcard tests ────────────────────────────────────────
 
 func TestGetAllBookFields(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	seed(t, ctx, db)
 
 	books, err := gen.GetAllBookFields(ctx, db)
@@ -860,7 +950,9 @@ func TestGetAllBookFields(t *testing.T) {
 // ─── EXISTS subquery tests ──────────────────────────────────────────
 
 func TestGetBooksWithRecentSales(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	seed(t, ctx, db)
 
 	// All sales happened just now; epoch cutoff → Foundation, Dune, Earthsea
@@ -889,7 +981,9 @@ func TestGetBooksWithRecentSales(t *testing.T) {
 // ─── Scalar subquery tests ──────────────────────────────────────────
 
 func TestGetBookWithAuthorName(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	seed(t, ctx, db)
 
 	rows, err := gen.GetBookWithAuthorName(ctx, db)
@@ -917,7 +1011,9 @@ func TestGetBookWithAuthorName(t *testing.T) {
 // ─── Customer / Sale creation tests ──────────────────────────────────
 
 func TestCreateCustomer(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 
 	cust, err := gen.CreateCustomer(ctx, db, "Solo", "solo@example.com")
 	if err != nil {
@@ -932,7 +1028,9 @@ func TestCreateCustomer(t *testing.T) {
 }
 
 func TestCreateSale(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 
 	cust, err := gen.CreateCustomer(ctx, db, "Solo", "solo@example.com")
 	if err != nil {
@@ -953,7 +1051,9 @@ func TestCreateSale(t *testing.T) {
 // ─── Product tests ──────────────────────────────────────────────────
 
 func TestInsertProduct(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 
 	id := "550e8400-e29b-41d4-a716-446655440000"
 	weightKg := float32(1.5)
@@ -978,7 +1078,9 @@ func TestInsertProduct(t *testing.T) {
 }
 
 func TestGetProduct(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 
 	id := "550e8400-e29b-41d4-a716-446655440001"
 	_, err := gen.InsertProduct(ctx, db, id, "SKU-GET", "GetWidget",
@@ -1003,7 +1105,9 @@ func TestGetProduct(t *testing.T) {
 }
 
 func TestListActiveProducts(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 
 	id1 := "550e8400-e29b-41d4-a716-446655440010"
 	id2 := "550e8400-e29b-41d4-a716-446655440011"
@@ -1042,7 +1146,9 @@ func TestListActiveProducts(t *testing.T) {
 }
 
 func TestUpsertProduct(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 
 	id := "550e8400-e29b-41d4-a716-446655440020"
 
@@ -1077,7 +1183,9 @@ func TestUpsertProduct(t *testing.T) {
 // ─── IS NULL / IS NOT NULL tests ─────────────────────────────────────
 
 func TestGetAuthorsWithNullBio(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	seed(t, ctx, db)
 
 	authors, err := gen.GetAuthorsWithNullBio(ctx, db)
@@ -1093,7 +1201,9 @@ func TestGetAuthorsWithNullBio(t *testing.T) {
 }
 
 func TestGetAuthorsWithBio(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	seed(t, ctx, db)
 
 	authors, err := gen.GetAuthorsWithBio(ctx, db)
@@ -1115,7 +1225,9 @@ func TestGetAuthorsWithBio(t *testing.T) {
 // ─── Date BETWEEN tests ───────────────────────────────────────────────
 
 func TestGetBooksPublishedBetween(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	seed(t, ctx, db)
 
 	early, err := gen.GetBooksPublishedBetween(ctx, db,
@@ -1162,7 +1274,9 @@ func TestGetBooksPublishedBetween(t *testing.T) {
 // ─── DISTINCT tests ───────────────────────────────────────────────────
 
 func TestGetDistinctGenres(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	seed(t, ctx, db)
 
 	genres, err := gen.GetDistinctGenres(ctx, db)
@@ -1183,7 +1297,9 @@ func TestGetDistinctGenres(t *testing.T) {
 // ─── LEFT JOIN aggregate tests ────────────────────────────────────────
 
 func TestGetBooksWithSalesCount(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	seed(t, ctx, db)
 
 	rows, err := gen.GetBooksWithSalesCount(ctx, db)
@@ -1219,7 +1335,9 @@ func TestGetBooksWithSalesCount(t *testing.T) {
 // ─── :one COUNT aggregate ─────────────────────────────────────────────
 
 func TestCountSaleItems(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	seed(t, ctx, db)
 
 	// Sale 1 (Alice): Foundation + Dune = 2 items
@@ -1250,7 +1368,9 @@ func TestCountSaleItems(t *testing.T) {
 // ─── MIN/MAX/SUM/AVG aggregate tests ─────────────────────────────────
 
 func TestGetSaleItemQuantityAggregates(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	seed(t, ctx, db)
 
 	// Sale items: Foundation qty 2 (Alice), Dune qty 1 (Alice),
@@ -1278,7 +1398,9 @@ func TestGetSaleItemQuantityAggregates(t *testing.T) {
 }
 
 func TestGetBookPriceAggregates(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	seed(t, ctx, db)
 
 	// Book prices: 9.99, 7.99, 12.99, 8.99
@@ -1307,7 +1429,9 @@ func TestGetBookPriceAggregates(t *testing.T) {
 // ─── Product with all fields ──────────────────────────────────────────
 
 func TestInsertProductAllFields(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 
 	id := "550e8400-e29b-41d4-a716-446655440030"
 	weightKg := float32(1.5)
@@ -1371,7 +1495,9 @@ func TestInsertProductAllFields(t *testing.T) {
 }
 
 func TestProductWithNullOptionalFields(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 
 	id := "550e8400-e29b-41d4-a716-446655440031"
 	product, err := gen.InsertProduct(ctx, db, id, "SKU-NULL", "Bare",

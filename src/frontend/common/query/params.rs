@@ -15,31 +15,11 @@ use crate::ir::{Schema, SqlType, Table};
 use super::resolve::{cast_name, function_name_upper, resolve_expr};
 use super::{build_alias_map, collect_cte_params, collect_from_tables, placeholder_idx, ParamMapping, ResolverConfig, ResolverContext};
 
-struct ParamCollectScope<'a> {
-    schema: &'a Schema,
-    config: &'a ResolverConfig,
-    query_name: &'a str,
-}
-
-impl<'a> ParamCollectScope<'a> {
-    fn from_ctx(ctx: &ResolverContext<'a>) -> Self {
-        Self { schema: ctx.schema, config: ctx.config, query_name: ctx.query_name }
-    }
-}
-
 /// Collect typed parameter mappings from a single `SELECT` clause.
 ///
 /// Covers WHERE, JOIN ON, HAVING, and projection expressions. Shared by
 /// `build_select_body` (plain queries) and `collect_set_expr_params` (UNION branches).
 pub(super) fn collect_select_params(select: &Select, schema: &Schema, config: &ResolverConfig, ctes: &[Table], mapping: &mut ParamMapping, query_name: &str) {
-    let scope = ParamCollectScope { schema, config, query_name };
-    collect_select_params_in(select, ctes, mapping, &scope);
-}
-
-fn collect_select_params_in(select: &Select, ctes: &[Table], mapping: &mut ParamMapping, scope: &ParamCollectScope<'_>) {
-    let schema = scope.schema;
-    let config = scope.config;
-    let query_name = scope.query_name;
     let all_tables = collect_from_tables(select, schema, ctes, config);
     let alias_map = build_alias_map(&all_tables);
     let ctx = &mut ResolverContext::new(&alias_map, &all_tables, schema, config, mapping, query_name);
@@ -55,18 +35,13 @@ fn collect_select_params_in(select: &Select, ctes: &[Table], mapping: &mut Param
 /// Each `SELECT` branch gets its own table context for inference. Set operation
 /// nodes recurse into both left and right operands.
 pub(super) fn collect_set_expr_params(expr: &SetExpr, schema: &Schema, config: &ResolverConfig, ctes: &[Table], mapping: &mut ParamMapping, query_name: &str) {
-    let scope = ParamCollectScope { schema, config, query_name };
-    collect_set_expr_params_in(expr, ctes, mapping, &scope);
-}
-
-fn collect_set_expr_params_in(expr: &SetExpr, ctes: &[Table], mapping: &mut ParamMapping, scope: &ParamCollectScope<'_>) {
     match expr {
         SetExpr::Select(select) => {
-            collect_select_params_in(select, ctes, mapping, scope);
+            collect_select_params(select, schema, config, ctes, mapping, query_name);
         },
         SetExpr::SetOperation { left, right, .. } => {
-            collect_set_expr_params_in(left, ctes, mapping, scope);
-            collect_set_expr_params_in(right, ctes, mapping, scope);
+            collect_set_expr_params(left, schema, config, ctes, mapping, query_name);
+            collect_set_expr_params(right, schema, config, ctes, mapping, query_name);
         },
         _ => {},
     }
@@ -84,12 +59,10 @@ pub(super) fn collect_params_from_expr(expr: &Expr, ctx: &mut ResolverContext) {
         },
         Expr::InSubquery { expr, subquery, .. } => {
             collect_params_from_expr(expr, ctx);
-            let scope = ParamCollectScope::from_ctx(ctx);
-            collect_params_from_subquery(subquery, ctx.mapping, &scope);
+            collect_params_from_subquery(subquery, ctx);
         },
         Expr::Subquery(q) => {
-            let scope = ParamCollectScope::from_ctx(ctx);
-            collect_params_from_subquery(q, ctx.mapping, &scope);
+            collect_params_from_subquery(q, ctx);
         },
         Expr::Nested(inner) => {
             collect_params_from_expr(inner, ctx);
@@ -107,12 +80,11 @@ pub(super) fn collect_params_from_expr(expr: &Expr, ctx: &mut ResolverContext) {
             collect_params_from_expr(right, ctx);
         },
         Expr::Exists { subquery, .. } => {
-            let scope = ParamCollectScope::from_ctx(ctx);
-            collect_params_from_subquery(subquery, ctx.mapping, &scope);
+            collect_params_from_subquery(subquery, ctx);
         },
         Expr::InList { expr, list, .. } => {
             // col IN ($1, $2, …) — infer param type from the expression being tested
-            let resolved = resolve_expr(expr, ctx.alias_map, ctx.all_tables, ctx.config);
+            let resolved = resolve_expr(expr, ctx);
             for item in list {
                 infer_placeholder_from_resolved(item, resolved.as_ref(), ctx);
                 collect_params_from_expr(item, ctx);
@@ -121,7 +93,7 @@ pub(super) fn collect_params_from_expr(expr: &Expr, ctx: &mut ResolverContext) {
         },
         Expr::Between { expr, low, high, .. } => {
             // col BETWEEN $1 AND $2 — infer both param types from the tested expression
-            let resolved = resolve_expr(expr, ctx.alias_map, ctx.all_tables, ctx.config);
+            let resolved = resolve_expr(expr, ctx);
             for bound in [low.as_ref(), high.as_ref()] {
                 infer_placeholder_from_resolved(bound, resolved.as_ref(), ctx);
                 collect_params_from_expr(bound, ctx);
@@ -132,7 +104,7 @@ pub(super) fn collect_params_from_expr(expr: &Expr, ctx: &mut ResolverContext) {
             // col LIKE $1 — infer param type from the column
             if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = pattern.as_ref() {
                 if let Some(idx) = placeholder_idx(p) {
-                    if let Some(rc) = resolve_expr(expr, ctx.alias_map, ctx.all_tables, ctx.config) {
+                    if let Some(rc) = resolve_expr(expr, ctx) {
                         ctx.mapping.entry(idx).or_insert((rc.name, rc.sql_type, rc.nullable));
                     }
                 }
@@ -228,7 +200,7 @@ fn infer_placeholder_from_side(placeholder_side: &Expr, typed_side: &Expr, ctx: 
     if let Expr::Value(ValueWithSpan { value: Value::Placeholder(p), .. }) = placeholder_side {
         if let Some(idx) = placeholder_idx(p) {
             if !is_literal_expr(typed_side) {
-                if let Some(rc) = resolve_expr(typed_side, ctx.alias_map, ctx.all_tables, ctx.config) {
+                if let Some(rc) = resolve_expr(typed_side, ctx) {
                     ctx.mapping.entry(idx).or_insert((rc.name, rc.sql_type, rc.nullable));
                 }
             }
@@ -282,7 +254,7 @@ fn collect_function_params(func: &sqlparser::ast::Function, ctx: &mut ResolverCo
         arg_list.args.iter().find_map(|a| {
             if let FunctionArg::Unnamed(FunctionArgExpr::Expr(inner)) = a {
                 if !matches!(inner, Expr::Value(ValueWithSpan { value: Value::Placeholder(_), .. })) {
-                    return resolve_expr(inner, ctx.alias_map, ctx.all_tables, ctx.config);
+                    return resolve_expr(inner, ctx);
                 }
             }
             None
@@ -467,21 +439,18 @@ fn is_literal_expr(expr: &Expr) -> bool {
 /// Builds the subquery's FROM scope, recurses into any nested WITH clauses,
 /// and collects parameters from the WHERE clause. Handles both scalar
 /// subqueries (`Expr::Subquery`) and IN-subquery expressions.
-fn collect_params_from_subquery(q: &SqlQuery, mapping: &mut ParamMapping, scope: &ParamCollectScope<'_>) {
-    let schema = scope.schema;
-    let config = scope.config;
-    let query_name = scope.query_name;
-    collect_cte_params(q.with.as_ref(), schema, config, mapping, query_name);
+fn collect_params_from_subquery(q: &SqlQuery, ctx: &mut ResolverContext) {
+    collect_cte_params(q.with.as_ref(), ctx.schema, ctx.config, ctx.mapping, ctx.query_name);
     let SetExpr::Select(select) = q.body.as_ref() else { return };
-    let all_tables = collect_from_tables(select, schema, &[], config);
+    let all_tables = collect_from_tables(select, ctx.schema, &[], ctx.config);
     if all_tables.is_empty() {
         return;
     }
     let alias_map = build_alias_map(&all_tables);
-    let ctx = &mut ResolverContext::new(&alias_map, &all_tables, schema, config, mapping, query_name);
-    collect_select_filter_params(select, ctx);
-    collect_from_tvf_params(select, ctx);
-    collect_limit_offset_params(q, ctx.mapping);
+    let inner = &mut ResolverContext::new(&alias_map, &all_tables, ctx.schema, ctx.config, ctx.mapping, ctx.query_name);
+    collect_select_filter_params(select, inner);
+    collect_from_tvf_params(select, inner);
+    collect_limit_offset_params(q, inner.mapping);
 }
 
 fn collect_select_filter_params(select: &Select, ctx: &mut ResolverContext<'_>) {

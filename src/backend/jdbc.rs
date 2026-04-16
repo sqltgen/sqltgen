@@ -1,8 +1,8 @@
 use std::collections::BTreeSet;
 use std::fmt::Write;
 
-use crate::backend::common::{infer_row_type_name, infer_table, jdbc_bind_sequence, jdbc_setter, pg_array_type_name, sql_const_name};
-use crate::backend::naming::{to_camel_case, to_pascal_case};
+use crate::backend::common::{infer_row_type_name, infer_table, jdbc_bind_sequence, jdbc_setter, model_name, pg_array_type_name, sql_const_name};
+use crate::backend::naming::to_camel_case;
 use crate::backend::sql_rewrite::{rewrite_to_anon_params, split_at_in_clause};
 use crate::config::{Engine, ExtraField, ListParamStrategy, OutputConfig, ResolvedType, TypeVariant};
 use crate::ir::{NativeListBind, Parameter, Query, QueryCmd, Schema, SqlType, Table};
@@ -111,8 +111,8 @@ pub fn result_row_type(query: &Query, schema: &Schema, fallback: &str) -> String
 ///
 /// `class_name` is the name of the enclosing class (e.g. `"Queries"`, `"UsersQueries"`).
 pub fn ds_result_row_type(query: &Query, schema: &Schema, fallback: &str, class_name: &str) -> String {
-    if let Some(table_name) = infer_table(query, schema) {
-        return to_pascal_case(table_name);
+    if let Some(table) = infer_table(query, schema) {
+        return model_name(table, schema.default_schema.as_deref());
     }
     if !query.result_columns.is_empty() {
         return format!("{class_name}.{}", crate::backend::common::row_type_name(&query.name));
@@ -151,7 +151,19 @@ where
         } else if let SqlType::Array(inner) = &p.sql_type {
             let name = to_camel_case(&p.name);
             let type_name = pg_array_type_name(inner);
-            writeln!(src, "            ps.setArray({jdbc_idx}, conn.createArrayOf(\"{type_name}\", {name}.{to_array_call})){se}")?;
+            if matches!(inner.as_ref(), SqlType::Enum(_)) {
+                // Enum arrays: map enum objects to their string values before createArrayOf.
+                let arr_expr = if to_array_call == "toTypedArray()" {
+                    // Kotlin
+                    format!("{name}.map {{ it.value }}.toTypedArray()")
+                } else {
+                    // Java
+                    format!("{name}.stream().map(e -> e.getValue()).toArray(String[]::new)")
+                };
+                writeln!(src, "            ps.setArray({jdbc_idx}, conn.createArrayOf(\"{type_name}\", {arr_expr})){se}")?;
+            } else {
+                writeln!(src, "            ps.setArray({jdbc_idx}, conn.createArrayOf(\"{type_name}\", {name}.{to_array_call})){se}")?;
+            }
         } else if matches!(p.sql_type, SqlType::Json | SqlType::Jsonb) {
             let val = scalar_value_expr(p);
             match json_bind {
@@ -552,6 +564,28 @@ mod tests {
         let mut src = String::new();
         emit_jdbc_binds(&mut src, &q, "", ";", "toArray()", JsonBindMode::SetString, |p| to_camel_case(&p.name)).unwrap();
         assert!(src.contains("ps.setObject(1, data)"), "nullable JSON on MySQL/SQLite should use setObject: {src}");
+    }
+
+    #[test]
+    fn test_emit_jdbc_binds_array_enum_java_maps_to_string() {
+        let p = Parameter::scalar(1, "statuses", SqlType::Array(Box::new(SqlType::Enum("status".to_string()))), false);
+        let q = make_query("UpdateStatuses", "UPDATE t SET statuses = $1", vec![p]);
+
+        let mut src = String::new();
+        emit_jdbc_binds(&mut src, &q, "", ";", "toArray()", JsonBindMode::TypesOther, |p| to_camel_case(&p.name)).unwrap();
+        assert!(src.contains("statuses.stream().map(e -> e.getValue()).toArray(String[]::new)"), "Java enum array should map to String[]: {src}");
+        assert!(src.contains("createArrayOf(\"status\""), "should use enum type name as PG type: {src}");
+    }
+
+    #[test]
+    fn test_emit_jdbc_binds_array_enum_kotlin_maps_to_string() {
+        let p = Parameter::scalar(1, "statuses", SqlType::Array(Box::new(SqlType::Enum("status".to_string()))), false);
+        let q = make_query("UpdateStatuses", "UPDATE t SET statuses = $1", vec![p]);
+
+        let mut src = String::new();
+        emit_jdbc_binds(&mut src, &q, "", "", "toTypedArray()", JsonBindMode::TypesOther, |p| to_camel_case(&p.name)).unwrap();
+        assert!(src.contains("statuses.map { it.value }.toTypedArray()"), "Kotlin enum array should map to String[]: {src}");
+        assert!(src.contains("createArrayOf(\"status\""), "should use enum type name as PG type: {src}");
     }
 
     #[test]

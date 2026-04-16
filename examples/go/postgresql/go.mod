@@ -2,10 +2,7 @@ module example-go-postgresql
 
 go 1.23
 
-require (
-	github.com/jackc/pgx/v5 v5.7.4
-	github.com/lib/pq v1.10.9
-)
+require github.com/jackc/pgx/v5 v5.7.4
 
 require (
 	github.com/jackc/pgpassfile v1.0.0 // indirect

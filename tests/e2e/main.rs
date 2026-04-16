@@ -51,6 +51,18 @@ fn load_fixtures(dialect: &str, parser: &dyn DialectParser) -> (Schema, Vec<Quer
     (schema, queries)
 }
 
+/// Load fixture schema and queries with an explicit default schema.
+fn load_fixtures_with_default_schema(dialect: &str, parser: &dyn DialectParser, default_schema: &str) -> (Schema, Vec<Query>) {
+    let root = e2e_root().join("fixtures").join(dialect);
+    let ddl = std::fs::read_to_string(root.join("schema.sql")).unwrap_or_else(|e| panic!("reading {dialect}/schema.sql: {e}"));
+    let queries_sql = std::fs::read_to_string(root.join("queries.sql")).unwrap_or_else(|e| panic!("reading {dialect}/queries.sql: {e}"));
+
+    let mut schema = parser.parse_schema(&ddl, Some(default_schema)).unwrap_or_else(|e| panic!("parsing {dialect} schema: {e}"));
+    schema.default_schema = Some(default_schema.to_string());
+    let queries = parser.parse_queries(&queries_sql, &schema, Some(default_schema)).unwrap_or_else(|e| panic!("parsing {dialect} queries: {e}"));
+    (schema, queries)
+}
+
 /// Default output config for snapshot tests.
 fn output_config() -> OutputConfig {
     OutputConfig { out: "out".to_string(), package: "db".to_string(), list_params: None, ..Default::default() }
@@ -426,6 +438,50 @@ fn snapshot_type_overrides_typescript() {
         &TypeScriptCodegen { target: JsTarget::Pg, output: JsOutput::TypeScript },
         config_object(),
     );
+}
+
+// ─── Schema-qualified model emission ──────────────────────────────────────
+
+fn snapshot_schema_qualified(backend_name: &str, codegen: &dyn Codegen) {
+    let (schema, queries) = load_fixtures_with_default_schema("schema_qualified/postgresql", &PostgresParser, "public");
+    let files = run_codegen(codegen, &schema, &queries);
+    let golden_dir = e2e_root().join("golden").join("schema_qualified").join(backend_name).join("postgresql");
+    check_golden(&golden_dir, &files);
+}
+
+#[test]
+fn snapshot_schema_qualified_rust() {
+    snapshot_schema_qualified("rust", &RustCodegen { target: RustTarget::Postgres });
+}
+
+#[test]
+fn snapshot_schema_qualified_java() {
+    snapshot_schema_qualified("java", &JavaCodegen { target: JdbcTarget::Postgres });
+}
+
+#[test]
+fn snapshot_schema_qualified_kotlin() {
+    snapshot_schema_qualified("kotlin", &KotlinCodegen { target: JdbcTarget::Postgres });
+}
+
+#[test]
+fn snapshot_schema_qualified_python() {
+    snapshot_schema_qualified("python", &PythonCodegen { target: PythonTarget::Psycopg });
+}
+
+#[test]
+fn snapshot_schema_qualified_go() {
+    snapshot_schema_qualified("go", &GoCodegen { target: GoTarget::Postgres });
+}
+
+#[test]
+fn snapshot_schema_qualified_typescript() {
+    snapshot_schema_qualified("typescript", &TypeScriptCodegen { target: JsTarget::Pg, output: JsOutput::TypeScript });
+}
+
+#[test]
+fn snapshot_schema_qualified_javascript() {
+    snapshot_schema_qualified("javascript", &TypeScriptCodegen { target: JsTarget::Pg, output: JsOutput::JavaScript });
 }
 
 // ─── Error resilience tests ───────────────────────────────────────────────

@@ -48,7 +48,8 @@ fn build_query_with_dialect(
     schema: &Schema,
     config: &ResolverConfig,
 ) -> anyhow::Result<Query> {
-    let (sql_buf, np) = match named_params::preprocess_named_params(sql) {
+    let enum_names: Vec<String> = schema.enums.iter().map(|e| e.name.clone()).collect();
+    let (sql_buf, np) = match named_params::preprocess_named_params(sql, &enum_names) {
         Some((rewritten, params)) => (rewritten, params),
         // No named params: still strip comment lines so that the stored SQL can be
         // safely collapsed to a single line in codegen (-- comments would eat the rest).

@@ -72,7 +72,8 @@ impl KotlinTypeMap {
             return if nullable { format!("{ty}?") } else { ty };
         }
         if let SqlType::Array(inner) = sql_type {
-            let t = format!("List<{}>", self.get(inner).param_type);
+            let inner_type = if let SqlType::Enum(name) = inner.as_ref() { to_pascal_case(name) } else { self.get(inner).param_type.clone() };
+            let t = format!("List<{inner_type}>");
             return if nullable { format!("{t}?") } else { t };
         }
         let name = &self.get(sql_type).param_type;

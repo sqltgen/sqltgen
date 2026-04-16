@@ -24,16 +24,28 @@ _DB_URL = os.environ.get(
 
 @pytest.fixture()
 def conn():
-    """Yield a psycopg connection with an isolated schema; drop it on teardown."""
-    schema = "test_" + uuid.uuid4().hex
+    """Yield a psycopg connection with an isolated database; drop it on teardown."""
+    db_name = "test_" + uuid.uuid4().hex
     schema_sql = (_FIXTURES / "schema.sql").read_text()
 
-    with psycopg.connect(_DB_URL, autocommit=True) as c:
-        c.execute(f'CREATE SCHEMA "{schema}"')
-        c.execute(f'SET search_path TO "{schema}"')
+    # Create isolated database.
+    with psycopg.connect(_DB_URL, autocommit=True) as admin:
+        admin.execute(f'CREATE DATABASE "{db_name}"')
+
+    # Parse base URL and connect to the new database.
+    base = _DB_URL.rsplit("/", 1)[0]
+    with psycopg.connect(f"{base}/{db_name}", autocommit=True) as c:
         c.execute(schema_sql)
         yield c
-        c.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
+
+    # Drop the test database.
+    with psycopg.connect(_DB_URL, autocommit=True) as admin:
+        admin.execute(f"""
+            SELECT pg_terminate_backend(pid)
+            FROM pg_stat_activity
+            WHERE datname = '{db_name}' AND pid <> pg_backend_pid()
+        """)
+        admin.execute(f'DROP DATABASE IF EXISTS "{db_name}"')
 
 
 def test_insert_and_get_event(conn):

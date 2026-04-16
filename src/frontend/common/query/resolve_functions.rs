@@ -2,14 +2,14 @@ use sqlparser::ast::{FunctionArg, FunctionArgExpr, FunctionArguments};
 
 use crate::ir::{ResultColumn, SqlType};
 
-use super::resolve::{resolve_expr_in, ResolveScope};
-use super::ResolverConfig;
+use super::resolve::resolve_expr;
+use super::ResolverContext;
 
 fn named_result(fname: &str, sql_type: SqlType, nullable: bool) -> ResultColumn {
     ResultColumn { name: fname.to_lowercase(), sql_type, nullable }
 }
 
-pub(super) fn resolve_function(func: &sqlparser::ast::Function, scope: &ResolveScope<'_>) -> Option<ResultColumn> {
+pub(super) fn resolve_function(func: &sqlparser::ast::Function, ctx: &ResolverContext<'_>) -> Option<ResultColumn> {
     let fname = func
         .name
         .0
@@ -17,34 +17,34 @@ pub(super) fn resolve_function(func: &sqlparser::ast::Function, scope: &ResolveS
         .and_then(|p| if let sqlparser::ast::ObjectNamePart::Identifier(i) = p { Some(i.value.to_uppercase()) } else { None })
         .unwrap_or_default();
 
-    resolve_aggregate_function(func, &fname, scope)
+    resolve_aggregate_function(func, &fname, ctx)
         .or_else(|| resolve_string_function(&fname))
         .or_else(|| resolve_length_function(&fname))
-        .or_else(|| resolve_math_function(func, &fname, scope))
+        .or_else(|| resolve_math_function(func, &fname, ctx))
         .or_else(|| resolve_datetime_function(&fname))
-        .or_else(|| resolve_conditional_function(func, &fname, scope))
+        .or_else(|| resolve_conditional_function(func, &fname, ctx))
         .or_else(|| resolve_misc_function(&fname))
         .or_else(|| resolve_json_function(&fname))
         .or_else(|| resolve_boolean_function(&fname))
-        .or_else(|| resolve_window_function(func, &fname, scope))
-        .or_else(|| resolve_udf(func, &fname, scope.config))
+        .or_else(|| resolve_window_function(func, &fname, ctx))
+        .or_else(|| resolve_udf(func, &fname, ctx))
 }
 
-fn resolve_aggregate_function(func: &sqlparser::ast::Function, fname: &str, scope: &ResolveScope<'_>) -> Option<ResultColumn> {
+fn resolve_aggregate_function(func: &sqlparser::ast::Function, fname: &str, ctx: &ResolverContext<'_>) -> Option<ResultColumn> {
     match fname {
         "COUNT" => Some(ResultColumn::not_nullable("count", SqlType::BigInt)),
-        "SUM" => resolve_func_first_arg(func, scope).map(|rc| {
+        "SUM" => resolve_func_first_arg(func, ctx).map(|rc| {
             let promoted = match rc.sql_type {
-                SqlType::SmallInt | SqlType::Integer => scope.config.sum_integer_type.clone(),
-                SqlType::BigInt => scope.config.sum_bigint_type.clone(),
+                SqlType::SmallInt | SqlType::Integer => ctx.config.sum_integer_type.clone(),
+                SqlType::BigInt => ctx.config.sum_bigint_type.clone(),
                 other => other,
             };
             ResultColumn { sql_type: promoted, nullable: true, ..rc }
         }),
-        "MIN" | "MAX" => resolve_func_first_arg(func, scope).map(|rc| ResultColumn { nullable: true, ..rc }),
-        "AVG" => resolve_func_first_arg(func, scope).map(|rc| {
+        "MIN" | "MAX" => resolve_func_first_arg(func, ctx).map(|rc| ResultColumn { nullable: true, ..rc }),
+        "AVG" => resolve_func_first_arg(func, ctx).map(|rc| {
             let promoted = match rc.sql_type {
-                SqlType::SmallInt | SqlType::Integer | SqlType::BigInt => scope.config.avg_integer_type.clone(),
+                SqlType::SmallInt | SqlType::Integer | SqlType::BigInt => ctx.config.avg_integer_type.clone(),
                 other => other,
             };
             ResultColumn { sql_type: promoted, nullable: true, ..rc }
@@ -72,10 +72,10 @@ fn resolve_length_function(fname: &str) -> Option<ResultColumn> {
     }
 }
 
-fn resolve_math_function(func: &sqlparser::ast::Function, fname: &str, scope: &ResolveScope<'_>) -> Option<ResultColumn> {
+fn resolve_math_function(func: &sqlparser::ast::Function, fname: &str, ctx: &ResolverContext<'_>) -> Option<ResultColumn> {
     match fname {
         "ABS" | "CEIL" | "CEILING" | "FLOOR" | "ROUND" | "TRUNC" | "TRUNCATE" | "SIGN" => {
-            resolve_func_first_arg(func, scope).map(|rc| ResultColumn { nullable: true, ..rc })
+            resolve_func_first_arg(func, ctx).map(|rc| ResultColumn { nullable: true, ..rc })
         },
         "SQRT" | "CBRT" | "EXP" | "LN" | "LOG" | "LOG2" | "LOG10" | "POWER" | "POW" | "RANDOM" | "PI" | "DEGREES" | "RADIANS" | "SIN" | "COS" | "TAN"
         | "ASIN" | "ACOS" | "ATAN" | "ATAN2" => Some(named_result(fname, SqlType::Double, true)),
@@ -95,12 +95,12 @@ fn resolve_datetime_function(fname: &str) -> Option<ResultColumn> {
     }
 }
 
-fn resolve_conditional_function(func: &sqlparser::ast::Function, fname: &str, scope: &ResolveScope<'_>) -> Option<ResultColumn> {
+fn resolve_conditional_function(func: &sqlparser::ast::Function, fname: &str, ctx: &ResolverContext<'_>) -> Option<ResultColumn> {
     match fname {
-        "COALESCE" => resolve_coalesce(func, scope),
-        "NULLIF" => resolve_func_first_arg(func, scope).map(|rc| ResultColumn { nullable: true, ..rc }),
-        "IFNULL" => resolve_func_first_arg(func, scope).map(|rc| ResultColumn { nullable: false, ..rc }),
-        "GREATEST" | "LEAST" => resolve_func_first_arg(func, scope).map(|rc| ResultColumn { nullable: true, ..rc }),
+        "COALESCE" => resolve_coalesce(func, ctx),
+        "NULLIF" => resolve_func_first_arg(func, ctx).map(|rc| ResultColumn { nullable: true, ..rc }),
+        "IFNULL" => resolve_func_first_arg(func, ctx).map(|rc| ResultColumn { nullable: false, ..rc }),
+        "GREATEST" | "LEAST" => resolve_func_first_arg(func, ctx).map(|rc| ResultColumn { nullable: true, ..rc }),
         _ => None,
     }
 }
@@ -128,38 +128,38 @@ fn resolve_boolean_function(fname: &str) -> Option<ResultColumn> {
     }
 }
 
-fn resolve_window_function(func: &sqlparser::ast::Function, fname: &str, scope: &ResolveScope<'_>) -> Option<ResultColumn> {
+fn resolve_window_function(func: &sqlparser::ast::Function, fname: &str, ctx: &ResolverContext<'_>) -> Option<ResultColumn> {
     match fname {
         "ROW_NUMBER" | "RANK" | "DENSE_RANK" | "NTILE" => Some(named_result(fname, SqlType::BigInt, false)),
         "CUME_DIST" | "PERCENT_RANK" => Some(named_result(fname, SqlType::Double, false)),
-        "LAG" | "LEAD" | "FIRST_VALUE" | "LAST_VALUE" | "NTH_VALUE" => resolve_func_first_arg(func, scope).map(|rc| ResultColumn { nullable: true, ..rc }),
+        "LAG" | "LEAD" | "FIRST_VALUE" | "LAST_VALUE" | "NTH_VALUE" => resolve_func_first_arg(func, ctx).map(|rc| ResultColumn { nullable: true, ..rc }),
         _ => None,
     }
 }
 
-fn resolve_udf(func: &sqlparser::ast::Function, fname: &str, config: &ResolverConfig) -> Option<ResultColumn> {
+fn resolve_udf(func: &sqlparser::ast::Function, fname: &str, ctx: &ResolverContext<'_>) -> Option<ResultColumn> {
     let arg_count = if let FunctionArguments::List(al) = &func.args { al.args.len() } else { 0 };
-    let overloads = config.user_functions.get(fname)?;
+    let overloads = ctx.config.user_functions.get(fname)?;
     let (_, return_type) = overloads.iter().find(|(pt, _)| pt.len() == arg_count).or_else(|| overloads.first())?;
     Some(named_result(fname, return_type.clone(), true))
 }
 
-fn resolve_func_first_arg(func: &sqlparser::ast::Function, scope: &ResolveScope<'_>) -> Option<ResultColumn> {
+fn resolve_func_first_arg(func: &sqlparser::ast::Function, ctx: &ResolverContext<'_>) -> Option<ResultColumn> {
     if let FunctionArguments::List(arg_list) = &func.args {
         if let Some(FunctionArg::Unnamed(FunctionArgExpr::Expr(inner))) = arg_list.args.first() {
-            return resolve_expr_in(inner, scope);
+            return resolve_expr(inner, ctx);
         }
     }
     None
 }
 
-fn resolve_coalesce(func: &sqlparser::ast::Function, scope: &ResolveScope<'_>) -> Option<ResultColumn> {
+fn resolve_coalesce(func: &sqlparser::ast::Function, ctx: &ResolverContext<'_>) -> Option<ResultColumn> {
     let FunctionArguments::List(arg_list) = &func.args else { return None };
     let mut first: Option<ResultColumn> = None;
     let mut all_nullable = true;
     for arg in &arg_list.args {
         if let FunctionArg::Unnamed(FunctionArgExpr::Expr(inner)) = arg {
-            if let Some(rc) = resolve_expr_in(inner, scope) {
+            if let Some(rc) = resolve_expr(inner, ctx) {
                 if !rc.nullable {
                     all_nullable = false;
                 }

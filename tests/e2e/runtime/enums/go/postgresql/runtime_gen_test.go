@@ -4,18 +4,92 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"os"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	gen "e2e-enums-go-postgresql/gen"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
-// ─── test helpers ─────────────────────────────────────────────────────────────
+// ─── test setup ──────────────────────────────────────────────────────────────
+
+func genDSN() string {
+	if v := os.Getenv("DATABASE_URL"); v != "" {
+		return v
+	}
+	return "postgres://sqltgen:sqltgen@localhost:15432/sqltgen_e2e"
+}
+
+func setupDB(t *testing.T) (*pgxpool.Pool, func()) {
+	t.Helper()
+	ctx := context.Background()
+
+	dbName := fmt.Sprintf("test_%d", rand.Int63())
+	admin, err := sql.Open("pgx", genDSN())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.ExecContext(ctx, fmt.Sprintf(`CREATE DATABASE "%s"`, dbName)); err != nil {
+		t.Fatal(err)
+	}
+	admin.Close()
+
+	dbURL := genReplaceLastSegment(genDSN(), dbName)
+	pool, err := pgxpool.New(ctx, dbURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ddl, err := os.ReadFile("../../../../fixtures/enums/postgresql/schema.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, stmt := range genSplitStatements(string(ddl)) {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	cleanup := func() {
+		pool.Close()
+		adm, _ := sql.Open("pgx", genDSN())
+		adm.ExecContext(ctx, fmt.Sprintf(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '%s' AND pid <> pg_backend_pid()`, dbName))
+		adm.ExecContext(ctx, fmt.Sprintf(`DROP DATABASE IF EXISTS "%s"`, dbName))
+		adm.Close()
+	}
+	return pool, cleanup
+}
+
+func genReplaceLastSegment(url, replacement string) string {
+	i := strings.LastIndex(url, "/")
+	if i < 0 {
+		return url
+	}
+	return url[:i+1] + replacement
+}
+
+func genSplitStatements(ddl string) []string {
+	var stmts []string
+	for _, s := range strings.Split(ddl, ";") {
+		s = strings.TrimSpace(s)
+		if s != "" {
+			stmts = append(stmts, s)
+		}
+	}
+	return stmts
+}
+
+// ─── test helpers ────────────────────────────────────────────────────────────
 
 // genUUID generates a random UUID v4-like string for test row isolation.
 func genUUID() string {
@@ -106,12 +180,33 @@ func genAssertJSON(t *testing.T, got, want interface{}) {
 	}
 }
 
-// ─── scenarios ────────────────────────────────────────────────────────────────
+// mustJSON marshals v to JSON bytes. Used for JSON parameter binding.
+func mustJSON(v interface{}) []byte {
+	b, err := json.Marshal(v)
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
 
-// ─── :exec queries ────────────────────────────────────────────────────────────
+// ptrBytes returns a pointer to a byte slice copy.
+func ptrBytes(b []byte) *[]byte {
+	return &b
+}
+
+// testUUID returns a deterministic-looking UUID string for test assertions.
+func testUUID() string {
+	return fmt.Sprintf("%08x-0000-4000-8000-%012x", rand.Int63()&0xFFFFFFFF, rand.Int63()&0xFFFFFFFFFFFF)
+}
+
+// ─── scenarios ───────────────────────────────────────────────────────────────
+
+// ─── :exec queries ───────────────────────────────────────────────────────────
 
 func TestDeleteTaskGen(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	if _, err := gen.CreateTask(ctx, db, "Temp", gen.Priority("low"), gen.Status("open"), sql.NullString{}); err != nil {
 		t.Fatal(err)
 	}
@@ -126,10 +221,12 @@ func TestDeleteTaskGen(t *testing.T) {
 	if result != nil { t.Fatalf("expected nil, got %v", result) }
 }
 
-// ─── :many queries ────────────────────────────────────────────────────────────
+// ─── :many queries ───────────────────────────────────────────────────────────
 
 func TestListByPriorityGen(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	if _, err := gen.CreateTask(ctx, db, "Low task", gen.Priority("low"), gen.Status("open"), sql.NullString{}); err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +247,9 @@ func TestListByPriorityGen(t *testing.T) {
 }
 
 func TestListByStatusGen(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	if _, err := gen.CreateTask(ctx, db, "Open 1", gen.Priority("low"), gen.Status("open"), sql.NullString{}); err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +268,9 @@ func TestListByStatusGen(t *testing.T) {
 }
 
 func TestListByPriorityOrAllGen(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	if _, err := gen.CreateTask(ctx, db, "Low", gen.Priority("low"), gen.Status("open"), sql.NullString{}); err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +293,9 @@ func TestListByPriorityOrAllGen(t *testing.T) {
 }
 
 func TestCountByStatusGen(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	if _, err := gen.CreateTask(ctx, db, "A", gen.Priority("low"), gen.Status("open"), sql.NullString{}); err != nil {
 		t.Fatal(err)
 	}
@@ -210,10 +313,12 @@ func TestCountByStatusGen(t *testing.T) {
 	if len(counts) != 2 { t.Fatalf("expected len=2, got %d", len(counts)) }
 }
 
-// ─── :one queries ────────────────────────────────────────────────────────────
+// ─── :one queries ───────────────────────────────────────────────────────────
 
 func TestCreateAndGetTaskGen(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	task, err := gen.CreateTask(ctx, db, "Fix bug", gen.Priority("high"), gen.Status("open"), sql.NullString{String: "Fix the login bug", Valid: true})
 	if err != nil {
 		t.Fatal(err)
@@ -227,7 +332,9 @@ func TestCreateAndGetTaskGen(t *testing.T) {
 }
 
 func TestGetTaskNotFoundGen(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	result, err := gen.GetTask(ctx, db, 999)
 	if err != nil {
 		t.Fatal(err)
@@ -237,7 +344,9 @@ func TestGetTaskNotFoundGen(t *testing.T) {
 }
 
 func TestUpdateTaskStatusGen(t *testing.T) {
-	db, ctx := setupDB(t)
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
 	task, err := gen.CreateTask(ctx, db, "Deploy", gen.Priority("critical"), gen.Status("open"), sql.NullString{})
 	if err != nil {
 		t.Fatal(err)
@@ -251,5 +360,76 @@ func TestUpdateTaskStatusGen(t *testing.T) {
 	if updated == nil { t.Fatalf("expected non-nil updated") }
 	if updated.Status != gen.Status("in_progress") { t.Errorf("expected %v, got %v", gen.Status("in_progress"), updated.Status) }
 	if updated.Priority != gen.Priority("critical") { t.Errorf("expected %v, got %v", gen.Priority("critical"), updated.Priority) }
+}
+
+// ─── enum array queries ───────────────────────────────────────────────────────────
+
+func TestCreateWithEnumArrayGen(t *testing.T) {
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
+	task, err := gen.CreateTaskWithTags(ctx, db, "Tagged task", gen.Priority("high"), gen.Status("open"), sql.NullString{}, []gen.Priority{gen.Priority("high"), gen.Priority("critical")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = task
+	if task == nil { t.Fatalf("expected non-nil task") }
+	if task.Title != "Tagged task" { t.Errorf("expected %v, got %v", "Tagged task", task.Title) }
+	if len(task.Tags) != 2 { t.Fatalf("expected len=2, got %d", len(task.Tags)) }
+	if task.Tags[0] != gen.Priority("high") { t.Errorf("expected %v, got %v", gen.Priority("high"), task.Tags[0]) }
+	if task.Tags[1] != gen.Priority("critical") { t.Errorf("expected %v, got %v", gen.Priority("critical"), task.Tags[1]) }
+}
+
+func TestGetTaskTagsGen(t *testing.T) {
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
+	if _, err := gen.CreateTaskWithTags(ctx, db, "Read tags", gen.Priority("low"), gen.Status("open"), sql.NullString{}, []gen.Priority{gen.Priority("low"), gen.Priority("medium"), gen.Priority("high")}); err != nil {
+		t.Fatal(err)
+	}
+	row, err := gen.GetTaskTags(ctx, db, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = row
+	if row == nil { t.Fatalf("expected non-nil row") }
+	if len(row.Tags) != 3 { t.Fatalf("expected len=3, got %d", len(row.Tags)) }
+	if row.Tags[0] != gen.Priority("low") { t.Errorf("expected %v, got %v", gen.Priority("low"), row.Tags[0]) }
+	if row.Tags[1] != gen.Priority("medium") { t.Errorf("expected %v, got %v", gen.Priority("medium"), row.Tags[1]) }
+	if row.Tags[2] != gen.Priority("high") { t.Errorf("expected %v, got %v", gen.Priority("high"), row.Tags[2]) }
+}
+
+func TestUpdateTaskTagsGen(t *testing.T) {
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
+	if _, err := gen.CreateTaskWithTags(ctx, db, "Update tags", gen.Priority("medium"), gen.Status("open"), sql.NullString{}, []gen.Priority{gen.Priority("low")}); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := gen.UpdateTaskTags(ctx, db, []gen.Priority{gen.Priority("high"), gen.Priority("critical")}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = updated
+	if updated == nil { t.Fatalf("expected non-nil updated") }
+	if len(updated.Tags) != 2 { t.Fatalf("expected len=2, got %d", len(updated.Tags)) }
+	if updated.Tags[0] != gen.Priority("high") { t.Errorf("expected %v, got %v", gen.Priority("high"), updated.Tags[0]) }
+	if updated.Tags[1] != gen.Priority("critical") { t.Errorf("expected %v, got %v", gen.Priority("critical"), updated.Tags[1]) }
+}
+
+func TestEmptyEnumArrayGen(t *testing.T) {
+	db, cleanup := setupDB(t)
+	defer cleanup()
+	ctx := context.Background()
+	if _, err := gen.CreateTaskWithTags(ctx, db, "No tags", gen.Priority("low"), gen.Status("open"), sql.NullString{}, []gen.Priority{}); err != nil {
+		t.Fatal(err)
+	}
+	row, err := gen.GetTaskTags(ctx, db, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = row
+	if row == nil { t.Fatalf("expected non-nil row") }
+	if len(row.Tags) != 0 { t.Fatalf("expected len=0, got %d", len(row.Tags)) }
 }
 

@@ -3,7 +3,8 @@ use sqlparser::ast::{Delete, Insert, Query as SqlQuery, SelectItem, SetExpr, Sta
 use crate::frontend::common::{obj_name_to_str, obj_schema_to_str};
 use crate::ir::{Column, Schema, Table};
 
-use super::{build_alias_map, collect_from_tables, delete_table_ref, insert_table_ref, resolve_projection, resolve_returning, ResolverConfig};
+use super::resolve::resolve_projection;
+use super::{build_alias_map, collect_from_tables, delete_table_ref, insert_table_ref, resolve_returning, ParamMapping, ResolverConfig, ResolverContext};
 
 /// Convert RETURNING result columns to `Column` values (no primary-key flag).
 fn returning_to_columns(returning: &[SelectItem], table: &Table, config: &ResolverConfig) -> Vec<Column> {
@@ -70,7 +71,9 @@ pub(in crate::frontend::common) fn derived_cols(subquery: &SqlQuery, schema: &Sc
 
     let inner_tables = collect_from_tables(select, schema, ctes, config);
     let alias_map = build_alias_map(&inner_tables);
+    let mut mapping = ParamMapping::new();
+    let ctx = ResolverContext::new(&alias_map, &inner_tables, schema, config, &mut mapping, "");
 
     // Reuse resolve_projection and convert ResultColumn → Column (no PK flag).
-    resolve_projection(select, &alias_map, &inner_tables, config, schema).into_iter().map(Column::from).collect()
+    resolve_projection(select, &ctx).into_iter().map(Column::from).collect()
 }

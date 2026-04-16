@@ -29,28 +29,37 @@ class RuntimeGenTest {
         .getOrDefault("DATABASE_URL", "jdbc:postgresql://localhost:15432/sqltgen_e2e")
 
     private lateinit var conn: Connection
-    private lateinit var schema: String
+    private lateinit var dbName: String
 
     @BeforeEach
     fun setUp() {
-        conn = DriverManager.getConnection(url, "sqltgen", "sqltgen")
+        dbName = "test_" + UUID.randomUUID().toString().replace("-", "")
+        DriverManager.getConnection(url, "sqltgen", "sqltgen").use { admin ->
+            admin.createStatement().use { s ->
+                s.execute("""CREATE DATABASE "$dbName"""")
+            }
+        }
+        val baseUrl = url.replaceFirst(Regex("/[^/]*$"), "/$dbName")
+        conn = DriverManager.getConnection(baseUrl, "sqltgen", "sqltgen")
         conn.autoCommit = true
-        schema = "test_" + UUID.randomUUID().toString().replace("-", "")
         val ddl = java.nio.file.Files.readString(
             java.nio.file.Path.of("../../../../fixtures/enums/postgresql/schema.sql"))
         conn.createStatement().use { s ->
-            s.execute("""CREATE SCHEMA "$schema"""")
-            s.execute("""SET search_path TO "$schema"""")
-            s.execute(ddl)
+            for (stmt in ddl.split(";")) {
+                val t = stmt.trim()
+                if (t.isNotEmpty()) s.execute(t)
+            }
         }
     }
 
     @AfterEach
     fun tearDown() {
-        conn.createStatement().use { s ->
-            s.execute("""DROP SCHEMA IF EXISTS "$schema" CASCADE""")
-        }
         conn.close()
+        DriverManager.getConnection(url, "sqltgen", "sqltgen").use { admin ->
+            admin.createStatement().use { s ->
+                s.execute("""DROP DATABASE IF EXISTS "$dbName"""")
+            }
+        }
     }
 
     private fun genJson(raw: String): JsonNode = GEN_MAPPER.readTree(raw)
@@ -134,6 +143,47 @@ class RuntimeGenTest {
         assertNotNull(updated)
         assertEquals(Status.fromValue("in_progress"), updated.status)
         assertEquals(Priority.fromValue("critical"), updated.priority)
+    }
+
+    // ─── enum array queries ────────────────────────────────────────────────────────────
+
+    @Test
+    fun testCreateWithEnumArrayGen() {
+        val task = Queries.createTaskWithTags(conn, "Tagged task", Priority.fromValue("high"), Status.fromValue("open"), null, listOf(Priority.fromValue("high"), Priority.fromValue("critical")))!!
+        assertNotNull(task)
+        assertEquals("Tagged task", task.title)
+        assertEquals(2, task.tags.size)
+        assertEquals(Priority.fromValue("high"), task.tags[0])
+        assertEquals(Priority.fromValue("critical"), task.tags[1])
+    }
+
+    @Test
+    fun testGetTaskTagsGen() {
+        Queries.createTaskWithTags(conn, "Read tags", Priority.fromValue("low"), Status.fromValue("open"), null, listOf(Priority.fromValue("low"), Priority.fromValue("medium"), Priority.fromValue("high")))
+        val row = Queries.getTaskTags(conn, 1L)!!
+        assertNotNull(row)
+        assertEquals(3, row.tags.size)
+        assertEquals(Priority.fromValue("low"), row.tags[0])
+        assertEquals(Priority.fromValue("medium"), row.tags[1])
+        assertEquals(Priority.fromValue("high"), row.tags[2])
+    }
+
+    @Test
+    fun testUpdateTaskTagsGen() {
+        Queries.createTaskWithTags(conn, "Update tags", Priority.fromValue("medium"), Status.fromValue("open"), null, listOf(Priority.fromValue("low")))
+        val updated = Queries.updateTaskTags(conn, listOf(Priority.fromValue("high"), Priority.fromValue("critical")), 1L)!!
+        assertNotNull(updated)
+        assertEquals(2, updated.tags.size)
+        assertEquals(Priority.fromValue("high"), updated.tags[0])
+        assertEquals(Priority.fromValue("critical"), updated.tags[1])
+    }
+
+    @Test
+    fun testEmptyEnumArrayGen() {
+        Queries.createTaskWithTags(conn, "No tags", Priority.fromValue("low"), Status.fromValue("open"), null, emptyList<Priority>())
+        val row = Queries.getTaskTags(conn, 1L)!!
+        assertNotNull(row)
+        assertEquals(0, row.tags.size)
     }
 
 }

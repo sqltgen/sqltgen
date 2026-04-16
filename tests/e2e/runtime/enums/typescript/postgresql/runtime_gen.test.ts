@@ -16,33 +16,42 @@ const FIXTURES = join(__dirname, '../../../../fixtures/enums/postgresql');
 const DATABASE_URL = process.env['DATABASE_URL']
   ?? 'postgresql://sqltgen:sqltgen@localhost:15432/sqltgen_e2e';
 
-async function makeClient(): Promise<{ db: Client; schema: string }> {
-  const schema = 'test_' + randomBytes(16).toString('hex');
+async function makeClient(): Promise<{ db: Client; dbName: string }> {
+  const dbName = 'test_' + randomBytes(16).toString('hex');
   const schemaSql = readFileSync(join(FIXTURES, 'schema.sql'), 'utf8');
-  const db = new Client({ connectionString: DATABASE_URL });
+  const base = DATABASE_URL.replace(/\/[^/]*$/, '');
+  const admin = new Client({ connectionString: DATABASE_URL });
+  await admin.connect();
+  await admin.query(`CREATE DATABASE "${dbName}"`);
+  await admin.end();
+  const db = new Client({ connectionString: `${base}/${dbName}` });
   await db.connect();
-  await db.query(`CREATE SCHEMA "${schema}"`);
-  await db.query(`SET search_path TO "${schema}"`);
-  await db.query(schemaSql);
-  return { db, schema };
+  for (const stmt of schemaSql.split(';').map((s: string) => s.trim()).filter(Boolean)) {
+    await db.query(stmt);
+  }
+  return { db, dbName };
 }
 
-async function teardown(db: Client, schema: string): Promise<void> {
-  await db.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+async function teardown(db: Client, dbName: string): Promise<void> {
   await db.end();
+  const admin = new Client({ connectionString: DATABASE_URL });
+  await admin.connect();
+  await admin.query(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${dbName}' AND pid <> pg_backend_pid()`);
+  await admin.query(`DROP DATABASE IF EXISTS "${dbName}"`);
+  await admin.end();
 }
 
 // ─── :exec queries ────────────────────────────────────────────────────────────
 
 describe(':exec queries', () => {
   it('delete task', async () => {
-    const { db, schema } = await makeClient();
+    const { db, dbName } = await makeClient();
     try {
       await queries.createTask(db, 'Temp', 'low', 'open', null)
       await queries.deleteTask(db, 1)
       const result = await queries.getTask(db, 1)
       assert.equal(result, null)
-    } finally { await teardown(db, schema); }
+    } finally { await teardown(db, dbName); }
   });
 
 });
@@ -51,7 +60,7 @@ describe(':exec queries', () => {
 
 describe(':many queries', () => {
   it('list by priority', async () => {
-    const { db, schema } = await makeClient();
+    const { db, dbName } = await makeClient();
     try {
       await queries.createTask(db, 'Low task', 'low', 'open', null)
       await queries.createTask(db, 'High task 1', 'high', 'open', null)
@@ -60,22 +69,22 @@ describe(':many queries', () => {
       assert.equal(tasks.length, 2)
       assert.equal(tasks[0].title, 'High task 1')
       assert.equal(tasks[1].title, 'High task 2')
-    } finally { await teardown(db, schema); }
+    } finally { await teardown(db, dbName); }
   });
 
   it('list by status', async () => {
-    const { db, schema } = await makeClient();
+    const { db, dbName } = await makeClient();
     try {
       await queries.createTask(db, 'Open 1', 'low', 'open', null)
       await queries.createTask(db, 'Done 1', 'medium', 'done', null)
       await queries.createTask(db, 'Open 2', 'high', 'open', null)
       const tasks = await queries.listTasksByStatus(db, 'open')
       assert.equal(tasks.length, 2)
-    } finally { await teardown(db, schema); }
+    } finally { await teardown(db, dbName); }
   });
 
   it('list by priority or all', async () => {
-    const { db, schema } = await makeClient();
+    const { db, dbName } = await makeClient();
     try {
       await queries.createTask(db, 'Low', 'low', 'open', null)
       await queries.createTask(db, 'High', 'high', 'open', null)
@@ -84,18 +93,18 @@ describe(':many queries', () => {
       const high_tasks = await queries.listTasksByPriorityOrAll(db, 'high')
       assert.equal(high_tasks.length, 1)
       assert.equal(high_tasks[0].title, 'High')
-    } finally { await teardown(db, schema); }
+    } finally { await teardown(db, dbName); }
   });
 
   it('count by status', async () => {
-    const { db, schema } = await makeClient();
+    const { db, dbName } = await makeClient();
     try {
       await queries.createTask(db, 'A', 'low', 'open', null)
       await queries.createTask(db, 'B', 'low', 'open', null)
       await queries.createTask(db, 'C', 'high', 'done', null)
       const counts = await queries.countByStatus(db)
       assert.equal(counts.length, 2)
-    } finally { await teardown(db, schema); }
+    } finally { await teardown(db, dbName); }
   });
 
 });
@@ -104,7 +113,7 @@ describe(':many queries', () => {
 
 describe(':one queries', () => {
   it('create and get task', async () => {
-    const { db, schema } = await makeClient();
+    const { db, dbName } = await makeClient();
     try {
       const task = await queries.createTask(db, 'Fix bug', 'high', 'open', 'Fix the login bug')
       assert.ok(task)
@@ -112,26 +121,78 @@ describe(':one queries', () => {
       assert.equal(task.priority, 'high')
       assert.equal(task.status, 'open')
       assert.equal(task.description, 'Fix the login bug')
-    } finally { await teardown(db, schema); }
+    } finally { await teardown(db, dbName); }
   });
 
   it('get task not found', async () => {
-    const { db, schema } = await makeClient();
+    const { db, dbName } = await makeClient();
     try {
       const result = await queries.getTask(db, 999)
       assert.equal(result, null)
-    } finally { await teardown(db, schema); }
+    } finally { await teardown(db, dbName); }
   });
 
   it('update task status', async () => {
-    const { db, schema } = await makeClient();
+    const { db, dbName } = await makeClient();
     try {
       const task = await queries.createTask(db, 'Deploy', 'critical', 'open', null)
       const updated = await queries.updateTaskStatus(db, 'in_progress', 1)
       assert.ok(updated)
       assert.equal(updated.status, 'in_progress')
       assert.equal(updated.priority, 'critical')
-    } finally { await teardown(db, schema); }
+    } finally { await teardown(db, dbName); }
+  });
+
+});
+
+// ─── enum array queries ────────────────────────────────────────────────────────────
+
+describe('enum array queries', () => {
+  it('create with enum array', async () => {
+    const { db, dbName } = await makeClient();
+    try {
+      const task = await queries.createTaskWithTags(db, 'Tagged task', 'high', 'open', null, ['high', 'critical'])
+      assert.ok(task)
+      assert.equal(task.title, 'Tagged task')
+      assert.equal(task.tags.length, 2)
+      assert.equal(task.tags[0], 'high')
+      assert.equal(task.tags[1], 'critical')
+    } finally { await teardown(db, dbName); }
+  });
+
+  it('get task tags', async () => {
+    const { db, dbName } = await makeClient();
+    try {
+      await queries.createTaskWithTags(db, 'Read tags', 'low', 'open', null, ['low', 'medium', 'high'])
+      const row = await queries.getTaskTags(db, 1)
+      assert.ok(row)
+      assert.equal(row.tags.length, 3)
+      assert.equal(row.tags[0], 'low')
+      assert.equal(row.tags[1], 'medium')
+      assert.equal(row.tags[2], 'high')
+    } finally { await teardown(db, dbName); }
+  });
+
+  it('update task tags', async () => {
+    const { db, dbName } = await makeClient();
+    try {
+      await queries.createTaskWithTags(db, 'Update tags', 'medium', 'open', null, ['low'])
+      const updated = await queries.updateTaskTags(db, ['high', 'critical'], 1)
+      assert.ok(updated)
+      assert.equal(updated.tags.length, 2)
+      assert.equal(updated.tags[0], 'high')
+      assert.equal(updated.tags[1], 'critical')
+    } finally { await teardown(db, dbName); }
+  });
+
+  it('empty enum array', async () => {
+    const { db, dbName } = await makeClient();
+    try {
+      await queries.createTaskWithTags(db, 'No tags', 'low', 'open', null, [])
+      const row = await queries.getTaskTags(db, 1)
+      assert.ok(row)
+      assert.equal(row.tags.length, 0)
+    } finally { await teardown(db, dbName); }
   });
 
 });

@@ -7,7 +7,7 @@ use crate::backend::test_helpers::cfg;
 fn test_ts_model_file_interface() {
     let schema = schema_with_users();
     let gen = TypeScriptCodegen { target: JsTarget::Pg, output: JsOutput::TypeScript };
-    let content = gen.emit_model_file(&schema.tables[0], &cfg()).unwrap();
+    let content = gen.emit_model_file(&schema.tables[0], None, &cfg()).unwrap();
     assert!(content.contains("export interface Users {"));
     assert!(content.contains("id: number;"));
     assert!(content.contains("name: string;"));
@@ -18,7 +18,7 @@ fn test_ts_model_file_interface() {
 fn test_js_model_file_typedef() {
     let schema = schema_with_users();
     let gen = TypeScriptCodegen { target: JsTarget::Pg, output: JsOutput::JavaScript };
-    let content = gen.emit_model_file(&schema.tables[0], &cfg()).unwrap();
+    let content = gen.emit_model_file(&schema.tables[0], None, &cfg()).unwrap();
     assert!(content.contains("@typedef {Object} Users"));
     assert!(content.contains("@property {number} id"));
     assert!(content.contains("@property {string} name"));

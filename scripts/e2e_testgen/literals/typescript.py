@@ -40,6 +40,16 @@ def render_value(kind: str, value: Any, engine: str, coercions: dict[str, str]) 
         # pg returns TIME as string; mysql2 returns TIME as string by default.
         # Render as string for both input args and assertions.
         return _render_str(value)
+    elif kind == "list":
+        if not value:
+            return "[]"
+        parts = []
+        for item in value:
+            item_kind, item_val = next(iter(item.items()))
+            if item_kind is None:
+                item_kind = "null"
+            parts.append(render_value(str(item_kind), item_val, engine, coercions))
+        return f"[{', '.join(parts)}]"
     elif kind == "var":
         return str(value)
     else:

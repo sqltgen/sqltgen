@@ -47,6 +47,17 @@ def render_value(kind: str, value: Any, engine: str, coercions: dict[str, str]) 
     if coerced:
         return _render_coerced(kind, value, coerced)
 
+    if kind == "list":
+        if not value:
+            return "[]"
+        parts = []
+        for item in value:
+            item_kind, item_val = next(iter(item.items()))
+            if item_kind is None:
+                item_kind = "null"
+            parts.append(render_value(str(item_kind), item_val, engine, coercions))
+        return f"[{', '.join(parts)}]"
+
     renderers = {
         "str": _render_str,
         "int": _render_int,
@@ -124,6 +135,21 @@ def render_typed_arg(
     """
     if kind == "null":
         return "None"
+    if kind == "list":
+        import re
+        m = re.match(r"list\[(.+)\]", lang_type)
+        elem_lang_type = m.group(1) if m else ""
+        if not value:
+            return "[]"
+        elements = []
+        for item in value:
+            item_kind, item_val = next(iter(item.items()))
+            if item_kind is None:
+                item_kind = "null"
+            elements.append(
+                render_typed_arg("_", elem_lang_type, str(item_kind), item_val, engine, coercions)
+            )
+        return f"[{', '.join(elements)}]"
     if kind == "str" and _is_enum_type(lang_type):
         # Strip nullable wrapper to get the bare enum name
         bare = lang_type

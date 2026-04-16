@@ -24,16 +24,28 @@ _DB_URL = os.environ.get(
 
 @pytest.fixture()
 def conn():
-    """Yield a psycopg connection with an isolated schema; drop it on teardown."""
-    schema = "test_" + uuid.uuid4().hex
+    """Yield a psycopg connection with an isolated database; drop it on teardown."""
+    db_name = "test_" + uuid.uuid4().hex
     schema_sql = (_FIXTURES / "schema.sql").read_text()
 
-    with psycopg.connect(_DB_URL, autocommit=True) as c:
-        c.execute(f'CREATE SCHEMA "{schema}"')
-        c.execute(f'SET search_path TO "{schema}"')
+    # Create isolated database.
+    with psycopg.connect(_DB_URL, autocommit=True) as admin:
+        admin.execute(f'CREATE DATABASE "{db_name}"')
+
+    # Parse base URL and connect to the new database.
+    base = _DB_URL.rsplit("/", 1)[0]
+    with psycopg.connect(f"{base}/{db_name}", autocommit=True) as c:
         c.execute(schema_sql)
         yield c
-        c.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
+
+    # Drop the test database.
+    with psycopg.connect(_DB_URL, autocommit=True) as admin:
+        admin.execute(f"""
+            SELECT pg_terminate_backend(pid)
+            FROM pg_stat_activity
+            WHERE datname = '{db_name}' AND pid <> pg_backend_pid()
+        """)
+        admin.execute(f'DROP DATABASE IF EXISTS "{db_name}"')
 
 
 def test_create_and_get_task(conn):
@@ -92,6 +104,41 @@ def test_count_by_status(conn):
     queries.create_task(conn, 'C', Priority('high'), Status('done'), None)
     counts = queries.count_by_status(conn)
     assert len(counts) == 2
+
+
+def test_create_with_enum_array(conn):
+    task = queries.create_task_with_tags(conn, 'Tagged task', Priority('high'), Status('open'), None, [Priority('high'), Priority('critical')])
+    assert task is not None
+    assert task.title == 'Tagged task'
+    assert len(task.tags) == 2
+    assert task.tags[0] == Priority('high')
+    assert task.tags[1] == Priority('critical')
+
+
+def test_get_task_tags(conn):
+    queries.create_task_with_tags(conn, 'Read tags', Priority('low'), Status('open'), None, [Priority('low'), Priority('medium'), Priority('high')])
+    row = queries.get_task_tags(conn, 1)
+    assert row is not None
+    assert len(row.tags) == 3
+    assert row.tags[0] == Priority('low')
+    assert row.tags[1] == Priority('medium')
+    assert row.tags[2] == Priority('high')
+
+
+def test_update_task_tags(conn):
+    queries.create_task_with_tags(conn, 'Update tags', Priority('medium'), Status('open'), None, [Priority('low')])
+    updated = queries.update_task_tags(conn, [Priority('high'), Priority('critical')], 1)
+    assert updated is not None
+    assert len(updated.tags) == 2
+    assert updated.tags[0] == Priority('high')
+    assert updated.tags[1] == Priority('critical')
+
+
+def test_empty_enum_array(conn):
+    queries.create_task_with_tags(conn, 'No tags', Priority('low'), Status('open'), None, [])
+    row = queries.get_task_tags(conn, 1)
+    assert row is not None
+    assert len(row.tags) == 0
 
 
 def test_delete_task(conn):

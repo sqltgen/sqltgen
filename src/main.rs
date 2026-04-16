@@ -92,7 +92,8 @@ fn run_generate(config_path: &Path) -> anyhow::Result<()> {
     // Read and parse schema (supports single file or directory of .sql files)
     let schema_path = base_dir.join(&cfg.schema);
     let ddl = read_schema_ddl(&schema_path, cfg.schema_stop_marker.as_deref())?;
-    let schema = parser.parse_schema(&ddl, default_schema)?;
+    let mut schema = parser.parse_schema(&ddl, default_schema)?;
+    schema.default_schema = default_schema.map(|s| s.to_string());
 
     // Read and parse queries (supports multiple files / globs)
     let query_paths = cfg.expand_queries(base_dir)?;

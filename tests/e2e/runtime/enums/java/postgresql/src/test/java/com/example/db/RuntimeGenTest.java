@@ -31,29 +31,34 @@ class RuntimeGenTest {
     private static final String PASS = "sqltgen";
 
     private Connection conn;
-    private String schema;
+    private String dbName;
 
     @BeforeEach
     void setUp() throws Exception {
-        conn = DriverManager.getConnection(URL, USER, PASS);
+        dbName = "test_" + UUID.randomUUID().toString().replace("-", "");
+        try (Connection admin = DriverManager.getConnection(URL, USER, PASS);
+             Statement s = admin.createStatement()) {
+            s.execute("CREATE DATABASE \"" + dbName + "\"");
+        }
+        String baseUrl = URL.replaceFirst("/[^/]*$", "/" + dbName);
+        conn = DriverManager.getConnection(baseUrl, USER, PASS);
         conn.setAutoCommit(true);
-        schema = "test_" + UUID.randomUUID().toString().replace("-", "");
         var ddl = java.nio.file.Files.readString(
             java.nio.file.Path.of("../../../../fixtures/enums/postgresql/schema.sql"));
         try (Statement s = conn.createStatement()) {
-            s.execute("CREATE SCHEMA \"" + schema + "\"");
-            s.execute("SET search_path TO \"" + schema + "\"");
-            s.execute(ddl);
+            for (String stmt : ddl.split(";")) {
+                String t = stmt.strip();
+                if (!t.isEmpty()) s.execute(t);
+            }
         }
     }
 
     @AfterEach
     void tearDown() throws Exception {
-        if (conn != null) {
-            try (Statement s = conn.createStatement()) {
-                s.execute("DROP SCHEMA IF EXISTS \"" + schema + "\" CASCADE");
-            }
-            conn.close();
+        if (conn != null) conn.close();
+        try (Connection admin = DriverManager.getConnection(URL, USER, PASS);
+             Statement s = admin.createStatement()) {
+            s.execute("DROP DATABASE IF EXISTS \"" + dbName + "\"");
         }
     }
 
@@ -144,6 +149,47 @@ class RuntimeGenTest {
         assertNotNull(updated);
         assertEquals(Status.fromValue("in_progress"), updated.status());
         assertEquals(Priority.fromValue("critical"), updated.priority());
+    }
+
+    // ─── enum array queries ────────────────────────────────────────────────────────────
+
+    @Test
+    void testCreateWithEnumArrayGen() throws Exception {
+        var task = Queries.createTaskWithTags(conn, "Tagged task", Priority.fromValue("high"), Status.fromValue("open"), null, List.of(Priority.fromValue("high"), Priority.fromValue("critical"))).orElseThrow();
+        assertNotNull(task);
+        assertEquals("Tagged task", task.title());
+        assertEquals(2, task.tags().size());
+        assertEquals(Priority.fromValue("high"), task.tags().get(0));
+        assertEquals(Priority.fromValue("critical"), task.tags().get(1));
+    }
+
+    @Test
+    void testGetTaskTagsGen() throws Exception {
+        Queries.createTaskWithTags(conn, "Read tags", Priority.fromValue("low"), Status.fromValue("open"), null, List.of(Priority.fromValue("low"), Priority.fromValue("medium"), Priority.fromValue("high")));
+        var row = Queries.getTaskTags(conn, 1).orElseThrow();
+        assertNotNull(row);
+        assertEquals(3, row.tags().size());
+        assertEquals(Priority.fromValue("low"), row.tags().get(0));
+        assertEquals(Priority.fromValue("medium"), row.tags().get(1));
+        assertEquals(Priority.fromValue("high"), row.tags().get(2));
+    }
+
+    @Test
+    void testUpdateTaskTagsGen() throws Exception {
+        Queries.createTaskWithTags(conn, "Update tags", Priority.fromValue("medium"), Status.fromValue("open"), null, List.of(Priority.fromValue("low")));
+        var updated = Queries.updateTaskTags(conn, List.of(Priority.fromValue("high"), Priority.fromValue("critical")), 1).orElseThrow();
+        assertNotNull(updated);
+        assertEquals(2, updated.tags().size());
+        assertEquals(Priority.fromValue("high"), updated.tags().get(0));
+        assertEquals(Priority.fromValue("critical"), updated.tags().get(1));
+    }
+
+    @Test
+    void testEmptyEnumArrayGen() throws Exception {
+        Queries.createTaskWithTags(conn, "No tags", Priority.fromValue("low"), Status.fromValue("open"), null, List.of());
+        var row = Queries.getTaskTags(conn, 1).orElseThrow();
+        assertNotNull(row);
+        assertEquals(0, row.tags().size());
     }
 
 }

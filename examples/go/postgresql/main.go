@@ -13,14 +13,14 @@ import (
 
 	"example-go-postgresql/gen"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/lib/pq"
 )
 
 const dbURL = "postgres://sqltgen:sqltgen@localhost:5433/sqltgen"
 const adminURL = "postgres://sqltgen:sqltgen@localhost:5433/postgres"
 
-func seed(ctx context.Context, db *sql.DB) {
+func seed(ctx context.Context, db gen.DBTX) {
 	leGuin, err := gen.CreateAuthor(ctx, db, "Ursula K. Le Guin", sql.NullString{String: "Science fiction and fantasy author", Valid: true}, sql.NullInt32{Int32: 1929, Valid: true})
 	must(err)
 	herbert, err := gen.CreateAuthor(ctx, db, "Frank Herbert", sql.NullString{String: "Author of the Dune series", Valid: true}, sql.NullInt32{Int32: 1920, Valid: true})
@@ -58,7 +58,7 @@ func seed(ctx context.Context, db *sql.DB) {
 	fmt.Println("[pg] inserted 2 sales with items")
 }
 
-func query(ctx context.Context, db *sql.DB) {
+func query(ctx context.Context, db gen.DBTX) {
 	authors, err := gen.ListAuthors(ctx, db)
 	must(err)
 	fmt.Printf("[pg] listAuthors: %d row(s)\n", len(authors))
@@ -126,19 +126,16 @@ func query(ctx context.Context, db *sql.DB) {
 }
 
 func run(ctx context.Context, connStr string) {
-	db, err := sql.Open("pgx", connStr)
+	pool, err := pgxpool.New(ctx, connStr)
 	must(err)
-	defer db.Close()
-	must(db.PingContext(ctx))
+	defer pool.Close()
+	must(pool.Ping(ctx))
 
-	seed(ctx, db)
-	query(ctx, db)
+	seed(ctx, pool)
+	query(ctx, pool)
 }
 
 func main() {
-	// Suppress unused import error for pq.Array — it is used by the generated code.
-	_ = pq.Array
-
 	ctx := context.Background()
 
 	migrationsDir := os.Getenv("MIGRATIONS_DIR")

@@ -3,7 +3,8 @@ use std::fmt::Write;
 use std::path::PathBuf;
 
 use crate::backend::common::{
-    emit_package, group_queries, has_inline_rows, infer_table, needed_enums, pg_array_type_name, querier_class_name, queries_class_name, row_type_name,
+    emit_package, group_queries, has_inline_rows, infer_table, model_name, needed_enums, pg_array_type_name, querier_class_name, queries_class_name,
+    row_type_name,
 };
 use crate::backend::jdbc::{
     self, emit_dynamic_binds, emit_jdbc_binds, prepare_dynamic_sql_parts, prepare_sql_const, prepare_sql_const_from, ListAction, QuerierContext,
@@ -19,7 +20,8 @@ use super::typemap::{KotlinTypeEntry, KotlinTypeMap};
 /// Return the Kotlin type string for a parameter, resolved from the type map.
 pub(super) fn kotlin_param_type(p: &Parameter, type_map: &KotlinTypeMap) -> String {
     if p.is_list {
-        format!("List<{}>", type_map.get(&p.sql_type).param_type)
+        let inner = if let SqlType::Enum(name) = &p.sql_type { to_pascal_case(name) } else { type_map.get(&p.sql_type).param_type.clone() };
+        format!("List<{inner}>")
     } else {
         type_map.kotlin_param_type(&p.sql_type, p.nullable)
     }
@@ -59,9 +61,11 @@ pub(super) fn generate_core_files(
 ) -> anyhow::Result<Vec<GeneratedFile>> {
     let mut files = Vec::new();
 
+    let ds = schema.default_schema.as_deref();
+
     // One data class per table
     for table in &schema.tables {
-        let class_name = to_pascal_case(&table.name);
+        let class_name = model_name(table, ds);
         let mut src = String::new();
         let mpkg = models_package(&config.package);
         emit_package(&mut src, &mpkg, "");
@@ -106,8 +110,8 @@ pub(super) fn generate_core_files(
         emit_package(&mut src, &qpkg, "");
         let mut model_imports: BTreeSet<String> = BTreeSet::new();
         for query in &group_queries {
-            if let Some(table_name) = infer_table(query, schema) {
-                let model_class = to_pascal_case(table_name);
+            if let Some(table) = infer_table(query, schema) {
+                let model_class = model_name(table, ds);
                 model_imports.insert(format!("{mpkg}.{model_class}"));
             }
         }
@@ -437,6 +441,14 @@ fn resultset_read_expr(sql_type: &SqlType, nullable: bool, idx: usize, type_map:
         return if nullable { format!("rs.getString({idx})?.let {{ {ty}.fromValue(it) }}") } else { format!("{ty}.fromValue(rs.getString({idx}))") };
     }
     if let SqlType::Array(inner) = sql_type {
+        if let SqlType::Enum(name) = inner.as_ref() {
+            let ty = to_pascal_case(name);
+            return if nullable {
+                format!("rs.getArray({idx})?.let {{ a -> (a.array as Array<*>).map {{ {ty}.fromValue(it as String) }}.toList() }}")
+            } else {
+                format!("(rs.getArray({idx}).array as Array<*>).map {{ {ty}.fromValue(it as String) }}.toList()")
+            };
+        }
         return jdbc_array_read_expr(inner, nullable, idx, type_map);
     }
     let entry = type_map.get(sql_type);

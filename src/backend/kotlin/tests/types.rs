@@ -134,3 +134,27 @@ fn test_resultset_read_array_uuid_default() {
 fn test_kotlin_type_custom() {
     assert_eq!(kotlin_type(&SqlType::Custom("citext".to_string()), false), "Any");
 }
+
+#[test]
+fn test_kotlin_type_array_of_enum() {
+    assert_eq!(kotlin_type(&SqlType::Array(Box::new(SqlType::Enum("status".to_string()))), false), "List<Status>");
+}
+
+#[test]
+fn test_kotlin_type_array_of_enum_nullable() {
+    assert_eq!(kotlin_type(&SqlType::Array(Box::new(SqlType::Enum("status".to_string()))), true), "List<Status>?");
+}
+
+#[test]
+fn test_resultset_read_array_enum() {
+    let cfg = OutputConfig::default();
+    let expr = resultset_read_expr(&SqlType::Array(Box::new(SqlType::Enum("priority".to_string()))), false, 2, &cfg);
+    assert_eq!(expr, "(rs.getArray(2).array as Array<*>).map { Priority.fromValue(it as String) }.toList()");
+}
+
+#[test]
+fn test_resultset_read_array_enum_nullable() {
+    let cfg = OutputConfig::default();
+    let expr = resultset_read_expr(&SqlType::Array(Box::new(SqlType::Enum("status".to_string()))), true, 3, &cfg);
+    assert_eq!(expr, "rs.getArray(3)?.let { a -> (a.array as Array<*>).map { Status.fromValue(it as String) }.toList() }");
+}

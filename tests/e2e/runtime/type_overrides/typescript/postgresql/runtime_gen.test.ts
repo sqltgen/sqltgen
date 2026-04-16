@@ -16,27 +16,36 @@ const FIXTURES = join(__dirname, '../../../../fixtures/type_overrides/postgresql
 const DATABASE_URL = process.env['DATABASE_URL']
   ?? 'postgresql://sqltgen:sqltgen@localhost:15432/sqltgen_e2e';
 
-async function makeClient(): Promise<{ db: Client; schema: string }> {
-  const schema = 'test_' + randomBytes(16).toString('hex');
+async function makeClient(): Promise<{ db: Client; dbName: string }> {
+  const dbName = 'test_' + randomBytes(16).toString('hex');
   const schemaSql = readFileSync(join(FIXTURES, 'schema.sql'), 'utf8');
-  const db = new Client({ connectionString: DATABASE_URL });
+  const base = DATABASE_URL.replace(/\/[^/]*$/, '');
+  const admin = new Client({ connectionString: DATABASE_URL });
+  await admin.connect();
+  await admin.query(`CREATE DATABASE "${dbName}"`);
+  await admin.end();
+  const db = new Client({ connectionString: `${base}/${dbName}` });
   await db.connect();
-  await db.query(`CREATE SCHEMA "${schema}"`);
-  await db.query(`SET search_path TO "${schema}"`);
-  await db.query(schemaSql);
-  return { db, schema };
+  for (const stmt of schemaSql.split(';').map((s: string) => s.trim()).filter(Boolean)) {
+    await db.query(stmt);
+  }
+  return { db, dbName };
 }
 
-async function teardown(db: Client, schema: string): Promise<void> {
-  await db.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+async function teardown(db: Client, dbName: string): Promise<void> {
   await db.end();
+  const admin = new Client({ connectionString: DATABASE_URL });
+  await admin.connect();
+  await admin.query(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${dbName}' AND pid <> pg_backend_pid()`);
+  await admin.query(`DROP DATABASE IF EXISTS "${dbName}"`);
+  await admin.end();
 }
 
 // ─── :exec queries ────────────────────────────────────────────────────────────
 
 describe(':exec queries', () => {
   it('update payload', async () => {
-    const { db, schema } = await makeClient();
+    const { db, dbName } = await makeClient();
     try {
       await queries.insertEvent(db, 'test', {v: 1}, {source: 'web'}, randomUUID(), new Date("2024-06-01T12:00:00"), null, null, null)
       await queries.updatePayload(db, {v: 2, changed: true}, null, 1)
@@ -44,18 +53,18 @@ describe(':exec queries', () => {
       assert.ok(ev)
       assert.deepEqual(ev.payload, {v: 2, changed: true})
       assert.equal(ev.meta, null)
-    } finally { await teardown(db, schema); }
+    } finally { await teardown(db, dbName); }
   });
 
   it('update event date', async () => {
-    const { db, schema } = await makeClient();
+    const { db, dbName } = await makeClient();
     try {
       await queries.insertEvent(db, 'dated', {}, null, randomUUID(), new Date("2024-06-01T12:00:00"), null, '2024-01-01', null)
       await queries.updateEventDate(db, '2024-12-31', 1)
       const ev = await queries.getEvent(db, 1)
       assert.ok(ev)
       assert.ok(ev.event_date)
-    } finally { await teardown(db, schema); }
+    } finally { await teardown(db, dbName); }
   });
 
 });
@@ -64,11 +73,11 @@ describe(':exec queries', () => {
 
 describe(':execrows queries', () => {
   it('insert event rows', async () => {
-    const { db, schema } = await makeClient();
+    const { db, dbName } = await makeClient();
     try {
       const n = await queries.insertEventRows(db, 'rowtest', {}, null, randomUUID(), new Date("2024-06-01T12:00:00"), null, null, null)
       assert.equal(Number(n), 1)
-    } finally { await teardown(db, schema); }
+    } finally { await teardown(db, dbName); }
   });
 
 });
@@ -77,7 +86,7 @@ describe(':execrows queries', () => {
 
 describe(':many queries', () => {
   it('list events', async () => {
-    const { db, schema } = await makeClient();
+    const { db, dbName } = await makeClient();
     try {
       const ts = new Date("2024-06-01T12:00:00")
       await queries.insertEvent(db, 'alpha', {}, null, randomUUID(), ts, null, null, null)
@@ -88,11 +97,11 @@ describe(':many queries', () => {
       assert.equal(events[0].name, 'alpha')
       assert.equal(events[1].name, 'beta')
       assert.equal(events[2].name, 'gamma')
-    } finally { await teardown(db, schema); }
+    } finally { await teardown(db, dbName); }
   });
 
   it('get events by date range', async () => {
-    const { db, schema } = await makeClient();
+    const { db, dbName } = await makeClient();
     try {
       await queries.insertEvent(db, 'early', {}, null, randomUUID(), new Date("2024-01-01T10:00:00"), null, null, null)
       await queries.insertEvent(db, 'mid', {}, null, randomUUID(), new Date("2024-06-01T12:00:00"), null, null, null)
@@ -101,7 +110,7 @@ describe(':many queries', () => {
       assert.equal(events.length, 2)
       assert.equal(events[0].name, 'early')
       assert.equal(events[1].name, 'mid')
-    } finally { await teardown(db, schema); }
+    } finally { await teardown(db, dbName); }
   });
 
 });
@@ -110,7 +119,7 @@ describe(':many queries', () => {
 
 describe(':one queries', () => {
   it('insert and get event', async () => {
-    const { db, schema } = await makeClient();
+    const { db, dbName } = await makeClient();
     try {
       const doc_id = randomUUID()
       await queries.insertEvent(db, 'login', {type: 'click', x: 10}, {source: 'web'}, doc_id, new Date("2024-06-01T12:00:00"), new Date("2024-06-01T14:00:00Z"), '2024-06-01', '09:00:00')
@@ -124,15 +133,15 @@ describe(':one queries', () => {
       assert.deepEqual(ev.scheduled_at, new Date("2024-06-01T14:00:00Z"))
       assert.ok(ev.event_date)
       assert.equal(ev.event_time, '09:00:00')
-    } finally { await teardown(db, schema); }
+    } finally { await teardown(db, dbName); }
   });
 
   it('get event not found', async () => {
-    const { db, schema } = await makeClient();
+    const { db, dbName } = await makeClient();
     try {
       const result = await queries.getEvent(db, 999)
       assert.equal(result, null)
-    } finally { await teardown(db, schema); }
+    } finally { await teardown(db, dbName); }
   });
 
 });
@@ -141,7 +150,7 @@ describe(':one queries', () => {
 
 describe('count queries', () => {
   it('count events', async () => {
-    const { db, schema } = await makeClient();
+    const { db, dbName } = await makeClient();
     try {
       await queries.insertEvent(db, 'ev1', {}, null, randomUUID(), new Date("2024-06-01T00:00:00"), null, null, null)
       await queries.insertEvent(db, 'ev2', {}, null, randomUUID(), new Date("2024-06-02T00:00:00"), null, null, null)
@@ -149,7 +158,7 @@ describe('count queries', () => {
       const row = await queries.countEvents(db, new Date("2024-01-01T00:00:00"))
       assert.ok(row)
       assert.equal(Number(row.total), 3)
-    } finally { await teardown(db, schema); }
+    } finally { await teardown(db, dbName); }
   });
 
 });
@@ -158,25 +167,25 @@ describe('count queries', () => {
 
 describe('projection queries', () => {
   it('find by date', async () => {
-    const { db, schema } = await makeClient();
+    const { db, dbName } = await makeClient();
     try {
       const target = '2024-06-15'
       await queries.insertEvent(db, 'dated', {}, null, randomUUID(), new Date("2024-06-01T12:00:00"), null, target, null)
       const row = await queries.findByDate(db, target)
       assert.ok(row)
       assert.equal(row.name, 'dated')
-    } finally { await teardown(db, schema); }
+    } finally { await teardown(db, dbName); }
   });
 
   it('find by uuid', async () => {
-    const { db, schema } = await makeClient();
+    const { db, dbName } = await makeClient();
     try {
       const doc_id = randomUUID()
       await queries.insertEvent(db, 'uuid-test', {}, null, doc_id, new Date("2024-06-01T12:00:00"), null, null, null)
       const row = await queries.findByUuid(db, doc_id)
       assert.ok(row)
       assert.equal(row.name, 'uuid-test')
-    } finally { await teardown(db, schema); }
+    } finally { await teardown(db, dbName); }
   });
 
 });

@@ -3,7 +3,7 @@ use sqlparser::ast::{SetExpr, Statement, TableAliasColumnDef, TableFactor, With}
 use crate::frontend::common::{ident_to_str, obj_name_to_str, obj_schema_to_str};
 use crate::ir::{Column, Schema, Table};
 
-use super::dml::{collect_delete_where_params, collect_insert_value_params, collect_returning_params, collect_update_params, DmlBuildScope};
+use super::dml::{collect_delete_where_params, collect_insert_value_params, collect_returning_params, collect_update_params};
 use super::params::{collect_limit_offset_params, collect_set_expr_params};
 use super::{delete_table_ref, derived_cols, insert_table_ref, ParamMapping, ResolverConfig};
 
@@ -20,7 +20,6 @@ pub(in crate::frontend::common) fn collect_cte_params(
     mapping: &mut ParamMapping,
     query_name: &str,
 ) {
-    let scope = DmlBuildScope::new(schema, config, query_name);
     let Some(with) = with else { return };
     let mut local_ctes: Vec<Table> = Vec::new();
     for cte in &with.cte_tables {
@@ -32,7 +31,7 @@ pub(in crate::frontend::common) fn collect_cte_params(
                 if let TableFactor::Table { name, .. } = &u.table.relation {
                     if let Some(table) = schema.find_table(obj_schema_to_str(name).as_deref(), &obj_name_to_str(name), config.default_schema.as_deref()) {
                         if let Some(items) = u.returning.as_deref() {
-                            collect_returning_params(items, table, &scope, mapping);
+                            collect_returning_params(items, table, config, mapping, query_name);
                         }
                     }
                 }
@@ -42,7 +41,7 @@ pub(in crate::frontend::common) fn collect_cte_params(
                 if let Some((del_schema, del_name)) = delete_table_ref(del) {
                     if let Some(table) = schema.find_table(del_schema.as_deref(), &del_name, config.default_schema.as_deref()) {
                         if let Some(items) = del.returning.as_deref() {
-                            collect_returning_params(items, table, &scope, mapping);
+                            collect_returning_params(items, table, config, mapping, query_name);
                         }
                     }
                 }
@@ -52,7 +51,7 @@ pub(in crate::frontend::common) fn collect_cte_params(
                 let (ins_schema, ins_name) = insert_table_ref(ins);
                 if let Some(table) = schema.find_table(ins_schema.as_deref(), &ins_name, config.default_schema.as_deref()) {
                     if let Some(items) = ins.returning.as_deref() {
-                        collect_returning_params(items, table, &scope, mapping);
+                        collect_returning_params(items, table, config, mapping, query_name);
                     }
                 }
             },

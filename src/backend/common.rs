@@ -68,6 +68,34 @@ pub fn queries_file_stem(group: &str) -> &str {
     }
 }
 
+/// Derive the PascalCase model name for a schema table.
+///
+/// Tables in the default schema use their bare name (`Users`). Tables in a
+/// non-default schema are prefixed with the schema name separated by `_`
+/// (`Internal_Users`), which protects against collisions when two schemas
+/// contain tables with the same name.
+pub fn model_name(table: &crate::ir::Table, default_schema: Option<&str>) -> String {
+    if let Some(schema) = &table.schema {
+        if default_schema != Some(schema.as_str()) {
+            return format!("{}_{}", to_pascal_case(schema), to_pascal_case(&table.name));
+        }
+    }
+    to_pascal_case(&table.name)
+}
+
+/// Derive the file stem for a schema table's model file.
+///
+/// Same prefix logic as [`model_name`]: default-schema tables use the bare
+/// name (`users`), non-default-schema tables are prefixed (`internal_users`).
+pub fn model_file_stem(table: &crate::ir::Table, default_schema: Option<&str>) -> String {
+    if let Some(schema) = &table.schema {
+        if default_schema != Some(schema.as_str()) {
+            return format!("{}_{}", schema, table.name);
+        }
+    }
+    table.name.clone()
+}
+
 /// Return the inline row-type name for a query: `"{PascalCase(name)}Row"`.
 ///
 /// Used when a query has result columns that don't map to a known schema table.
@@ -78,8 +106,8 @@ pub fn row_type_name(query_name: &str) -> String {
 /// Derive the row-type name for a query result, or `None` if the query has no
 /// result columns (e.g. `:exec` / `:execrows`).
 ///
-/// - If the result columns exactly match a known table, returns the PascalCase
-///   table name.
+/// - If the result columns exactly match a known table, returns the model name
+///   (PascalCase, with schema prefix when non-default).
 /// - If the query has result columns but doesn't map to a known table, returns
 ///   `"{Query}Row"` (PascalCase query name + `"Row"`).
 /// - Returns `None` when there are no result columns at all.
@@ -87,8 +115,8 @@ pub fn row_type_name(query_name: &str) -> String {
 /// Backends call this and supply a language-specific fallback for the `None`
 /// case (e.g. `"Object[]"` for Java, `"Any"` for Kotlin/Python).
 pub fn infer_row_type_name(query: &Query, schema: &Schema) -> Option<String> {
-    if let Some(table_name) = infer_table(query, schema) {
-        return Some(to_pascal_case(table_name));
+    if let Some(table) = infer_table(query, schema) {
+        return Some(model_name(table, schema.default_schema.as_deref()));
     }
     if !query.result_columns.is_empty() {
         return Some(row_type_name(&query.name));
@@ -120,38 +148,37 @@ pub fn needs_null_safe_getter(sql_type: &SqlType) -> bool {
 
 /// Return the schema table whose model can be reused for this query's result rows.
 ///
-/// **Tier 1 — source identity:** when `query.source_table` is set, the frontend has
+/// **Tier 1 — source identity:** when `query.source` is set, the frontend has
 /// established that all rows come from that exact table (`SELECT t.*`).  If the table
 /// exists in the schema and the result columns fully match (name, type, nullability,
 /// count), return it immediately.
 ///
-/// **Tier 2 — structural fallback:** for test-constructed queries where `source_table`
+/// **Tier 2 — structural fallback:** for test-constructed queries where `source`
 /// is `None`, search for a table whose columns match the result columns exactly on
 /// name, type, *and* nullability, and only if that match is unique (exactly one table
 /// matches).  This avoids false positives when two tables happen to share the same
 /// column structure.
-pub fn infer_table<'a>(query: &Query, schema: &'a Schema) -> Option<&'a str> {
+pub fn infer_table<'a>(query: &Query, schema: &'a Schema) -> Option<&'a crate::ir::Table> {
     let cols_match = |table: &crate::ir::Table| -> bool {
         table.columns.len() == query.result_columns.len()
             && table.columns.iter().zip(&query.result_columns).all(|(tc, rc)| tc.name == rc.name && tc.sql_type == rc.sql_type && tc.nullable == rc.nullable)
     };
 
-    if let Some(name) = &query.source_table {
-        if let Some(table) = schema.tables.iter().find(|t| &t.name == name) {
-            if cols_match(table) {
-                return Some(&table.name);
-            }
+    if let Some(src) = &query.source {
+        let table = schema.tables.iter().find(|t| t.name == src.name && t.schema == src.schema)?;
+        if cols_match(table) {
+            return Some(table);
         }
         return None;
     }
 
-    let mut matched: Option<&str> = None;
+    let mut matched: Option<&crate::ir::Table> = None;
     for table in &schema.tables {
         if cols_match(table) {
             if matched.is_some() {
                 return None; // ambiguous
             }
-            matched = Some(&table.name);
+            matched = Some(table);
         }
     }
     matched
@@ -232,23 +259,24 @@ pub fn jdbc_bind_sequence<'a>(query: &'a Query) -> Vec<(usize, &'a Parameter)> {
 /// Return the PostgreSQL type name for use with `conn.createArrayOf(typeName, …)`.
 ///
 /// Required for the PostgreSQL native list-param strategy in the Java and Kotlin JDBC backends.
-pub fn pg_array_type_name(sql_type: &SqlType) -> &'static str {
+pub fn pg_array_type_name(sql_type: &SqlType) -> String {
     match sql_type {
-        SqlType::SmallInt => "smallint",
-        SqlType::Integer => "integer",
-        SqlType::BigInt => "bigint",
-        SqlType::Real => "real",
-        SqlType::Double => "float8",
-        SqlType::Decimal => "numeric",
-        SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_) => "text",
-        SqlType::Boolean => "boolean",
-        SqlType::Date => "date",
-        SqlType::Time => "time",
-        SqlType::Timestamp => "timestamp",
-        SqlType::TimestampTz => "timestamptz",
-        SqlType::Uuid => "uuid",
-        SqlType::Bytes => "bytea",
-        _ => "text",
+        SqlType::SmallInt => "smallint".to_string(),
+        SqlType::Integer => "integer".to_string(),
+        SqlType::BigInt => "bigint".to_string(),
+        SqlType::Real => "real".to_string(),
+        SqlType::Double => "float8".to_string(),
+        SqlType::Decimal => "numeric".to_string(),
+        SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_) => "text".to_string(),
+        SqlType::Boolean => "boolean".to_string(),
+        SqlType::Date => "date".to_string(),
+        SqlType::Time => "time".to_string(),
+        SqlType::Timestamp => "timestamp".to_string(),
+        SqlType::TimestampTz => "timestamptz".to_string(),
+        SqlType::Uuid => "uuid".to_string(),
+        SqlType::Bytes => "bytea".to_string(),
+        SqlType::Enum(name) => name.clone(),
+        _ => "text".to_string(),
     }
 }
 
@@ -440,7 +468,7 @@ mod tests {
     fn test_infer_table_rejects_type_mismatch() {
         let schema = Schema::with_tables(vec![make_typed_table("users", &[("id", SqlType::BigInt, false), ("name", SqlType::Text, false)])]);
         let query = Query::new("GetActiveUsers", QueryCmd::Many, "...", vec![], vec![rc("id", SqlType::Text, false), rc("name", SqlType::Text, false)]);
-        assert_eq!(infer_table(&query, &schema), None);
+        assert!(infer_table(&query, &schema).is_none());
     }
 
     /// Structural match must reject when nullability differs from the table column.
@@ -451,7 +479,7 @@ mod tests {
     fn test_infer_table_rejects_nullability_mismatch() {
         let schema = Schema::with_tables(vec![make_typed_table("users", &[("id", SqlType::BigInt, false), ("name", SqlType::Text, false)])]);
         let query = Query::new("ListUsers", QueryCmd::Many, "...", vec![], vec![rc("id", SqlType::BigInt, true), rc("name", SqlType::Text, false)]);
-        assert_eq!(infer_table(&query, &schema), None);
+        assert!(infer_table(&query, &schema).is_none());
     }
 
     /// When two tables have the same column structure, structural matching is ambiguous.
@@ -464,7 +492,7 @@ mod tests {
         let admins = make_typed_table("admins", &[("id", SqlType::BigInt, false), ("name", SqlType::Text, false)]);
         let schema = Schema::with_tables(vec![users, admins]);
         let query = Query::new("ListAll", QueryCmd::Many, "...", vec![], vec![rc("id", SqlType::BigInt, false), rc("name", SqlType::Text, false)]);
-        assert_eq!(infer_table(&query, &schema), None);
+        assert!(infer_table(&query, &schema).is_none());
     }
 
     /// source_table identity takes priority: when set, the named table is returned
@@ -478,8 +506,8 @@ mod tests {
         let admins = make_typed_table("admins", &[("id", SqlType::BigInt, false), ("name", SqlType::Text, false)]);
         let schema = Schema::with_tables(vec![users, admins]);
         let query = Query::new("ListUsers", QueryCmd::Many, "...", vec![], vec![rc("id", SqlType::BigInt, false), rc("name", SqlType::Text, false)])
-            .with_source_table(Some("users".to_string()));
-        assert_eq!(infer_table(&query, &schema), Some("users"));
+            .with_source(Some(crate::ir::SourceTable::new(None, "users")));
+        assert_eq!(infer_table(&query, &schema).map(|t| t.name.as_str()), Some("users"));
     }
 
     // ─── jdbc_setter ─────────────────────────────────────────────────────────
@@ -615,5 +643,49 @@ mod tests {
         assert_eq!(groups[0].1.len(), 2);
         assert_eq!(groups[1].0, "posts");
         assert_eq!(groups[1].1.len(), 1);
+    }
+
+    // ─── model_name / model_file_stem ────────────────────────────────────────
+
+    #[test]
+    fn test_model_name_default_schema_no_prefix() {
+        let table = Table::with_schema("public", "users", vec![]);
+        assert_eq!(model_name(&table, Some("public")), "Users");
+    }
+
+    #[test]
+    fn test_model_name_non_default_schema_prefixed() {
+        let table = Table::with_schema("internal", "users", vec![]);
+        assert_eq!(model_name(&table, Some("public")), "Internal_Users");
+    }
+
+    #[test]
+    fn test_model_name_no_schema_no_prefix() {
+        let table = Table::new("users", vec![]);
+        assert_eq!(model_name(&table, Some("public")), "Users");
+    }
+
+    #[test]
+    fn test_model_name_multi_word_schema() {
+        let table = Table::with_schema("my_other_schema", "user_accounts", vec![]);
+        assert_eq!(model_name(&table, Some("public")), "MyOtherSchema_UserAccounts");
+    }
+
+    #[test]
+    fn test_model_file_stem_default_schema_no_prefix() {
+        let table = Table::with_schema("public", "users", vec![]);
+        assert_eq!(model_file_stem(&table, Some("public")), "users");
+    }
+
+    #[test]
+    fn test_model_file_stem_non_default_schema_prefixed() {
+        let table = Table::with_schema("internal", "users", vec![]);
+        assert_eq!(model_file_stem(&table, Some("public")), "internal_users");
+    }
+
+    #[test]
+    fn test_model_file_stem_no_schema_no_prefix() {
+        let table = Table::new("users", vec![]);
+        assert_eq!(model_file_stem(&table, Some("public")), "users");
     }
 }

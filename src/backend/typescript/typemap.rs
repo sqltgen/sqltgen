@@ -127,10 +127,22 @@ impl JsTypeMap {
             .result_columns
             .iter()
             .filter_map(|col| {
-                let entry = self.get(&col.sql_type);
-                let read_expr = entry.read_expr.as_ref()?;
-                let raw_access = format!("{raw_var}.{}", col.name);
-                Some(format!("{}: {}", col.name, read_expr.replace("{raw}", &raw_access)))
+                // Type-override read expressions.
+                if let Some(read_expr) = self.get(&col.sql_type).read_expr.as_ref() {
+                    let raw_access = format!("{raw_var}.{}", col.name);
+                    return Some(format!("{}: {}", col.name, read_expr.replace("{raw}", &raw_access)));
+                }
+                // Enum array columns: pg returns them as raw text ('{a,b,c}').
+                // Parse into a proper JS string array.
+                if let SqlType::Array(inner) = &col.sql_type {
+                    if matches!(inner.as_ref(), SqlType::Enum(_)) {
+                        let raw_access = format!("{raw_var}.{}", col.name);
+                        let parse =
+                            format!("typeof {raw_access} === 'string' ? {raw_access}.replace(/[{{}}]/g, '').split(',').filter(Boolean) : ({raw_access} ?? [])");
+                        return Some(format!("{}: {parse}", col.name));
+                    }
+                }
+                None
             })
             .collect();
         if transforms.is_empty() {
@@ -170,22 +182,23 @@ pub(super) fn build_js_type_map(config: &OutputConfig, contract: &TsCoreContract
 
 fn js_default_type(sql_type: &SqlType, contract: &TsCoreContract) -> String {
     match sql_type {
-        SqlType::Boolean => "boolean".to_string(),
-        SqlType::SmallInt | SqlType::Integer | SqlType::BigInt => "number".to_string(),
-        SqlType::Real | SqlType::Double | SqlType::Decimal => "number".to_string(),
-        SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_) => "string".to_string(),
-        SqlType::Interval | SqlType::Uuid => "string".to_string(),
-        SqlType::Bytes => "Buffer".to_string(),
+        SqlType::Boolean => "boolean",
+        SqlType::SmallInt | SqlType::Integer | SqlType::BigInt => "number",
+        SqlType::Real | SqlType::Double | SqlType::Decimal => "number",
+        SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_) => "string",
+        SqlType::Interval | SqlType::Uuid => "string",
+        SqlType::Bytes => "Buffer",
         SqlType::Date => {
             if contract.date_as_string {
-                "string".to_string()
+                "string"
             } else {
-                "Date".to_string()
+                "Date"
             }
         },
-        SqlType::Time | SqlType::Timestamp | SqlType::TimestampTz => "Date".to_string(),
-        SqlType::Json | SqlType::Jsonb => "unknown".to_string(),
-        SqlType::Custom(_) => "unknown".to_string(),
+        SqlType::Time | SqlType::Timestamp | SqlType::TimestampTz => "Date",
+        SqlType::Json | SqlType::Jsonb => "unknown",
+        SqlType::Custom(_) => "unknown",
         SqlType::Enum(_) | SqlType::Array(_) => unreachable!("enums and arrays are not in the canonical type list"),
     }
+    .into()
 }

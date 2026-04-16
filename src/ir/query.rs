@@ -1,6 +1,26 @@
 use super::schema::Column;
 use super::types::SqlType;
 
+/// Schema-qualified table identity for a query's source table.
+///
+/// Used by backends to derive model names: tables in the default schema use
+/// their bare name (`Users`), while tables in a non-default schema are prefixed
+/// (`Internal_Users`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct SourceTable {
+    /// Schema name, or `None` for tables in the default schema.
+    pub schema: Option<String>,
+    /// Table name (unqualified).
+    pub name: String,
+}
+
+impl SourceTable {
+    /// Construct a source table with an optional schema qualifier.
+    pub fn new(schema: Option<String>, name: impl Into<String>) -> Self {
+        Self { schema, name: name.into() }
+    }
+}
+
 /// How a native list parameter is bound to the query at the driver level.
 ///
 /// Set by the dialect frontend alongside [`Parameter::native_list_sql`]. Tells
@@ -44,7 +64,7 @@ pub struct Query {
     /// Backends use this for model reuse: when `Some`, they can return the
     /// table's existing record type instead of emitting a per-query row struct.
     /// Identity — not structural shape — is the criterion.
-    pub source_table: Option<String>,
+    pub source: Option<SourceTable>,
 }
 
 impl Query {
@@ -52,11 +72,11 @@ impl Query {
     ///
     /// Use this for all non-trivial projections (explicit column lists, JOINs
     /// as the final projection source, CTEs, set operations, DML). Set
-    /// `source_table` afterwards with [`Query::with_source_table`] when the
+    /// `source` afterwards with [`Query::with_source`] when the
     /// projection is an unambiguous `table.*` or bare `*` over a single
     /// non-nullable schema table.
     pub fn new(name: impl Into<String>, cmd: QueryCmd, sql: impl Into<String>, params: Vec<Parameter>, result_columns: Vec<ResultColumn>) -> Self {
-        Self { name: name.into(), group: String::new(), cmd, sql: sql.into(), params, result_columns, source_table: None }
+        Self { name: name.into(), group: String::new(), cmd, sql: sql.into(), params, result_columns, source: None }
     }
 
     /// Construct an `:exec` query (no result columns).
@@ -79,9 +99,9 @@ impl Query {
         Self::new(name, QueryCmd::Many, sql, params, result_columns)
     }
 
-    /// Set the source table, consuming `self` (builder-style).
-    pub fn with_source_table(mut self, table: Option<String>) -> Self {
-        self.source_table = table;
+    /// Set the source table identity, consuming `self` (builder-style).
+    pub fn with_source(mut self, source: Option<SourceTable>) -> Self {
+        self.source = source;
         self
     }
 }

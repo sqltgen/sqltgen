@@ -9,37 +9,42 @@ use time::macros::{date, datetime, time};
 
 // ─── test setup ───────────────────────────────────────────────────────────────
 
-async fn gen_setup_db() -> PgPool {
+async fn gen_setup_db() -> (PgPool, String) {
     let url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://sqltgen:sqltgen@localhost:15432/sqltgen_e2e".into());
     let bootstrap = PgPool::connect(&url).await.unwrap();
-    let schema = format!("test_{}", uuid::Uuid::new_v4().simple());
-    sqlx::query(&format!("CREATE SCHEMA \"{schema}\""))
+    let db_name = format!("test_{}", uuid::Uuid::new_v4().simple());
+    sqlx::query(&format!("CREATE DATABASE \"{db_name}\""))
         .execute(&bootstrap)
         .await
         .unwrap();
     bootstrap.close().await;
+    let base = url.rsplit_once('/').map(|(b, _)| b).unwrap_or(&url);
     let pool = PgPoolOptions::new()
-        .after_connect({
-            let schema = schema.clone();
-            move |conn, _meta| {
-                let schema = schema.clone();
-                Box::pin(async move {
-                    sqlx::query(&format!("SET search_path TO \"{schema}\""))
-                        .execute(&mut *conn)
-                        .await?;
-                    Ok(())
-                })
-            }
-        })
-        .connect(&url)
+        .connect(&format!("{base}/{db_name}"))
         .await
         .unwrap();
     let ddl = include_str!("../../../../../fixtures/type_overrides/postgresql/schema.sql");
     for stmt in ddl.split(';').map(str::trim).filter(|s| !s.is_empty()) {
         sqlx::query(stmt).execute(&pool).await.unwrap();
     }
-    pool
+    (pool, db_name)
+}
+
+async fn gen_teardown(pool: PgPool, db_name: String) {
+    pool.close().await;
+    let url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://sqltgen:sqltgen@localhost:15432/sqltgen_e2e".into());
+    let admin = PgPool::connect(&url).await.unwrap();
+    let _ = sqlx::query(&format!(
+        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{db_name}' AND pid <> pg_backend_pid()"
+    ))
+    .execute(&admin)
+    .await;
+    let _ = sqlx::query(&format!("DROP DATABASE IF EXISTS \"{db_name}\""))
+        .execute(&admin)
+        .await;
+    admin.close().await;
 }
 
 #[allow(dead_code)]
@@ -55,24 +60,26 @@ fn gen_assert_json_str(got: &str, want: serde_json::Value) {
 #[allow(unused_variables)]
 #[tokio::test]
 async fn test_update_payload_gen() {
-    let pool = gen_setup_db().await;
+    let (pool, db_name) = gen_setup_db().await;
     queries::insert_event(&pool, "test".to_string(), serde_json::json!({"v": 1}), Some(serde_json::json!({"source": "web"})), uuid::Uuid::new_v4(), datetime!(2024-06-01 12:00:00), None, None, None).await.unwrap();
     queries::update_payload(&pool, serde_json::json!({"v": 2, "changed": true}), None, 1).await.unwrap();
     let ev = queries::get_event(&pool, 1).await.unwrap();
     let ev = ev.expect("expected non-nil ev");
     assert_eq!(ev.payload, serde_json::json!({"v": 2, "changed": true}));
     assert!(ev.meta.is_none());
+    gen_teardown(pool, db_name).await;
 }
 
 #[allow(unused_variables)]
 #[tokio::test]
 async fn test_update_event_date_gen() {
-    let pool = gen_setup_db().await;
+    let (pool, db_name) = gen_setup_db().await;
     queries::insert_event(&pool, "dated".to_string(), serde_json::json!({}), None, uuid::Uuid::new_v4(), datetime!(2024-06-01 12:00:00), None, Some(date!(2024-01-01)), None).await.unwrap();
     queries::update_event_date(&pool, Some(date!(2024-12-31)), 1).await.unwrap();
     let ev = queries::get_event(&pool, 1).await.unwrap();
     let ev = ev.expect("expected non-nil ev");
     assert_eq!(ev.event_date, Some(date!(2024-12-31)));
+    gen_teardown(pool, db_name).await;
 }
 
 // ─── :execrows queries ────────────────────────────────────────────────────────────
@@ -80,9 +87,10 @@ async fn test_update_event_date_gen() {
 #[allow(unused_variables)]
 #[tokio::test]
 async fn test_insert_event_rows_gen() {
-    let pool = gen_setup_db().await;
+    let (pool, db_name) = gen_setup_db().await;
     let n = queries::insert_event_rows(&pool, "rowtest".to_string(), serde_json::json!({}), None, uuid::Uuid::new_v4(), datetime!(2024-06-01 12:00:00), None, None, None).await.unwrap();
     assert_eq!(n, 1);
+    gen_teardown(pool, db_name).await;
 }
 
 // ─── :many queries ────────────────────────────────────────────────────────────
@@ -90,7 +98,7 @@ async fn test_insert_event_rows_gen() {
 #[allow(unused_variables)]
 #[tokio::test]
 async fn test_list_events_gen() {
-    let pool = gen_setup_db().await;
+    let (pool, db_name) = gen_setup_db().await;
     let ts = datetime!(2024-06-01 12:00:00);
     queries::insert_event(&pool, "alpha".to_string(), serde_json::json!({}), None, uuid::Uuid::new_v4(), ts, None, None, None).await.unwrap();
     queries::insert_event(&pool, "beta".to_string(), serde_json::json!({}), None, uuid::Uuid::new_v4(), ts, None, None, None).await.unwrap();
@@ -100,12 +108,13 @@ async fn test_list_events_gen() {
     assert_eq!(events[0].name, "alpha".to_string());
     assert_eq!(events[1].name, "beta".to_string());
     assert_eq!(events[2].name, "gamma".to_string());
+    gen_teardown(pool, db_name).await;
 }
 
 #[allow(unused_variables)]
 #[tokio::test]
 async fn test_get_events_by_date_range_gen() {
-    let pool = gen_setup_db().await;
+    let (pool, db_name) = gen_setup_db().await;
     queries::insert_event(&pool, "early".to_string(), serde_json::json!({}), None, uuid::Uuid::new_v4(), datetime!(2024-01-01 10:00:00), None, None, None).await.unwrap();
     queries::insert_event(&pool, "mid".to_string(), serde_json::json!({}), None, uuid::Uuid::new_v4(), datetime!(2024-06-01 12:00:00), None, None, None).await.unwrap();
     queries::insert_event(&pool, "late".to_string(), serde_json::json!({}), None, uuid::Uuid::new_v4(), datetime!(2024-12-01 15:00:00), None, None, None).await.unwrap();
@@ -113,6 +122,7 @@ async fn test_get_events_by_date_range_gen() {
     assert_eq!(events.len(), 2);
     assert_eq!(events[0].name, "early".to_string());
     assert_eq!(events[1].name, "mid".to_string());
+    gen_teardown(pool, db_name).await;
 }
 
 // ─── :one queries ────────────────────────────────────────────────────────────
@@ -120,7 +130,7 @@ async fn test_get_events_by_date_range_gen() {
 #[allow(unused_variables)]
 #[tokio::test]
 async fn test_insert_and_get_event_gen() {
-    let pool = gen_setup_db().await;
+    let (pool, db_name) = gen_setup_db().await;
     let doc_id = uuid::Uuid::new_v4();
     queries::insert_event(&pool, "login".to_string(), serde_json::json!({"type": "click", "x": 10}), Some(serde_json::json!({"source": "web"})), doc_id, datetime!(2024-06-01 12:00:00), Some(datetime!(2024-06-01 14:00:00 UTC)), Some(date!(2024-06-01)), Some(time!(09:00:00))).await.unwrap();
     let ev = queries::get_event(&pool, 1).await.unwrap();
@@ -133,14 +143,16 @@ async fn test_insert_and_get_event_gen() {
     assert_eq!(ev.scheduled_at, Some(datetime!(2024-06-01 14:00:00 UTC)));
     assert_eq!(ev.event_date, Some(date!(2024-06-01)));
     assert_eq!(ev.event_time, Some(time!(09:00:00)));
+    gen_teardown(pool, db_name).await;
 }
 
 #[allow(unused_variables)]
 #[tokio::test]
 async fn test_get_event_not_found_gen() {
-    let pool = gen_setup_db().await;
+    let (pool, db_name) = gen_setup_db().await;
     let result = queries::get_event(&pool, 999).await.unwrap();
     assert!(result.is_none());
+    gen_teardown(pool, db_name).await;
 }
 
 // ─── count queries ────────────────────────────────────────────────────────────
@@ -148,13 +160,14 @@ async fn test_get_event_not_found_gen() {
 #[allow(unused_variables)]
 #[tokio::test]
 async fn test_count_events_gen() {
-    let pool = gen_setup_db().await;
+    let (pool, db_name) = gen_setup_db().await;
     queries::insert_event(&pool, "ev1".to_string(), serde_json::json!({}), None, uuid::Uuid::new_v4(), datetime!(2024-06-01 00:00:00), None, None, None).await.unwrap();
     queries::insert_event(&pool, "ev2".to_string(), serde_json::json!({}), None, uuid::Uuid::new_v4(), datetime!(2024-06-02 00:00:00), None, None, None).await.unwrap();
     queries::insert_event(&pool, "ev3".to_string(), serde_json::json!({}), None, uuid::Uuid::new_v4(), datetime!(2024-06-03 00:00:00), None, None, None).await.unwrap();
     let row = queries::count_events(&pool, datetime!(2024-01-01 00:00:00)).await.unwrap();
     let row = row.expect("expected non-nil row");
     assert_eq!(row.total, 3);
+    gen_teardown(pool, db_name).await;
 }
 
 // ─── projection queries ────────────────────────────────────────────────────────────
@@ -162,22 +175,24 @@ async fn test_count_events_gen() {
 #[allow(unused_variables)]
 #[tokio::test]
 async fn test_find_by_date_gen() {
-    let pool = gen_setup_db().await;
+    let (pool, db_name) = gen_setup_db().await;
     let target = date!(2024-06-15);
     queries::insert_event(&pool, "dated".to_string(), serde_json::json!({}), None, uuid::Uuid::new_v4(), datetime!(2024-06-01 12:00:00), None, Some(target), None).await.unwrap();
     let row = queries::find_by_date(&pool, Some(target)).await.unwrap();
     let row = row.expect("expected non-nil row");
     assert_eq!(row.name, "dated".to_string());
+    gen_teardown(pool, db_name).await;
 }
 
 #[allow(unused_variables)]
 #[tokio::test]
 async fn test_find_by_uuid_gen() {
-    let pool = gen_setup_db().await;
+    let (pool, db_name) = gen_setup_db().await;
     let doc_id = uuid::Uuid::new_v4();
     queries::insert_event(&pool, "uuid-test".to_string(), serde_json::json!({}), None, doc_id, datetime!(2024-06-01 12:00:00), None, None, None).await.unwrap();
     let row = queries::find_by_uuid(&pool, doc_id).await.unwrap();
     let row = row.expect("expected non-nil row");
     assert_eq!(row.name, "uuid-test".to_string());
+    gen_teardown(pool, db_name).await;
 }
 
