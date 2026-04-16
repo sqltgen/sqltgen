@@ -3,16 +3,6 @@
 
 // ---------- helpers ----------
 
-static std::string json_escape(const std::string& s) {
-    std::string out = "\"";
-    for (char c : s) {
-        if (c == '\\' || c == '"') out += '\\';
-        out += c;
-    }
-    out += '"';
-    return out;
-}
-
 class SqliteStmt {
     sqlite3* db_;
     sqlite3_stmt* stmt_ = nullptr;
