@@ -11,7 +11,7 @@ use time::macros::{date, datetime, time};
 
 fn gen_root_url() -> String {
     std::env::var("MYSQL_ROOT_URL")
-        .unwrap_or_else(|_| "mysql://root:sqltgen@localhost:13306".into())
+        .unwrap_or_else(|_| "mysql://sqltgen:sqltgen@localhost:13306".into())
 }
 
 fn gen_test_url() -> String {

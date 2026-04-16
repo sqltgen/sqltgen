@@ -10,7 +10,7 @@ use time::macros::date;
 /// Root URL for administrative operations (CREATE / DROP DATABASE).
 fn root_url() -> String {
     std::env::var("MYSQL_ROOT_URL")
-        .unwrap_or_else(|_| "mysql://root:sqltgen@localhost:13306".into())
+        .unwrap_or_else(|_| "mysql://sqltgen:sqltgen@localhost:13306".into())
 }
 
 /// Test user URL for query execution.
