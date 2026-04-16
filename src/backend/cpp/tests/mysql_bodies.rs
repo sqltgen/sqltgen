@@ -76,9 +76,23 @@ fn test_mysql_emits_mysql_stmt_helper_class() {
 }
 
 #[test]
-fn test_mysql_emits_json_escape_helper() {
+fn test_mysql_omits_json_escape_helper_without_list_params() {
     let schema = Schema::default();
     let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = ?1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
+    let files = mysql().generate(&schema, &[query], &cfg()).unwrap();
+    let src = get_file(&files, "queries.cpp");
+    assert!(!src.contains("static std::string json_escape("));
+}
+
+#[test]
+fn test_mysql_emits_json_escape_helper_for_text_list_param() {
+    let schema = Schema::default();
+    let query = Query::many(
+        "GetByNames",
+        "SELECT id FROM t WHERE name IN (?1)",
+        vec![Parameter::list(1, "names", SqlType::Text, false)],
+        vec![ResultColumn::not_nullable("id", SqlType::BigInt)],
+    );
     let files = mysql().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.cpp");
     assert!(src.contains("static std::string json_escape("));

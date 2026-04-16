@@ -189,8 +189,22 @@ pub(super) struct CppQueryContext<'a> {
     pub(super) null_flag_type: &'static str,
 }
 
+/// Return `true` if any query in `queries` has a list parameter whose type
+/// requires `json_escape` during serialization (i.e. non-numeric types).
+pub(super) fn needs_json_escape(queries: &[Query]) -> bool {
+    queries.iter().any(|q| {
+        q.params.iter().any(|p| {
+            p.is_list && !matches!(p.sql_type, SqlType::Boolean | SqlType::SmallInt | SqlType::Integer | SqlType::BigInt | SqlType::Real | SqlType::Double)
+        })
+    })
+}
+
 /// Resolve the engine-specific C++ generation contract for the selected backend.
-pub(super) fn resolve_contract(target: &super::CppTarget) -> CppCoreContract {
+///
+/// `needs_json_escape` should be `true` when at least one query in the file
+/// contains a non-numeric list parameter; the `json_escape` helper is only
+/// emitted when it will actually be called.
+pub(super) fn resolve_contract(target: &super::CppTarget, needs_json_escape: bool) -> CppCoreContract {
     match target {
         super::CppTarget::Libpqxx => CppCoreContract {
             db_include: "<pqxx/pqxx>",
@@ -206,7 +220,7 @@ pub(super) fn resolve_contract(target: &super::CppTarget) -> CppCoreContract {
             conn_type: "sqlite3*",
             param_style: CppParamStyle::QuestionNumbered,
             source_includes: &[],
-            source_helpers: &[JSON_ESCAPE, SQLITE_STMT_HELPER],
+            source_helpers: if needs_json_escape { &[JSON_ESCAPE, SQLITE_STMT_HELPER] } else { &[SQLITE_STMT_HELPER] },
             emit_query_body: emit_sqlite3_body,
             null_flag_type: "",
         },
@@ -215,7 +229,7 @@ pub(super) fn resolve_contract(target: &super::CppTarget) -> CppCoreContract {
             conn_type: "MYSQL*",
             param_style: CppParamStyle::QuestionAnon,
             source_includes: &["<cstring>"],
-            source_helpers: &[JSON_ESCAPE, MYSQL_STMT_HELPER],
+            source_helpers: if needs_json_escape { &[JSON_ESCAPE, MYSQL_STMT_HELPER] } else { &[MYSQL_STMT_HELPER] },
             emit_query_body: emit_mysql_body,
             // Oracle libmysql 8+ removed `my_bool`; `MYSQL_BIND::is_null` is `bool*`.
             null_flag_type: "bool",
@@ -225,7 +239,7 @@ pub(super) fn resolve_contract(target: &super::CppTarget) -> CppCoreContract {
             conn_type: "MYSQL*",
             param_style: CppParamStyle::QuestionAnon,
             source_includes: &["<cstring>"],
-            source_helpers: &[JSON_ESCAPE, MYSQL_STMT_HELPER],
+            source_helpers: if needs_json_escape { &[JSON_ESCAPE, MYSQL_STMT_HELPER] } else { &[MYSQL_STMT_HELPER] },
             emit_query_body: emit_mysql_body,
             // MariaDB Connector/C keeps the historic `my_bool` typedef.
             null_flag_type: "my_bool",
