@@ -8,6 +8,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use sqltgen::backend::cpp::{CppCodegen, CppTarget};
 use sqltgen::backend::go::{GoCodegen, GoTarget};
 use sqltgen::backend::java::JavaCodegen;
 use sqltgen::backend::jdbc::JdbcTarget;
@@ -269,6 +270,23 @@ fn snapshot_go_mysql() {
     snapshot_test("bookstore/mysql", &MysqlParser, "go", &GoCodegen { target: GoTarget::Mysql });
 }
 
+// ─── C++ backend ──────────────────────────────────────────────────────────
+
+#[test]
+fn snapshot_cpp_postgresql() {
+    snapshot_test("bookstore/postgresql", &PostgresParser, "cpp", &CppCodegen { target: CppTarget::Libpqxx });
+}
+
+#[test]
+fn snapshot_cpp_sqlite() {
+    snapshot_test("bookstore/sqlite", &SqliteParser, "cpp", &CppCodegen { target: CppTarget::Sqlite3 });
+}
+
+#[test]
+fn snapshot_cpp_mysql() {
+    snapshot_test("bookstore/mysql", &MysqlParser, "cpp", &CppCodegen { target: CppTarget::Libmysql });
+}
+
 // ─── Views fixture snapshot tests ─────────────────────────────────────────
 
 #[test]
@@ -354,6 +372,21 @@ fn snapshot_views_go_sqlite() {
 #[test]
 fn snapshot_views_go_mysql() {
     snapshot_test("views/mysql", &MysqlParser, "go", &GoCodegen { target: GoTarget::Mysql });
+}
+
+#[test]
+fn snapshot_views_cpp_postgresql() {
+    snapshot_test("views/postgresql", &PostgresParser, "cpp", &CppCodegen { target: CppTarget::Libpqxx });
+}
+
+#[test]
+fn snapshot_views_cpp_sqlite() {
+    snapshot_test("views/sqlite", &SqliteParser, "cpp", &CppCodegen { target: CppTarget::Sqlite3 });
+}
+
+#[test]
+fn snapshot_views_cpp_mysql() {
+    snapshot_test("views/mysql", &MysqlParser, "cpp", &CppCodegen { target: CppTarget::Libmysql });
 }
 
 // ─── Provenance snapshot tests ────────────────────────────────────────────

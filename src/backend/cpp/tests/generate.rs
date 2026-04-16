@@ -1,6 +1,6 @@
 use super::*;
 use crate::backend::Codegen;
-use crate::ir::{Parameter, Query, ResultColumn};
+use crate::ir::{Parameter, Query, ResultColumn, SourceTable};
 
 // ─── table files ────────────────────────────────────────────────────────
 
@@ -97,7 +97,7 @@ fn test_queries_header_includes_table_header_for_reused_result_type() {
             ResultColumn::nullable("bio", SqlType::Text),
         ],
     )
-    .with_source_table(Some("user".to_string()));
+    .with_source(Some(SourceTable::new(None, "user")));
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.hpp");
     assert!(src.contains("#include \"../models/user.hpp\""));

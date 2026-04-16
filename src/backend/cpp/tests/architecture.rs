@@ -1,6 +1,6 @@
 use super::*;
 use crate::backend::Codegen;
-use crate::ir::{Parameter, Query, ResultColumn};
+use crate::ir::{Parameter, Query, ResultColumn, SourceTable};
 
 #[test]
 fn test_queries_header_includes_pqxx() {
@@ -47,7 +47,7 @@ fn test_one_query_uses_query01_not_manual_result_walking() {
             ResultColumn::nullable("bio", SqlType::Text),
         ],
     )
-    .with_source_table(Some("user".to_string()));
+    .with_source(Some(SourceTable::new(None, "user")));
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.cpp");
     assert!(src.contains("txn.query01<std::int64_t, std::string, std::optional<std::string>>(SQL_GET_USER, pqxx::params{id})"));
@@ -69,7 +69,7 @@ fn test_many_query_uses_query_not_manual_result_walking() {
             ResultColumn::nullable("bio", SqlType::Text),
         ],
     )
-    .with_source_table(Some("user".to_string()));
+    .with_source(Some(SourceTable::new(None, "user")));
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.cpp");
     assert!(src.contains("for (auto [id_, name_, bio_] : txn.query<std::int64_t, std::string, std::optional<std::string>>(SQL_LIST_USERS)) {"));

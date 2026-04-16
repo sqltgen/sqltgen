@@ -1,6 +1,6 @@
 use super::*;
 use crate::backend::Codegen;
-use crate::ir::{Query, ResultColumn};
+use crate::ir::{Query, ResultColumn, SourceTable};
 
 #[test]
 fn test_generate_view_struct() {
@@ -21,7 +21,7 @@ fn test_query_can_reuse_view_type() {
         vec![],
         vec![ResultColumn::not_nullable("id", SqlType::BigInt), ResultColumn::not_nullable("display_name", SqlType::Text)],
     )
-    .with_source_table(Some("user_summary".to_string()));
+    .with_source(Some(SourceTable::new(None, "user_summary")));
 
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let header = get_file(&files, "queries.hpp");

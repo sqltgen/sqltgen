@@ -586,14 +586,11 @@ fn emit_queries_header(group: &str, queries: &[Query], schema: &Schema, contract
     writeln!(src)?;
 
     // Include table headers that are used as return types.
-    let mut needed_tables: BTreeSet<&str> = BTreeSet::new();
-    for query in queries {
-        if let Some(table_name) = infer_table(query, schema) {
-            needed_tables.insert(table_name);
-        }
-    }
-    for table_name in &needed_tables {
-        writeln!(src, "#include \"../models/{table_name}.hpp\"")?;
+    let mut needed_tables: Vec<&Table> = queries.iter().filter_map(|q| infer_table(q, schema)).collect();
+    needed_tables.sort_by_key(|t| &t.name);
+    needed_tables.dedup_by_key(|t| &t.name);
+    for table in &needed_tables {
+        writeln!(src, "#include \"../models/{}.hpp\"", table.name)?;
     }
     if !needed_tables.is_empty() {
         writeln!(src)?;
