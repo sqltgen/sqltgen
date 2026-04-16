@@ -50,7 +50,7 @@ impl Codegen for CppCodegen {
     fn generate(&self, schema: &Schema, queries: &[Query], config: &OutputConfig) -> anyhow::Result<Vec<GeneratedFile>> {
         let needs_json_escape = adapter::needs_json_escape(queries);
         let contract = adapter::resolve_contract(&self.target, needs_json_escape);
-        let mut files = core::generate_table_files(schema, config)?;
+        let mut files = core::generate_table_files(schema, config, contract.cpp_type_fn, contract.model_db_include)?;
         files.extend(core::generate_query_files(schema, queries, &contract, config)?);
         Ok(files)
     }

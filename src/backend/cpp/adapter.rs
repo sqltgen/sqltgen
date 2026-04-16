@@ -179,6 +179,14 @@ pub(super) struct CppCoreContract {
     /// C++ type used for `MYSQL_BIND::is_null` flag locals. `"bool"` for Oracle's
     /// libmysql 8+, `"my_bool"` for MariaDB Connector/C. Unused by non-MySQL targets.
     pub(super) null_flag_type: &'static str,
+    /// Target-specific SQL→C++ type mapping function. Defaults to `core::cpp_type` for
+    /// most targets; overridden for pqxx to map `Bytes`→`pqxx::bytes` and
+    /// `Array(_)`→`std::string` (raw PostgreSQL array literal).
+    pub(super) cpp_type_fn: fn(&SqlType, bool) -> String,
+    /// Extra `#include` to emit in generated model (table) headers when the target uses
+    /// driver-specific types absent from the C++ stdlib (e.g. `<pqxx/pqxx>` for pqxx::bytes).
+    /// `None` for targets whose types are fully covered by stdlib headers.
+    pub(super) model_db_include: Option<&'static str>,
 }
 
 /// Per-query context forwarded from the generic core to the adapter-specific emitter.
@@ -214,6 +222,8 @@ pub(super) fn resolve_contract(target: &super::CppTarget, needs_json_escape: boo
             source_helpers: &[],
             emit_query_body: emit_pqxx_body,
             null_flag_type: "",
+            cpp_type_fn: pqxx_cpp_type,
+            model_db_include: Some("<pqxx/pqxx>"),
         },
         super::CppTarget::Sqlite3 => CppCoreContract {
             db_include: "<sqlite3.h>",
@@ -223,6 +233,8 @@ pub(super) fn resolve_contract(target: &super::CppTarget, needs_json_escape: boo
             source_helpers: if needs_json_escape { &[JSON_ESCAPE, SQLITE_STMT_HELPER] } else { &[SQLITE_STMT_HELPER] },
             emit_query_body: emit_sqlite3_body,
             null_flag_type: "",
+            cpp_type_fn: cpp_type,
+            model_db_include: None,
         },
         super::CppTarget::Libmysql => CppCoreContract {
             db_include: "<mysql.h>",
@@ -233,6 +245,8 @@ pub(super) fn resolve_contract(target: &super::CppTarget, needs_json_escape: boo
             emit_query_body: emit_mysql_body,
             // Oracle libmysql 8+ removed `my_bool`; `MYSQL_BIND::is_null` is `bool*`.
             null_flag_type: "bool",
+            cpp_type_fn: cpp_type,
+            model_db_include: None,
         },
         super::CppTarget::Libmariadb => CppCoreContract {
             db_include: "<mysql.h>",
@@ -243,6 +257,8 @@ pub(super) fn resolve_contract(target: &super::CppTarget, needs_json_escape: boo
             emit_query_body: emit_mysql_body,
             // MariaDB Connector/C keeps the historic `my_bool` typedef.
             null_flag_type: "my_bool",
+            cpp_type_fn: cpp_type,
+            model_db_include: None,
         },
     }
 }
@@ -257,9 +273,29 @@ fn pqxx_params_expr(query: &Query) -> Option<String> {
     }
 }
 
+/// Map a SQL type to its pqxx-specific C++ representation.
+///
+/// Overrides two types that pqxx cannot deserialize via its generic `from_string`:
+/// - `Bytes`    → `pqxx::bytes`   (pqxx's native BYTEA type)
+/// - `Array(_)` → `std::string`   (raw PostgreSQL array literal; caller parses if needed)
+///
+/// All other types fall through to the target-agnostic `cpp_type`.
+fn pqxx_cpp_type(sql_type: &SqlType, nullable: bool) -> String {
+    let base = match sql_type {
+        SqlType::Bytes => "pqxx::bytes".to_string(),
+        SqlType::Array(_) => "std::string".to_string(),
+        other => return cpp_type(other, nullable),
+    };
+    if nullable {
+        format!("std::optional<{base}>")
+    } else {
+        base
+    }
+}
+
 /// Build the `<T1, T2, ...>` template type argument list from result columns.
 fn pqxx_query_type_args(columns: &[ResultColumn]) -> String {
-    columns.iter().map(|col| cpp_type(&col.sql_type, col.nullable)).collect::<Vec<_>>().join(", ")
+    columns.iter().map(|col| pqxx_cpp_type(&col.sql_type, col.nullable)).collect::<Vec<_>>().join(", ")
 }
 
 /// Emit the function body for a libpqxx (PostgreSQL) query.
