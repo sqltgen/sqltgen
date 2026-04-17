@@ -1,0 +1,8 @@
+services:
+  test:
+    build: .
+    network_mode: host
+    environment:
+      DATABASE_URL: postgres://sqltgen:sqltgen@localhost:15432/sqltgen_e2e
+    volumes:
+      - ../../../../fixtures/bookstore/postgresql/schema.sql:/fixtures/schema.sql:ro

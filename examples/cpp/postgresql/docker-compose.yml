@@ -1,0 +1,14 @@
+include:
+  - ../../common/postgresql/docker-compose.yml
+
+services:
+  demo:
+    build: .
+    environment:
+      MIGRATIONS_DIR: /app/migrations
+      DATABASE_URL: postgresql://sqltgen:sqltgen@db:5432/postgres
+    volumes:
+      - ../../common/postgresql/migrations:/app/migrations:ro
+    depends_on:
+      db:
+        condition: service_healthy

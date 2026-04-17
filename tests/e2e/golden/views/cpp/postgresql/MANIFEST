@@ -1,0 +1,6 @@
+out/models/author.hpp
+out/models/book.hpp
+out/models/book_summaries.hpp
+out/models/sci_fi_books.hpp
+out/queries/queries.cpp
+out/queries/queries.hpp

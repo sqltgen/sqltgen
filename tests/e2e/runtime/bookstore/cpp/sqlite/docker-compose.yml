@@ -1,0 +1,5 @@
+services:
+  test:
+    build: .
+    volumes:
+      - ../../../../fixtures/bookstore/sqlite/schema.sql:/fixtures/schema.sql:ro

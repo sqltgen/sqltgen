@@ -1,0 +1,8 @@
+services:
+  test:
+    build: .
+    network_mode: host
+    environment:
+      DATABASE_URL: mysql://sqltgen:sqltgen@127.0.0.1:13306/sqltgen_e2e
+    volumes:
+      - ../../../../fixtures/bookstore/mysql/schema.sql:/fixtures/schema.sql:ro

@@ -1,0 +1,18 @@
+include:
+  - ../../common/mysql/docker-compose.yml
+
+services:
+  demo:
+    build: .
+    environment:
+      MIGRATIONS_DIR: /app/migrations
+      MYSQL_HOST: db
+      MYSQL_PORT: "3306"
+      MYSQL_USER: sqltgen
+      MYSQL_PASSWORD: sqltgen
+      MYSQL_DATABASE: sqltgen
+    volumes:
+      - ../../common/mysql/migrations:/app/migrations:ro
+    depends_on:
+      db:
+        condition: service_started

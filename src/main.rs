@@ -128,6 +128,7 @@ fn run_generate(config_path: &Path) -> anyhow::Result<()> {
                 target: backend::typescript::JsTarget::from_engine_and_driver(cfg.engine, driver)?,
                 output: backend::typescript::JsOutput::JavaScript,
             }),
+            Language::Cpp => Box::new(backend::cpp::CppCodegen { target: backend::cpp::CppTarget::from_engine_and_driver(cfg.engine, driver)? }),
         };
 
         let files = codegen.generate(&schema, &queries, output_config)?;

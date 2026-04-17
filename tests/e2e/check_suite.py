@@ -158,6 +158,24 @@ SUITES: list[tuple[str, str, Path, str]] = [
         r"func (Test\w+)",
     ),
     ("mysql", "go", RUNTIME / "bookstore/go/mysql/runtime_test.go", r"func (Test\w+)"),
+    (
+        "sqlite",
+        "cpp",
+        RUNTIME / "bookstore/cpp/sqlite/runtime_test.cpp",
+        r"TEST_F\(\w+,\s*(\w+)\)",
+    ),
+    (
+        "postgresql",
+        "cpp",
+        RUNTIME / "bookstore/cpp/postgresql/runtime_test.cpp",
+        r"TEST_F\(\w+,\s*(\w+)\)",
+    ),
+    (
+        "mysql",
+        "cpp",
+        RUNTIME / "bookstore/cpp/mysql/runtime_test.cpp",
+        r"TEST_F\(\w+,\s*(\w+)\)",
+    ),
 ]
 
 # ── Known dialect gaps ────────────────────────────────────────────────────────

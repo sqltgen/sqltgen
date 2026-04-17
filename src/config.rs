@@ -167,7 +167,7 @@ pub fn is_preset_supported_by_language(language: Language, preset: &str) -> bool
         Language::Java | Language::Kotlin => matches!(preset, "jackson" | "gson"),
         Language::Rust => preset == "serde_json",
         Language::TypeScript | Language::JavaScript => preset == "object",
-        Language::Python | Language::Go => false,
+        Language::Python | Language::Go | Language::Cpp => false,
     }
 }
 
@@ -179,7 +179,6 @@ fn warned_unsupported_preset_keys() -> &'static Mutex<HashSet<String>> {
 /// Emits a one-time warning for unsupported language preset usage.
 pub fn warn_unsupported_type_preset(language: Language, preset: &str, sql_type: &SqlType, variant: TypeVariant) {
     let key = format!("{language}:{preset}:{}:{variant}", sql_type_key(sql_type));
-
     let warned = warned_unsupported_preset_keys();
     let mut guard = warned.lock().expect("unsupported preset warning mutex poisoned");
     if guard.insert(key) {
@@ -314,6 +313,7 @@ pub enum Language {
     Python,
     TypeScript,
     JavaScript,
+    Cpp,
 }
 
 impl std::fmt::Display for Language {
@@ -326,6 +326,7 @@ impl std::fmt::Display for Language {
             Language::Python => "python",
             Language::TypeScript => "typescript",
             Language::JavaScript => "javascript",
+            Language::Cpp => "cpp",
         };
         f.write_str(s)
     }

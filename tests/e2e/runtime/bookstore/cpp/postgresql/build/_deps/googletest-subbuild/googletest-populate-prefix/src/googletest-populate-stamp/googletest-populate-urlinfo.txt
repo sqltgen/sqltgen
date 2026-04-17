@@ -1,0 +1,12 @@
+# This is a generated file and its contents are an internal implementation detail.
+# The download step will be re-executed if anything in this file changes.
+# No other meaning or use of this file is supported.
+
+method=url
+command=/opt/homebrew/bin/cmake;-DCMAKE_MESSAGE_LOG_LEVEL=VERBOSE;-P;/Users/joao/Desktop/sqltgen/tests/e2e/runtime/bookstore/cpp/postgresql/build/_deps/googletest-subbuild/googletest-populate-prefix/src/googletest-populate-stamp/download-googletest-populate.cmake;COMMAND;/opt/homebrew/bin/cmake;-DCMAKE_MESSAGE_LOG_LEVEL=VERBOSE;-P;/Users/joao/Desktop/sqltgen/tests/e2e/runtime/bookstore/cpp/postgresql/build/_deps/googletest-subbuild/googletest-populate-prefix/src/googletest-populate-stamp/verify-googletest-populate.cmake;COMMAND;/opt/homebrew/bin/cmake;-DCMAKE_MESSAGE_LOG_LEVEL=VERBOSE;-P;/Users/joao/Desktop/sqltgen/tests/e2e/runtime/bookstore/cpp/postgresql/build/_deps/googletest-subbuild/googletest-populate-prefix/src/googletest-populate-stamp/extract-googletest-populate.cmake
+source_dir=/Users/joao/Desktop/sqltgen/tests/e2e/runtime/bookstore/cpp/postgresql/build/_deps/googletest-src
+work_dir=/Users/joao/Desktop/sqltgen/tests/e2e/runtime/bookstore/cpp/postgresql/build/_deps
+url(s)=https://github.com/google/googletest/archive/refs/tags/v1.14.0.tar.gz
+hash=SHA256=8ad598c73ad796e0d8280b082cebd82a630d73e73cd3c70057938a6501bba5d7
+      no_extract=
+
