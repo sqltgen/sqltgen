@@ -1,0 +1,8 @@
+out/models/author.hpp
+out/models/book.hpp
+out/models/customer.hpp
+out/models/product.hpp
+out/models/sale.hpp
+out/models/sale_item.hpp
+out/queries/queries.cpp
+out/queries/queries.hpp
