@@ -36,24 +36,34 @@ static std::string random_db_name() {
     return s;
 }
 
-// Parse mysql://user:pass@host/db — returns {host, user, pass}.
-struct DBParams { std::string host, user, pass; };
+// Parse mysql://user:pass@host[:port]/db — returns {host, port, user, pass}.
+struct DBParams { std::string host, user, pass; unsigned int port = 0; };
 
 static DBParams parse_db_params() {
     const char* url = std::getenv("DATABASE_URL");
-    if (!url) return {"localhost", "sqltgen", "sqltgen"};
+    if (!url) return {"localhost", "sqltgen", "sqltgen", 3306};
     std::string s(url);
     // strip scheme
     auto scheme_end = s.find("://");
     if (scheme_end != std::string::npos) s = s.substr(scheme_end + 3);
-    // user:pass@host/db
+    // user:pass@host[:port]/db
     auto at = s.find('@');
-    if (at == std::string::npos) return {"localhost", "sqltgen", "sqltgen"};
+    if (at == std::string::npos) return {"localhost", "sqltgen", "sqltgen", 3306};
     std::string userpass = s.substr(0, at);
     std::string hostdb = s.substr(at + 1);
-    // strip /db from host
+    // strip /db from host[:port]
     auto slash = hostdb.find('/');
-    std::string host = (slash != std::string::npos) ? hostdb.substr(0, slash) : hostdb;
+    std::string hostport = (slash != std::string::npos) ? hostdb.substr(0, slash) : hostdb;
+    // split host and port
+    std::string host;
+    unsigned int port = 3306;
+    auto colon2 = hostport.find(':');
+    if (colon2 != std::string::npos) {
+        host = hostport.substr(0, colon2);
+        port = static_cast<unsigned int>(std::stoul(hostport.substr(colon2 + 1)));
+    } else {
+        host = hostport;
+    }
     std::string user, pass;
     auto colon = userpass.find(':');
     if (colon != std::string::npos) {
@@ -62,7 +72,7 @@ static DBParams parse_db_params() {
     } else {
         user = userpass;
     }
-    return {host, user, pass};
+    return {host, user, pass, port};
 }
 
 static void exec_sql(MYSQL* db, const std::string& sql) {
@@ -90,7 +100,7 @@ protected:
             db_ = mysql_init(nullptr);
             if (!db_) throw std::runtime_error("mysql_init failed");
             if (mysql_real_connect(db_, p.host.c_str(), p.user.c_str(), p.pass.c_str(),
-                                   nullptr, 0, nullptr, 0))
+                                   nullptr, p.port, nullptr, 0))
                 break;
             std::string err = mysql_error(db_);
             mysql_close(db_);
