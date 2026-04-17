@@ -335,10 +335,10 @@ e2e-runtime-go-mysql: $(SQLTGEN) e2e-db-up
 e2e-runtime-cpp-sqlite: $(SQLTGEN)
 	$(MAKE) -C $(E2E_RUNTIME)/cpp/sqlite test
 
-e2e-runtime-cpp-postgresql: $(SQLTGEN)
+e2e-runtime-cpp-postgresql: $(SQLTGEN) e2e-db-up
 	$(MAKE) -C $(E2E_RUNTIME)/cpp/postgresql test
 
-e2e-runtime-cpp-mysql: $(SQLTGEN)
+e2e-runtime-cpp-mysql: $(SQLTGEN) e2e-db-up
 	$(MAKE) -C $(E2E_RUNTIME)/cpp/mysql test
 
 # ── E2E Docker lifecycle ────────────────────────────────────────────────────

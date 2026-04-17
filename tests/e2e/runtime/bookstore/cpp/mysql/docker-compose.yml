@@ -1,13 +1,8 @@
-include:
-  - ../../../docker-compose.yml
-
 services:
   test:
     build: .
+    network_mode: host
     environment:
-      DATABASE_URL: mysql://sqltgen:sqltgen@mysql/sqltgen_e2e
+      DATABASE_URL: mysql://sqltgen:sqltgen@localhost:13306/sqltgen_e2e
     volumes:
       - ../../../../fixtures/bookstore/mysql/schema.sql:/fixtures/schema.sql:ro
-    depends_on:
-      mysql:
-        condition: service_healthy
