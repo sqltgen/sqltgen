@@ -602,7 +602,7 @@ fn emit_mysql_bind_param_block(src: &mut String, param: &Parameter, slot: usize,
         }
         writeln!(src, "    bind[{slot}].buffer = &{val_var};")?;
         writeln!(src, "    bind[{slot}].buffer_type = {mysql_type};")?;
-        let flag = format!("{name}_is_null");
+        let flag = format!("p_{name}_is_null");
         if first_time {
             writeln!(src, "    {null_flag} {flag} = !{name}.has_value();")?;
         }
@@ -637,7 +637,7 @@ fn emit_mysql_bind_param_block(src: &mut String, param: &Parameter, slot: usize,
     }
 
     if param.nullable {
-        let flag = format!("{name}_is_null");
+        let flag = format!("p_{name}_is_null");
         if first_time {
             writeln!(src, "    {null_flag} {flag} = !{name}.has_value();")?;
         }

@@ -64,15 +64,15 @@ void create_author(MYSQL* db, const std::string& name, const std::optional<std::
     unsigned long p_bio_len = bio.has_value() ? bio.value().size() : 0;
     bind[1].length = &p_bio_len;
     bind[1].buffer_length = p_bio_len;
-    my_bool bio_is_null = !bio.has_value();
-    bind[1].is_null = &bio_is_null;
+    my_bool p_bio_is_null = !bio.has_value();
+    bind[1].is_null = &p_bio_is_null;
 
     // birth_year — int?
     std::int32_t birth_year_val = birth_year.value_or(std::int32_t{});
     bind[2].buffer = &birth_year_val;
     bind[2].buffer_type = MYSQL_TYPE_LONG;
-    my_bool birth_year_is_null = !birth_year.has_value();
-    bind[2].is_null = &birth_year_is_null;
+    my_bool p_birth_year_is_null = !birth_year.has_value();
+    bind[2].is_null = &p_birth_year_is_null;
     stmt.bind_param(bind);
 
     stmt.execute();
@@ -221,8 +221,8 @@ void update_author_bio(MYSQL* db, const std::optional<std::string>& bio, std::in
     unsigned long p_bio_len = bio.has_value() ? bio.value().size() : 0;
     bind[0].length = &p_bio_len;
     bind[0].buffer_length = p_bio_len;
-    my_bool bio_is_null = !bio.has_value();
-    bind[0].is_null = &bio_is_null;
+    my_bool p_bio_is_null = !bio.has_value();
+    bind[0].is_null = &p_bio_is_null;
 
     // id — bigint
     bind[1].buffer = const_cast<std::int64_t*>(&id);
@@ -283,8 +283,8 @@ void create_book(MYSQL* db, std::int64_t author_id, const std::string& title, co
     unsigned long p_published_at_len = published_at.has_value() ? published_at.value().size() : 0;
     bind[4].length = &p_published_at_len;
     bind[4].buffer_length = p_published_at_len;
-    my_bool published_at_is_null = !published_at.has_value();
-    bind[4].is_null = &published_at_is_null;
+    my_bool p_published_at_is_null = !published_at.has_value();
+    bind[4].is_null = &p_published_at_is_null;
     stmt.bind_param(bind);
 
     stmt.execute();
