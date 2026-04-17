@@ -9,6 +9,7 @@ SQLTGEN := ./target/debug/sqltgen
        e2e-runtime-python-sqlite e2e-runtime-python-postgresql e2e-runtime-python-mysql \
        e2e-runtime-typescript-sqlite e2e-runtime-typescript-postgresql e2e-runtime-typescript-mysql \
        e2e-runtime-go-sqlite e2e-runtime-go-postgresql e2e-runtime-go-mysql \
+       e2e-runtime-cpp-sqlite e2e-runtime-cpp-postgresql e2e-runtime-cpp-mysql \
        e2e-runtime-type-overrides \
        e2e-runtime-type-overrides-rust-sqlite \
        e2e-runtime-type-overrides-rust-postgresql \
@@ -150,6 +151,9 @@ e2e-runtime: \
 	e2e-runtime-typescript-mysql \
 	e2e-runtime-go-postgresql \
 	e2e-runtime-go-mysql \
+	e2e-runtime-cpp-sqlite \
+	e2e-runtime-cpp-postgresql \
+	e2e-runtime-cpp-mysql \
 	e2e-runtime-type-overrides \
 	e2e-runtime-enums
 
@@ -328,6 +332,15 @@ e2e-runtime-go-postgresql: $(SQLTGEN) e2e-db-up
 e2e-runtime-go-mysql: $(SQLTGEN) e2e-db-up
 	$(MAKE) -C $(E2E_RUNTIME)/go/mysql test
 
+e2e-runtime-cpp-sqlite: $(SQLTGEN)
+	$(MAKE) -C $(E2E_RUNTIME)/cpp/sqlite test
+
+e2e-runtime-cpp-postgresql: $(SQLTGEN)
+	$(MAKE) -C $(E2E_RUNTIME)/cpp/postgresql test
+
+e2e-runtime-cpp-mysql: $(SQLTGEN)
+	$(MAKE) -C $(E2E_RUNTIME)/cpp/mysql test
+
 # ── E2E Docker lifecycle ────────────────────────────────────────────────────
 
 e2e-db-up:
@@ -397,6 +410,7 @@ ci-runtime-sqlite: build
 	$(MAKE) e2e-runtime-java-sqlite
 	$(MAKE) e2e-runtime-kotlin-sqlite
 	$(MAKE) e2e-runtime-go-sqlite
+	$(MAKE) e2e-runtime-cpp-sqlite
 	$(MAKE) e2e-runtime-type-overrides-rust-sqlite
 	$(MAKE) e2e-runtime-type-overrides-python-sqlite
 	$(MAKE) e2e-runtime-type-overrides-typescript-sqlite
@@ -412,6 +426,7 @@ ci-runtime-postgresql: build
 	$(MAKE) e2e-runtime-python-postgresql
 	$(MAKE) e2e-runtime-typescript-postgresql
 	$(MAKE) e2e-runtime-go-postgresql
+	$(MAKE) e2e-runtime-cpp-postgresql
 	$(MAKE) e2e-runtime-type-overrides-rust-postgresql
 	$(MAKE) e2e-runtime-type-overrides-java-postgresql
 	$(MAKE) e2e-runtime-type-overrides-java-postgresql-gson
@@ -430,6 +445,7 @@ ci-runtime-mysql: build
 	$(MAKE) e2e-runtime-python-mysql
 	$(MAKE) e2e-runtime-typescript-mysql
 	$(MAKE) e2e-runtime-go-mysql
+	$(MAKE) e2e-runtime-cpp-mysql
 	$(MAKE) e2e-runtime-type-overrides-rust-mysql
 	$(MAKE) e2e-runtime-type-overrides-java-mysql
 	$(MAKE) e2e-runtime-type-overrides-kotlin-mysql
