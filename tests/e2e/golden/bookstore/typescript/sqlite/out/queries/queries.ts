@@ -823,7 +823,7 @@ export class Querier {
     }
   }
 
-  async getBooksWithRecentSales(orderedAt: Date): Promise<GetBooksWithRecentSalesRow[]> {
+  async getBooksWithRecentSales(orderedAt: string): Promise<GetBooksWithRecentSalesRow[]> {
     const db = await this.connect();
     try {
       return getBooksWithRecentSales(db, orderedAt);

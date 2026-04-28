@@ -70,9 +70,7 @@ class RuntimeGenTest {
 
     @Test
     fun testInsertAndGetRecordGen() {
-        val uid1 = UUID.randomUUID()
-        val uid2 = UUID.randomUUID()
-        Queries.insertRecord(conn, "test", listOf(LocalDateTime.of(2024, 1, 15, 10, 30, 0), LocalDateTime.of(2024, 6, 1, 12, 0, 0)), listOf(uid1, uid2))
+        Queries.insertRecord(conn, "test", listOf(LocalDateTime.of(2024, 1, 15, 10, 30, 0), LocalDateTime.of(2024, 6, 1, 12, 0, 0)), listOf(UUID.fromString("550e8400-e29b-41d4-a716-446655440001"), UUID.fromString("550e8400-e29b-41d4-a716-446655440002")))
         val row = Queries.getRecord(conn, 1L)!!
         assertNotNull(row)
         assertEquals("test", row.label)
@@ -80,8 +78,8 @@ class RuntimeGenTest {
         assertEquals(LocalDateTime.of(2024, 1, 15, 10, 30, 0), row.timestamps[0])
         assertEquals(LocalDateTime.of(2024, 6, 1, 12, 0, 0), row.timestamps[1])
         assertEquals(2, row.uuids.size)
-        assertEquals(uid1, row.uuids[0])
-        assertEquals(uid2, row.uuids[1])
+        assertEquals(UUID.fromString("550e8400-e29b-41d4-a716-446655440001"), row.uuids[0])
+        assertEquals(UUID.fromString("550e8400-e29b-41d4-a716-446655440002"), row.uuids[1])
     }
 
     @Test

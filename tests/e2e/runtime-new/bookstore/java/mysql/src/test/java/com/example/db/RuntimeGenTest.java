@@ -95,7 +95,7 @@ class RuntimeGenTest {
         Queries.createAuthor(conn, "A", null, 1900);
         Queries.createBook(conn, 1L, "Book1", "sci-fi", new java.math.BigDecimal("10.0"), null);
         var affected = Queries.deleteBookById(conn, 1L);
-        assertEquals(1L, affected);
+        assertEquals(1, affected);
     }
 
     // ─── :many queries ────────────────────────────────────────────────────────────

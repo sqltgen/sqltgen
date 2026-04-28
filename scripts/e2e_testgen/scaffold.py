@@ -19,6 +19,8 @@ import sys
 import textwrap
 from pathlib import Path
 
+from test_spec import TestSpec
+
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 FIXTURES_DIR = REPO_ROOT / "tests" / "e2e" / "fixtures"
 RUNTIME_DIR = REPO_ROOT / "tests" / "e2e" / "runtime-new"
@@ -59,6 +61,7 @@ def make_sqltgen_json(fixture: str, lang: str, engine: str, dest: Path,
     queries_rel = os.path.relpath(fixture_dir / "queries.sql", dest)
 
     gen_config = dict(LANG_OUTPUT[lang])
+    gen_config["manifest"] = gen_config.get("out", "gen") + "/manifest.json"
     if type_overrides:
         gen_config["type_overrides"] = type_overrides
 
@@ -456,44 +459,40 @@ def scaffold(fixture: str, lang: str, engine: str,
     return dest
 
 
-# Fixtures that need per-language sqltgen.json configs (type overrides).
-# These must be scaffolded individually with --fixture, not via --all.
-# Fixtures excluded from --all scaffolding.
-# type_overrides: needs per-language sqltgen.json configs (type override split).
+# Fixtures excluded from --all scaffolding due to known bugs.
 # schema_qualified: Go backend has unused import bug; will be added after fix.
-FIXTURES_REQUIRING_CUSTOM_CONFIG = {"type_overrides", "schema_qualified"}
-
-# Known-broken combos (fixture, lang, engine).
-EXCLUDED_COMBOS: set[tuple[str | None, str, str]] = set()
+FIXTURES_EXCLUDED = {"schema_qualified"}
 
 
 def discover_fixtures() -> list[str]:
-    """Find all fixtures that have a test_spec.yaml and work with uniform config."""
+    """Find all fixtures that have a test_spec.yaml."""
     return sorted(
         d.name for d in FIXTURES_DIR.iterdir()
         if d.is_dir()
         and (d / "test_spec.yaml").exists()
-        and d.name not in FIXTURES_REQUIRING_CUSTOM_CONFIG
+        and d.name not in FIXTURES_EXCLUDED
     )
 
 
-def _is_excluded(fixture: str, lang: str, engine: str) -> bool:
-    """Check if a combo is in the exclusion list."""
-    return (fixture, lang, engine) in EXCLUDED_COMBOS or (None, lang, engine) in EXCLUDED_COMBOS
-
-
 def scaffold_all() -> list[Path]:
-    """Scaffold every valid fixture × language × engine combo."""
+    """Scaffold every valid fixture × language × engine combo.
+
+    Reads each fixture's test_spec.yaml to determine which languages and engines
+    apply, and passes sqltgen_overrides (e.g. type_overrides) to sqltgen.json.
+    """
     results = []
     for fixture in discover_fixtures():
-        for lang in ALL_LANGUAGES:
-            for engine in ALL_ENGINES:
+        spec = TestSpec.load(FIXTURES_DIR / fixture / "test_spec.yaml")
+        languages = spec.languages if spec.languages else ALL_LANGUAGES
+        engines = spec.engines if spec.engines else ALL_ENGINES
+        type_overrides = spec.sqltgen_overrides.get("type_overrides")
+
+        for lang in languages:
+            for engine in engines:
                 fixture_dir = FIXTURES_DIR / fixture / engine
                 if not fixture_dir.exists():
                     continue
-                if _is_excluded(fixture, lang, engine):
-                    continue
-                results.append(scaffold(fixture, lang, engine))
+                results.append(scaffold(fixture, lang, engine, type_overrides))
     return results
 
 

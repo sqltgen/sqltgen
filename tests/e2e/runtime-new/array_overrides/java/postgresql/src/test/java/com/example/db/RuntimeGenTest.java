@@ -76,9 +76,7 @@ class RuntimeGenTest {
 
     @Test
     void testInsertAndGetRecordGen() throws Exception {
-        var uid1 = UUID.randomUUID();
-        var uid2 = UUID.randomUUID();
-        Queries.insertRecord(conn, "test", List.of(LocalDateTime.of(2024, 1, 15, 10, 30, 0), LocalDateTime.of(2024, 6, 1, 12, 0, 0)), List.of(uid1, uid2));
+        Queries.insertRecord(conn, "test", List.of(LocalDateTime.of(2024, 1, 15, 10, 30, 0), LocalDateTime.of(2024, 6, 1, 12, 0, 0)), List.of(UUID.fromString("550e8400-e29b-41d4-a716-446655440001"), UUID.fromString("550e8400-e29b-41d4-a716-446655440002")));
         var row = Queries.getRecord(conn, 1L).orElseThrow();
         assertNotNull(row);
         assertEquals("test", row.label());
@@ -86,8 +84,8 @@ class RuntimeGenTest {
         assertEquals(LocalDateTime.of(2024, 1, 15, 10, 30, 0), row.timestamps().get(0));
         assertEquals(LocalDateTime.of(2024, 6, 1, 12, 0, 0), row.timestamps().get(1));
         assertEquals(2, row.uuids().size());
-        assertEquals(uid1, row.uuids().get(0));
-        assertEquals(uid2, row.uuids().get(1));
+        assertEquals(UUID.fromString("550e8400-e29b-41d4-a716-446655440001"), row.uuids().get(0));
+        assertEquals(UUID.fromString("550e8400-e29b-41d4-a716-446655440002"), row.uuids().get(1));
     }
 
     @Test

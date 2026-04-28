@@ -556,7 +556,7 @@ pub async fn get_books_not_by_author(pool: &DbPool, name: String) -> Result<Vec<
         .await
 }
 
-pub async fn get_books_with_recent_sales(pool: &DbPool, ordered_at: time::PrimitiveDateTime) -> Result<Vec<GetBooksWithRecentSalesRow>, sqlx::Error> {
+pub async fn get_books_with_recent_sales(pool: &DbPool, ordered_at: String) -> Result<Vec<GetBooksWithRecentSalesRow>, sqlx::Error> {
     let sql = r##"
         SELECT id, title, genre
         FROM book
@@ -922,7 +922,7 @@ impl<'a> Querier<'a> {
         get_books_not_by_author(self.pool, name).await
     }
 
-    pub async fn get_books_with_recent_sales(&self, ordered_at: time::PrimitiveDateTime) -> Result<Vec<GetBooksWithRecentSalesRow>, sqlx::Error> {
+    pub async fn get_books_with_recent_sales(&self, ordered_at: String) -> Result<Vec<GetBooksWithRecentSalesRow>, sqlx::Error> {
         get_books_with_recent_sales(self.pool, ordered_at).await
     }
 

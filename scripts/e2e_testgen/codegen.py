@@ -111,15 +111,7 @@ def _render_step(
     func_pfx = getattr(lit, "func_prefix", lambda: "queries.")()
     terminator = getattr(lit, "stmt_terminator", lambda: "")()
 
-    if step.kind == "let":
-        lines = []
-        for var_name, raw_val in step.data["let"].items():
-            tv = TypedValue.parse(raw_val)
-            val = lit.render_value(tv.kind, tv.value, engine, eo.type_coercions)
-            lines.append(f"{indent}{decl}{var_name} {assign} {val}{terminator}")
-        return lines
-
-    elif step.kind == "call":
+    if step.kind == "call":
         func_name = _resolve_func_name(step.data["call"], eo, language)
         raw_args = step.data.get("args", {})
         bind = step.data.get("bind")
@@ -157,15 +149,22 @@ def _render_step(
         else:
             display_field = field_expr
 
-        expected = lit.render_value(tv.kind, tv.value, engine, eo.type_coercions)
         field_lang_type = _get_field_lang_type(manifest, var_types, field_expr)
+        # For assertion expected values, use the inner (unwrapped) type since
+        # the assertion renderer accesses the field's inner value directly
+        # (e.g. ev.EventDate.String for sql.NullString).
+        expected_type = _unwrap_nullable_type(field_lang_type) if field_lang_type else None
+        if expected_type and hasattr(lit, "render_typed_arg"):
+            expected = lit.render_typed_arg("_", expected_type, tv.kind, tv.value, engine, eo.type_coercions)
+        else:
+            expected = lit.render_value(tv.kind, tv.value, engine, eo.type_coercions)
 
         if compare == "uuid_str":
             result = lit.render_uuid_compare(display_field, expected)
             return _as_lines(indent, result)
 
-        # JSON round-tripped as a string may have different key ordering; compare parsed.
-        if tv.kind == "json" and eo.type_coercions.get("json") == "json_string":
+        # JSON values need parsed comparison (key ordering may differ).
+        if tv.kind == "json":
             result = lit.render_assert_json_eq(display_field, tv.value, field_lang_type)
             return _as_lines(indent, result)
 
@@ -324,6 +323,39 @@ def _unwrap_collection_element(lang_type: str) -> str:
     if lang_type.endswith("[]"):
         return lang_type[:-2]
     return lang_type
+
+
+_NULLABLE_TYPE_MAP = {
+    # Go
+    "sql.NullString": "string",
+    "sql.NullBool": "bool",
+    "sql.NullInt16": "int16",
+    "sql.NullInt32": "int32",
+    "sql.NullInt64": "int64",
+    "sql.NullFloat64": "float64",
+    "sql.NullTime": "time.Time",
+    # Kotlin
+    "String?": "String",
+    "Int?": "Int",
+    "Long?": "Long",
+    "Boolean?": "Boolean",
+}
+
+
+def _unwrap_nullable_type(lang_type: str) -> str:
+    """Return the inner (non-nullable) type for assertion expected values.
+
+    Assertion renderers unwrap nullable fields (e.g. ev.Field.String for
+    sql.NullString), so the expected value must match the inner type.
+    For non-nullable types and types not in the map, returns as-is.
+    """
+    # Rust: Option<T> → T
+    if lang_type.startswith("Option<") and lang_type.endswith(">"):
+        return lang_type[7:-1]
+    # Go: *T → T (pointer nullable)
+    if lang_type.startswith("*"):
+        return lang_type[1:]
+    return _NULLABLE_TYPE_MAP.get(lang_type, lang_type)
 
 
 def _get_func_command(manifest: Manifest | None, func_name: str) -> str | None:

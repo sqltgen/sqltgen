@@ -347,15 +347,14 @@ $(E2E_TESTGEN_STAMP): $(E2E_TESTGEN)/requirements.txt
 
 e2e-testgen-setup: $(E2E_TESTGEN_STAMP)
 
-# Generate test files for every fixture × language × engine × variant combo that
+# Generate test files for every fixture × language × engine combo that
 # has a test_spec.yaml and a sqltgen.json. Accepts optional overrides:
-#   make e2e-testgen-generate TESTGEN_LANG=python TESTGEN_ENGINE=postgresql TESTGEN_VARIANT=gson
+#   make e2e-testgen-generate TESTGEN_LANG=python TESTGEN_ENGINE=postgresql
 e2e-testgen-generate: $(E2E_TESTGEN_STAMP) $(SQLTGEN)
 	$(E2E_TESTGEN_PYTHON) $(E2E_TESTGEN)/orchestrate.py generate \
 	    $(if $(TESTGEN_FIXTURE),--fixture $(TESTGEN_FIXTURE)) \
 	    $(if $(TESTGEN_LANG),--lang $(TESTGEN_LANG)) \
 	    $(if $(TESTGEN_ENGINE),--engine $(TESTGEN_ENGINE)) \
-	    $(if $(TESTGEN_VARIANT),--variant $(TESTGEN_VARIANT)) \
 	    --sqltgen $(abspath $(SQLTGEN))
 
 # Convenience shorthand: generate Python test files only.

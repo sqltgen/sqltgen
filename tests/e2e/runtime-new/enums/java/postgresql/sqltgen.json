@@ -6,7 +6,8 @@
     "gen": {
         "java": {
             "out": "src/main/java/com/example/db",
-            "package": "com.example.db"
+            "package": "com.example.db",
+            "manifest": "src/main/java/com/example/db/manifest.json"
         }
     }
 }

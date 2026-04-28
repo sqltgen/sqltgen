@@ -6,7 +6,8 @@
     "gen": {
         "kotlin": {
             "out": "src/main/kotlin/com/example/db",
-            "package": "com.example.db"
+            "package": "com.example.db",
+            "manifest": "src/main/kotlin/com/example/db/manifest.json"
         }
     }
 }

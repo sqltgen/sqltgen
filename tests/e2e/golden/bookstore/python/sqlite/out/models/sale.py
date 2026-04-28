@@ -2,11 +2,10 @@
 from __future__ import annotations
 
 import dataclasses
-import datetime
 
 
 @dataclasses.dataclass
 class Sale:
     id: int
     customer_id: int
-    ordered_at: datetime.datetime
+    ordered_at: str

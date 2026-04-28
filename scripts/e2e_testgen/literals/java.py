@@ -179,6 +179,8 @@ def render_typed_arg(
 
     if kind == "null":
         return "null"
+    if kind not in ("null", "json", "list", "var") and lang_type == "String":
+        return _java_str(str(value))
 
     if kind == "list":
         m = re.match(r"java\.util\.List<(.+)>", lang_type)
@@ -201,20 +203,14 @@ def render_typed_arg(
         return f'genJson({_java_str(_json.dumps(value))})'
 
     if kind == "datetime":
-        if coercions.get("datetime") == "string":
-            return _java_str(str(value))
         if "OffsetDateTime" in inner:
             return _java_offset_datetime(str(value))
         return _java_local_datetime(str(value))
 
     if kind == "date":
-        if coercions.get("date") == "string":
-            return _java_str(str(value))
         return _java_local_date(str(value))
 
     if kind == "time":
-        if coercions.get("time") == "string":
-            return _java_str(str(value))
         return _java_local_time(str(value))
 
     if kind == "uuid":
@@ -289,30 +285,7 @@ def render_assert_eq_typed(
     coercions: dict[str, str],
     field_lang_type: str | None = None,
 ) -> str:
-    """Type-aware equality assertion.
-
-    For int: appends L suffix so JUnit5 uses the long overload.
-    For datetime with OffsetDateTime field: upgrades expected to OffsetDateTime.
-    For json: expected is already genJson(...) so plain assertEquals works.
-    """
-    inner = _strip_java_time(field_lang_type or "")
-
-    if kind == "int":
-        if field_lang_type in ("Integer", "int", "short", "Short"):
-            return f"assertEquals({expected}, {field_expr});"
-        return f"assertEquals({expected}L, {field_expr});"
-
-    if kind == "datetime" and "OffsetDateTime" in inner:
-        m = re.match(r'LocalDateTime\.of\((.+)\)', expected)
-        if m:
-            args = m.group(1)
-            ot_expr = f"OffsetDateTime.of({args}, 0, ZoneOffset.UTC)"
-            return f"assertEquals({ot_expr}, {field_expr});"
-
-    if kind == "str" and _is_enum_type(field_lang_type or ""):
-        enum_type = field_lang_type
-        return f"assertEquals({enum_type}.fromValue({expected}), {field_expr});"
-
+    """Equality assertion. Expected value is already fully typed via render_typed_arg."""
     return f"assertEquals({expected}, {field_expr});"
 
 

@@ -11,14 +11,11 @@ scenarios:
   - name: insert_and_get_record
     section: ":one queries"
     steps:
-      - let:
-          uid1: {uuid: random}
-          uid2: {uuid: random}
       - call: insert_record
         args:
           label: {str: "test"}
           timestamps: {list: [{datetime: "2024-01-15T10:30:00"}, {datetime: "2024-06-01T12:00:00"}]}
-          uuids: {list: [{var: uid1}, {var: uid2}]}
+          uuids: {list: [{uuid: "550e8400-e29b-41d4-a716-446655440001"}, {uuid: "550e8400-e29b-41d4-a716-446655440002"}]}
       - call: get_record
         args: {id: {int: 1}}
         bind: row
@@ -28,8 +25,8 @@ scenarios:
       - assert_eq: {field: "row.timestamps[0]", value: {datetime: "2024-01-15T10:30:00"}}
       - assert_eq: {field: "row.timestamps[1]", value: {datetime: "2024-06-01T12:00:00"}}
       - assert_len: {var: row.uuids, value: 2}
-      - assert_eq: {field: "row.uuids[0]", value: {var: uid1}, compare: uuid_str}
-      - assert_eq: {field: "row.uuids[1]", value: {var: uid2}, compare: uuid_str}
+      - assert_eq: {field: "row.uuids[0]", value: {uuid: "550e8400-e29b-41d4-a716-446655440001"}, compare: uuid_str}
+      - assert_eq: {field: "row.uuids[1]", value: {uuid: "550e8400-e29b-41d4-a716-446655440002"}, compare: uuid_str}
 
   - name: get_record_not_found
     section: ":one queries"

@@ -92,105 +92,83 @@ def render_typed_arg(
     engine: str,
     coercions: dict[str, str],
 ) -> str:
-    """Render a call argument using its exact Go lang_type from the manifest."""
+    """Render a call argument using its Go lang_type from the manifest.
+
+    Dispatches on lang_type (the source of truth from generated code),
+    using kind only as a hint for parsing format (e.g. date vs datetime).
+    """
+    # Structural kinds that need special handling regardless of lang_type.
     if kind == "null":
         return _go_null(lang_type)
     if kind == "list":
-        import re
-        m = re.match(r"\[]\*?(.+)", lang_type)
-        elem_lang_type = m.group(1) if m else ""
-        if not value:
-            go_type = lang_type
-            if _is_enum_type(elem_lang_type):
-                go_type = f"[]gen.{elem_lang_type}"
-            return f"{go_type}{{}}"
-        elements = []
-        for item in value:
-            item_kind, item_val = next(iter(item.items()))
-            if item_kind is None:
-                item_kind = "null"
-            elements.append(
-                render_typed_arg("_", elem_lang_type, str(item_kind), item_val, engine, coercions)
-            )
-        # Prefix enum slice types with gen. so they resolve in test files.
-        go_type = lang_type
-        if _is_enum_type(elem_lang_type):
-            go_type = f"[]gen.{elem_lang_type}"
-        return f"{go_type}{{{', '.join(elements)}}}"
+        return _go_list_arg(lang_type, value, engine, coercions)
     if kind == "json":
         return _go_json_arg(lang_type, value)
-    if kind == "datetime":
-        if coercions.get("datetime") == "string":
-            s = _go_str(str(value))
-            if lang_type == "sql.NullString":
-                return f"sql.NullString{{String: {s}, Valid: true}}"
-            return s
-        dt = _parse_go_datetime(str(value))
-        if lang_type == "sql.NullTime":
-            return f"sql.NullTime{{Time: {dt}, Valid: true}}"
-        return dt
-    if kind == "date":
-        if coercions.get("date") == "string":
-            s = _go_str(str(value))
-            if lang_type == "sql.NullString":
-                return f"sql.NullString{{String: {s}, Valid: true}}"
-            return s
-        d = _parse_go_date(str(value))
-        if lang_type == "sql.NullTime":
-            return f"sql.NullTime{{Time: {d}, Valid: true}}"
-        return d
-    if kind == "time":
-        if coercions.get("time") == "string":
-            s = _go_str(str(value))
-            if lang_type == "sql.NullString":
-                return f"sql.NullString{{String: {s}, Valid: true}}"
-            return s
-        # Go database/sql drivers return TIME columns as strings.
-        return "sql.NullTime{}"
     if kind == "var":
         var_name = str(value)
         if lang_type == "sql.NullTime":
             return f"sql.NullTime{{Time: {var_name}, Valid: true}}"
         return var_name
-    if kind == "str":
-        # Pointer-to-enum: *Priority → allocate and return pointer
-        if lang_type.startswith("*") and _is_enum_type(lang_type[1:]):
-            inner = lang_type[1:]
-            escaped = _escape_go_str(str(value))
-            return f'_genPtrTo(gen.{inner}("{escaped}"))'
-        # Non-pointer enum: Priority → type conversion
-        if _is_enum_type(lang_type):
-            return f'gen.{lang_type}("{_escape_go_str(str(value))}")'
-        # sql.NullString: wrap in Valid struct
-        if lang_type == "sql.NullString":
-            return f'sql.NullString{{String: {_go_str(value)}, Valid: true}}'
+    if kind == "uuid" and str(value) == "random":
+        return "genUUID()"
 
+    # Everything else: dispatch on lang_type.
+    if lang_type == "string":
+        return _go_str(str(value))
+    if lang_type == "sql.NullString":
+        return f"sql.NullString{{String: {_go_str(str(value))}, Valid: true}}"
+    if lang_type == "time.Time":
+        return _go_parse_time_value(kind, value)
+    if lang_type == "sql.NullTime":
+        parsed = _go_parse_time_value(kind, value)
+        return f"sql.NullTime{{Time: {parsed}, Valid: true}}"
+    if lang_type == "sql.NullInt32":
+        return f"sql.NullInt32{{Int32: {int(value)}, Valid: true}}"
+    if lang_type == "sql.NullInt64":
+        return f"sql.NullInt64{{Int64: {int(value)}, Valid: true}}"
+    if lang_type.startswith("*") and _is_enum_type(lang_type[1:]):
+        return f'_genPtrTo(gen.{lang_type[1:]}("{_escape_go_str(str(value))}"))'
+    if _is_enum_type(lang_type):
+        return f'gen.{lang_type}("{_escape_go_str(str(value))}")'
     if kind == "int":
-        n = str(int(value))
-        if lang_type == "sql.NullInt32":
-            return f"sql.NullInt32{{Int32: {n}, Valid: true}}"
-        if lang_type == "sql.NullInt64":
-            return f"sql.NullInt64{{Int64: {n}, Valid: true}}"
-        return n
-
+        return str(int(value))
     if kind == "float":
-        # Go maps NUMERIC/DECIMAL to string via database/sql.
-        if lang_type == "string":
-            return f'"{value}"'
-        if lang_type == "sql.NullString":
-            return f'sql.NullString{{String: "{value}", Valid: true}}'
         return str(float(value))
-
     if kind == "bool":
         return "true" if value else "false"
+    return _go_str(str(value))
 
-    if kind == "uuid":
-        if str(value) == "random":
-            return "genUUID()"
-        return _go_str(str(value))
 
-    # Fallback for unknown kinds.
-    return render_value(kind, value, engine, coercions)
+def _go_list_arg(lang_type: str, value: Any, engine: str, coercions: dict[str, str]) -> str:
+    """Render a list/slice argument."""
+    m = re.match(r"\[]\*?(.+)", lang_type)
+    elem_lang_type = m.group(1) if m else ""
+    if not value:
+        go_type = lang_type
+        if _is_enum_type(elem_lang_type):
+            go_type = f"[]gen.{elem_lang_type}"
+        return f"{go_type}{{}}"
+    elements = []
+    for item in value:
+        item_kind, item_val = next(iter(item.items()))
+        if item_kind is None:
+            item_kind = "null"
+        elements.append(
+            render_typed_arg("_", elem_lang_type, str(item_kind), item_val, engine, coercions)
+        )
+    go_type = lang_type
+    if _is_enum_type(elem_lang_type):
+        go_type = f"[]gen.{elem_lang_type}"
+    return f"{go_type}{{{', '.join(elements)}}}"
+
+
+def _go_parse_time_value(kind: str, value: Any) -> str:
+    """Parse a time-like value based on the YAML kind hint."""
+    if kind == "date":
+        return _parse_go_date(str(value))
+    if kind == "time":
+        return _parse_go_time(str(value))
+    return _parse_go_datetime(str(value))
 
 
 # ── render_call_lines: Go-style error handling ───────────────────────────
@@ -257,44 +235,37 @@ def render_assert_eq_typed(
     coercions: dict[str, str],
     field_lang_type: str | None = None,
 ) -> str:
-    """Type-aware equality assertion.
-
-    For datetime/date/time: uses _genTimeOf to extract time.Time from sql.NullTime.
-    For json: uses genAssertJSON which handles []byte and string uniformly.
-    For other types: direct != comparison.
-    """
-    if kind == "time":
-        # Go drivers return TIME as a string; sql.Scan cannot convert it to time.Time.
-        return f"// {field_expr}: TIME scan unsupported in Go drivers; assertion skipped"
-    if kind in ("datetime", "date", "time"):
-        # expected is a time.Date(...) expression (from render_value).
-        # _genTimeOf extracts time.Time from both time.Time and sql.NullTime.
+    """Type-aware equality assertion. Dispatches on field_lang_type from the manifest."""
+    if kind == "json":
+        return f"genAssertJSON(t, {field_expr}, {expected})"
+    if field_lang_type == "time.Time":
+        return (
+            f"if !{field_expr}.Equal({expected}) {{"
+            f" t.Errorf(\"expected %v, got %v\", {expected}, {field_expr}) }}"
+        )
+    if field_lang_type == "sql.NullTime":
         return (
             f"if !_genTimeOf({field_expr}).Equal({expected}) {{"
             f" t.Errorf(\"expected %v, got %v\", {expected}, _genTimeOf({field_expr})) }}"
         )
-    if kind == "json":
-        # expected is a map[string]interface{}{...} expression.
-        # genAssertJSON handles []byte, *[]byte, sql.NullString, and string payloads.
-        return f"genAssertJSON(t, {field_expr}, {expected})"
-    if kind == "str" and field_lang_type and _is_enum_type(field_lang_type):
-        enum_expected = f'gen.{field_lang_type}({expected})'
-        return f"if {field_expr} != {enum_expected} {{ t.Errorf(\"expected %v, got %v\", {enum_expected}, {field_expr}) }}"
-    if kind == "str" and field_lang_type == "sql.NullString":
+    if field_lang_type == "sql.NullString":
         return (
             f"if !{field_expr}.Valid || {field_expr}.String != {expected} "
             f"{{ t.Errorf(\"expected %v, got %v\", {expected}, {field_expr}) }}"
         )
-    if kind == "int" and field_lang_type == "sql.NullInt32":
+    if field_lang_type == "sql.NullInt32":
         return (
             f"if !{field_expr}.Valid || {field_expr}.Int32 != {expected} "
             f"{{ t.Errorf(\"expected %v, got %v\", {expected}, {field_expr}) }}"
         )
-    if kind == "int" and field_lang_type == "sql.NullInt64":
+    if field_lang_type == "sql.NullInt64":
         return (
             f"if !{field_expr}.Valid || {field_expr}.Int64 != {expected} "
             f"{{ t.Errorf(\"expected %v, got %v\", {expected}, {field_expr}) }}"
         )
+    if field_lang_type and _is_enum_type(field_lang_type):
+        enum_expected = f'gen.{field_lang_type}({expected})'
+        return f"if {field_expr} != {enum_expected} {{ t.Errorf(\"expected %v, got %v\", {enum_expected}, {field_expr}) }}"
     return f"if {field_expr} != {expected} {{ t.Errorf(\"expected %v, got %v\", {expected}, {field_expr}) }}"
 
 

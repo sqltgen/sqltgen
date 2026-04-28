@@ -12,7 +12,6 @@ import argparse
 import json
 import subprocess
 import sys
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -30,14 +29,6 @@ _runtime_dir = RUNTIME_DIR  # Mutable; overridden by --runtime-dir CLI flag.
 KNOWN_LANGUAGES = ["python", "go", "typescript", "javascript", "rust", "java", "kotlin"]
 KNOWN_ENGINES = ["postgresql", "sqlite", "mysql"]
 
-# Non-default variants available per language.
-# A variant names the one thing deviating from the language default
-# (e.g. "gson" for Gson JSON library instead of Jackson).
-KNOWN_VARIANTS: dict[str, list[str]] = {
-    "java": ["gson"],
-    "kotlin": ["gson"],
-}
-
 # Output test file names per language.
 TEST_FILE_NAMES = {
     "python": "test_runtime_gen.py",
@@ -52,21 +43,11 @@ TEST_FILE_NAMES = {
 
 @dataclass
 class Combo:
-    """A (fixture, language, engine, variant) combination to generate/run.
-
-    variant names the one thing deviating from the language default (e.g. "gson").
-    Empty string means all defaults.
-    """
+    """A (fixture, language, engine) combination to generate/run."""
 
     fixture: str
     language: str
     engine: str
-    variant: str = ""
-
-    @property
-    def engine_dir(self) -> str:
-        """Directory name: engine + variant suffix when non-default."""
-        return f"{self.engine}-{self.variant}" if self.variant else self.engine
 
     @property
     def fixture_dir(self) -> Path:
@@ -74,7 +55,7 @@ class Combo:
 
     @property
     def runtime_dir(self) -> Path:
-        return _runtime_dir / self.fixture / self.language / self.engine_dir
+        return _runtime_dir / self.fixture / self.language / self.engine
 
     @property
     def spec_path(self) -> Path:
@@ -97,13 +78,11 @@ def discover_combos(
     fixture: str | None = None,
     lang: str | None = None,
     engine: str | None = None,
-    variant: str | None = None,
 ) -> list[Combo]:
     """Find all valid combos matching filters.
 
-    For each language, iterates the default variant (empty) plus any
-    language-specific variants from KNOWN_VARIANTS. Only combos whose
-    sqltgen.json exists on disk are included.
+    Reads each fixture's test_spec.yaml for language/engine constraints.
+    Only combos whose sqltgen.json exists on disk are included.
     """
     combos = []
     fixtures = [fixture] if fixture else [d.name for d in FIXTURES_DIR.iterdir() if d.is_dir()]
@@ -113,21 +92,27 @@ def discover_combos(
         if not spec_path.exists():
             continue
 
-        languages = [lang] if lang else KNOWN_LANGUAGES
-        engines = [engine] if engine else KNOWN_ENGINES
+        spec = TestSpec.load(spec_path)
+        spec_languages = spec.languages or KNOWN_LANGUAGES
+        spec_engines = spec.engines or KNOWN_ENGINES
+
+        languages = [lang] if lang else spec_languages
+        engines = [engine] if engine else spec_engines
 
         for l in languages:
-            variants = [variant] if variant is not None else [""] + KNOWN_VARIANTS.get(l, [])
+            if l not in spec_languages:
+                continue
             for e in engines:
-                for v in variants:
-                    combo = Combo(fixture=fix, language=l, engine=e, variant=v)
-                    if combo.sqltgen_json.exists():
-                        combos.append(combo)
+                if e not in spec_engines:
+                    continue
+                combo = Combo(fixture=fix, language=l, engine=e)
+                if combo.sqltgen_json.exists():
+                    combos.append(combo)
     return combos
 
 
 def ensure_manifest(combo: Combo, sqltgen_binary: str = "cargo") -> Path:
-    """Run sqltgen generate to produce the manifest, adding manifest key if needed.
+    """Run sqltgen generate to produce code and manifest.
 
     Returns the path to the manifest.json file.
     """
@@ -135,7 +120,6 @@ def ensure_manifest(combo: Combo, sqltgen_binary: str = "cargo") -> Path:
     with open(config_path) as f:
         config = json.load(f)
 
-    # Find the language key in gen
     lang_key = combo.language
     if lang_key not in config.get("gen", {}):
         available = list(config.get("gen", {}).keys())
@@ -145,35 +129,22 @@ def ensure_manifest(combo: Combo, sqltgen_binary: str = "cargo") -> Path:
         )
 
     gen_config = config["gen"][lang_key]
+    manifest_rel = gen_config.get("manifest", gen_config.get("out", "gen") + "/manifest.json")
 
-    # Add manifest key if not present
-    manifest_rel = gen_config.get("out", "gen") + "/manifest.json"
-    if "manifest" not in gen_config:
-        gen_config["manifest"] = manifest_rel
+    cmd = [sqltgen_binary, "run", "--", "generate", "--config", str(config_path)]
+    if sqltgen_binary != "cargo":
+        cmd = [sqltgen_binary, "generate", "--config", str(config_path)]
 
-    # Write modified config to a temp file in the same directory
-    tmp_config = config_path.parent / ".sqltgen_testgen.json"
-    with open(tmp_config, "w") as f:
-        json.dump(config, f, indent=2)
-
-    try:
-        # Run sqltgen generate
-        cmd = [sqltgen_binary, "run", "--", "generate", "--config", str(tmp_config)]
-        if sqltgen_binary != "cargo":
-            cmd = [sqltgen_binary, "generate", "--config", str(tmp_config)]
-
-        result = subprocess.run(
-            cmd,
-            cwd=str(REPO_ROOT),
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            print(f"sqltgen generate failed for {combo.language}/{combo.engine_dir}:", file=sys.stderr)
-            print(result.stderr, file=sys.stderr)
-            sys.exit(1)
-    finally:
-        tmp_config.unlink(missing_ok=True)
+    result = subprocess.run(
+        cmd,
+        cwd=str(REPO_ROOT),
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print(f"sqltgen generate failed for {combo.language}/{combo.engine}:", file=sys.stderr)
+        print(result.stderr, file=sys.stderr)
+        sys.exit(1)
 
     return Path(config_path.parent / manifest_rel)
 
@@ -189,7 +160,7 @@ def generate(combo: Combo, sqltgen_binary: str = "cargo") -> Path:
 
     # 3. Render test
     engine_override = spec.get_engine_override(combo.engine)
-    test_code = render_test(combo.language, combo.engine, spec, manifest, engine_override, combo.variant)
+    test_code = render_test(combo.language, combo.engine, spec, manifest, engine_override, spec.variant)
 
     # 4. Write test file
     output = combo.output_test_file
@@ -209,7 +180,6 @@ def main() -> None:
         p.add_argument("--fixture", help="Fixture name (e.g. type_overrides)")
         p.add_argument("--lang", help="Target language (e.g. python)")
         p.add_argument("--engine", help="Database engine (e.g. postgresql)")
-        p.add_argument("--variant", help="Non-default variant (e.g. gson)")
         p.add_argument("--sqltgen", default="cargo", help="sqltgen binary or 'cargo' (default)")
         p.add_argument("--runtime-dir", help="Override runtime directory (default: tests/e2e/runtime)")
 
@@ -219,7 +189,7 @@ def main() -> None:
     if args.runtime_dir:
         _runtime_dir = Path(args.runtime_dir).resolve()
 
-    combos = discover_combos(args.fixture, args.lang, args.engine, args.variant)
+    combos = discover_combos(args.fixture, args.lang, args.engine)
 
     if not combos:
         print("No matching combos found.", file=sys.stderr)
@@ -227,7 +197,7 @@ def main() -> None:
 
     print(f"Found {len(combos)} combo(s):")
     for c in combos:
-        print(f"  {c.fixture}/{c.language}/{c.engine_dir}")
+        print(f"  {c.fixture}/{c.language}/{c.engine}")
 
     skipped = []
 
@@ -236,7 +206,7 @@ def main() -> None:
             try:
                 generate(combo, args.sqltgen)
             except ModuleNotFoundError as e:
-                print(f"  Skipped {combo.language}/{combo.engine_dir}: {e}", file=sys.stderr)
+                print(f"  Skipped {combo.language}/{combo.engine}: {e}", file=sys.stderr)
                 skipped.append(combo)
 
     elif args.command == "run":
@@ -244,14 +214,14 @@ def main() -> None:
             try:
                 generate(combo, args.sqltgen)
             except ModuleNotFoundError as e:
-                print(f"  Skipped {combo.language}/{combo.engine_dir}: {e}", file=sys.stderr)
+                print(f"  Skipped {combo.language}/{combo.engine}: {e}", file=sys.stderr)
                 skipped.append(combo)
         # TODO: Add language-specific test runners
         print("\nTest running not yet implemented. Generated files are ready for manual testing.")
 
     if skipped:
         print(f"\n{len(skipped)} combo(s) skipped (renderer not yet implemented):"
-              f" {', '.join(f'{c.language}/{c.engine_dir}' for c in skipped)}", file=sys.stderr)
+              f" {', '.join(f'{c.language}/{c.engine}' for c in skipped)}", file=sys.stderr)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,13 @@
+{
+    "version": "1",
+    "engine": "sqlite",
+    "schema": "../../../../fixtures/type_overrides/sqlite/schema.sql",
+    "queries": "../../../../fixtures/type_overrides/sqlite/queries.sql",
+    "gen": {
+        "go": {
+            "out": "gen",
+            "package": "gen",
+            "manifest": "gen/manifest.json"
+        }
+    }
+}

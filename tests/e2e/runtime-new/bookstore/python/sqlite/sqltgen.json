@@ -6,7 +6,8 @@
     "gen": {
         "python": {
             "out": "gen",
-            "package": "gen"
+            "package": "gen",
+            "manifest": "gen/manifest.json"
         }
     }
 }

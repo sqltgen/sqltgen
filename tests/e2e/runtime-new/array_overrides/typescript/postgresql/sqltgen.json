@@ -6,7 +6,8 @@
     "gen": {
         "typescript": {
             "out": "gen",
-            "package": ""
+            "package": "",
+            "manifest": "gen/manifest.json"
         }
     }
 }

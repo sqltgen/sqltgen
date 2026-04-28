@@ -62,8 +62,6 @@ class Step:
         """Parse a step from YAML."""
         if "call" in raw:
             return Step(kind="call", data=raw)
-        if "let" in raw:
-            return Step(kind="let", data=raw)
         if "assert_eq" in raw:
             return Step(kind="assert_eq", data=raw["assert_eq"])
         if "assert_null" in raw:
@@ -116,6 +114,10 @@ class TestSpec:
     fixture: str
     scenarios: list[Scenario]
     engine_overrides: dict[str, EngineOverride]
+    languages: list[str] | None  # None = all languages
+    engines: list[str] | None  # None = all engines
+    sqltgen_overrides: dict[str, Any]  # e.g. {"type_overrides": {"json": "gson"}}
+    variant: str  # e.g. "gson", "" for default/baseline
 
     @staticmethod
     def load(path: str | Path) -> TestSpec:
@@ -129,6 +131,10 @@ class TestSpec:
                 engine: EngineOverride.parse(overrides)
                 for engine, overrides in raw.get("engine_overrides", {}).items()
             },
+            languages=raw.get("languages"),
+            engines=raw.get("engines"),
+            sqltgen_overrides=raw.get("sqltgen_overrides", {}),
+            variant=raw.get("variant", ""),
         )
 
     def get_engine_override(self, engine: str) -> EngineOverride:

@@ -84,7 +84,7 @@ class RuntimeGenTest {
         Queries.createAuthor(conn, "A", null, 1900)
         Queries.createBook(conn, 1L, "Book1", "sci-fi", java.math.BigDecimal("10.0"), null)
         val affected = Queries.deleteBookById(conn, 1L)
-        assertEquals(1L, affected)
+        assertEquals(1, affected)
     }
 
     // ─── :many queries ────────────────────────────────────────────────────────────

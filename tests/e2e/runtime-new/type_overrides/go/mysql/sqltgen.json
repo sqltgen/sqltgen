@@ -1,0 +1,13 @@
+{
+    "version": "1",
+    "engine": "mysql",
+    "schema": "../../../../fixtures/type_overrides/mysql/schema.sql",
+    "queries": "../../../../fixtures/type_overrides/mysql/queries.sql",
+    "gen": {
+        "go": {
+            "out": "gen",
+            "package": "gen",
+            "manifest": "gen/manifest.json"
+        }
+    }
+}

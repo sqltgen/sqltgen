@@ -3,7 +3,6 @@ package db
 
 import (
 	"database/sql"
-	"time"
 )
 
 // Author represents a row from the author table.
@@ -35,7 +34,7 @@ type Customer struct {
 type Sale struct {
 	Id	int32
 	CustomerId	int32
-	OrderedAt	time.Time
+	OrderedAt	string
 }
 
 // SaleItem represents a row from the sale_item table.
