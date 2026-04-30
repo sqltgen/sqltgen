@@ -72,7 +72,7 @@ pub struct TypeScriptCodegen {
 
 impl Codegen for TypeScriptCodegen {
     fn generate(&self, schema: &Schema, queries: &[Query], config: &OutputConfig) -> anyhow::Result<Vec<GeneratedFile>> {
-        let contract = adapter::resolve_ts_contract(self.target, self.output);
+        let adapter = adapter::build_adapter(self.target, self.output);
         let ext = match self.output {
             JsOutput::TypeScript => "ts",
             JsOutput::JavaScript => "js",
@@ -83,11 +83,11 @@ impl Codegen for TypeScriptCodegen {
             JsOutput::JavaScript => "javascript",
         };
 
-        let type_map = typemap::build_js_type_map(config, &contract);
+        let type_map = typemap::build_js_type_map(config, adapter.as_ref());
 
         let mut files = Vec::new();
-        files.push(adapter::emit_helper_file(&contract, config, ext));
-        files.extend(core::generate_core_files(self, schema, queries, &contract, config, &type_map)?);
+        files.push(adapter::emit_helper_file(adapter.as_ref(), config, ext));
+        files.extend(core::generate_core_files(self, schema, queries, adapter.as_ref(), config, &type_map)?);
 
         if let Some(manifest) = build_manifest_file(
             lang,

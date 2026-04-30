@@ -2,7 +2,7 @@
 
 /**
  * @typedef {Object} Author
- * @property {number} id
+ * @property {bigint} id
  * @property {string} name
  * @property {string | null} bio
  * @property {number | null} birth_year

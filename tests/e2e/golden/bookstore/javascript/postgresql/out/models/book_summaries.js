@@ -2,7 +2,7 @@
 
 /**
  * @typedef {Object} BookSummaries
- * @property {number} id
+ * @property {bigint} id
  * @property {string} title
  * @property {string} genre
  * @property {string} author_name

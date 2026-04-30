@@ -196,66 +196,70 @@ export async function createAuthor(db: Db, name: string, bio: string | null, bir
   await db.query(SQL_CREATE_AUTHOR, [name, bio, birthYear]);
 }
 
-export async function getAuthor(db: Db, id: number): Promise<Author | null> {
-  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_AUTHOR, [id]);
-  return (rows[0] as Author | undefined) ?? null;
+export async function getAuthor(db: Db, id: bigint): Promise<Author | null> {
+  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_AUTHOR, [String(id)]);
+  const raw = rows[0] as Author | undefined;
+  if (!raw) return null;
+  return { ...raw, id: BigInt(raw.id) };
 }
 
 export async function listAuthors(db: Db): Promise<Author[]> {
   const [rows] = await db.query<RowDataPacket[]>(SQL_LIST_AUTHORS, []);
-  return rows as Author[];
+  return (rows as Author[]).map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
-export async function updateAuthorBio(db: Db, bio: string | null, id: number): Promise<void> {
-  await db.query(SQL_UPDATE_AUTHOR_BIO, [bio, id]);
+export async function updateAuthorBio(db: Db, bio: string | null, id: bigint): Promise<void> {
+  await db.query(SQL_UPDATE_AUTHOR_BIO, [bio, String(id)]);
 }
 
-export async function deleteAuthor(db: Db, id: number): Promise<void> {
-  await db.query(SQL_DELETE_AUTHOR, [id]);
+export async function deleteAuthor(db: Db, id: bigint): Promise<void> {
+  await db.query(SQL_DELETE_AUTHOR, [String(id)]);
 }
 
-export async function createBook(db: Db, authorId: number, title: string, genre: string, price: number, publishedAt: string | null): Promise<void> {
-  await db.query(SQL_CREATE_BOOK, [authorId, title, genre, price, publishedAt]);
+export async function createBook(db: Db, authorId: bigint, title: string, genre: string, price: string, publishedAt: string | null): Promise<void> {
+  await db.query(SQL_CREATE_BOOK, [String(authorId), title, genre, price, publishedAt]);
 }
 
-export async function getBook(db: Db, id: number): Promise<Book | null> {
-  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_BOOK, [id]);
-  return (rows[0] as Book | undefined) ?? null;
+export async function getBook(db: Db, id: bigint): Promise<Book | null> {
+  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_BOOK, [String(id)]);
+  const raw = rows[0] as Book | undefined;
+  if (!raw) return null;
+  return { ...raw, id: BigInt(raw.id), author_id: BigInt(raw.author_id) };
 }
 
-export async function getBooksByIds(db: Db, ids: number[]): Promise<Book[]> {
-  const idsJson = JSON.stringify(ids);
+export async function getBooksByIds(db: Db, ids: bigint[]): Promise<Book[]> {
+  const idsJson = JSON.stringify(ids, (_, v) => typeof v === 'bigint' ? String(v) : v);
   const [rows] = await db.query<RowDataPacket[]>(SQL_GET_BOOKS_BY_IDS, [idsJson]);
-  return rows as Book[];
+  return (rows as Book[]).map(raw => ({ ...raw, id: BigInt(raw.id), author_id: BigInt(raw.author_id) }));
 }
 
 export async function listBooksByGenre(db: Db, genre: string): Promise<Book[]> {
   const [rows] = await db.query<RowDataPacket[]>(SQL_LIST_BOOKS_BY_GENRE, [genre]);
-  return rows as Book[];
+  return (rows as Book[]).map(raw => ({ ...raw, id: BigInt(raw.id), author_id: BigInt(raw.author_id) }));
 }
 
 export async function listBooksByGenreOrAll(db: Db, genre: string): Promise<Book[]> {
   const [rows] = await db.query<RowDataPacket[]>(SQL_LIST_BOOKS_BY_GENRE_OR_ALL, [genre, genre]);
-  return rows as Book[];
+  return (rows as Book[]).map(raw => ({ ...raw, id: BigInt(raw.id), author_id: BigInt(raw.author_id) }));
 }
 
 export async function createCustomer(db: Db, name: string, email: string): Promise<void> {
   await db.query(SQL_CREATE_CUSTOMER, [name, email]);
 }
 
-export async function createSale(db: Db, customerId: number): Promise<void> {
-  await db.query(SQL_CREATE_SALE, [customerId]);
+export async function createSale(db: Db, customerId: bigint): Promise<void> {
+  await db.query(SQL_CREATE_SALE, [String(customerId)]);
 }
 
-export async function addSaleItem(db: Db, saleId: number, bookId: number, quantity: number, unitPrice: number): Promise<void> {
-  await db.query(SQL_ADD_SALE_ITEM, [saleId, bookId, quantity, unitPrice]);
+export async function addSaleItem(db: Db, saleId: bigint, bookId: bigint, quantity: number, unitPrice: string): Promise<void> {
+  await db.query(SQL_ADD_SALE_ITEM, [String(saleId), String(bookId), quantity, unitPrice]);
 }
 
 export interface ListBooksWithAuthorRow {
-  id: number;
+  id: bigint;
   title: string;
   genre: string;
-  price: number;
+  price: string;
   published_at: string | null;
   author_name: string;
   author_bio: string | null;
@@ -263,194 +267,194 @@ export interface ListBooksWithAuthorRow {
 
 export async function listBooksWithAuthor(db: Db): Promise<ListBooksWithAuthorRow[]> {
   const [rows] = await db.query<RowDataPacket[]>(SQL_LIST_BOOKS_WITH_AUTHOR, []);
-  return rows as ListBooksWithAuthorRow[];
+  return (rows as ListBooksWithAuthorRow[]).map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 export async function getBooksNeverOrdered(db: Db): Promise<Book[]> {
   const [rows] = await db.query<RowDataPacket[]>(SQL_GET_BOOKS_NEVER_ORDERED, []);
-  return rows as Book[];
+  return (rows as Book[]).map(raw => ({ ...raw, id: BigInt(raw.id), author_id: BigInt(raw.author_id) }));
 }
 
 export interface GetTopSellingBooksRow {
-  id: number;
+  id: bigint;
   title: string;
   genre: string;
-  price: number;
-  units_sold: number | null;
+  price: string;
+  units_sold: string | null;
 }
 
 export async function getTopSellingBooks(db: Db): Promise<GetTopSellingBooksRow[]> {
   const [rows] = await db.query<RowDataPacket[]>(SQL_GET_TOP_SELLING_BOOKS, []);
-  return rows as GetTopSellingBooksRow[];
+  return (rows as GetTopSellingBooksRow[]).map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 export interface GetBestCustomersRow {
-  id: number;
+  id: bigint;
   name: string;
   email: string;
-  total_spent: number | null;
+  total_spent: string | null;
 }
 
 export async function getBestCustomers(db: Db): Promise<GetBestCustomersRow[]> {
   const [rows] = await db.query<RowDataPacket[]>(SQL_GET_BEST_CUSTOMERS, []);
-  return rows as GetBestCustomersRow[];
+  return (rows as GetBestCustomersRow[]).map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 export interface CountBooksByGenreRow {
   genre: string;
-  book_count: number;
+  book_count: bigint;
 }
 
 export async function countBooksByGenre(db: Db): Promise<CountBooksByGenreRow[]> {
   const [rows] = await db.query<RowDataPacket[]>(SQL_COUNT_BOOKS_BY_GENRE, []);
-  return rows as CountBooksByGenreRow[];
+  return (rows as CountBooksByGenreRow[]).map(raw => ({ ...raw, book_count: BigInt(raw.book_count) }));
 }
 
 export interface ListBooksWithLimitRow {
-  id: number;
+  id: bigint;
   title: string;
   genre: string;
-  price: number;
+  price: string;
 }
 
-export async function listBooksWithLimit(db: Db, limit: number, offset: number): Promise<ListBooksWithLimitRow[]> {
-  const [rows] = await db.query<RowDataPacket[]>(SQL_LIST_BOOKS_WITH_LIMIT, [limit, offset]);
-  return rows as ListBooksWithLimitRow[];
+export async function listBooksWithLimit(db: Db, limit: bigint, offset: bigint): Promise<ListBooksWithLimitRow[]> {
+  const [rows] = await db.query<RowDataPacket[]>(SQL_LIST_BOOKS_WITH_LIMIT, [String(limit), String(offset)]);
+  return (rows as ListBooksWithLimitRow[]).map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 export interface SearchBooksByTitleRow {
-  id: number;
+  id: bigint;
   title: string;
   genre: string;
-  price: number;
+  price: string;
 }
 
 export async function searchBooksByTitle(db: Db, title: string): Promise<SearchBooksByTitleRow[]> {
   const [rows] = await db.query<RowDataPacket[]>(SQL_SEARCH_BOOKS_BY_TITLE, [title]);
-  return rows as SearchBooksByTitleRow[];
+  return (rows as SearchBooksByTitleRow[]).map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 export interface GetBooksByPriceRangeRow {
-  id: number;
+  id: bigint;
   title: string;
   genre: string;
-  price: number;
+  price: string;
 }
 
-export async function getBooksByPriceRange(db: Db, price: number, price2: number): Promise<GetBooksByPriceRangeRow[]> {
+export async function getBooksByPriceRange(db: Db, price: string, price2: string): Promise<GetBooksByPriceRangeRow[]> {
   const [rows] = await db.query<RowDataPacket[]>(SQL_GET_BOOKS_BY_PRICE_RANGE, [price, price2]);
-  return rows as GetBooksByPriceRangeRow[];
+  return (rows as GetBooksByPriceRangeRow[]).map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 export interface GetBooksInGenresRow {
-  id: number;
+  id: bigint;
   title: string;
   genre: string;
-  price: number;
+  price: string;
 }
 
 export async function getBooksInGenres(db: Db, genre: string, genre2: string, genre3: string): Promise<GetBooksInGenresRow[]> {
   const [rows] = await db.query<RowDataPacket[]>(SQL_GET_BOOKS_IN_GENRES, [genre, genre2, genre3]);
-  return rows as GetBooksInGenresRow[];
+  return (rows as GetBooksInGenresRow[]).map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 export interface GetBookPriceLabelRow {
-  id: number;
+  id: bigint;
   title: string;
-  price: number;
+  price: string;
   price_label: string;
 }
 
-export async function getBookPriceLabel(db: Db, price: number): Promise<GetBookPriceLabelRow[]> {
+export async function getBookPriceLabel(db: Db, price: string): Promise<GetBookPriceLabelRow[]> {
   const [rows] = await db.query<RowDataPacket[]>(SQL_GET_BOOK_PRICE_LABEL, [price]);
-  return rows as GetBookPriceLabelRow[];
+  return (rows as GetBookPriceLabelRow[]).map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 export interface GetBookPriceOrDefaultRow {
-  id: number;
+  id: bigint;
   title: string;
-  effective_price: number;
+  effective_price: string;
 }
 
-export async function getBookPriceOrDefault(db: Db, price: number | null): Promise<GetBookPriceOrDefaultRow[]> {
+export async function getBookPriceOrDefault(db: Db, price: string | null): Promise<GetBookPriceOrDefaultRow[]> {
   const [rows] = await db.query<RowDataPacket[]>(SQL_GET_BOOK_PRICE_OR_DEFAULT, [price]);
-  return rows as GetBookPriceOrDefaultRow[];
+  return (rows as GetBookPriceOrDefaultRow[]).map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
-export async function deleteBookById(db: Db, id: number): Promise<number> {
-  const [result] = await db.query<ResultSetHeader>(SQL_DELETE_BOOK_BY_ID, [id]);
+export async function deleteBookById(db: Db, id: bigint): Promise<number> {
+  const [result] = await db.query<ResultSetHeader>(SQL_DELETE_BOOK_BY_ID, [String(id)]);
   return result.affectedRows;
 }
 
 export interface GetGenresWithManyBooksRow {
   genre: string;
-  book_count: number;
+  book_count: bigint;
 }
 
-export async function getGenresWithManyBooks(db: Db, count: number): Promise<GetGenresWithManyBooksRow[]> {
-  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_GENRES_WITH_MANY_BOOKS, [count]);
-  return rows as GetGenresWithManyBooksRow[];
+export async function getGenresWithManyBooks(db: Db, count: bigint): Promise<GetGenresWithManyBooksRow[]> {
+  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_GENRES_WITH_MANY_BOOKS, [String(count)]);
+  return (rows as GetGenresWithManyBooksRow[]).map(raw => ({ ...raw, book_count: BigInt(raw.book_count) }));
 }
 
 export interface GetBooksByAuthorParamRow {
-  id: number;
+  id: bigint;
   title: string;
-  price: number;
+  price: string;
 }
 
 export async function getBooksByAuthorParam(db: Db, birthYear: number | null): Promise<GetBooksByAuthorParamRow[]> {
   const [rows] = await db.query<RowDataPacket[]>(SQL_GET_BOOKS_BY_AUTHOR_PARAM, [birthYear]);
-  return rows as GetBooksByAuthorParamRow[];
+  return (rows as GetBooksByAuthorParamRow[]).map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 export async function getAllBookFields(db: Db): Promise<Book[]> {
   const [rows] = await db.query<RowDataPacket[]>(SQL_GET_ALL_BOOK_FIELDS, []);
-  return rows as Book[];
+  return (rows as Book[]).map(raw => ({ ...raw, id: BigInt(raw.id), author_id: BigInt(raw.author_id) }));
 }
 
 export interface GetBooksNotByAuthorRow {
-  id: number;
+  id: bigint;
   title: string;
   genre: string;
 }
 
 export async function getBooksNotByAuthor(db: Db, name: string): Promise<GetBooksNotByAuthorRow[]> {
   const [rows] = await db.query<RowDataPacket[]>(SQL_GET_BOOKS_NOT_BY_AUTHOR, [name]);
-  return rows as GetBooksNotByAuthorRow[];
+  return (rows as GetBooksNotByAuthorRow[]).map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 export interface GetBooksWithRecentSalesRow {
-  id: number;
+  id: bigint;
   title: string;
   genre: string;
 }
 
 export async function getBooksWithRecentSales(db: Db, orderedAt: Date): Promise<GetBooksWithRecentSalesRow[]> {
   const [rows] = await db.query<RowDataPacket[]>(SQL_GET_BOOKS_WITH_RECENT_SALES, [orderedAt]);
-  return rows as GetBooksWithRecentSalesRow[];
+  return (rows as GetBooksWithRecentSalesRow[]).map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 export interface GetBookWithAuthorNameRow {
-  id: number;
+  id: bigint;
   title: string;
   author_name: string | null;
 }
 
 export async function getBookWithAuthorName(db: Db): Promise<GetBookWithAuthorNameRow[]> {
   const [rows] = await db.query<RowDataPacket[]>(SQL_GET_BOOK_WITH_AUTHOR_NAME, []);
-  return rows as GetBookWithAuthorNameRow[];
+  return (rows as GetBookWithAuthorNameRow[]).map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 export interface GetAuthorStatsRow {
-  id: number;
+  id: bigint;
   name: string;
-  num_books: number;
-  total_sold: number;
+  num_books: bigint;
+  total_sold: string;
 }
 
 export async function getAuthorStats(db: Db): Promise<GetAuthorStatsRow[]> {
   const [rows] = await db.query<RowDataPacket[]>(SQL_GET_AUTHOR_STATS, []);
-  return rows as GetAuthorStatsRow[];
+  return (rows as GetAuthorStatsRow[]).map(raw => ({ ...raw, id: BigInt(raw.id), num_books: BigInt(raw.num_books) }));
 }
 
 export async function getProduct(db: Db, id: string): Promise<Product | null> {
@@ -476,32 +480,32 @@ export async function listActiveProducts(db: Db, active: boolean): Promise<ListA
 }
 
 export interface GetAuthorsWithNullBioRow {
-  id: number;
+  id: bigint;
   name: string;
   birth_year: number | null;
 }
 
 export async function getAuthorsWithNullBio(db: Db): Promise<GetAuthorsWithNullBioRow[]> {
   const [rows] = await db.query<RowDataPacket[]>(SQL_GET_AUTHORS_WITH_NULL_BIO, []);
-  return rows as GetAuthorsWithNullBioRow[];
+  return (rows as GetAuthorsWithNullBioRow[]).map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 export async function getAuthorsWithBio(db: Db): Promise<Author[]> {
   const [rows] = await db.query<RowDataPacket[]>(SQL_GET_AUTHORS_WITH_BIO, []);
-  return rows as Author[];
+  return (rows as Author[]).map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 export interface GetBooksPublishedBetweenRow {
-  id: number;
+  id: bigint;
   title: string;
   genre: string;
-  price: number;
+  price: string;
   published_at: string | null;
 }
 
 export async function getBooksPublishedBetween(db: Db, publishedAt: string | null, publishedAt2: string | null): Promise<GetBooksPublishedBetweenRow[]> {
   const [rows] = await db.query<RowDataPacket[]>(SQL_GET_BOOKS_PUBLISHED_BETWEEN, [publishedAt, publishedAt2]);
-  return rows as GetBooksPublishedBetweenRow[];
+  return (rows as GetBooksPublishedBetweenRow[]).map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 export interface GetDistinctGenresRow {
@@ -514,31 +518,33 @@ export async function getDistinctGenres(db: Db): Promise<GetDistinctGenresRow[]>
 }
 
 export interface GetBooksWithSalesCountRow {
-  id: number;
+  id: bigint;
   title: string;
   genre: string;
-  total_quantity: number;
+  total_quantity: string;
 }
 
 export async function getBooksWithSalesCount(db: Db): Promise<GetBooksWithSalesCountRow[]> {
   const [rows] = await db.query<RowDataPacket[]>(SQL_GET_BOOKS_WITH_SALES_COUNT, []);
-  return rows as GetBooksWithSalesCountRow[];
+  return (rows as GetBooksWithSalesCountRow[]).map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 export interface CountSaleItemsRow {
-  item_count: number;
+  item_count: bigint;
 }
 
-export async function countSaleItems(db: Db, saleId: number): Promise<CountSaleItemsRow | null> {
-  const [rows] = await db.query<RowDataPacket[]>(SQL_COUNT_SALE_ITEMS, [saleId]);
-  return (rows[0] as CountSaleItemsRow | undefined) ?? null;
+export async function countSaleItems(db: Db, saleId: bigint): Promise<CountSaleItemsRow | null> {
+  const [rows] = await db.query<RowDataPacket[]>(SQL_COUNT_SALE_ITEMS, [String(saleId)]);
+  const raw = rows[0] as CountSaleItemsRow | undefined;
+  if (!raw) return null;
+  return { ...raw, item_count: BigInt(raw.item_count) };
 }
 
 export interface GetSaleItemQuantityAggregatesRow {
   min_qty: number | null;
   max_qty: number | null;
-  sum_qty: number | null;
-  avg_qty: number | null;
+  sum_qty: string | null;
+  avg_qty: string | null;
 }
 
 export async function getSaleItemQuantityAggregates(db: Db): Promise<GetSaleItemQuantityAggregatesRow | null> {
@@ -547,10 +553,10 @@ export async function getSaleItemQuantityAggregates(db: Db): Promise<GetSaleItem
 }
 
 export interface GetBookPriceAggregatesRow {
-  min_price: number | null;
-  max_price: number | null;
-  sum_price: number | null;
-  avg_price: number | null;
+  min_price: string | null;
+  max_price: string | null;
+  sum_price: string | null;
+  avg_price: string | null;
 }
 
 export async function getBookPriceAggregates(db: Db): Promise<GetBookPriceAggregatesRow | null> {
@@ -570,7 +576,7 @@ export class Querier {
     }
   }
 
-  async getAuthor(id: number): Promise<Author | null> {
+  async getAuthor(id: bigint): Promise<Author | null> {
     const db = await this.connect();
     try {
       return getAuthor(db, id);
@@ -588,7 +594,7 @@ export class Querier {
     }
   }
 
-  async updateAuthorBio(bio: string | null, id: number): Promise<void> {
+  async updateAuthorBio(bio: string | null, id: bigint): Promise<void> {
     const db = await this.connect();
     try {
       return updateAuthorBio(db, bio, id);
@@ -597,7 +603,7 @@ export class Querier {
     }
   }
 
-  async deleteAuthor(id: number): Promise<void> {
+  async deleteAuthor(id: bigint): Promise<void> {
     const db = await this.connect();
     try {
       return deleteAuthor(db, id);
@@ -606,7 +612,7 @@ export class Querier {
     }
   }
 
-  async createBook(authorId: number, title: string, genre: string, price: number, publishedAt: string | null): Promise<void> {
+  async createBook(authorId: bigint, title: string, genre: string, price: string, publishedAt: string | null): Promise<void> {
     const db = await this.connect();
     try {
       return createBook(db, authorId, title, genre, price, publishedAt);
@@ -615,7 +621,7 @@ export class Querier {
     }
   }
 
-  async getBook(id: number): Promise<Book | null> {
+  async getBook(id: bigint): Promise<Book | null> {
     const db = await this.connect();
     try {
       return getBook(db, id);
@@ -624,7 +630,7 @@ export class Querier {
     }
   }
 
-  async getBooksByIds(ids: number[]): Promise<Book[]> {
+  async getBooksByIds(ids: bigint[]): Promise<Book[]> {
     const db = await this.connect();
     try {
       return getBooksByIds(db, ids);
@@ -660,7 +666,7 @@ export class Querier {
     }
   }
 
-  async createSale(customerId: number): Promise<void> {
+  async createSale(customerId: bigint): Promise<void> {
     const db = await this.connect();
     try {
       return createSale(db, customerId);
@@ -669,7 +675,7 @@ export class Querier {
     }
   }
 
-  async addSaleItem(saleId: number, bookId: number, quantity: number, unitPrice: number): Promise<void> {
+  async addSaleItem(saleId: bigint, bookId: bigint, quantity: number, unitPrice: string): Promise<void> {
     const db = await this.connect();
     try {
       return addSaleItem(db, saleId, bookId, quantity, unitPrice);
@@ -723,7 +729,7 @@ export class Querier {
     }
   }
 
-  async listBooksWithLimit(limit: number, offset: number): Promise<ListBooksWithLimitRow[]> {
+  async listBooksWithLimit(limit: bigint, offset: bigint): Promise<ListBooksWithLimitRow[]> {
     const db = await this.connect();
     try {
       return listBooksWithLimit(db, limit, offset);
@@ -741,7 +747,7 @@ export class Querier {
     }
   }
 
-  async getBooksByPriceRange(price: number, price2: number): Promise<GetBooksByPriceRangeRow[]> {
+  async getBooksByPriceRange(price: string, price2: string): Promise<GetBooksByPriceRangeRow[]> {
     const db = await this.connect();
     try {
       return getBooksByPriceRange(db, price, price2);
@@ -759,7 +765,7 @@ export class Querier {
     }
   }
 
-  async getBookPriceLabel(price: number): Promise<GetBookPriceLabelRow[]> {
+  async getBookPriceLabel(price: string): Promise<GetBookPriceLabelRow[]> {
     const db = await this.connect();
     try {
       return getBookPriceLabel(db, price);
@@ -768,7 +774,7 @@ export class Querier {
     }
   }
 
-  async getBookPriceOrDefault(price: number | null): Promise<GetBookPriceOrDefaultRow[]> {
+  async getBookPriceOrDefault(price: string | null): Promise<GetBookPriceOrDefaultRow[]> {
     const db = await this.connect();
     try {
       return getBookPriceOrDefault(db, price);
@@ -777,7 +783,7 @@ export class Querier {
     }
   }
 
-  async deleteBookById(id: number): Promise<number> {
+  async deleteBookById(id: bigint): Promise<number> {
     const db = await this.connect();
     try {
       return deleteBookById(db, id);
@@ -786,7 +792,7 @@ export class Querier {
     }
   }
 
-  async getGenresWithManyBooks(count: number): Promise<GetGenresWithManyBooksRow[]> {
+  async getGenresWithManyBooks(count: bigint): Promise<GetGenresWithManyBooksRow[]> {
     const db = await this.connect();
     try {
       return getGenresWithManyBooks(db, count);
@@ -912,7 +918,7 @@ export class Querier {
     }
   }
 
-  async countSaleItems(saleId: number): Promise<CountSaleItemsRow | null> {
+  async countSaleItems(saleId: bigint): Promise<CountSaleItemsRow | null> {
     const db = await this.connect();
     try {
       return countSaleItems(db, saleId);

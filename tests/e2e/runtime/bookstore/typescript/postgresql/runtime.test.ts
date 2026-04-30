@@ -285,7 +285,7 @@ describe('createCustomer / createSale queries', () => {
     try {
       const cust = await queries.createCustomer(client, 'Solo', 'solo@example.com');
       assert.ok(cust);
-      assert.ok(cust.id > 0);
+      assert.ok(cust.id > 0n);
     } finally { await teardown(client, schema); }
   });
 
@@ -296,7 +296,7 @@ describe('createCustomer / createSale queries', () => {
       assert.ok(cust);
       const sale = await queries.createSale(client, cust.id);
       assert.ok(sale);
-      assert.ok(sale.id > 0);
+      assert.ok(sale.id > 0n);
     } finally { await teardown(client, schema); }
   });
 });

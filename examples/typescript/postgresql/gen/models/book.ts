@@ -3,10 +3,10 @@
 import type { Genre } from './genre';
 
 export interface Book {
-  id: number;
-  author_id: number;
+  id: bigint;
+  author_id: bigint;
   title: string;
   genre: Genre;
-  price: number;
+  price: string;
   published_at: Date | null;
 }

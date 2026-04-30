@@ -2,8 +2,8 @@
 
 /**
  * @typedef {Object} Internal_AuditLog
- * @property {number} id
- * @property {number} user_id
+ * @property {bigint} id
+ * @property {bigint} user_id
  * @property {string} action
  * @property {Date} created_at
  */

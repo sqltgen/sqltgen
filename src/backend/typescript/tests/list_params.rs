@@ -54,19 +54,20 @@ fn src_has_sql_constant(content: &str, needle: &str) -> bool {
 fn test_pg_native_list_param_ts() {
     let schema = Schema::default();
     let content = build_queries_file("", &[pg_list_by_ids_query()], &schema, &JsTarget::Pg, &JsOutput::TypeScript, &config()).unwrap();
-    // SQL constant rewrites IN ($1) → = ANY($1); pg accepts a JS array directly.
-    assert!(src_has_sql_constant(&content, "= ANY($1)"), "PG native should rewrite to = ANY");
-    assert!(content.contains("ids: number[]"), "list param must use number[] type");
+    // SQL constant rewrites IN ($1) → = ANY($1::bigint[]); the cast prevents text[] type mismatch.
+    assert!(src_has_sql_constant(&content, "= ANY($1::bigint[])"), "PG native should rewrite to = ANY with ::bigint[] cast");
+    assert!(content.contains("ids: bigint[]"), "list param must use bigint[] type");
     assert!(!content.contains("JSON.stringify"), "PG native must not call JSON.stringify");
-    // Args array includes ids at its position.
-    assert!(content.contains("[ids]"), "ids array passed directly to pg");
+    // bigint[] is coerced to number[] so pg can infer the correct BIGINT array type for ANY($1).
+    assert!(content.contains("[ids.map(String)]"), "bigint[] must be coerced to string[] for pg ANY");
+    assert!(content.contains("::bigint[]"), "pg native BigInt list must add ::bigint[] cast for ANY");
 }
 
 #[test]
 fn test_pg_native_list_param_js() {
     let schema = Schema::default();
     let content = build_queries_file("", &[pg_list_by_ids_query()], &schema, &JsTarget::Pg, &JsOutput::JavaScript, &config()).unwrap();
-    assert!(src_has_sql_constant(&content, "= ANY($1)"), "PG native should rewrite to = ANY");
+    assert!(src_has_sql_constant(&content, "= ANY($1::bigint[])"), "PG native should rewrite to = ANY with ::bigint[] cast");
     // JS output uses JSDoc comments, not inline TypeScript type annotations.
     assert!(!content.contains("ids: number[]"), "JS output must not use inline TS type annotations");
 }
@@ -75,11 +76,13 @@ fn test_pg_native_list_param_js() {
 fn test_pg_dynamic_list_param_ts() {
     let schema = Schema::default();
     let content = build_queries_file("", &[list_by_ids_query()], &schema, &JsTarget::Pg, &JsOutput::TypeScript, &dynamic_cfg()).unwrap();
-    assert!(content.contains("ids: number[]"), "list param must use number[] type");
+    assert!(content.contains("ids: bigint[]"), "list param must use bigint[] type");
     // Dynamic builds $N numbered placeholders at runtime.
     assert!(content.contains("'$' +"), "PG dynamic builds $N placeholders");
     assert!(content.contains("placeholders"), "must assemble placeholder string");
-    assert!(content.contains("...ids"), "list elements spread into args array");
+    // bigint[] spread into args uses .map(String) so each element binds as text, which pg
+    // coerces correctly when each $N is compared against a bigint column.
+    assert!(content.contains("...ids.map(String)"), "bigint list elements coerced to string for pg");
     // Dynamic must NOT emit a SQL constant.
     assert!(!content.contains("GET_BY_IDS"), "dynamic strategy must not emit a SQL constant");
 }
@@ -95,7 +98,7 @@ fn test_pg_dynamic_list_param_with_scalar_before() {
         vec![ResultColumn::not_nullable("id", SqlType::BigInt)],
     );
     let content = build_queries_file("", &[query], &schema, &JsTarget::Pg, &JsOutput::TypeScript, &dynamic_cfg()).unwrap();
-    assert!(content.contains("active, ...ids"), "scalar before IN must come first in args");
+    assert!(content.contains("active, ...ids.map(String)"), "scalar before IN must come first in args");
 }
 
 #[test]
@@ -109,7 +112,7 @@ fn test_pg_dynamic_list_param_with_scalar_after() {
         vec![ResultColumn::not_nullable("id", SqlType::BigInt)],
     );
     let content = build_queries_file("", &[query], &schema, &JsTarget::Pg, &JsOutput::TypeScript, &dynamic_cfg()).unwrap();
-    assert!(content.contains("...ids, active"), "scalar after IN must follow list in args");
+    assert!(content.contains("...ids.map(String), active"), "scalar after IN must follow list in args");
 }
 
 #[test]
@@ -118,9 +121,9 @@ fn test_sqlite_native_list_param_ts() {
     let content = build_queries_file("", &[sqlite_list_by_ids_query()], &schema, &JsTarget::BetterSqlite3, &JsOutput::TypeScript, &config()).unwrap();
     // SQL constant uses json_each for SQLite.
     assert!(src_has_sql_constant(&content, "json_each"), "SQLite native should use json_each");
-    assert!(content.contains("ids: number[]"), "list param must use number[] type");
-    // SQLite native uses JSON.stringify at runtime.
-    assert!(content.contains("JSON.stringify(ids)"), "SQLite native must JSON.stringify the list");
+    assert!(content.contains("ids: bigint[]"), "list param must use bigint[] type");
+    // SQLite native uses JSON.stringify with a BigInt replacer at runtime.
+    assert!(content.contains("typeof v === 'bigint'"), "SQLite native must use bigint-safe JSON.stringify");
     assert!(content.contains("idsJson"), "JSON variable should be named idsJson");
     assert!(!content.contains("= ANY"), "SQLite must not use PG ANY syntax");
 }
@@ -129,7 +132,7 @@ fn test_sqlite_native_list_param_ts() {
 fn test_sqlite_dynamic_list_param_ts() {
     let schema = Schema::default();
     let content = build_queries_file("", &[list_by_ids_query()], &schema, &JsTarget::BetterSqlite3, &JsOutput::TypeScript, &dynamic_cfg()).unwrap();
-    assert!(content.contains("ids: number[]"), "list param must use number[] type");
+    assert!(content.contains("ids: bigint[]"), "list param must use bigint[] type");
     // SQLite dynamic uses anonymous ? placeholders.
     assert!(content.contains(r#"() => "?""#), "SQLite dynamic must use ? placeholders");
     assert!(content.contains("placeholders"), "must assemble placeholder string");
@@ -157,8 +160,9 @@ fn test_mysql_native_list_param_ts() {
     let content = build_queries_file("", &[mysql_list_by_ids_query()], &schema, &JsTarget::Mysql2, &JsOutput::TypeScript, &config()).unwrap();
     // SQL constant uses JSON_TABLE for MySQL.
     assert!(src_has_sql_constant(&content, "JSON_TABLE"), "MySQL native should use JSON_TABLE");
-    assert!(content.contains("ids: number[]"), "list param must use number[] type");
-    assert!(content.contains("JSON.stringify(ids)"), "MySQL native must JSON.stringify the list");
+    assert!(content.contains("ids: bigint[]"), "list param must use bigint[] type");
+    // MySQL native uses JSON.stringify with a BigInt replacer at runtime.
+    assert!(content.contains("typeof v === 'bigint'"), "MySQL native must use bigint-safe JSON.stringify");
     assert!(content.contains("idsJson"), "JSON variable should be named idsJson");
     assert!(!content.contains("json_each"), "MySQL must not use SQLite json_each");
 }
@@ -167,7 +171,7 @@ fn test_mysql_native_list_param_ts() {
 fn test_mysql_dynamic_list_param_ts() {
     let schema = Schema::default();
     let content = build_queries_file("", &[list_by_ids_query()], &schema, &JsTarget::Mysql2, &JsOutput::TypeScript, &dynamic_cfg()).unwrap();
-    assert!(content.contains("ids: number[]"), "list param must use number[] type");
+    assert!(content.contains("ids: bigint[]"), "list param must use bigint[] type");
     // MySQL dynamic uses anonymous ? placeholders (same as SQLite, unlike PG).
     assert!(content.contains(r#"() => "?""#), "MySQL dynamic must use ? placeholders");
     assert!(content.contains("placeholders"), "must assemble placeholder string");

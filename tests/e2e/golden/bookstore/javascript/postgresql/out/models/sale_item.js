@@ -2,9 +2,9 @@
 
 /**
  * @typedef {Object} SaleItem
- * @property {number} id
- * @property {number} sale_id
- * @property {number} book_id
+ * @property {bigint} id
+ * @property {bigint} sale_id
+ * @property {bigint} book_id
  * @property {number} quantity
- * @property {number} unit_price
+ * @property {string} unit_price
  */
