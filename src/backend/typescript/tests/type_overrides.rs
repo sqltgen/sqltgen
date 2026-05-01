@@ -228,7 +228,7 @@ fn test_no_read_expr_no_row_transform() {
     let src = get_file(&files, "queries.ts");
 
     assert!(!src.contains(".map(raw =>"), "must not emit map transform without override:\n{src}");
-    assert!(src.contains("result.rows[0] ?? null"), "expected direct row return:\n{src}");
+    assert!(src.contains("const raw = result.rows[0];") && src.contains("return raw ?? null;"), "expected direct row return:\n{src}");
 }
 
 // ─── object preset end-to-end ─────────────────────────────────────────────────

@@ -19,7 +19,8 @@ export async function getUser(db: Db, id: bigint): Promise<Users | null> {
 
 export async function listAuditLogs(db: Db): Promise<Internal_AuditLog[]> {
   const result = await db.query<Internal_AuditLog>(SQL_LIST_AUDIT_LOGS, []);
-  return result.rows.map(raw => ({ ...raw, id: BigInt(raw.id), user_id: BigInt(raw.user_id) }));
+  const rows = result.rows;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id), user_id: BigInt(raw.user_id) }));
 }
 
 export async function createAuditLog(db: Db, userId: bigint, action: string): Promise<void> {

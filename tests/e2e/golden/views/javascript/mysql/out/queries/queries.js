@@ -23,8 +23,9 @@ ORDER BY title`;
  * @returns {Promise<BookSummaries[]>}
  */
 export async function listBookSummaries(db) {
-  const [rows] = await db.query(SQL_LIST_BOOK_SUMMARIES, []);
-  return (rows).map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const [rdp] = await db.query(SQL_LIST_BOOK_SUMMARIES, []);
+  const rows = rdp;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 /**
@@ -33,8 +34,9 @@ export async function listBookSummaries(db) {
  * @returns {Promise<BookSummaries[]>}
  */
 export async function listBookSummariesByGenre(db, genre) {
-  const [rows] = await db.query(SQL_LIST_BOOK_SUMMARIES_BY_GENRE, [genre]);
-  return (rows).map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const [rdp] = await db.query(SQL_LIST_BOOK_SUMMARIES_BY_GENRE, [genre]);
+  const rows = rdp;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 /**
@@ -42,8 +44,9 @@ export async function listBookSummariesByGenre(db, genre) {
  * @returns {Promise<SciFiBooks[]>}
  */
 export async function listSciFiBooks(db) {
-  const [rows] = await db.query(SQL_LIST_SCI_FI_BOOKS, []);
-  return (rows).map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const [rdp] = await db.query(SQL_LIST_SCI_FI_BOOKS, []);
+  const rows = rdp;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 export class Querier {

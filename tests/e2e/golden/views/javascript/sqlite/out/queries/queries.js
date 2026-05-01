@@ -23,7 +23,8 @@ ORDER BY title`;
  * @returns {Promise<BookSummaries[]>}
  */
 export async function listBookSummaries(db) {
-  return db.prepare(SQL_LIST_BOOK_SUMMARIES).all();
+  const rows = db.prepare(SQL_LIST_BOOK_SUMMARIES).all();
+  return rows;
 }
 
 /**
@@ -32,7 +33,8 @@ export async function listBookSummaries(db) {
  * @returns {Promise<BookSummaries[]>}
  */
 export async function listBookSummariesByGenre(db, genre) {
-  return db.prepare(SQL_LIST_BOOK_SUMMARIES_BY_GENRE).all(genre);
+  const rows = db.prepare(SQL_LIST_BOOK_SUMMARIES_BY_GENRE).all(genre);
+  return rows;
 }
 
 /**
@@ -40,7 +42,8 @@ export async function listBookSummariesByGenre(db, genre) {
  * @returns {Promise<SciFiBooks[]>}
  */
 export async function listSciFiBooks(db) {
-  return db.prepare(SQL_LIST_SCI_FI_BOOKS).all();
+  const rows = db.prepare(SQL_LIST_SCI_FI_BOOKS).all();
+  return rows;
 }
 
 export class Querier {

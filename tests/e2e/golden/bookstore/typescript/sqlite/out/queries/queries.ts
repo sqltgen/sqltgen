@@ -206,12 +206,13 @@ export async function createAuthor(db: Db, name: string, bio: string | null, bir
 }
 
 export async function getAuthor(db: Db, id: number): Promise<Author | null> {
-  const row = db.prepare(SQL_GET_AUTHOR).get(id) as Author | undefined;
-  return row ?? null;
+  const raw = db.prepare(SQL_GET_AUTHOR).get(id) as Author | undefined;
+  return raw ?? null;
 }
 
 export async function listAuthors(db: Db): Promise<Author[]> {
-  return db.prepare(SQL_LIST_AUTHORS).all() as Author[];
+  const rows = db.prepare(SQL_LIST_AUTHORS).all() as Author[];
+  return rows;
 }
 
 export async function createBook(db: Db, authorId: number, title: string, genre: string, price: number, publishedAt: string | null): Promise<void> {
@@ -219,21 +220,24 @@ export async function createBook(db: Db, authorId: number, title: string, genre:
 }
 
 export async function getBook(db: Db, id: number): Promise<Book | null> {
-  const row = db.prepare(SQL_GET_BOOK).get(id) as Book | undefined;
-  return row ?? null;
+  const raw = db.prepare(SQL_GET_BOOK).get(id) as Book | undefined;
+  return raw ?? null;
 }
 
 export async function getBooksByIds(db: Db, ids: bigint[]): Promise<Book[]> {
   const idsJson = JSON.stringify(ids, (_, v) => typeof v === 'bigint' ? String(v) : v);
-  return db.prepare(SQL_GET_BOOKS_BY_IDS).all(idsJson) as Book[];
+  const rows = db.prepare(SQL_GET_BOOKS_BY_IDS).all(idsJson) as Book[];
+  return rows;
 }
 
 export async function listBooksByGenre(db: Db, genre: string): Promise<Book[]> {
-  return db.prepare(SQL_LIST_BOOKS_BY_GENRE).all(genre) as Book[];
+  const rows = db.prepare(SQL_LIST_BOOKS_BY_GENRE).all(genre) as Book[];
+  return rows;
 }
 
 export async function listBooksByGenreOrAll(db: Db, genre: string): Promise<Book[]> {
-  return db.prepare(SQL_LIST_BOOKS_BY_GENRE_OR_ALL).all(genre, genre) as Book[];
+  const rows = db.prepare(SQL_LIST_BOOKS_BY_GENRE_OR_ALL).all(genre, genre) as Book[];
+  return rows;
 }
 
 export async function createCustomer(db: Db, name: string, email: string): Promise<void> {
@@ -259,11 +263,13 @@ export interface ListBooksWithAuthorRow {
 }
 
 export async function listBooksWithAuthor(db: Db): Promise<ListBooksWithAuthorRow[]> {
-  return db.prepare(SQL_LIST_BOOKS_WITH_AUTHOR).all() as ListBooksWithAuthorRow[];
+  const rows = db.prepare(SQL_LIST_BOOKS_WITH_AUTHOR).all() as ListBooksWithAuthorRow[];
+  return rows;
 }
 
 export async function getBooksNeverOrdered(db: Db): Promise<Book[]> {
-  return db.prepare(SQL_GET_BOOKS_NEVER_ORDERED).all() as Book[];
+  const rows = db.prepare(SQL_GET_BOOKS_NEVER_ORDERED).all() as Book[];
+  return rows;
 }
 
 export interface GetTopSellingBooksRow {
@@ -275,7 +281,8 @@ export interface GetTopSellingBooksRow {
 }
 
 export async function getTopSellingBooks(db: Db): Promise<GetTopSellingBooksRow[]> {
-  return (db.prepare(SQL_GET_TOP_SELLING_BOOKS).all() as GetTopSellingBooksRow[]).map(raw => ({ ...raw, units_sold: BigInt(raw.units_sold) }));
+  const rows = db.prepare(SQL_GET_TOP_SELLING_BOOKS).all() as GetTopSellingBooksRow[];
+  return rows.map(raw => ({ ...raw, units_sold: BigInt(raw.units_sold) }));
 }
 
 export interface GetBestCustomersRow {
@@ -286,7 +293,8 @@ export interface GetBestCustomersRow {
 }
 
 export async function getBestCustomers(db: Db): Promise<GetBestCustomersRow[]> {
-  return db.prepare(SQL_GET_BEST_CUSTOMERS).all() as GetBestCustomersRow[];
+  const rows = db.prepare(SQL_GET_BEST_CUSTOMERS).all() as GetBestCustomersRow[];
+  return rows;
 }
 
 export interface CountBooksByGenreRow {
@@ -295,7 +303,8 @@ export interface CountBooksByGenreRow {
 }
 
 export async function countBooksByGenre(db: Db): Promise<CountBooksByGenreRow[]> {
-  return (db.prepare(SQL_COUNT_BOOKS_BY_GENRE).all() as CountBooksByGenreRow[]).map(raw => ({ ...raw, book_count: BigInt(raw.book_count) }));
+  const rows = db.prepare(SQL_COUNT_BOOKS_BY_GENRE).all() as CountBooksByGenreRow[];
+  return rows.map(raw => ({ ...raw, book_count: BigInt(raw.book_count) }));
 }
 
 export interface ListBooksWithLimitRow {
@@ -306,7 +315,8 @@ export interface ListBooksWithLimitRow {
 }
 
 export async function listBooksWithLimit(db: Db, limit: bigint, offset: bigint): Promise<ListBooksWithLimitRow[]> {
-  return db.prepare(SQL_LIST_BOOKS_WITH_LIMIT).all(limit, offset) as ListBooksWithLimitRow[];
+  const rows = db.prepare(SQL_LIST_BOOKS_WITH_LIMIT).all(limit, offset) as ListBooksWithLimitRow[];
+  return rows;
 }
 
 export interface SearchBooksByTitleRow {
@@ -317,7 +327,8 @@ export interface SearchBooksByTitleRow {
 }
 
 export async function searchBooksByTitle(db: Db, title: string): Promise<SearchBooksByTitleRow[]> {
-  return db.prepare(SQL_SEARCH_BOOKS_BY_TITLE).all(title) as SearchBooksByTitleRow[];
+  const rows = db.prepare(SQL_SEARCH_BOOKS_BY_TITLE).all(title) as SearchBooksByTitleRow[];
+  return rows;
 }
 
 export interface GetBooksByPriceRangeRow {
@@ -328,7 +339,8 @@ export interface GetBooksByPriceRangeRow {
 }
 
 export async function getBooksByPriceRange(db: Db, price: number, price2: number): Promise<GetBooksByPriceRangeRow[]> {
-  return db.prepare(SQL_GET_BOOKS_BY_PRICE_RANGE).all(price, price2) as GetBooksByPriceRangeRow[];
+  const rows = db.prepare(SQL_GET_BOOKS_BY_PRICE_RANGE).all(price, price2) as GetBooksByPriceRangeRow[];
+  return rows;
 }
 
 export interface GetBooksInGenresRow {
@@ -339,7 +351,8 @@ export interface GetBooksInGenresRow {
 }
 
 export async function getBooksInGenres(db: Db, genre: string, genre2: string, genre3: string): Promise<GetBooksInGenresRow[]> {
-  return db.prepare(SQL_GET_BOOKS_IN_GENRES).all(genre, genre2, genre3) as GetBooksInGenresRow[];
+  const rows = db.prepare(SQL_GET_BOOKS_IN_GENRES).all(genre, genre2, genre3) as GetBooksInGenresRow[];
+  return rows;
 }
 
 export interface GetBookPriceLabelRow {
@@ -350,7 +363,8 @@ export interface GetBookPriceLabelRow {
 }
 
 export async function getBookPriceLabel(db: Db, price: number): Promise<GetBookPriceLabelRow[]> {
-  return db.prepare(SQL_GET_BOOK_PRICE_LABEL).all(price) as GetBookPriceLabelRow[];
+  const rows = db.prepare(SQL_GET_BOOK_PRICE_LABEL).all(price) as GetBookPriceLabelRow[];
+  return rows;
 }
 
 export interface GetBookPriceOrDefaultRow {
@@ -360,12 +374,13 @@ export interface GetBookPriceOrDefaultRow {
 }
 
 export async function getBookPriceOrDefault(db: Db, price: number | null): Promise<GetBookPriceOrDefaultRow[]> {
-  return db.prepare(SQL_GET_BOOK_PRICE_OR_DEFAULT).all(price) as GetBookPriceOrDefaultRow[];
+  const rows = db.prepare(SQL_GET_BOOK_PRICE_OR_DEFAULT).all(price) as GetBookPriceOrDefaultRow[];
+  return rows;
 }
 
 export async function deleteBookById(db: Db, id: number): Promise<number> {
-  const result = db.prepare(SQL_DELETE_BOOK_BY_ID).run(id);
-  return result.changes;
+  const n = db.prepare(SQL_DELETE_BOOK_BY_ID).run(id).changes;
+  return n;
 }
 
 export interface GetGenresWithManyBooksRow {
@@ -374,7 +389,8 @@ export interface GetGenresWithManyBooksRow {
 }
 
 export async function getGenresWithManyBooks(db: Db, count: bigint): Promise<GetGenresWithManyBooksRow[]> {
-  return (db.prepare(SQL_GET_GENRES_WITH_MANY_BOOKS).all(count) as GetGenresWithManyBooksRow[]).map(raw => ({ ...raw, book_count: BigInt(raw.book_count) }));
+  const rows = db.prepare(SQL_GET_GENRES_WITH_MANY_BOOKS).all(count) as GetGenresWithManyBooksRow[];
+  return rows.map(raw => ({ ...raw, book_count: BigInt(raw.book_count) }));
 }
 
 export interface GetBooksByAuthorParamRow {
@@ -384,11 +400,13 @@ export interface GetBooksByAuthorParamRow {
 }
 
 export async function getBooksByAuthorParam(db: Db, birthYear: number | null): Promise<GetBooksByAuthorParamRow[]> {
-  return db.prepare(SQL_GET_BOOKS_BY_AUTHOR_PARAM).all(birthYear) as GetBooksByAuthorParamRow[];
+  const rows = db.prepare(SQL_GET_BOOKS_BY_AUTHOR_PARAM).all(birthYear) as GetBooksByAuthorParamRow[];
+  return rows;
 }
 
 export async function getAllBookFields(db: Db): Promise<Book[]> {
-  return db.prepare(SQL_GET_ALL_BOOK_FIELDS).all() as Book[];
+  const rows = db.prepare(SQL_GET_ALL_BOOK_FIELDS).all() as Book[];
+  return rows;
 }
 
 export interface GetBooksNotByAuthorRow {
@@ -398,7 +416,8 @@ export interface GetBooksNotByAuthorRow {
 }
 
 export async function getBooksNotByAuthor(db: Db, name: string): Promise<GetBooksNotByAuthorRow[]> {
-  return db.prepare(SQL_GET_BOOKS_NOT_BY_AUTHOR).all(name) as GetBooksNotByAuthorRow[];
+  const rows = db.prepare(SQL_GET_BOOKS_NOT_BY_AUTHOR).all(name) as GetBooksNotByAuthorRow[];
+  return rows;
 }
 
 export interface GetBooksWithRecentSalesRow {
@@ -408,7 +427,8 @@ export interface GetBooksWithRecentSalesRow {
 }
 
 export async function getBooksWithRecentSales(db: Db, orderedAt: Date): Promise<GetBooksWithRecentSalesRow[]> {
-  return db.prepare(SQL_GET_BOOKS_WITH_RECENT_SALES).all(orderedAt) as GetBooksWithRecentSalesRow[];
+  const rows = db.prepare(SQL_GET_BOOKS_WITH_RECENT_SALES).all(orderedAt) as GetBooksWithRecentSalesRow[];
+  return rows;
 }
 
 export interface GetBookWithAuthorNameRow {
@@ -418,7 +438,8 @@ export interface GetBookWithAuthorNameRow {
 }
 
 export async function getBookWithAuthorName(db: Db): Promise<GetBookWithAuthorNameRow[]> {
-  return db.prepare(SQL_GET_BOOK_WITH_AUTHOR_NAME).all() as GetBookWithAuthorNameRow[];
+  const rows = db.prepare(SQL_GET_BOOK_WITH_AUTHOR_NAME).all() as GetBookWithAuthorNameRow[];
+  return rows;
 }
 
 export interface GetAuthorStatsRow {
@@ -429,12 +450,13 @@ export interface GetAuthorStatsRow {
 }
 
 export async function getAuthorStats(db: Db): Promise<GetAuthorStatsRow[]> {
-  return (db.prepare(SQL_GET_AUTHOR_STATS).all() as GetAuthorStatsRow[]).map(raw => ({ ...raw, num_books: BigInt(raw.num_books), total_sold: BigInt(raw.total_sold) }));
+  const rows = db.prepare(SQL_GET_AUTHOR_STATS).all() as GetAuthorStatsRow[];
+  return rows.map(raw => ({ ...raw, num_books: BigInt(raw.num_books), total_sold: BigInt(raw.total_sold) }));
 }
 
 export async function getProduct(db: Db, id: string): Promise<Product | null> {
-  const row = db.prepare(SQL_GET_PRODUCT).get(id) as Product | undefined;
-  return row ?? null;
+  const raw = db.prepare(SQL_GET_PRODUCT).get(id) as Product | undefined;
+  return raw ?? null;
 }
 
 export interface ListActiveProductsRow {
@@ -450,7 +472,8 @@ export interface ListActiveProductsRow {
 }
 
 export async function listActiveProducts(db: Db, active: number): Promise<ListActiveProductsRow[]> {
-  return db.prepare(SQL_LIST_ACTIVE_PRODUCTS).all(active) as ListActiveProductsRow[];
+  const rows = db.prepare(SQL_LIST_ACTIVE_PRODUCTS).all(active) as ListActiveProductsRow[];
+  return rows;
 }
 
 export interface GetAuthorsWithNullBioRow {
@@ -460,11 +483,13 @@ export interface GetAuthorsWithNullBioRow {
 }
 
 export async function getAuthorsWithNullBio(db: Db): Promise<GetAuthorsWithNullBioRow[]> {
-  return db.prepare(SQL_GET_AUTHORS_WITH_NULL_BIO).all() as GetAuthorsWithNullBioRow[];
+  const rows = db.prepare(SQL_GET_AUTHORS_WITH_NULL_BIO).all() as GetAuthorsWithNullBioRow[];
+  return rows;
 }
 
 export async function getAuthorsWithBio(db: Db): Promise<Author[]> {
-  return db.prepare(SQL_GET_AUTHORS_WITH_BIO).all() as Author[];
+  const rows = db.prepare(SQL_GET_AUTHORS_WITH_BIO).all() as Author[];
+  return rows;
 }
 
 export interface GetBooksPublishedBetweenRow {
@@ -476,7 +501,8 @@ export interface GetBooksPublishedBetweenRow {
 }
 
 export async function getBooksPublishedBetween(db: Db, publishedAt: string | null, publishedAt2: string | null): Promise<GetBooksPublishedBetweenRow[]> {
-  return db.prepare(SQL_GET_BOOKS_PUBLISHED_BETWEEN).all(publishedAt, publishedAt2) as GetBooksPublishedBetweenRow[];
+  const rows = db.prepare(SQL_GET_BOOKS_PUBLISHED_BETWEEN).all(publishedAt, publishedAt2) as GetBooksPublishedBetweenRow[];
+  return rows;
 }
 
 export interface GetDistinctGenresRow {
@@ -484,7 +510,8 @@ export interface GetDistinctGenresRow {
 }
 
 export async function getDistinctGenres(db: Db): Promise<GetDistinctGenresRow[]> {
-  return db.prepare(SQL_GET_DISTINCT_GENRES).all() as GetDistinctGenresRow[];
+  const rows = db.prepare(SQL_GET_DISTINCT_GENRES).all() as GetDistinctGenresRow[];
+  return rows;
 }
 
 export interface GetBooksWithSalesCountRow {
@@ -495,7 +522,8 @@ export interface GetBooksWithSalesCountRow {
 }
 
 export async function getBooksWithSalesCount(db: Db): Promise<GetBooksWithSalesCountRow[]> {
-  return (db.prepare(SQL_GET_BOOKS_WITH_SALES_COUNT).all() as GetBooksWithSalesCountRow[]).map(raw => ({ ...raw, total_quantity: BigInt(raw.total_quantity) }));
+  const rows = db.prepare(SQL_GET_BOOKS_WITH_SALES_COUNT).all() as GetBooksWithSalesCountRow[];
+  return rows.map(raw => ({ ...raw, total_quantity: BigInt(raw.total_quantity) }));
 }
 
 export interface CountSaleItemsRow {
@@ -545,8 +573,8 @@ export interface GetBookPriceAggregatesRow {
 }
 
 export async function getBookPriceAggregates(db: Db): Promise<GetBookPriceAggregatesRow | null> {
-  const row = db.prepare(SQL_GET_BOOK_PRICE_AGGREGATES).get() as GetBookPriceAggregatesRow | undefined;
-  return row ?? null;
+  const raw = db.prepare(SQL_GET_BOOK_PRICE_AGGREGATES).get() as GetBookPriceAggregatesRow | undefined;
+  return raw ?? null;
 }
 
 export class Querier {

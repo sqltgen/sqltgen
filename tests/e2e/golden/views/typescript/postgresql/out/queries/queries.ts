@@ -19,17 +19,20 @@ ORDER BY title`;
 
 export async function listBookSummaries(db: Db): Promise<BookSummaries[]> {
   const result = await db.query<BookSummaries>(SQL_LIST_BOOK_SUMMARIES, []);
-  return result.rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const rows = result.rows;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 export async function listBookSummariesByGenre(db: Db, genre: string): Promise<BookSummaries[]> {
   const result = await db.query<BookSummaries>(SQL_LIST_BOOK_SUMMARIES_BY_GENRE, [genre]);
-  return result.rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const rows = result.rows;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 export async function listSciFiBooks(db: Db): Promise<SciFiBooks[]> {
   const result = await db.query<SciFiBooks>(SQL_LIST_SCI_FI_BOOKS, []);
-  return result.rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const rows = result.rows;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 export class Querier {

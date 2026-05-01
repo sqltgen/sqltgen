@@ -76,12 +76,13 @@ export async function createAuthor(db: Db, name: string, bio: string | null, bir
 }
 
 export async function getAuthor(db: Db, id: number): Promise<Author | null> {
-  const row = db.prepare(SQL_GET_AUTHOR).get(id) as Author | undefined;
-  return row ?? null;
+  const raw = db.prepare(SQL_GET_AUTHOR).get(id) as Author | undefined;
+  return raw ?? null;
 }
 
 export async function listAuthors(db: Db): Promise<Author[]> {
-  return db.prepare(SQL_LIST_AUTHORS).all() as Author[];
+  const rows = db.prepare(SQL_LIST_AUTHORS).all() as Author[];
+  return rows;
 }
 
 export async function createBook(db: Db, authorId: number, title: string, genre: string, price: number, publishedAt: string | null): Promise<void> {
@@ -89,21 +90,24 @@ export async function createBook(db: Db, authorId: number, title: string, genre:
 }
 
 export async function getBook(db: Db, id: number): Promise<Book | null> {
-  const row = db.prepare(SQL_GET_BOOK).get(id) as Book | undefined;
-  return row ?? null;
+  const raw = db.prepare(SQL_GET_BOOK).get(id) as Book | undefined;
+  return raw ?? null;
 }
 
 export async function getBooksByIds(db: Db, ids: bigint[]): Promise<Book[]> {
   const idsJson = JSON.stringify(ids, (_, v) => typeof v === 'bigint' ? String(v) : v);
-  return db.prepare(SQL_GET_BOOKS_BY_IDS).all(idsJson) as Book[];
+  const rows = db.prepare(SQL_GET_BOOKS_BY_IDS).all(idsJson) as Book[];
+  return rows;
 }
 
 export async function listBooksByGenre(db: Db, genre: string): Promise<Book[]> {
-  return db.prepare(SQL_LIST_BOOKS_BY_GENRE).all(genre) as Book[];
+  const rows = db.prepare(SQL_LIST_BOOKS_BY_GENRE).all(genre) as Book[];
+  return rows;
 }
 
 export async function listBooksByGenreOrAll(db: Db, genre: string): Promise<Book[]> {
-  return db.prepare(SQL_LIST_BOOKS_BY_GENRE_OR_ALL).all(genre, genre) as Book[];
+  const rows = db.prepare(SQL_LIST_BOOKS_BY_GENRE_OR_ALL).all(genre, genre) as Book[];
+  return rows;
 }
 
 export async function createCustomer(db: Db, name: string, email: string): Promise<void> {
@@ -129,11 +133,13 @@ export interface ListBooksWithAuthorRow {
 }
 
 export async function listBooksWithAuthor(db: Db): Promise<ListBooksWithAuthorRow[]> {
-  return db.prepare(SQL_LIST_BOOKS_WITH_AUTHOR).all() as ListBooksWithAuthorRow[];
+  const rows = db.prepare(SQL_LIST_BOOKS_WITH_AUTHOR).all() as ListBooksWithAuthorRow[];
+  return rows;
 }
 
 export async function getBooksNeverOrdered(db: Db): Promise<Book[]> {
-  return db.prepare(SQL_GET_BOOKS_NEVER_ORDERED).all() as Book[];
+  const rows = db.prepare(SQL_GET_BOOKS_NEVER_ORDERED).all() as Book[];
+  return rows;
 }
 
 export interface GetTopSellingBooksRow {
@@ -145,7 +151,8 @@ export interface GetTopSellingBooksRow {
 }
 
 export async function getTopSellingBooks(db: Db): Promise<GetTopSellingBooksRow[]> {
-  return (db.prepare(SQL_GET_TOP_SELLING_BOOKS).all() as GetTopSellingBooksRow[]).map(raw => ({ ...raw, units_sold: BigInt(raw.units_sold) }));
+  const rows = db.prepare(SQL_GET_TOP_SELLING_BOOKS).all() as GetTopSellingBooksRow[];
+  return rows.map(raw => ({ ...raw, units_sold: BigInt(raw.units_sold) }));
 }
 
 export interface GetBestCustomersRow {
@@ -156,7 +163,8 @@ export interface GetBestCustomersRow {
 }
 
 export async function getBestCustomers(db: Db): Promise<GetBestCustomersRow[]> {
-  return db.prepare(SQL_GET_BEST_CUSTOMERS).all() as GetBestCustomersRow[];
+  const rows = db.prepare(SQL_GET_BEST_CUSTOMERS).all() as GetBestCustomersRow[];
+  return rows;
 }
 
 export class Querier {

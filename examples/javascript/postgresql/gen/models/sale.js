@@ -2,7 +2,7 @@
 
 /**
  * @typedef {Object} Sale
- * @property {number} id
- * @property {number} customer_id
+ * @property {bigint} id
+ * @property {bigint} customer_id
  * @property {Date} ordered_at
  */

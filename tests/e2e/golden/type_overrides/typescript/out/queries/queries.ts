@@ -34,7 +34,8 @@ export async function getEvent(db: Db, id: bigint): Promise<Event | null> {
 
 export async function listEvents(db: Db): Promise<Event[]> {
   const result = await db.query<Event>(SQL_LIST_EVENTS, []);
-  return result.rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const rows = result.rows;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 export async function insertEvent(db: Db, name: string, payload: unknown, meta: unknown | null, docId: string, createdAt: Date, scheduledAt: Date | null, eventDate: Date | null, eventTime: string | null): Promise<void> {
@@ -71,12 +72,14 @@ export async function findByUuid(db: Db, docId: string): Promise<FindByUuidRow |
 
 export async function insertEventRows(db: Db, name: string, payload: unknown, meta: unknown | null, docId: string, createdAt: Date, scheduledAt: Date | null, eventDate: Date | null, eventTime: string | null): Promise<number> {
   const result = await db.query(SQL_INSERT_EVENT_ROWS, [name, JSON.stringify(payload), JSON.stringify(meta), docId, createdAt, scheduledAt, eventDate, eventTime]);
-  return result.rowCount ?? 0;
+  const n = result.rowCount ?? 0;
+  return n;
 }
 
 export async function getEventsByDateRange(db: Db, createdAt: Date, createdAt2: Date): Promise<Event[]> {
   const result = await db.query<Event>(SQL_GET_EVENTS_BY_DATE_RANGE, [createdAt, createdAt2]);
-  return result.rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const rows = result.rows;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 export interface CountEventsRow {

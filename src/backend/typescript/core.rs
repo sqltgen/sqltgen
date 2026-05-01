@@ -7,7 +7,7 @@ use crate::backend::common::{
     row_type_name as inline_row_type_name, sql_const_name,
 };
 use crate::backend::naming::{to_camel_case, to_pascal_case, to_screaming_snake_case};
-use crate::backend::sql_rewrite::{positional_bind_names, rewrite_to_anon_params, split_at_in_clause};
+use crate::backend::sql_rewrite::split_at_in_clause;
 use crate::backend::GeneratedFile;
 use crate::config::{ListParamStrategy, OutputConfig};
 use crate::ir::{EnumType, Parameter, Query, QueryCmd, Schema, SqlType, Table};
@@ -29,26 +29,8 @@ pub(super) struct GenerationContext<'a> {
     pub strategy: ListParamStrategy,
 }
 
-/// Per-query context computed once and forwarded to body helpers.
-pub(super) struct QueryContext<'a> {
-    query: &'a Query,
-    schema: &'a Schema,
-    adapter: &'a dyn JsDriverAdapter,
-    type_map: &'a JsTypeMap,
-    fn_name: String,
-    ret: String,
-    conn_type: &'static str,
-}
-
-impl<'a> QueryContext<'a> {
-    fn new(query: &'a Query, schema: &'a Schema, adapter: &'a dyn JsDriverAdapter, type_map: &'a JsTypeMap, conn_type: &'static str) -> Self {
-        Self { fn_name: to_camel_case(&query.name), ret: return_type(query, schema), query, schema, adapter, type_map, conn_type }
-    }
-
-    fn params(&self) -> Vec<&'a Parameter> {
-        self.query.params.iter().collect()
-    }
-}
+/// Connection-type alias used in generated function signatures and JSDoc.
+pub(super) const CONN_TYPE: &str = "Db";
 
 pub(super) fn generate_core_files(codegen: &TypeScriptCodegen, ctx: &GenerationContext) -> anyhow::Result<Vec<GeneratedFile>> {
     let ext = codegen.ext();
@@ -448,17 +430,81 @@ fn emit_sql_constants(src: &mut String, queries: &[Query], adapter: &dyn JsDrive
 // ─── Query function emission ──────────────────────────────────────────────────
 
 fn emit_query(src: &mut String, query: &Query, ctx: &GenerationContext) -> anyhow::Result<()> {
-    let qctx = QueryContext::new(query, ctx.schema, ctx.adapter, ctx.type_map, "Db");
-    ctx.adapter.emit_query(src, &qctx, &ctx.strategy)
+    let params: Vec<&Parameter> = query.params.iter().collect();
+    emit_jsdoc(src, ctx, query, &params)?;
+    emit_fn_open(src, ctx, query, &params)?;
+    let const_name = sql_const_name(&query.name);
+
+    match query.params.iter().find(|p| p.is_list) {
+        None => {
+            let args = ctx.adapter.build_args(query, ctx.type_map, None);
+            emit_body(src, ctx, query, &const_name, &args)?;
+        },
+        Some(lp) => match ctx.strategy {
+            ListParamStrategy::Native => {
+                let lp_expr = ctx.adapter.emit_native_list_prelude(src, lp, ctx.type_map)?;
+                let args = ctx.adapter.build_args(query, ctx.type_map, Some((lp, &lp_expr)));
+                emit_body(src, ctx, query, &const_name, &args)?;
+            },
+            ListParamStrategy::Dynamic => {
+                let lp_name = to_camel_case(&lp.name);
+                let scalars_before = query.params.iter().filter(|p| !p.is_list && p.index < lp.index).count();
+                let (before_raw, after_raw) = split_at_in_clause(&query.sql, lp.index).unwrap_or_else(|| (query.sql.clone(), String::new()));
+                let before = ctx.adapter.normalize_sql(&before_raw).replace('"', "\\\"").replace('\n', " ");
+                let after = ctx.adapter.normalize_sql(&after_raw).replace('"', "\\\"").replace('\n', " ");
+                let before = before.trim_end().trim_end_matches(';');
+                let after = after.trim_start();
+                writeln!(src, "  const placeholders = {};", ctx.adapter.dynamic_placeholders_expr(&lp_name, scalars_before))?;
+                writeln!(src, r#"  const sql = `{before}IN (${{placeholders}}){after}`;"#)?;
+                let lp_spread = format!("...{}", ctx.adapter.list_arg(&lp.sql_type, &lp_name));
+                let args = ctx.adapter.build_args(query, ctx.type_map, Some((lp, &lp_spread)));
+                emit_body(src, ctx, query, "sql", &args)?;
+            },
+        },
+    }
+
+    writeln!(src, "}}")?;
+    Ok(())
+}
+
+/// Emit the engine-agnostic body of a query function: query execution +
+/// result extraction + transform-or-return logic. Engine specifics are
+/// delegated to the adapter's fetch primitives.
+pub(super) fn emit_body(src: &mut String, ctx: &GenerationContext, query: &Query, sql_expr: &str, args: &str) -> anyhow::Result<()> {
+    match query.cmd {
+        QueryCmd::Exec => ctx.adapter.emit_exec(src, sql_expr, args)?,
+        QueryCmd::ExecRows => {
+            ctx.adapter.emit_bind_count(src, sql_expr, args, "n")?;
+            writeln!(src, "  return n;")?;
+        },
+        QueryCmd::One => {
+            ctx.adapter.emit_bind_one(src, ctx, query, sql_expr, args, "raw")?;
+            if let Some(transform) = ctx.type_map.row_transform_expr(query, "raw") {
+                writeln!(src, "  if (!raw) return null;")?;
+                writeln!(src, "  return {transform};")?;
+            } else {
+                writeln!(src, "  return raw ?? null;")?;
+            }
+        },
+        QueryCmd::Many => {
+            ctx.adapter.emit_bind_many(src, ctx, query, sql_expr, args, "rows")?;
+            if let Some(transform) = ctx.type_map.row_transform_expr(query, "raw") {
+                writeln!(src, "  return rows.map(raw => ({transform}));")?;
+            } else {
+                writeln!(src, "  return rows;")?;
+            }
+        },
+    }
+    Ok(())
 }
 
 /// Emit the JSDoc annotation block for a query function (JS output only).
-fn emit_jsdoc(src: &mut String, ctx: &QueryContext, params: &[&Parameter]) -> anyhow::Result<()> {
+fn emit_jsdoc(src: &mut String, ctx: &GenerationContext, query: &Query, params: &[&Parameter]) -> anyhow::Result<()> {
     if matches!(ctx.adapter.output(), JsOutput::TypeScript) {
         return Ok(());
     }
     writeln!(src, "/**")?;
-    writeln!(src, " * @param {{{}}} db", ctx.conn_type)?;
+    writeln!(src, " * @param {{{}}} db", CONN_TYPE)?;
     for p in params {
         let ty = if p.is_list {
             let elem = ctx.type_map.param_type(&p.sql_type, false);
@@ -468,14 +514,15 @@ fn emit_jsdoc(src: &mut String, ctx: &QueryContext, params: &[&Parameter]) -> an
         };
         writeln!(src, " * @param {{{ty}}} {}", to_camel_case(&p.name))?;
     }
-    writeln!(src, " * @returns {{Promise<{}>}}", ctx.ret)?;
+    writeln!(src, " * @returns {{Promise<{}>}}", return_type(query, ctx.schema))?;
     writeln!(src, " */")?;
     Ok(())
 }
 
 /// Emit the `export async function` opening line.
 /// TypeScript includes type annotations; JavaScript uses plain parameter names.
-fn emit_fn_open(src: &mut String, ctx: &QueryContext, params: &[&Parameter]) -> anyhow::Result<()> {
+fn emit_fn_open(src: &mut String, ctx: &GenerationContext, query: &Query, params: &[&Parameter]) -> anyhow::Result<()> {
+    let fn_name = to_camel_case(&query.name);
     match ctx.adapter.output() {
         JsOutput::TypeScript => {
             let typed: Vec<String> = params
@@ -490,12 +537,12 @@ fn emit_fn_open(src: &mut String, ctx: &QueryContext, params: &[&Parameter]) -> 
                     format!("{}: {ty}", to_camel_case(&p.name))
                 })
                 .collect();
-            let sig = std::iter::once(format!("db: {}", ctx.conn_type)).chain(typed).collect::<Vec<_>>().join(", ");
-            writeln!(src, "export async function {}({sig}): Promise<{}> {{", ctx.fn_name, ctx.ret)?;
+            let sig = std::iter::once(format!("db: {}", CONN_TYPE)).chain(typed).collect::<Vec<_>>().join(", ");
+            writeln!(src, "export async function {fn_name}({sig}): Promise<{}> {{", return_type(query, ctx.schema))?;
         },
         JsOutput::JavaScript => {
             let names: Vec<String> = std::iter::once("db".to_string()).chain(params.iter().map(|p| to_camel_case(&p.name))).collect();
-            writeln!(src, "export async function {}({}) {{", ctx.fn_name, names.join(", "))?;
+            writeln!(src, "export async function {fn_name}({}) {{", names.join(", "))?;
         },
     }
     Ok(())
@@ -513,366 +560,6 @@ fn return_type(query: &Query, schema: &Schema) -> String {
 }
 
 /// Compute the row type name for a query result (table name or `{Query}Row`).
-fn ts_row_type(query: &Query, schema: &Schema) -> String {
+pub(super) fn ts_row_type(query: &Query, schema: &Schema) -> String {
     infer_row_type_name(query, schema).unwrap_or_else(|| inline_row_type_name(&query.name))
-}
-
-// ─── PostgreSQL (pg) ─────────────────────────────────────────────────────────
-
-pub(super) fn emit_pg_query(src: &mut String, ctx: &QueryContext, strategy: &ListParamStrategy) -> anyhow::Result<()> {
-    if let Some(lp) = ctx.query.params.iter().find(|p| p.is_list) {
-        return emit_pg_list_query(src, ctx, strategy, lp);
-    }
-    let const_name = sql_const_name(&ctx.query.name);
-    let params = ctx.params();
-    emit_jsdoc(src, ctx, &params)?;
-    emit_fn_open(src, ctx, &params)?;
-    let args = pg_params_array(ctx.query, ctx.type_map);
-    emit_pg_body(src, ctx, &const_name, &args)?;
-    writeln!(src, "}}")?;
-    Ok(())
-}
-
-/// Emit the query body for a PostgreSQL function: the `db.query(...)` call and result handling.
-///
-/// Accepts either a SQL constant name (static query) or a runtime `sql` variable (dynamic list
-/// expansion) as `sql_expr`, and the pre-built params array string as `args`.
-fn emit_pg_body(src: &mut String, ctx: &QueryContext, sql_expr: &str, args: &str) -> anyhow::Result<()> {
-    match ctx.query.cmd {
-        QueryCmd::Exec => writeln!(src, "  await db.query({sql_expr}, {args});")?,
-        QueryCmd::ExecRows => {
-            writeln!(src, "  const result = await db.query({sql_expr}, {args});")?;
-            writeln!(src, "  return result.rowCount ?? 0;")?;
-        },
-        QueryCmd::One => {
-            let row = ts_row_type(ctx.query, ctx.schema);
-            let call = pg_query_call(sql_expr, &row, args, ctx.adapter.output());
-            writeln!(src, "  const result = await {call};")?;
-            if let Some(transform) = ctx.type_map.row_transform_expr(ctx.query, "raw") {
-                writeln!(src, "  const raw = result.rows[0];")?;
-                writeln!(src, "  if (!raw) return null;")?;
-                writeln!(src, "  return {transform};")?;
-            } else {
-                writeln!(src, "  return result.rows[0] ?? null;")?;
-            }
-        },
-        QueryCmd::Many => {
-            let row = ts_row_type(ctx.query, ctx.schema);
-            let call = pg_query_call(sql_expr, &row, args, ctx.adapter.output());
-            writeln!(src, "  const result = await {call};")?;
-            if let Some(transform) = ctx.type_map.row_transform_expr(ctx.query, "raw") {
-                writeln!(src, "  return result.rows.map(raw => ({transform}));")?;
-            } else {
-                writeln!(src, "  return result.rows;")?;
-            }
-        },
-    }
-    Ok(())
-}
-
-/// Build `db.query<Row>(sql, args)` for TypeScript or `db.query(sql, args)` for JavaScript.
-fn pg_query_call(const_name: &str, row_type: &str, args: &str, output: JsOutput) -> String {
-    match output {
-        JsOutput::TypeScript => format!("db.query<{row_type}>({const_name}, {args})"),
-        JsOutput::JavaScript => format!("db.query({const_name}, {args})"),
-    }
-}
-
-/// Build the `[p1, p2, ...]` params array for a pg query (unique params by index).
-///
-/// PostgreSQL uses `$N` reference-by-number, so each unique parameter index appears
-/// exactly once in the bound array regardless of how many times it is referenced in
-/// the SQL. Contrast with [`mysql_params_array`], which uses [`positional_bind_names`]
-/// to repeat values for every anonymous `?` occurrence.
-fn pg_params_array(query: &Query, type_map: &JsTypeMap) -> String {
-    let mut params: Vec<&Parameter> = query.params.iter().collect();
-    params.sort_by_key(|p| p.index);
-    let exprs: Vec<String> = params.iter().map(|p| type_map.write_expr(p)).collect();
-    format!("[{}]", exprs.join(", "))
-}
-
-fn emit_pg_list_query(src: &mut String, ctx: &QueryContext, strategy: &ListParamStrategy, lp: &Parameter) -> anyhow::Result<()> {
-    let const_name = sql_const_name(&ctx.query.name);
-    let params = ctx.params();
-    let lp_name = to_camel_case(&lp.name);
-    emit_jsdoc(src, ctx, &params)?;
-    emit_fn_open(src, ctx, &params)?;
-    match strategy {
-        ListParamStrategy::Native => {
-            let mut sorted_params: Vec<&Parameter> = ctx.query.params.iter().collect();
-            sorted_params.sort_by_key(|p| p.index);
-            let exprs: Vec<String> = sorted_params
-                .iter()
-                .map(|p| if p.is_list { ctx.adapter.list_arg(&p.sql_type, &to_camel_case(&p.name)) } else { ctx.type_map.write_expr(p) })
-                .collect();
-            let args = format!("[{}]", exprs.join(", "));
-            emit_pg_body(src, ctx, &const_name, &args)?;
-        },
-        ListParamStrategy::Dynamic => {
-            let scalar_params: Vec<&Parameter> = ctx.query.params.iter().filter(|p| !p.is_list).collect();
-            let (before_raw, after_raw) = split_at_in_clause(&ctx.query.sql, lp.index).unwrap_or_else(|| (ctx.query.sql.clone(), String::new()));
-            let before = before_raw.replace('"', "\\\"").replace('\n', " ");
-            let after = after_raw.replace('"', "\\\"").replace('\n', " ");
-            let before = before.trim_end().trim_end_matches(';');
-            let after = after.trim_start();
-            let offset = scalar_params.iter().filter(|p| p.index < lp.index).count() + 1;
-            writeln!(src, "  const placeholders = {lp_name}.map((_, i) => '$' + ({offset} + i)).join(', ');")?;
-            writeln!(src, r#"  const sql = `{before}IN (${{placeholders}}){after}`;"#)?;
-            let before_args: Vec<String> = scalar_params.iter().filter(|p| p.index < lp.index).map(|p| ctx.type_map.write_expr(p)).collect();
-            let after_args: Vec<String> = scalar_params.iter().filter(|p| p.index > lp.index).map(|p| ctx.type_map.write_expr(p)).collect();
-            let list_spread = format!("...{}", ctx.adapter.list_arg(&lp.sql_type, &lp_name));
-            let all_args = [before_args, vec![list_spread], after_args].concat().join(", ");
-            emit_pg_body(src, ctx, "sql", &format!("[{all_args}]"))?;
-        },
-    }
-    writeln!(src, "}}")?;
-    Ok(())
-}
-
-// ─── SQLite (better-sqlite3) ─────────────────────────────────────────────────
-
-pub(super) fn emit_sqlite_query(src: &mut String, ctx: &QueryContext, strategy: &ListParamStrategy) -> anyhow::Result<()> {
-    if let Some(lp) = ctx.query.params.iter().find(|p| p.is_list) {
-        return emit_sqlite_list_query(src, ctx, strategy, lp);
-    }
-    let const_name = sql_const_name(&ctx.query.name);
-    let params = ctx.params();
-    emit_jsdoc(src, ctx, &params)?;
-    emit_fn_open(src, ctx, &params)?;
-    let args = sqlite_spread_args(ctx.query, ctx.type_map);
-    emit_sqlite_body(src, ctx, &const_name, &args)?;
-    writeln!(src, "}}")?;
-    Ok(())
-}
-
-/// Build the spread argument list for a better-sqlite3 prepared statement call.
-///
-/// better-sqlite3 uses anonymous `?` placeholders; the arg list must follow the SQL
-/// occurrence order including repeated params (e.g. a `@genre` used twice → two args).
-fn sqlite_spread_args(query: &Query, type_map: &JsTypeMap) -> String {
-    positional_bind_names(query)
-        .iter()
-        .map(|&n| {
-            let param = query.params.iter().find(|p| p.name == n);
-            param.map(|p| type_map.write_expr(p)).unwrap_or_else(|| to_camel_case(n))
-        })
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
-/// Returns ` as Type` for TypeScript or empty string for JavaScript.
-///
-/// Used for better-sqlite3 `.get()`/`.all()` return types and mysql2 row casts,
-/// both of which need an explicit `as T` only in TypeScript output.
-fn ts_cast(ts_type: &str, output: JsOutput) -> String {
-    match output {
-        JsOutput::TypeScript => format!(" as {ts_type}"),
-        JsOutput::JavaScript => String::new(),
-    }
-}
-
-fn emit_sqlite_list_query(src: &mut String, ctx: &QueryContext, strategy: &ListParamStrategy, lp: &Parameter) -> anyhow::Result<()> {
-    let const_name = sql_const_name(&ctx.query.name);
-    let params = ctx.params();
-    let lp_name = to_camel_case(&lp.name);
-    emit_jsdoc(src, ctx, &params)?;
-    emit_fn_open(src, ctx, &params)?;
-    match strategy {
-        ListParamStrategy::Native => {
-            let stringify = ctx.type_map.list_json_stringify(&lp.sql_type, &lp_name);
-            writeln!(src, "  const {lp_name}Json = {stringify};")?;
-            let args = sqlite_list_spread_args(ctx.query, lp, &format!("{lp_name}Json"), ctx.type_map);
-            emit_sqlite_body(src, ctx, &const_name, &args)?;
-        },
-        ListParamStrategy::Dynamic => {
-            let scalar_params: Vec<&Parameter> = ctx.query.params.iter().filter(|p| !p.is_list).collect();
-            let (before_raw, after_raw) = split_at_in_clause(&ctx.query.sql, lp.index).unwrap_or_else(|| (ctx.query.sql.clone(), String::new()));
-            let before = rewrite_to_anon_params(&before_raw).replace('"', "\\\"").replace('\n', " ");
-            let after = rewrite_to_anon_params(&after_raw).replace('"', "\\\"").replace('\n', " ");
-            let before = before.trim_end().trim_end_matches(';');
-            let after = after.trim_start();
-            writeln!(src, r#"  const placeholders = {lp_name}.map(() => "?").join(", ");"#)?;
-            writeln!(src, r#"  const sql = `{before}IN (${{placeholders}}){after}`;"#)?;
-            let before_args: Vec<String> = scalar_params.iter().filter(|p| p.index < lp.index).map(|p| ctx.type_map.write_expr(p)).collect();
-            let after_args: Vec<String> = scalar_params.iter().filter(|p| p.index > lp.index).map(|p| ctx.type_map.write_expr(p)).collect();
-            let list_spread = format!("...{}", ctx.adapter.list_arg(&lp.sql_type, &lp_name));
-            let all_args = [before_args, vec![list_spread], after_args].concat().join(", ");
-            emit_sqlite_body(src, ctx, "sql", &all_args)?;
-        },
-    }
-    writeln!(src, "}}")?;
-    Ok(())
-}
-
-/// Build the spread args string for a SQLite native-list query.
-///
-/// Follows SQL occurrence order (via [`positional_bind_names`]), substituting the list
-/// param's JSON expression wherever that param's name would appear.
-fn sqlite_list_spread_args(query: &Query, lp: &Parameter, lp_expr: &str, type_map: &JsTypeMap) -> String {
-    let lp_camel = to_camel_case(&lp.name);
-    positional_bind_names(query)
-        .iter()
-        .map(|&n| {
-            let cn = to_camel_case(n);
-            if cn == lp_camel {
-                lp_expr.to_string()
-            } else {
-                let param = query.params.iter().find(|p| p.name == n);
-                param.map(|p| type_map.write_expr(p)).unwrap_or(cn)
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
-fn emit_sqlite_body(src: &mut String, ctx: &QueryContext, sql_expr: &str, args: &str) -> anyhow::Result<()> {
-    match ctx.query.cmd {
-        QueryCmd::Exec => writeln!(src, "  db.prepare({sql_expr}).run({args});")?,
-        QueryCmd::ExecRows => {
-            writeln!(src, "  const result = db.prepare({sql_expr}).run({args});")?;
-            writeln!(src, "  return result.changes;")?;
-        },
-        QueryCmd::One => {
-            let row = ts_row_type(ctx.query, ctx.schema);
-            let cast = ts_cast(&format!("{row} | undefined"), ctx.adapter.output());
-            if let Some(transform) = ctx.type_map.row_transform_expr(ctx.query, "raw") {
-                writeln!(src, "  const raw = db.prepare({sql_expr}).get({args}){cast};")?;
-                writeln!(src, "  if (!raw) return null;")?;
-                writeln!(src, "  return {transform};")?;
-            } else {
-                writeln!(src, "  const row = db.prepare({sql_expr}).get({args}){cast};")?;
-                writeln!(src, "  return row ?? null;")?;
-            }
-        },
-        QueryCmd::Many => {
-            let row = ts_row_type(ctx.query, ctx.schema);
-            let cast = ts_cast(&format!("{row}[]"), ctx.adapter.output());
-            if let Some(transform) = ctx.type_map.row_transform_expr(ctx.query, "raw") {
-                writeln!(src, "  return (db.prepare({sql_expr}).all({args}){cast}).map(raw => ({transform}));")?;
-            } else {
-                writeln!(src, "  return db.prepare({sql_expr}).all({args}){cast};")?;
-            }
-        },
-    }
-    Ok(())
-}
-
-// ─── MySQL (mysql2) ───────────────────────────────────────────────────────────
-
-pub(super) fn emit_mysql_query(src: &mut String, ctx: &QueryContext, strategy: &ListParamStrategy) -> anyhow::Result<()> {
-    if let Some(lp) = ctx.query.params.iter().find(|p| p.is_list) {
-        return emit_mysql_list_query(src, ctx, strategy, lp);
-    }
-    let const_name = sql_const_name(&ctx.query.name);
-    let params = ctx.params();
-    emit_jsdoc(src, ctx, &params)?;
-    emit_fn_open(src, ctx, &params)?;
-    let args = mysql_params_array(ctx.query, ctx.type_map);
-    emit_mysql_body(src, ctx, &const_name, &args)?;
-    writeln!(src, "}}")?;
-    Ok(())
-}
-
-/// Build the `[p1, p2, ...]` params array for mysql2 (positional `?`, params in SQL order).
-fn mysql_params_array(query: &Query, type_map: &JsTypeMap) -> String {
-    let exprs: Vec<String> = positional_bind_names(query)
-        .iter()
-        .map(|&n| {
-            let param = query.params.iter().find(|p| p.name == n);
-            param.map(|p| type_map.write_expr(p)).unwrap_or_else(|| to_camel_case(n))
-        })
-        .collect();
-    format!("[{}]", exprs.join(", "))
-}
-
-fn emit_mysql_body(src: &mut String, ctx: &QueryContext, sql_expr: &str, args: &str) -> anyhow::Result<()> {
-    // mysql2's execute() sends all JS `number` values as DOUBLE in the binary
-    // protocol. MySQL rejects DOUBLE for LIMIT/OFFSET and other integer contexts.
-    // Using query() sends parameters via the text protocol (client-side escaping),
-    // which avoids the type mismatch and works correctly for all param types.
-    match ctx.query.cmd {
-        QueryCmd::Exec => writeln!(src, "  await db.query({sql_expr}, {args});")?,
-        QueryCmd::ExecRows => {
-            let rsh = mysql_type_param(ctx.adapter.output(), "ResultSetHeader");
-            writeln!(src, "  const [result] = await db.query{rsh}({sql_expr}, {args});")?;
-            writeln!(src, "  return result.affectedRows;")?;
-        },
-        QueryCmd::One => {
-            let row = ts_row_type(ctx.query, ctx.schema);
-            let rdp = mysql_type_param(ctx.adapter.output(), "RowDataPacket[]");
-            let cast = ts_cast(&format!("{row} | undefined"), ctx.adapter.output());
-            writeln!(src, "  const [rows] = await db.query{rdp}({sql_expr}, {args});")?;
-            if let Some(transform) = ctx.type_map.row_transform_expr(ctx.query, "raw") {
-                writeln!(src, "  const raw = rows[0]{cast};")?;
-                writeln!(src, "  if (!raw) return null;")?;
-                writeln!(src, "  return {transform};")?;
-            } else {
-                writeln!(src, "  return (rows[0]{cast}) ?? null;")?;
-            }
-        },
-        QueryCmd::Many => {
-            let row = ts_row_type(ctx.query, ctx.schema);
-            let rdp = mysql_type_param(ctx.adapter.output(), "RowDataPacket[]");
-            let cast = ts_cast(&format!("{row}[]"), ctx.adapter.output());
-            writeln!(src, "  const [rows] = await db.query{rdp}({sql_expr}, {args});")?;
-            if let Some(transform) = ctx.type_map.row_transform_expr(ctx.query, "raw") {
-                writeln!(src, "  return (rows{cast}).map(raw => ({transform}));")?;
-            } else {
-                writeln!(src, "  return rows{cast};")?;
-            }
-        },
-    }
-    Ok(())
-}
-
-/// Emit `<T>` (TypeScript generic type argument) or empty string (JavaScript).
-///
-/// Used to make mysql2 `query` calls typed: `db.query<RowDataPacket[]>(...)`.
-fn mysql_type_param(output: JsOutput, ts_type: &str) -> String {
-    match output {
-        JsOutput::TypeScript => format!("<{ts_type}>"),
-        JsOutput::JavaScript => String::new(),
-    }
-}
-
-fn emit_mysql_list_query(src: &mut String, ctx: &QueryContext, strategy: &ListParamStrategy, lp: &Parameter) -> anyhow::Result<()> {
-    let const_name = sql_const_name(&ctx.query.name);
-    let params = ctx.params();
-    let lp_name = to_camel_case(&lp.name);
-    emit_jsdoc(src, ctx, &params)?;
-    emit_fn_open(src, ctx, &params)?;
-    match strategy {
-        ListParamStrategy::Native => {
-            let stringify = ctx.type_map.list_json_stringify(&lp.sql_type, &lp_name);
-            writeln!(src, "  const {lp_name}Json = {stringify};")?;
-            let args = mysql_list_params_array(ctx.query, lp, &format!("{lp_name}Json"), ctx.type_map);
-            emit_mysql_body(src, ctx, &const_name, &args)?;
-        },
-        ListParamStrategy::Dynamic => {
-            let scalar_params: Vec<&Parameter> = ctx.query.params.iter().filter(|p| !p.is_list).collect();
-            let (before_raw, after_raw) = split_at_in_clause(&ctx.query.sql, lp.index).unwrap_or_else(|| (ctx.query.sql.clone(), String::new()));
-            let before = rewrite_to_anon_params(&before_raw).replace('"', "\\\"").replace('\n', " ");
-            let after = rewrite_to_anon_params(&after_raw).replace('"', "\\\"").replace('\n', " ");
-            let before = before.trim_end().trim_end_matches(';');
-            let after = after.trim_start();
-            writeln!(src, r#"  const placeholders = {lp_name}.map(() => "?").join(", ");"#)?;
-            writeln!(src, r#"  const sql = `{before}IN (${{placeholders}}){after}`;"#)?;
-            let before_args: Vec<String> = scalar_params.iter().filter(|p| p.index < lp.index).map(|p| ctx.type_map.write_expr(p)).collect();
-            let after_args: Vec<String> = scalar_params.iter().filter(|p| p.index > lp.index).map(|p| ctx.type_map.write_expr(p)).collect();
-            let list_spread = format!("...{}", ctx.adapter.list_arg(&lp.sql_type, &lp_name));
-            let all_args = [before_args, vec![list_spread], after_args].concat().join(", ");
-            emit_mysql_body(src, ctx, "sql", &format!("[{all_args}]"))?;
-        },
-    }
-    writeln!(src, "}}")?;
-    Ok(())
-}
-
-/// Build the `[p1, p2, ...]` array for a MySQL native list query,
-/// substituting the JSON-stringified expression for the list param slot.
-fn mysql_list_params_array(query: &Query, lp: &Parameter, lp_expr: &str, type_map: &JsTypeMap) -> String {
-    let mut params: Vec<&Parameter> = query.params.iter().collect();
-    params.sort_by_key(|p| p.index);
-    let exprs: Vec<String> = params.iter().map(|p| if p.index == lp.index { lp_expr.to_string() } else { type_map.write_expr(p) }).collect();
-    format!("[{}]", exprs.join(", "))
 }

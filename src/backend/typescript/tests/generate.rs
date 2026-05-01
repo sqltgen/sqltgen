@@ -73,7 +73,7 @@ fn test_pg_ts_many_query() {
     let content = build_queries_file("", &queries, &schema, &gen.target, &gen.output, &config()).unwrap();
     assert!(content.contains("Promise<Users[]>"));
     // BigInt result column triggers row transform on every row.
-    assert!(content.contains("result.rows.map(raw =>"));
+    assert!(content.contains("rows.map(raw =>"));
     assert!(content.contains("BigInt(raw.id)"));
 }
 

@@ -252,7 +252,8 @@ export async function getAuthor(db, id) {
  */
 export async function listAuthors(db) {
   const result = await db.query(SQL_LIST_AUTHORS, []);
-  return result.rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const rows = result.rows;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 /**
@@ -321,7 +322,8 @@ export async function getBook(db, id) {
  */
 export async function getBooksByIds(db, ids) {
   const result = await db.query(SQL_GET_BOOKS_BY_IDS, [ids.map(String)]);
-  return result.rows.map(raw => ({ ...raw, id: BigInt(raw.id), author_id: BigInt(raw.author_id) }));
+  const rows = result.rows;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id), author_id: BigInt(raw.author_id) }));
 }
 
 /**
@@ -331,7 +333,8 @@ export async function getBooksByIds(db, ids) {
  */
 export async function listBooksByGenre(db, genre) {
   const result = await db.query(SQL_LIST_BOOKS_BY_GENRE, [genre]);
-  return result.rows.map(raw => ({ ...raw, id: BigInt(raw.id), author_id: BigInt(raw.author_id) }));
+  const rows = result.rows;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id), author_id: BigInt(raw.author_id) }));
 }
 
 /**
@@ -341,7 +344,8 @@ export async function listBooksByGenre(db, genre) {
  */
 export async function listBooksByGenreOrAll(db, genre) {
   const result = await db.query(SQL_LIST_BOOKS_BY_GENRE_OR_ALL, [genre]);
-  return result.rows.map(raw => ({ ...raw, id: BigInt(raw.id), author_id: BigInt(raw.author_id) }));
+  const rows = result.rows;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id), author_id: BigInt(raw.author_id) }));
 }
 
 /**
@@ -408,7 +412,8 @@ export async function addSaleItem(db, saleId, bookId, quantity, unitPrice) {
  */
 export async function listBooksWithAuthor(db) {
   const result = await db.query(SQL_LIST_BOOKS_WITH_AUTHOR, []);
-  return result.rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const rows = result.rows;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 /**
@@ -417,7 +422,8 @@ export async function listBooksWithAuthor(db) {
  */
 export async function listBookSummariesView(db) {
   const result = await db.query(SQL_LIST_BOOK_SUMMARIES_VIEW, []);
-  return result.rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const rows = result.rows;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 /**
@@ -426,7 +432,8 @@ export async function listBookSummariesView(db) {
  */
 export async function getBooksNeverOrdered(db) {
   const result = await db.query(SQL_GET_BOOKS_NEVER_ORDERED, []);
-  return result.rows.map(raw => ({ ...raw, id: BigInt(raw.id), author_id: BigInt(raw.author_id) }));
+  const rows = result.rows;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id), author_id: BigInt(raw.author_id) }));
 }
 
 /**
@@ -444,7 +451,8 @@ export async function getBooksNeverOrdered(db) {
  */
 export async function getTopSellingBooks(db) {
   const result = await db.query(SQL_GET_TOP_SELLING_BOOKS, []);
-  return result.rows.map(raw => ({ ...raw, id: BigInt(raw.id), units_sold: BigInt(raw.units_sold) }));
+  const rows = result.rows;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id), units_sold: BigInt(raw.units_sold) }));
 }
 
 /**
@@ -461,7 +469,8 @@ export async function getTopSellingBooks(db) {
  */
 export async function getBestCustomers(db) {
   const result = await db.query(SQL_GET_BEST_CUSTOMERS, []);
-  return result.rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const rows = result.rows;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 /**
@@ -476,7 +485,8 @@ export async function getBestCustomers(db) {
  */
 export async function countBooksByGenre(db) {
   const result = await db.query(SQL_COUNT_BOOKS_BY_GENRE, []);
-  return result.rows.map(raw => ({ ...raw, book_count: BigInt(raw.book_count) }));
+  const rows = result.rows;
+  return rows.map(raw => ({ ...raw, book_count: BigInt(raw.book_count) }));
 }
 
 /**
@@ -495,7 +505,8 @@ export async function countBooksByGenre(db) {
  */
 export async function listBooksWithLimit(db, limit, offset) {
   const result = await db.query(SQL_LIST_BOOKS_WITH_LIMIT, [String(limit), String(offset)]);
-  return result.rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const rows = result.rows;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 /**
@@ -513,7 +524,8 @@ export async function listBooksWithLimit(db, limit, offset) {
  */
 export async function searchBooksByTitle(db, title) {
   const result = await db.query(SQL_SEARCH_BOOKS_BY_TITLE, [title]);
-  return result.rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const rows = result.rows;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 /**
@@ -532,7 +544,8 @@ export async function searchBooksByTitle(db, title) {
  */
 export async function getBooksByPriceRange(db, price, price2) {
   const result = await db.query(SQL_GET_BOOKS_BY_PRICE_RANGE, [price, price2]);
-  return result.rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const rows = result.rows;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 /**
@@ -552,7 +565,8 @@ export async function getBooksByPriceRange(db, price, price2) {
  */
 export async function getBooksInGenres(db, genre, genre2, genre3) {
   const result = await db.query(SQL_GET_BOOKS_IN_GENRES, [genre, genre2, genre3]);
-  return result.rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const rows = result.rows;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 /**
@@ -570,7 +584,8 @@ export async function getBooksInGenres(db, genre, genre2, genre3) {
  */
 export async function getBookPriceLabel(db, price) {
   const result = await db.query(SQL_GET_BOOK_PRICE_LABEL, [price]);
-  return result.rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const rows = result.rows;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 /**
@@ -587,7 +602,8 @@ export async function getBookPriceLabel(db, price) {
  */
 export async function getBookPriceOrDefault(db, price) {
   const result = await db.query(SQL_GET_BOOK_PRICE_OR_DEFAULT, [price]);
-  return result.rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const rows = result.rows;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 /**
@@ -597,7 +613,8 @@ export async function getBookPriceOrDefault(db, price) {
  */
 export async function deleteBookById(db, id) {
   const result = await db.query(SQL_DELETE_BOOK_BY_ID, [String(id)]);
-  return result.rowCount ?? 0;
+  const n = result.rowCount ?? 0;
+  return n;
 }
 
 /**
@@ -613,7 +630,8 @@ export async function deleteBookById(db, id) {
  */
 export async function getGenresWithManyBooks(db, count) {
   const result = await db.query(SQL_GET_GENRES_WITH_MANY_BOOKS, [String(count)]);
-  return result.rows.map(raw => ({ ...raw, book_count: BigInt(raw.book_count) }));
+  const rows = result.rows;
+  return rows.map(raw => ({ ...raw, book_count: BigInt(raw.book_count) }));
 }
 
 /**
@@ -630,7 +648,8 @@ export async function getGenresWithManyBooks(db, count) {
  */
 export async function getBooksByAuthorParam(db, birthYear) {
   const result = await db.query(SQL_GET_BOOKS_BY_AUTHOR_PARAM, [birthYear]);
-  return result.rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const rows = result.rows;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 /**
@@ -639,7 +658,8 @@ export async function getBooksByAuthorParam(db, birthYear) {
  */
 export async function getAllBookFields(db) {
   const result = await db.query(SQL_GET_ALL_BOOK_FIELDS, []);
-  return result.rows.map(raw => ({ ...raw, id: BigInt(raw.id), author_id: BigInt(raw.author_id) }));
+  const rows = result.rows;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id), author_id: BigInt(raw.author_id) }));
 }
 
 /**
@@ -656,7 +676,8 @@ export async function getAllBookFields(db) {
  */
 export async function getBooksNotByAuthor(db, name) {
   const result = await db.query(SQL_GET_BOOKS_NOT_BY_AUTHOR, [name]);
-  return result.rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const rows = result.rows;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 /**
@@ -673,7 +694,8 @@ export async function getBooksNotByAuthor(db, name) {
  */
 export async function getBooksWithRecentSales(db, orderedAt) {
   const result = await db.query(SQL_GET_BOOKS_WITH_RECENT_SALES, [orderedAt]);
-  return result.rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const rows = result.rows;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 /**
@@ -689,7 +711,8 @@ export async function getBooksWithRecentSales(db, orderedAt) {
  */
 export async function getBookWithAuthorName(db) {
   const result = await db.query(SQL_GET_BOOK_WITH_AUTHOR_NAME, []);
-  return result.rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const rows = result.rows;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 /**
@@ -706,7 +729,8 @@ export async function getBookWithAuthorName(db) {
  */
 export async function getAuthorStats(db) {
   const result = await db.query(SQL_GET_AUTHOR_STATS, []);
-  return result.rows.map(raw => ({ ...raw, id: BigInt(raw.id), num_books: BigInt(raw.num_books), total_sold: BigInt(raw.total_sold) }));
+  const rows = result.rows;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id), num_books: BigInt(raw.num_books), total_sold: BigInt(raw.total_sold) }));
 }
 
 /**
@@ -724,7 +748,8 @@ export async function getAuthorStats(db) {
  */
 export async function archiveAndReturnBooks(db, publishedAt) {
   const result = await db.query(SQL_ARCHIVE_AND_RETURN_BOOKS, [publishedAt]);
-  return result.rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const rows = result.rows;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 /**
@@ -734,7 +759,8 @@ export async function archiveAndReturnBooks(db, publishedAt) {
  */
 export async function getProduct(db, id) {
   const result = await db.query(SQL_GET_PRODUCT, [id]);
-  return result.rows[0] ?? null;
+  const raw = result.rows[0];
+  return raw ?? null;
 }
 
 /**
@@ -758,7 +784,8 @@ export async function getProduct(db, id) {
  */
 export async function listActiveProducts(db, active) {
   const result = await db.query(SQL_LIST_ACTIVE_PRODUCTS, [active]);
-  return result.rows;
+  const rows = result.rows;
+  return rows;
 }
 
 /**
@@ -777,7 +804,8 @@ export async function listActiveProducts(db, active) {
  */
 export async function insertProduct(db, id, sku, name, active, weightKg, rating, tags, metadata, thumbnail, stockCount) {
   const result = await db.query(SQL_INSERT_PRODUCT, [id, sku, name, active, weightKg, rating, tags, metadata, thumbnail, stockCount]);
-  return result.rows[0] ?? null;
+  const raw = result.rows[0];
+  return raw ?? null;
 }
 
 /**
@@ -793,7 +821,8 @@ export async function insertProduct(db, id, sku, name, active, weightKg, rating,
  */
 export async function getAuthorsWithNullBio(db) {
   const result = await db.query(SQL_GET_AUTHORS_WITH_NULL_BIO, []);
-  return result.rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const rows = result.rows;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 /**
@@ -802,7 +831,8 @@ export async function getAuthorsWithNullBio(db) {
  */
 export async function getAuthorsWithBio(db) {
   const result = await db.query(SQL_GET_AUTHORS_WITH_BIO, []);
-  return result.rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const rows = result.rows;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 /**
@@ -822,7 +852,8 @@ export async function getAuthorsWithBio(db) {
  */
 export async function getBooksPublishedBetween(db, publishedAt, publishedAt2) {
   const result = await db.query(SQL_GET_BOOKS_PUBLISHED_BETWEEN, [publishedAt, publishedAt2]);
-  return result.rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const rows = result.rows;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 /**
@@ -836,7 +867,8 @@ export async function getBooksPublishedBetween(db, publishedAt, publishedAt2) {
  */
 export async function getDistinctGenres(db) {
   const result = await db.query(SQL_GET_DISTINCT_GENRES, []);
-  return result.rows;
+  const rows = result.rows;
+  return rows;
 }
 
 /**
@@ -853,7 +885,8 @@ export async function getDistinctGenres(db) {
  */
 export async function getBooksWithSalesCount(db) {
   const result = await db.query(SQL_GET_BOOKS_WITH_SALES_COUNT, []);
-  return result.rows.map(raw => ({ ...raw, id: BigInt(raw.id), total_quantity: BigInt(raw.total_quantity) }));
+  const rows = result.rows;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id), total_quantity: BigInt(raw.total_quantity) }));
 }
 
 /**
@@ -895,7 +928,8 @@ export async function countSaleItems(db, saleId) {
  */
 export async function upsertProduct(db, id, sku, name, active, tags, stockCount) {
   const result = await db.query(SQL_UPSERT_PRODUCT, [id, sku, name, active, tags, stockCount]);
-  return result.rows[0] ?? null;
+  const raw = result.rows[0];
+  return raw ?? null;
 }
 
 /**
@@ -931,7 +965,8 @@ export async function getSaleItemQuantityAggregates(db) {
  */
 export async function getBookPriceAggregates(db) {
   const result = await db.query(SQL_GET_BOOK_PRICE_AGGREGATES, []);
-  return result.rows[0] ?? null;
+  const raw = result.rows[0];
+  return raw ?? null;
 }
 
 export class Querier {

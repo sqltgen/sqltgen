@@ -89,8 +89,8 @@ export async function createAuthor(db, name, bio, birthYear) {
  * @returns {Promise<Author | null>}
  */
 export async function getAuthor(db, id) {
-  const row = db.prepare(SQL_GET_AUTHOR).get(id);
-  return row ?? null;
+  const raw = db.prepare(SQL_GET_AUTHOR).get(id);
+  return raw ?? null;
 }
 
 /**
@@ -98,7 +98,8 @@ export async function getAuthor(db, id) {
  * @returns {Promise<Author[]>}
  */
 export async function listAuthors(db) {
-  return db.prepare(SQL_LIST_AUTHORS).all();
+  const rows = db.prepare(SQL_LIST_AUTHORS).all();
+  return rows;
 }
 
 /**
@@ -120,18 +121,19 @@ export async function createBook(db, authorId, title, genre, price, publishedAt)
  * @returns {Promise<Book | null>}
  */
 export async function getBook(db, id) {
-  const row = db.prepare(SQL_GET_BOOK).get(id);
-  return row ?? null;
+  const raw = db.prepare(SQL_GET_BOOK).get(id);
+  return raw ?? null;
 }
 
 /**
  * @param {Db} db
- * @param {number[]} ids
+ * @param {bigint[]} ids
  * @returns {Promise<Book[]>}
  */
 export async function getBooksByIds(db, ids) {
-  const idsJson = JSON.stringify(ids);
-  return db.prepare(SQL_GET_BOOKS_BY_IDS).all(idsJson);
+  const idsJson = JSON.stringify(ids, (_, v) => typeof v === 'bigint' ? String(v) : v);
+  const rows = db.prepare(SQL_GET_BOOKS_BY_IDS).all(idsJson);
+  return rows;
 }
 
 /**
@@ -140,7 +142,8 @@ export async function getBooksByIds(db, ids) {
  * @returns {Promise<Book[]>}
  */
 export async function listBooksByGenre(db, genre) {
-  return db.prepare(SQL_LIST_BOOKS_BY_GENRE).all(genre);
+  const rows = db.prepare(SQL_LIST_BOOKS_BY_GENRE).all(genre);
+  return rows;
 }
 
 /**
@@ -149,7 +152,8 @@ export async function listBooksByGenre(db, genre) {
  * @returns {Promise<Book[]>}
  */
 export async function listBooksByGenreOrAll(db, genre) {
-  return db.prepare(SQL_LIST_BOOKS_BY_GENRE_OR_ALL).all(genre, genre);
+  const rows = db.prepare(SQL_LIST_BOOKS_BY_GENRE_OR_ALL).all(genre, genre);
+  return rows;
 }
 
 /**
@@ -199,7 +203,8 @@ export async function addSaleItem(db, saleId, bookId, quantity, unitPrice) {
  * @returns {Promise<ListBooksWithAuthorRow[]>}
  */
 export async function listBooksWithAuthor(db) {
-  return db.prepare(SQL_LIST_BOOKS_WITH_AUTHOR).all();
+  const rows = db.prepare(SQL_LIST_BOOKS_WITH_AUTHOR).all();
+  return rows;
 }
 
 /**
@@ -207,7 +212,8 @@ export async function listBooksWithAuthor(db) {
  * @returns {Promise<Book[]>}
  */
 export async function getBooksNeverOrdered(db) {
-  return db.prepare(SQL_GET_BOOKS_NEVER_ORDERED).all();
+  const rows = db.prepare(SQL_GET_BOOKS_NEVER_ORDERED).all();
+  return rows;
 }
 
 /**
@@ -216,7 +222,7 @@ export async function getBooksNeverOrdered(db) {
  * @property {string} title
  * @property {string} genre
  * @property {number} price
- * @property {number | null} units_sold
+ * @property {bigint | null} units_sold
  */
 
 /**
@@ -224,7 +230,8 @@ export async function getBooksNeverOrdered(db) {
  * @returns {Promise<GetTopSellingBooksRow[]>}
  */
 export async function getTopSellingBooks(db) {
-  return db.prepare(SQL_GET_TOP_SELLING_BOOKS).all();
+  const rows = db.prepare(SQL_GET_TOP_SELLING_BOOKS).all();
+  return rows.map(raw => ({ ...raw, units_sold: BigInt(raw.units_sold) }));
 }
 
 /**
@@ -240,7 +247,8 @@ export async function getTopSellingBooks(db) {
  * @returns {Promise<GetBestCustomersRow[]>}
  */
 export async function getBestCustomers(db) {
-  return db.prepare(SQL_GET_BEST_CUSTOMERS).all();
+  const rows = db.prepare(SQL_GET_BEST_CUSTOMERS).all();
+  return rows;
 }
 
 export class Querier {

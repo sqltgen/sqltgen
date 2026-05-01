@@ -24,7 +24,8 @@ ORDER BY title`;
  */
 export async function listBookSummaries(db) {
   const result = await db.query(SQL_LIST_BOOK_SUMMARIES, []);
-  return result.rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const rows = result.rows;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 /**
@@ -34,7 +35,8 @@ export async function listBookSummaries(db) {
  */
 export async function listBookSummariesByGenre(db, genre) {
   const result = await db.query(SQL_LIST_BOOK_SUMMARIES_BY_GENRE, [genre]);
-  return result.rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const rows = result.rows;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 /**
@@ -43,7 +45,8 @@ export async function listBookSummariesByGenre(db, genre) {
  */
 export async function listSciFiBooks(db) {
   const result = await db.query(SQL_LIST_SCI_FI_BOOKS, []);
-  return result.rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const rows = result.rows;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 export class Querier {

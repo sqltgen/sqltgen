@@ -2,7 +2,7 @@
 
 /**
  * @typedef {Object} Customer
- * @property {number} id
+ * @property {bigint} id
  * @property {string} name
  * @property {string} email
  */

@@ -4,10 +4,10 @@
 
 /**
  * @typedef {Object} Book
- * @property {number} id
- * @property {number} author_id
+ * @property {bigint} id
+ * @property {bigint} author_id
  * @property {string} title
  * @property {Genre} genre
- * @property {number} price
+ * @property {string} price
  * @property {Date | null} published_at
  */

@@ -210,8 +210,8 @@ export async function createAuthor(db, name, bio, birthYear) {
  * @returns {Promise<Author | null>}
  */
 export async function getAuthor(db, id) {
-  const [rows] = await db.query(SQL_GET_AUTHOR, [id]);
-  const raw = rows[0];
+  const [rdp] = await db.query(SQL_GET_AUTHOR, [id]);
+  const raw = rdp[0];
   if (!raw) return null;
   return { ...raw, id: BigInt(raw.id) };
 }
@@ -221,8 +221,9 @@ export async function getAuthor(db, id) {
  * @returns {Promise<Author[]>}
  */
 export async function listAuthors(db) {
-  const [rows] = await db.query(SQL_LIST_AUTHORS, []);
-  return (rows).map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const [rdp] = await db.query(SQL_LIST_AUTHORS, []);
+  const rows = rdp;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 /**
@@ -263,8 +264,8 @@ export async function createBook(db, authorId, title, genre, price, publishedAt)
  * @returns {Promise<Book | null>}
  */
 export async function getBook(db, id) {
-  const [rows] = await db.query(SQL_GET_BOOK, [id]);
-  const raw = rows[0];
+  const [rdp] = await db.query(SQL_GET_BOOK, [id]);
+  const raw = rdp[0];
   if (!raw) return null;
   return { ...raw, id: BigInt(raw.id), author_id: BigInt(raw.author_id) };
 }
@@ -276,8 +277,9 @@ export async function getBook(db, id) {
  */
 export async function getBooksByIds(db, ids) {
   const idsJson = JSON.stringify(ids, (_, v) => typeof v === 'bigint' ? String(v) : v);
-  const [rows] = await db.query(SQL_GET_BOOKS_BY_IDS, [idsJson]);
-  return (rows).map(raw => ({ ...raw, id: BigInt(raw.id), author_id: BigInt(raw.author_id) }));
+  const [rdp] = await db.query(SQL_GET_BOOKS_BY_IDS, [idsJson]);
+  const rows = rdp;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id), author_id: BigInt(raw.author_id) }));
 }
 
 /**
@@ -286,8 +288,9 @@ export async function getBooksByIds(db, ids) {
  * @returns {Promise<Book[]>}
  */
 export async function listBooksByGenre(db, genre) {
-  const [rows] = await db.query(SQL_LIST_BOOKS_BY_GENRE, [genre]);
-  return (rows).map(raw => ({ ...raw, id: BigInt(raw.id), author_id: BigInt(raw.author_id) }));
+  const [rdp] = await db.query(SQL_LIST_BOOKS_BY_GENRE, [genre]);
+  const rows = rdp;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id), author_id: BigInt(raw.author_id) }));
 }
 
 /**
@@ -296,8 +299,9 @@ export async function listBooksByGenre(db, genre) {
  * @returns {Promise<Book[]>}
  */
 export async function listBooksByGenreOrAll(db, genre) {
-  const [rows] = await db.query(SQL_LIST_BOOKS_BY_GENRE_OR_ALL, [genre, genre]);
-  return (rows).map(raw => ({ ...raw, id: BigInt(raw.id), author_id: BigInt(raw.author_id) }));
+  const [rdp] = await db.query(SQL_LIST_BOOKS_BY_GENRE_OR_ALL, [genre, genre]);
+  const rows = rdp;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id), author_id: BigInt(raw.author_id) }));
 }
 
 /**
@@ -347,8 +351,9 @@ export async function addSaleItem(db, saleId, bookId, quantity, unitPrice) {
  * @returns {Promise<ListBooksWithAuthorRow[]>}
  */
 export async function listBooksWithAuthor(db) {
-  const [rows] = await db.query(SQL_LIST_BOOKS_WITH_AUTHOR, []);
-  return (rows).map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const [rdp] = await db.query(SQL_LIST_BOOKS_WITH_AUTHOR, []);
+  const rows = rdp;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 /**
@@ -356,8 +361,9 @@ export async function listBooksWithAuthor(db) {
  * @returns {Promise<Book[]>}
  */
 export async function getBooksNeverOrdered(db) {
-  const [rows] = await db.query(SQL_GET_BOOKS_NEVER_ORDERED, []);
-  return (rows).map(raw => ({ ...raw, id: BigInt(raw.id), author_id: BigInt(raw.author_id) }));
+  const [rdp] = await db.query(SQL_GET_BOOKS_NEVER_ORDERED, []);
+  const rows = rdp;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id), author_id: BigInt(raw.author_id) }));
 }
 
 /**
@@ -374,8 +380,9 @@ export async function getBooksNeverOrdered(db) {
  * @returns {Promise<GetTopSellingBooksRow[]>}
  */
 export async function getTopSellingBooks(db) {
-  const [rows] = await db.query(SQL_GET_TOP_SELLING_BOOKS, []);
-  return (rows).map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const [rdp] = await db.query(SQL_GET_TOP_SELLING_BOOKS, []);
+  const rows = rdp;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 /**
@@ -391,8 +398,9 @@ export async function getTopSellingBooks(db) {
  * @returns {Promise<GetBestCustomersRow[]>}
  */
 export async function getBestCustomers(db) {
-  const [rows] = await db.query(SQL_GET_BEST_CUSTOMERS, []);
-  return (rows).map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const [rdp] = await db.query(SQL_GET_BEST_CUSTOMERS, []);
+  const rows = rdp;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 /**
@@ -406,8 +414,9 @@ export async function getBestCustomers(db) {
  * @returns {Promise<CountBooksByGenreRow[]>}
  */
 export async function countBooksByGenre(db) {
-  const [rows] = await db.query(SQL_COUNT_BOOKS_BY_GENRE, []);
-  return (rows).map(raw => ({ ...raw, book_count: BigInt(raw.book_count) }));
+  const [rdp] = await db.query(SQL_COUNT_BOOKS_BY_GENRE, []);
+  const rows = rdp;
+  return rows.map(raw => ({ ...raw, book_count: BigInt(raw.book_count) }));
 }
 
 /**
@@ -425,8 +434,9 @@ export async function countBooksByGenre(db) {
  * @returns {Promise<ListBooksWithLimitRow[]>}
  */
 export async function listBooksWithLimit(db, limit, offset) {
-  const [rows] = await db.query(SQL_LIST_BOOKS_WITH_LIMIT, [limit, offset]);
-  return (rows).map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const [rdp] = await db.query(SQL_LIST_BOOKS_WITH_LIMIT, [limit, offset]);
+  const rows = rdp;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 /**
@@ -443,8 +453,9 @@ export async function listBooksWithLimit(db, limit, offset) {
  * @returns {Promise<SearchBooksByTitleRow[]>}
  */
 export async function searchBooksByTitle(db, title) {
-  const [rows] = await db.query(SQL_SEARCH_BOOKS_BY_TITLE, [title]);
-  return (rows).map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const [rdp] = await db.query(SQL_SEARCH_BOOKS_BY_TITLE, [title]);
+  const rows = rdp;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 /**
@@ -462,8 +473,9 @@ export async function searchBooksByTitle(db, title) {
  * @returns {Promise<GetBooksByPriceRangeRow[]>}
  */
 export async function getBooksByPriceRange(db, price, price2) {
-  const [rows] = await db.query(SQL_GET_BOOKS_BY_PRICE_RANGE, [price, price2]);
-  return (rows).map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const [rdp] = await db.query(SQL_GET_BOOKS_BY_PRICE_RANGE, [price, price2]);
+  const rows = rdp;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 /**
@@ -482,8 +494,9 @@ export async function getBooksByPriceRange(db, price, price2) {
  * @returns {Promise<GetBooksInGenresRow[]>}
  */
 export async function getBooksInGenres(db, genre, genre2, genre3) {
-  const [rows] = await db.query(SQL_GET_BOOKS_IN_GENRES, [genre, genre2, genre3]);
-  return (rows).map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const [rdp] = await db.query(SQL_GET_BOOKS_IN_GENRES, [genre, genre2, genre3]);
+  const rows = rdp;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 /**
@@ -500,8 +513,9 @@ export async function getBooksInGenres(db, genre, genre2, genre3) {
  * @returns {Promise<GetBookPriceLabelRow[]>}
  */
 export async function getBookPriceLabel(db, price) {
-  const [rows] = await db.query(SQL_GET_BOOK_PRICE_LABEL, [price]);
-  return (rows).map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const [rdp] = await db.query(SQL_GET_BOOK_PRICE_LABEL, [price]);
+  const rows = rdp;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 /**
@@ -517,8 +531,9 @@ export async function getBookPriceLabel(db, price) {
  * @returns {Promise<GetBookPriceOrDefaultRow[]>}
  */
 export async function getBookPriceOrDefault(db, price) {
-  const [rows] = await db.query(SQL_GET_BOOK_PRICE_OR_DEFAULT, [price]);
-  return (rows).map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const [rdp] = await db.query(SQL_GET_BOOK_PRICE_OR_DEFAULT, [price]);
+  const rows = rdp;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 /**
@@ -528,7 +543,8 @@ export async function getBookPriceOrDefault(db, price) {
  */
 export async function deleteBookById(db, id) {
   const [result] = await db.query(SQL_DELETE_BOOK_BY_ID, [id]);
-  return result.affectedRows;
+  const n = result.affectedRows;
+  return n;
 }
 
 /**
@@ -543,8 +559,9 @@ export async function deleteBookById(db, id) {
  * @returns {Promise<GetGenresWithManyBooksRow[]>}
  */
 export async function getGenresWithManyBooks(db, count) {
-  const [rows] = await db.query(SQL_GET_GENRES_WITH_MANY_BOOKS, [count]);
-  return (rows).map(raw => ({ ...raw, book_count: BigInt(raw.book_count) }));
+  const [rdp] = await db.query(SQL_GET_GENRES_WITH_MANY_BOOKS, [count]);
+  const rows = rdp;
+  return rows.map(raw => ({ ...raw, book_count: BigInt(raw.book_count) }));
 }
 
 /**
@@ -560,8 +577,9 @@ export async function getGenresWithManyBooks(db, count) {
  * @returns {Promise<GetBooksByAuthorParamRow[]>}
  */
 export async function getBooksByAuthorParam(db, birthYear) {
-  const [rows] = await db.query(SQL_GET_BOOKS_BY_AUTHOR_PARAM, [birthYear]);
-  return (rows).map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const [rdp] = await db.query(SQL_GET_BOOKS_BY_AUTHOR_PARAM, [birthYear]);
+  const rows = rdp;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 /**
@@ -569,8 +587,9 @@ export async function getBooksByAuthorParam(db, birthYear) {
  * @returns {Promise<Book[]>}
  */
 export async function getAllBookFields(db) {
-  const [rows] = await db.query(SQL_GET_ALL_BOOK_FIELDS, []);
-  return (rows).map(raw => ({ ...raw, id: BigInt(raw.id), author_id: BigInt(raw.author_id) }));
+  const [rdp] = await db.query(SQL_GET_ALL_BOOK_FIELDS, []);
+  const rows = rdp;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id), author_id: BigInt(raw.author_id) }));
 }
 
 /**
@@ -586,8 +605,9 @@ export async function getAllBookFields(db) {
  * @returns {Promise<GetBooksNotByAuthorRow[]>}
  */
 export async function getBooksNotByAuthor(db, name) {
-  const [rows] = await db.query(SQL_GET_BOOKS_NOT_BY_AUTHOR, [name]);
-  return (rows).map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const [rdp] = await db.query(SQL_GET_BOOKS_NOT_BY_AUTHOR, [name]);
+  const rows = rdp;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 /**
@@ -603,8 +623,9 @@ export async function getBooksNotByAuthor(db, name) {
  * @returns {Promise<GetBooksWithRecentSalesRow[]>}
  */
 export async function getBooksWithRecentSales(db, orderedAt) {
-  const [rows] = await db.query(SQL_GET_BOOKS_WITH_RECENT_SALES, [orderedAt]);
-  return (rows).map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const [rdp] = await db.query(SQL_GET_BOOKS_WITH_RECENT_SALES, [orderedAt]);
+  const rows = rdp;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 /**
@@ -619,8 +640,9 @@ export async function getBooksWithRecentSales(db, orderedAt) {
  * @returns {Promise<GetBookWithAuthorNameRow[]>}
  */
 export async function getBookWithAuthorName(db) {
-  const [rows] = await db.query(SQL_GET_BOOK_WITH_AUTHOR_NAME, []);
-  return (rows).map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const [rdp] = await db.query(SQL_GET_BOOK_WITH_AUTHOR_NAME, []);
+  const rows = rdp;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 /**
@@ -636,8 +658,9 @@ export async function getBookWithAuthorName(db) {
  * @returns {Promise<GetAuthorStatsRow[]>}
  */
 export async function getAuthorStats(db) {
-  const [rows] = await db.query(SQL_GET_AUTHOR_STATS, []);
-  return (rows).map(raw => ({ ...raw, id: BigInt(raw.id), num_books: BigInt(raw.num_books) }));
+  const [rdp] = await db.query(SQL_GET_AUTHOR_STATS, []);
+  const rows = rdp;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id), num_books: BigInt(raw.num_books) }));
 }
 
 /**
@@ -646,8 +669,9 @@ export async function getAuthorStats(db) {
  * @returns {Promise<Product | null>}
  */
 export async function getProduct(db, id) {
-  const [rows] = await db.query(SQL_GET_PRODUCT, [id]);
-  return (rows[0]) ?? null;
+  const [rdp] = await db.query(SQL_GET_PRODUCT, [id]);
+  const raw = rdp[0];
+  return raw ?? null;
 }
 
 /**
@@ -669,7 +693,8 @@ export async function getProduct(db, id) {
  * @returns {Promise<ListActiveProductsRow[]>}
  */
 export async function listActiveProducts(db, active) {
-  const [rows] = await db.query(SQL_LIST_ACTIVE_PRODUCTS, [active]);
+  const [rdp] = await db.query(SQL_LIST_ACTIVE_PRODUCTS, [active]);
+  const rows = rdp;
   return rows;
 }
 
@@ -685,8 +710,9 @@ export async function listActiveProducts(db, active) {
  * @returns {Promise<GetAuthorsWithNullBioRow[]>}
  */
 export async function getAuthorsWithNullBio(db) {
-  const [rows] = await db.query(SQL_GET_AUTHORS_WITH_NULL_BIO, []);
-  return (rows).map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const [rdp] = await db.query(SQL_GET_AUTHORS_WITH_NULL_BIO, []);
+  const rows = rdp;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 /**
@@ -694,8 +720,9 @@ export async function getAuthorsWithNullBio(db) {
  * @returns {Promise<Author[]>}
  */
 export async function getAuthorsWithBio(db) {
-  const [rows] = await db.query(SQL_GET_AUTHORS_WITH_BIO, []);
-  return (rows).map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const [rdp] = await db.query(SQL_GET_AUTHORS_WITH_BIO, []);
+  const rows = rdp;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 /**
@@ -714,8 +741,9 @@ export async function getAuthorsWithBio(db) {
  * @returns {Promise<GetBooksPublishedBetweenRow[]>}
  */
 export async function getBooksPublishedBetween(db, publishedAt, publishedAt2) {
-  const [rows] = await db.query(SQL_GET_BOOKS_PUBLISHED_BETWEEN, [publishedAt, publishedAt2]);
-  return (rows).map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const [rdp] = await db.query(SQL_GET_BOOKS_PUBLISHED_BETWEEN, [publishedAt, publishedAt2]);
+  const rows = rdp;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 /**
@@ -728,7 +756,8 @@ export async function getBooksPublishedBetween(db, publishedAt, publishedAt2) {
  * @returns {Promise<GetDistinctGenresRow[]>}
  */
 export async function getDistinctGenres(db) {
-  const [rows] = await db.query(SQL_GET_DISTINCT_GENRES, []);
+  const [rdp] = await db.query(SQL_GET_DISTINCT_GENRES, []);
+  const rows = rdp;
   return rows;
 }
 
@@ -745,8 +774,9 @@ export async function getDistinctGenres(db) {
  * @returns {Promise<GetBooksWithSalesCountRow[]>}
  */
 export async function getBooksWithSalesCount(db) {
-  const [rows] = await db.query(SQL_GET_BOOKS_WITH_SALES_COUNT, []);
-  return (rows).map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const [rdp] = await db.query(SQL_GET_BOOKS_WITH_SALES_COUNT, []);
+  const rows = rdp;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 /**
@@ -760,8 +790,8 @@ export async function getBooksWithSalesCount(db) {
  * @returns {Promise<CountSaleItemsRow | null>}
  */
 export async function countSaleItems(db, saleId) {
-  const [rows] = await db.query(SQL_COUNT_SALE_ITEMS, [saleId]);
-  const raw = rows[0];
+  const [rdp] = await db.query(SQL_COUNT_SALE_ITEMS, [saleId]);
+  const raw = rdp[0];
   if (!raw) return null;
   return { ...raw, item_count: BigInt(raw.item_count) };
 }
@@ -779,8 +809,9 @@ export async function countSaleItems(db, saleId) {
  * @returns {Promise<GetSaleItemQuantityAggregatesRow | null>}
  */
 export async function getSaleItemQuantityAggregates(db) {
-  const [rows] = await db.query(SQL_GET_SALE_ITEM_QUANTITY_AGGREGATES, []);
-  return (rows[0]) ?? null;
+  const [rdp] = await db.query(SQL_GET_SALE_ITEM_QUANTITY_AGGREGATES, []);
+  const raw = rdp[0];
+  return raw ?? null;
 }
 
 /**
@@ -796,8 +827,9 @@ export async function getSaleItemQuantityAggregates(db) {
  * @returns {Promise<GetBookPriceAggregatesRow | null>}
  */
 export async function getBookPriceAggregates(db) {
-  const [rows] = await db.query(SQL_GET_BOOK_PRICE_AGGREGATES, []);
-  return (rows[0]) ?? null;
+  const [rdp] = await db.query(SQL_GET_BOOK_PRICE_AGGREGATES, []);
+  const raw = rdp[0];
+  return raw ?? null;
 }
 
 export class Querier {

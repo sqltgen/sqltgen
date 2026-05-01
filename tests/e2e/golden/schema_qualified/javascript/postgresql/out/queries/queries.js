@@ -29,7 +29,8 @@ export async function getUser(db, id) {
  */
 export async function listAuditLogs(db) {
   const result = await db.query(SQL_LIST_AUDIT_LOGS, []);
-  return result.rows.map(raw => ({ ...raw, id: BigInt(raw.id), user_id: BigInt(raw.user_id) }));
+  const rows = result.rows;
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id), user_id: BigInt(raw.user_id) }));
 }
 
 /**

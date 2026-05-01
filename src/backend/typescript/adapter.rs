@@ -1,11 +1,14 @@
 use std::fmt::Write;
 use std::path::PathBuf;
 
+use crate::backend::naming::to_camel_case;
+use crate::backend::sql_rewrite::positional_bind_names;
 use crate::backend::GeneratedFile;
-use crate::config::{ListParamStrategy, OutputConfig, ResolvedType};
-use crate::ir::{Parameter, SqlType};
+use crate::config::{OutputConfig, ResolvedType};
+use crate::ir::{Parameter, Query, SqlType};
 
-use super::core::{emit_mysql_query, emit_pg_query, emit_sqlite_query, QueryContext};
+use super::core::{ts_row_type, GenerationContext};
+use super::typemap::JsTypeMap;
 use super::{JsOutput, JsTarget};
 
 /// Driver-specific configuration and behavior for the TypeScript/JavaScript backend.
@@ -42,8 +45,39 @@ pub(super) trait JsDriverAdapter {
     fn list_arg(&self, sql_type: &SqlType, name: &str) -> String;
     /// Content of the generated `sqltgen.{ts,js}` runtime helper module.
     fn helper_content(&self) -> String;
-    /// Emit the complete query function into `src`.
-    fn emit_query(&self, src: &mut String, ctx: &QueryContext, strategy: &ListParamStrategy) -> anyhow::Result<()>;
+    /// Build the args expression for a query in the engine's expected syntax
+    /// (JS array `[a, b]` for pg/mysql, bare comma list `a, b` for sqlite;
+    /// unique-by-index for pg, positional-with-repetition for sqlite/mysql).
+    ///
+    /// `list_slot` substitutes the given expression in the list-param's slot —
+    /// pass the JSON-stringified var name for native lists, or `...spread` for
+    /// dynamic lists. `None` for queries without a list parameter.
+    fn build_args(&self, query: &Query, type_map: &JsTypeMap, list_slot: Option<(&Parameter, &str)>) -> String;
+
+    /// Emit any setup lines that must precede a native-list query body and
+    /// return the JS expression that substitutes for the list-param value in
+    /// the args. For pg this is just the list itself (or its BigInt-coerced
+    /// form); for sqlite/mysql it is a JSON-stringified local variable.
+    fn emit_native_list_prelude(&self, src: &mut String, lp: &Parameter, type_map: &JsTypeMap) -> anyhow::Result<String>;
+
+    /// JS expression that builds the placeholder string for a dynamic IN
+    /// expansion (`$N`-numbered for pg, anonymous `?` for sqlite/mysql).
+    /// `scalars_before` counts scalar params with lower index than the list
+    /// param — pg uses it to start numbering at the right offset; engines that
+    /// use anonymous placeholders ignore it.
+    fn dynamic_placeholders_expr(&self, lp_name: &str, scalars_before: usize) -> String;
+
+    // ── result-extraction primitives ──────────────────────────────────────────
+    /// Emit the statement that fires a query and discards the result (Exec cmd).
+    fn emit_exec(&self, src: &mut String, sql_expr: &str, args: &str) -> anyhow::Result<()>;
+    /// Emit lines that bind the affected-rows count to `var` (ExecRows cmd).
+    fn emit_bind_count(&self, src: &mut String, sql_expr: &str, args: &str, var: &str) -> anyhow::Result<()>;
+    /// Emit lines that bind the first result row to `var` (One cmd). The bound
+    /// expression is typed `Row | undefined` (or its loose-typed pg equivalent).
+    fn emit_bind_one(&self, src: &mut String, ctx: &GenerationContext, query: &Query, sql_expr: &str, args: &str, var: &str) -> anyhow::Result<()>;
+    /// Emit lines that bind the rows array to `var` (Many cmd). The bound
+    /// expression is typed `Row[]`.
+    fn emit_bind_many(&self, src: &mut String, ctx: &GenerationContext, query: &Query, sql_expr: &str, args: &str, var: &str) -> anyhow::Result<()>;
 }
 
 pub(super) struct PgAdapter {
@@ -115,8 +149,57 @@ impl JsDriverAdapter for PgAdapter {
         build_helper_file(JsTarget::Pg, self.output)
     }
 
-    fn emit_query(&self, src: &mut String, ctx: &QueryContext, strategy: &ListParamStrategy) -> anyhow::Result<()> {
-        emit_pg_query(src, ctx, strategy)
+    fn build_args(&self, query: &Query, type_map: &JsTypeMap, list_slot: Option<(&Parameter, &str)>) -> String {
+        // pg uses $N reference-by-number, so each unique param index appears
+        // exactly once in the bound array regardless of SQL repetition.
+        let mut params: Vec<&Parameter> = query.params.iter().collect();
+        params.sort_by_key(|p| p.index);
+        let exprs: Vec<String> = params
+            .iter()
+            .map(|p| match list_slot {
+                Some((lp, expr)) if p.index == lp.index => expr.to_string(),
+                _ => type_map.write_expr(p),
+            })
+            .collect();
+        format!("[{}]", exprs.join(", "))
+    }
+
+    fn emit_native_list_prelude(&self, _src: &mut String, lp: &Parameter, _type_map: &JsTypeMap) -> anyhow::Result<String> {
+        // pg accepts JS arrays directly; no JSON setup needed. The substituted
+        // expression is just the (possibly BigInt-coerced) list value.
+        Ok(self.list_arg(&lp.sql_type, &to_camel_case(&lp.name)))
+    }
+
+    fn dynamic_placeholders_expr(&self, lp_name: &str, scalars_before: usize) -> String {
+        let start = scalars_before + 1;
+        format!("{lp_name}.map((_, i) => '$' + ({start} + i)).join(', ')")
+    }
+
+    fn emit_exec(&self, src: &mut String, sql_expr: &str, args: &str) -> anyhow::Result<()> {
+        writeln!(src, "  await db.query({sql_expr}, {args});")?;
+        Ok(())
+    }
+
+    fn emit_bind_count(&self, src: &mut String, sql_expr: &str, args: &str, var: &str) -> anyhow::Result<()> {
+        writeln!(src, "  const result = await db.query({sql_expr}, {args});")?;
+        writeln!(src, "  const {var} = result.rowCount ?? 0;")?;
+        Ok(())
+    }
+
+    fn emit_bind_one(&self, src: &mut String, ctx: &GenerationContext, query: &Query, sql_expr: &str, args: &str, var: &str) -> anyhow::Result<()> {
+        let row = ts_row_type(query, ctx.schema);
+        let generic = ts_generic(self.output, &row);
+        writeln!(src, "  const result = await db.query{generic}({sql_expr}, {args});")?;
+        writeln!(src, "  const {var} = result.rows[0];")?;
+        Ok(())
+    }
+
+    fn emit_bind_many(&self, src: &mut String, ctx: &GenerationContext, query: &Query, sql_expr: &str, args: &str, var: &str) -> anyhow::Result<()> {
+        let row = ts_row_type(query, ctx.schema);
+        let generic = ts_generic(self.output, &row);
+        writeln!(src, "  const result = await db.query{generic}({sql_expr}, {args});")?;
+        writeln!(src, "  const {var} = result.rows;")?;
+        Ok(())
     }
 }
 
@@ -173,8 +256,44 @@ impl JsDriverAdapter for BetterSqlite3Adapter {
         build_helper_file(JsTarget::BetterSqlite3, self.output)
     }
 
-    fn emit_query(&self, src: &mut String, ctx: &QueryContext, strategy: &ListParamStrategy) -> anyhow::Result<()> {
-        emit_sqlite_query(src, ctx, strategy)
+    fn build_args(&self, query: &Query, type_map: &JsTypeMap, list_slot: Option<(&Parameter, &str)>) -> String {
+        // better-sqlite3 takes spread args; the arg list follows SQL occurrence order with repetition.
+        build_positional_args(query, type_map, list_slot)
+    }
+
+    fn emit_native_list_prelude(&self, src: &mut String, lp: &Parameter, type_map: &JsTypeMap) -> anyhow::Result<String> {
+        let lp_name = to_camel_case(&lp.name);
+        let stringify = type_map.list_json_stringify(&lp.sql_type, &lp_name);
+        writeln!(src, "  const {lp_name}Json = {stringify};")?;
+        Ok(format!("{lp_name}Json"))
+    }
+
+    fn dynamic_placeholders_expr(&self, lp_name: &str, _scalars_before: usize) -> String {
+        format!(r#"{lp_name}.map(() => "?").join(", ")"#)
+    }
+
+    fn emit_exec(&self, src: &mut String, sql_expr: &str, args: &str) -> anyhow::Result<()> {
+        writeln!(src, "  db.prepare({sql_expr}).run({args});")?;
+        Ok(())
+    }
+
+    fn emit_bind_count(&self, src: &mut String, sql_expr: &str, args: &str, var: &str) -> anyhow::Result<()> {
+        writeln!(src, "  const {var} = db.prepare({sql_expr}).run({args}).changes;")?;
+        Ok(())
+    }
+
+    fn emit_bind_one(&self, src: &mut String, ctx: &GenerationContext, query: &Query, sql_expr: &str, args: &str, var: &str) -> anyhow::Result<()> {
+        let row = ts_row_type(query, ctx.schema);
+        let cast = ts_cast(&format!("{row} | undefined"), self.output);
+        writeln!(src, "  const {var} = db.prepare({sql_expr}).get({args}){cast};")?;
+        Ok(())
+    }
+
+    fn emit_bind_many(&self, src: &mut String, ctx: &GenerationContext, query: &Query, sql_expr: &str, args: &str, var: &str) -> anyhow::Result<()> {
+        let row = ts_row_type(query, ctx.schema);
+        let cast = ts_cast(&format!("{row}[]"), self.output);
+        writeln!(src, "  const {var} = db.prepare({sql_expr}).all({args}){cast};")?;
+        Ok(())
     }
 }
 
@@ -230,8 +349,88 @@ impl JsDriverAdapter for Mysql2Adapter {
         build_helper_file(JsTarget::Mysql2, self.output)
     }
 
-    fn emit_query(&self, src: &mut String, ctx: &QueryContext, strategy: &ListParamStrategy) -> anyhow::Result<()> {
-        emit_mysql_query(src, ctx, strategy)
+    fn build_args(&self, query: &Query, type_map: &JsTypeMap, list_slot: Option<(&Parameter, &str)>) -> String {
+        // mysql2 takes a JS array; placeholders are anonymous `?` so args follow SQL occurrence order.
+        format!("[{}]", build_positional_args(query, type_map, list_slot))
+    }
+
+    fn emit_native_list_prelude(&self, src: &mut String, lp: &Parameter, type_map: &JsTypeMap) -> anyhow::Result<String> {
+        let lp_name = to_camel_case(&lp.name);
+        let stringify = type_map.list_json_stringify(&lp.sql_type, &lp_name);
+        writeln!(src, "  const {lp_name}Json = {stringify};")?;
+        Ok(format!("{lp_name}Json"))
+    }
+
+    fn dynamic_placeholders_expr(&self, lp_name: &str, _scalars_before: usize) -> String {
+        format!(r#"{lp_name}.map(() => "?").join(", ")"#)
+    }
+
+    fn emit_exec(&self, src: &mut String, sql_expr: &str, args: &str) -> anyhow::Result<()> {
+        writeln!(src, "  await db.query({sql_expr}, {args});")?;
+        Ok(())
+    }
+
+    fn emit_bind_count(&self, src: &mut String, sql_expr: &str, args: &str, var: &str) -> anyhow::Result<()> {
+        let rsh = mysql_type_param(self.output, "ResultSetHeader");
+        writeln!(src, "  const [result] = await db.query{rsh}({sql_expr}, {args});")?;
+        writeln!(src, "  const {var} = result.affectedRows;")?;
+        Ok(())
+    }
+
+    fn emit_bind_one(&self, src: &mut String, ctx: &GenerationContext, query: &Query, sql_expr: &str, args: &str, var: &str) -> anyhow::Result<()> {
+        let row = ts_row_type(query, ctx.schema);
+        let generic = mysql_type_param(self.output, "RowDataPacket[]");
+        let cast = ts_cast(&format!("{row} | undefined"), self.output);
+        writeln!(src, "  const [rdp] = await db.query{generic}({sql_expr}, {args});")?;
+        writeln!(src, "  const {var} = rdp[0]{cast};")?;
+        Ok(())
+    }
+
+    fn emit_bind_many(&self, src: &mut String, ctx: &GenerationContext, query: &Query, sql_expr: &str, args: &str, var: &str) -> anyhow::Result<()> {
+        let row = ts_row_type(query, ctx.schema);
+        let generic = mysql_type_param(self.output, "RowDataPacket[]");
+        let cast = ts_cast(&format!("{row}[]"), self.output);
+        writeln!(src, "  const [rdp] = await db.query{generic}({sql_expr}, {args});")?;
+        writeln!(src, "  const {var} = rdp{cast};")?;
+        Ok(())
+    }
+}
+
+/// Build a comma-separated args list following SQL occurrence order
+/// (with repetition), substituting `list_slot.1` wherever the list param's
+/// name would appear. Used by sqlite (bare) and mysql (wrapped).
+fn build_positional_args(query: &Query, type_map: &JsTypeMap, list_slot: Option<(&Parameter, &str)>) -> String {
+    positional_bind_names(query)
+        .iter()
+        .map(|&n| match list_slot {
+            Some((lp, expr)) if n == lp.name => expr.to_string(),
+            _ => query.params.iter().find(|p| p.name == n).map(|p| type_map.write_expr(p)).unwrap_or_else(|| to_camel_case(n)),
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Return ` as <ts_type>` for TypeScript or empty string for JavaScript.
+fn ts_cast(ts_type: &str, output: JsOutput) -> String {
+    match output {
+        JsOutput::TypeScript => format!(" as {ts_type}"),
+        JsOutput::JavaScript => String::new(),
+    }
+}
+
+/// Return `<ts_type>` (TypeScript generic argument) or empty string (JavaScript).
+fn mysql_type_param(output: JsOutput, ts_type: &str) -> String {
+    match output {
+        JsOutput::TypeScript => format!("<{ts_type}>"),
+        JsOutput::JavaScript => String::new(),
+    }
+}
+
+/// Return `<row>` for TypeScript or empty string for JavaScript.
+fn ts_generic(output: JsOutput, row: &str) -> String {
+    match output {
+        JsOutput::TypeScript => format!("<{row}>"),
+        JsOutput::JavaScript => String::new(),
     }
 }
 

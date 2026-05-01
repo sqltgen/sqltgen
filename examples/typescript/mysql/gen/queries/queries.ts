@@ -78,50 +78,54 @@ export async function createAuthor(db: Db, name: string, bio: string | null, bir
 }
 
 export async function getAuthor(db: Db, id: bigint): Promise<Author | null> {
-  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_AUTHOR, [String(id)]);
-  const raw = rows[0] as Author | undefined;
+  const [rdp] = await db.query<RowDataPacket[]>(SQL_GET_AUTHOR, [id]);
+  const raw = rdp[0] as Author | undefined;
   if (!raw) return null;
   return { ...raw, id: BigInt(raw.id) };
 }
 
 export async function listAuthors(db: Db): Promise<Author[]> {
-  const [rows] = await db.query<RowDataPacket[]>(SQL_LIST_AUTHORS, []);
-  return (rows as Author[]).map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const [rdp] = await db.query<RowDataPacket[]>(SQL_LIST_AUTHORS, []);
+  const rows = rdp as Author[];
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 export async function updateAuthorBio(db: Db, bio: string | null, id: bigint): Promise<void> {
-  await db.query(SQL_UPDATE_AUTHOR_BIO, [bio, String(id)]);
+  await db.query(SQL_UPDATE_AUTHOR_BIO, [bio, id]);
 }
 
 export async function deleteAuthor(db: Db, id: bigint): Promise<void> {
-  await db.query(SQL_DELETE_AUTHOR, [String(id)]);
+  await db.query(SQL_DELETE_AUTHOR, [id]);
 }
 
 export async function createBook(db: Db, authorId: bigint, title: string, genre: string, price: string, publishedAt: string | null): Promise<void> {
-  await db.query(SQL_CREATE_BOOK, [String(authorId), title, genre, price, publishedAt]);
+  await db.query(SQL_CREATE_BOOK, [authorId, title, genre, price, publishedAt]);
 }
 
 export async function getBook(db: Db, id: bigint): Promise<Book | null> {
-  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_BOOK, [String(id)]);
-  const raw = rows[0] as Book | undefined;
+  const [rdp] = await db.query<RowDataPacket[]>(SQL_GET_BOOK, [id]);
+  const raw = rdp[0] as Book | undefined;
   if (!raw) return null;
   return { ...raw, id: BigInt(raw.id), author_id: BigInt(raw.author_id) };
 }
 
 export async function getBooksByIds(db: Db, ids: bigint[]): Promise<Book[]> {
   const idsJson = JSON.stringify(ids, (_, v) => typeof v === 'bigint' ? String(v) : v);
-  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_BOOKS_BY_IDS, [idsJson]);
-  return (rows as Book[]).map(raw => ({ ...raw, id: BigInt(raw.id), author_id: BigInt(raw.author_id) }));
+  const [rdp] = await db.query<RowDataPacket[]>(SQL_GET_BOOKS_BY_IDS, [idsJson]);
+  const rows = rdp as Book[];
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id), author_id: BigInt(raw.author_id) }));
 }
 
 export async function listBooksByGenre(db: Db, genre: string): Promise<Book[]> {
-  const [rows] = await db.query<RowDataPacket[]>(SQL_LIST_BOOKS_BY_GENRE, [genre]);
-  return (rows as Book[]).map(raw => ({ ...raw, id: BigInt(raw.id), author_id: BigInt(raw.author_id) }));
+  const [rdp] = await db.query<RowDataPacket[]>(SQL_LIST_BOOKS_BY_GENRE, [genre]);
+  const rows = rdp as Book[];
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id), author_id: BigInt(raw.author_id) }));
 }
 
 export async function listBooksByGenreOrAll(db: Db, genre: string): Promise<Book[]> {
-  const [rows] = await db.query<RowDataPacket[]>(SQL_LIST_BOOKS_BY_GENRE_OR_ALL, [genre, genre]);
-  return (rows as Book[]).map(raw => ({ ...raw, id: BigInt(raw.id), author_id: BigInt(raw.author_id) }));
+  const [rdp] = await db.query<RowDataPacket[]>(SQL_LIST_BOOKS_BY_GENRE_OR_ALL, [genre, genre]);
+  const rows = rdp as Book[];
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id), author_id: BigInt(raw.author_id) }));
 }
 
 export async function createCustomer(db: Db, name: string, email: string): Promise<void> {
@@ -129,11 +133,11 @@ export async function createCustomer(db: Db, name: string, email: string): Promi
 }
 
 export async function createSale(db: Db, customerId: bigint): Promise<void> {
-  await db.query(SQL_CREATE_SALE, [String(customerId)]);
+  await db.query(SQL_CREATE_SALE, [customerId]);
 }
 
 export async function addSaleItem(db: Db, saleId: bigint, bookId: bigint, quantity: number, unitPrice: string): Promise<void> {
-  await db.query(SQL_ADD_SALE_ITEM, [String(saleId), String(bookId), quantity, unitPrice]);
+  await db.query(SQL_ADD_SALE_ITEM, [saleId, bookId, quantity, unitPrice]);
 }
 
 export interface ListBooksWithAuthorRow {
@@ -147,13 +151,15 @@ export interface ListBooksWithAuthorRow {
 }
 
 export async function listBooksWithAuthor(db: Db): Promise<ListBooksWithAuthorRow[]> {
-  const [rows] = await db.query<RowDataPacket[]>(SQL_LIST_BOOKS_WITH_AUTHOR, []);
-  return (rows as ListBooksWithAuthorRow[]).map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const [rdp] = await db.query<RowDataPacket[]>(SQL_LIST_BOOKS_WITH_AUTHOR, []);
+  const rows = rdp as ListBooksWithAuthorRow[];
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 export async function getBooksNeverOrdered(db: Db): Promise<Book[]> {
-  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_BOOKS_NEVER_ORDERED, []);
-  return (rows as Book[]).map(raw => ({ ...raw, id: BigInt(raw.id), author_id: BigInt(raw.author_id) }));
+  const [rdp] = await db.query<RowDataPacket[]>(SQL_GET_BOOKS_NEVER_ORDERED, []);
+  const rows = rdp as Book[];
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id), author_id: BigInt(raw.author_id) }));
 }
 
 export interface GetTopSellingBooksRow {
@@ -165,8 +171,9 @@ export interface GetTopSellingBooksRow {
 }
 
 export async function getTopSellingBooks(db: Db): Promise<GetTopSellingBooksRow[]> {
-  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_TOP_SELLING_BOOKS, []);
-  return (rows as GetTopSellingBooksRow[]).map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const [rdp] = await db.query<RowDataPacket[]>(SQL_GET_TOP_SELLING_BOOKS, []);
+  const rows = rdp as GetTopSellingBooksRow[];
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 export interface GetBestCustomersRow {
@@ -177,8 +184,9 @@ export interface GetBestCustomersRow {
 }
 
 export async function getBestCustomers(db: Db): Promise<GetBestCustomersRow[]> {
-  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_BEST_CUSTOMERS, []);
-  return (rows as GetBestCustomersRow[]).map(raw => ({ ...raw, id: BigInt(raw.id) }));
+  const [rdp] = await db.query<RowDataPacket[]>(SQL_GET_BEST_CUSTOMERS, []);
+  const rows = rdp as GetBestCustomersRow[];
+  return rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 export class Querier {

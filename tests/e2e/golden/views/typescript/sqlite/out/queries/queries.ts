@@ -18,15 +18,18 @@ FROM sci_fi_books
 ORDER BY title`;
 
 export async function listBookSummaries(db: Db): Promise<BookSummaries[]> {
-  return db.prepare(SQL_LIST_BOOK_SUMMARIES).all() as BookSummaries[];
+  const rows = db.prepare(SQL_LIST_BOOK_SUMMARIES).all() as BookSummaries[];
+  return rows;
 }
 
 export async function listBookSummariesByGenre(db: Db, genre: string): Promise<BookSummaries[]> {
-  return db.prepare(SQL_LIST_BOOK_SUMMARIES_BY_GENRE).all(genre) as BookSummaries[];
+  const rows = db.prepare(SQL_LIST_BOOK_SUMMARIES_BY_GENRE).all(genre) as BookSummaries[];
+  return rows;
 }
 
 export async function listSciFiBooks(db: Db): Promise<SciFiBooks[]> {
-  return db.prepare(SQL_LIST_SCI_FI_BOOKS).all() as SciFiBooks[];
+  const rows = db.prepare(SQL_LIST_SCI_FI_BOOKS).all() as SciFiBooks[];
+  return rows;
 }
 
 export class Querier {
