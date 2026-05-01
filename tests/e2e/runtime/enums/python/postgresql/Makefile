@@ -7,7 +7,7 @@ generate:
 	$(SQLTGEN) generate --config sqltgen.json
 
 test: generate
-	python3 -m pytest test_runtime_gen.py -v
+	python3 -m pytest test_runtime_gen.py
 
 clean:
 	rm -rf gen __pycache__ .pytest_cache

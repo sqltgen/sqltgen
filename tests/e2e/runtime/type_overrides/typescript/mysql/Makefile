@@ -3,7 +3,7 @@ include ../../../common.mk
 .PHONY: generate test clean install db-up db-down
 
 install:
-	npm install
+	npm install --silent
 
 generate:
 	rm -rf gen
