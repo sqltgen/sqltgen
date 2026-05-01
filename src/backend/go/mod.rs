@@ -60,13 +60,13 @@ pub struct GoCodegen {
 
 impl Codegen for GoCodegen {
     fn generate(&self, schema: &Schema, queries: &[Query], config: &OutputConfig) -> anyhow::Result<Vec<GeneratedFile>> {
-        let contract = adapter::resolve_go_contract(&self.target);
-        let type_map = typemap::build_go_type_map(config, contract.json_mode);
+        let adapter = adapter::build_adapter(&self.target);
+        let type_map = typemap::build_go_type_map(config, adapter.json_mode());
         let pkg = core::package_name(config);
 
         let mut files = Vec::new();
-        files.push(adapter::emit_helper_file(&contract, &pkg, config));
-        files.extend(core::generate_core_files(schema, queries, &contract, config, &type_map)?);
+        files.push(adapter::emit_helper_file(adapter.as_ref(), &pkg, config));
+        files.extend(core::generate_core_files(schema, queries, adapter.as_ref(), config, &type_map)?);
 
         if let Some(manifest) = build_manifest_file(
             "go",
@@ -87,11 +87,8 @@ impl Codegen for GoCodegen {
 
 #[cfg(test)]
 fn go_type(sql_type: &SqlType, nullable: bool, target: &GoTarget) -> String {
-    let json_mode = match target {
-        GoTarget::Postgres => adapter::GoJsonMode::Bytes,
-        GoTarget::Sqlite | GoTarget::Mysql => adapter::GoJsonMode::String,
-    };
-    typemap::build_go_type_map(&crate::config::OutputConfig::default(), json_mode).field_type(sql_type, nullable)
+    let adapter = adapter::build_adapter(target);
+    typemap::build_go_type_map(&crate::config::OutputConfig::default(), adapter.json_mode()).field_type(sql_type, nullable)
 }
 
 #[cfg(test)]

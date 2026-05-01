@@ -6,12 +6,12 @@ use crate::backend::common::{
     group_queries, has_inline_rows, infer_row_type_name, infer_table, model_file_stem, model_name, querier_class_name, queries_file_stem, row_type_name,
 };
 use crate::backend::naming::{to_pascal_case, to_snake_case};
-use crate::backend::sql_rewrite::{positional_bind_names, rewrite_to_anon_params, split_at_in_clause};
+use crate::backend::sql_rewrite::split_at_in_clause;
 use crate::backend::GeneratedFile;
 use crate::config::{ListParamStrategy, OutputConfig};
 use crate::ir::{EnumType, NativeListBind, Parameter, Query, QueryCmd, Schema, SqlType};
 
-use super::adapter::{RustBindMode, RustCoreContract, RustPlaceholderMode, RustSqlNormMode};
+use super::adapter::RustDriverAdapter;
 use super::typemap::RustTypeMap;
 
 /// All data needed for a single `generate()` call, bundled to reduce parameter threading.
@@ -19,7 +19,7 @@ pub(super) struct GenerationContext<'a> {
     pub schema: &'a Schema,
     pub queries: &'a [Query],
     pub config: &'a OutputConfig,
-    pub contract: &'a RustCoreContract,
+    pub adapter: &'a dyn RustDriverAdapter,
     pub type_map: &'a RustTypeMap,
     pub strategy: ListParamStrategy,
 }
@@ -195,7 +195,7 @@ fn emit_rust_query(src: &mut String, query: &Query, pool_type: &str, ctx: &Gener
     if let Some(lp) = list_param {
         emit_rust_list_query(src, query, &row_type, ctx, lp)?;
     } else {
-        emit_rust_scalar_query(src, query, &row_type, ctx.contract)?;
+        emit_rust_scalar_query(src, query, &row_type, ctx.adapter)?;
     }
 
     writeln!(src, "}}")?;
@@ -256,16 +256,11 @@ fn emit_rust_sql_let(src: &mut String, sql: &str) -> anyhow::Result<()> {
 }
 
 /// Emit the body for a query with no list parameters.
-fn emit_rust_scalar_query(src: &mut String, query: &Query, row_type: &str, contract: &RustCoreContract) -> anyhow::Result<()> {
-    let raw_sql = normalize_sql_for_sqlx(&query.sql, contract.sql_norm_mode);
+fn emit_rust_scalar_query(src: &mut String, query: &Query, row_type: &str, adapter: &dyn RustDriverAdapter) -> anyhow::Result<()> {
+    let raw_sql = adapter.normalize_sql(&query.sql);
     let raw_sql = raw_sql.trim_end().trim_end_matches(';');
     emit_rust_sql_let(src, raw_sql)?;
-    // Postgres $N is reference-by-number — one .bind() per unique param suffices.
-    // SQLite/MySQL normalize to ? (positional sequential) — bind once per occurrence.
-    let bind_names: Vec<&str> = match contract.bind_mode {
-        RustBindMode::UniqueParams => query.params.iter().map(|p| p.name.as_str()).collect(),
-        RustBindMode::Positional => positional_bind_names(query),
-    };
+    let bind_names = adapter.scalar_bind_names(query);
     emit_rust_sqlx_call(src, query, "sql", &bind_names, row_type)
 }
 
@@ -276,23 +271,13 @@ fn emit_rust_list_query(src: &mut String, query: &Query, row_type: &str, ctx: &G
     // applies its own standard placeholder rewriting (a general rule, not dialect logic).
     if ctx.strategy == ListParamStrategy::Native {
         if let Some(native_sql) = &list_param.native_list_sql {
-            return emit_rust_native_list_query(src, query, row_type, list_param, native_sql, ctx.contract);
+            return emit_rust_native_list_query(src, query, row_type, list_param, native_sql, ctx.adapter);
         }
     }
     // Dynamic expansion: language-specific, not dialect-specific.
     let lp_name = to_snake_case(&list_param.name);
-    match ctx.contract.placeholder_mode {
-        RustPlaceholderMode::NumberedDollar => {
-            let base = list_param.index;
-            writeln!(src, "    let placeholders: String = ({lp_name}).iter().enumerate()")?;
-            writeln!(src, "        .map(|(i, _)| format!(\"${{}}\", {base} + i))")?;
-            writeln!(src, "        .collect::<Vec<_>>().join(\", \");")?;
-        },
-        RustPlaceholderMode::QuestionMark => {
-            writeln!(src, "    let placeholders = ({lp_name}).iter().map(|_| \"?\").collect::<Vec<_>>().join(\", \");")?;
-        },
-    }
-    emit_rust_dynamic_query(src, query, row_type, list_param, ctx.contract)
+    ctx.adapter.emit_dynamic_placeholders(src, &lp_name, list_param.index)?;
+    emit_rust_dynamic_query(src, query, row_type, list_param, ctx.adapter)
 }
 
 /// Emit a native list query using the pre-computed `native_sql` from the IR.
@@ -306,20 +291,20 @@ fn emit_rust_native_list_query(
     row_type: &str,
     list_param: &Parameter,
     native_sql: &str,
-    contract: &RustCoreContract,
+    adapter: &dyn RustDriverAdapter,
 ) -> anyhow::Result<()> {
-    let raw_sql = normalize_sql_for_sqlx(native_sql, contract.sql_norm_mode);
+    let raw_sql = adapter.normalize_sql(native_sql);
     let raw_sql = raw_sql.trim_end().trim_end_matches(';');
     emit_rust_sql_let(src, raw_sql)?;
     let lp_name = to_snake_case(&list_param.name);
     match list_param.native_list_bind {
         Some(NativeListBind::Array) => {
-            // sqlx-postgres: bind the list directly (sqlx handles Vec<T> → ANY($1))
+            // Driver binds the list directly (e.g. sqlx handles Vec<T> → ANY($1)).
             let bind_names: Vec<&str> = query.params.iter().map(|p| p.name.as_str()).collect();
             emit_rust_sqlx_call(src, query, "sql", &bind_names, row_type)
         },
         Some(NativeListBind::Json) | None => {
-            // SQLite/MySQL: list param is bound as a JSON array string
+            // List param is bound as a JSON array string, decoded by the SQL itself.
             writeln!(src, "    let {lp_name}_json = {};", json_list_expr(&lp_name, &list_param.sql_type))?;
             let bind_names: Vec<String> = query.params.iter().map(|p| if p.is_list { format!("{lp_name}_json") } else { to_snake_case(&p.name) }).collect();
             let bind_refs: Vec<&str> = bind_names.iter().map(|s| s.as_str()).collect();
@@ -329,12 +314,12 @@ fn emit_rust_native_list_query(
 }
 
 /// Emit the shared tail of a dynamic list query: build SQL, bind scalars, bind list.
-fn emit_rust_dynamic_query(src: &mut String, query: &Query, row_type: &str, list_param: &Parameter, contract: &RustCoreContract) -> anyhow::Result<()> {
+fn emit_rust_dynamic_query(src: &mut String, query: &Query, row_type: &str, list_param: &Parameter, adapter: &dyn RustDriverAdapter) -> anyhow::Result<()> {
     let scalar_params: Vec<&Parameter> = query.params.iter().filter(|p| !p.is_list).collect();
     let lp_name = to_snake_case(&list_param.name);
     let (before, after) = split_at_in_clause(&query.sql, list_param.index).unwrap_or_else(|| (query.sql.clone(), String::new()));
-    let before_esc = normalize_sql_for_sqlx(&before, contract.sql_norm_mode).replace('"', "\\\"").replace('\n', " ");
-    let after_esc = normalize_sql_for_sqlx(&after, contract.sql_norm_mode).replace('"', "\\\"").replace('\n', " ");
+    let before_esc = adapter.normalize_sql(&before).replace('"', "\\\"").replace('\n', " ");
+    let after_esc = adapter.normalize_sql(&after).replace('"', "\\\"").replace('\n', " ");
     writeln!(src, "    let sql = format!(\"{before_esc}IN ({{placeholders}}){after_esc}\");")?;
     writeln!(src, "    let mut q = sqlx::query_as::<_, {row_type}>(&sql);")?;
     for sp in &scalar_params {
@@ -384,7 +369,7 @@ fn rust_param_sig(p: &Parameter, type_map: &RustTypeMap) -> String {
 ///
 /// `sql_expr` is the Rust expression passed to `sqlx::query`/`sqlx::query_as` —
 /// typically the local variable `"sql"` (defined just before by the caller).
-/// When the same bind name appears multiple times (positional dialects like MySQL/SQLite),
+/// When the same bind name appears multiple times (positional placeholder dialects),
 /// all occurrences except the last are emitted with `.clone()`.
 fn emit_rust_sqlx_call(src: &mut String, query: &Query, sql_expr: &str, bind_names: &[&str], row_type: &str) -> anyhow::Result<()> {
     // Count remaining occurrences so we know when to clone vs. move.
@@ -436,19 +421,6 @@ fn emit_rust_sqlx_call(src: &mut String, query: &Query, sql_expr: &str, bind_nam
 
 fn result_row_type(query: &Query, schema: &Schema) -> String {
     infer_row_type_name(query, schema).unwrap_or_else(|| "serde_json::Value".to_string())
-}
-
-// ─── SQL helpers ──────────────────────────────────────────────────────────────
-
-/// Normalize SQL placeholders for the target sqlx driver:
-/// - SQLite `?N`/`$N` → `?` (sqlx sqlite uses anonymous `?`)
-/// - MySQL `$N`/`?N` → `?` (sqlx mysql uses anonymous `?`)
-/// - PostgreSQL `$N` → unchanged (sqlx postgres uses `$N`)
-fn normalize_sql_for_sqlx(sql: &str, mode: RustSqlNormMode) -> String {
-    match mode {
-        RustSqlNormMode::AnonParams => rewrite_to_anon_params(sql),
-        RustSqlNormMode::Preserve => sql.to_string(),
-    }
 }
 
 /// Generate the Rust source for a single enum type.

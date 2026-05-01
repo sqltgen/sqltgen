@@ -213,14 +213,19 @@ pub fn jdbc_return_type(
 /// The resolved list-param action for JDBC backends.
 ///
 /// Used by [`resolve_list_strategy`] to communicate which code path to take,
-/// along with any pre-computed rewritten SQL.
+/// along with any pre-computed rewritten SQL. Variants are named by *bind shape*,
+/// not by engine — `SqlArrayBind` is currently used by Postgres but the name
+/// reflects the JDBC mechanism (`Connection.createArrayOf` + `setArray`), not
+/// the engine.
 pub enum ListAction {
-    /// PostgreSQL native: `= ANY(?)` with a JDBC array. Contains rewritten SQL.
-    PgNative(String),
+    /// Bind a JDBC array to a single placeholder (e.g. `= ANY(?)`).
+    /// Contains rewritten SQL.
+    SqlArrayBind(String),
     /// Dynamic: runtime `IN (?,?,…,?)` expansion.
     Dynamic,
-    /// JSON-based native (SQLite `json_each` / MySQL `JSON_TABLE`). Contains rewritten SQL.
-    JsonNative(String),
+    /// Bind a JSON-encoded array string consumed by an SQL function
+    /// (e.g. SQLite `json_each`, MySQL `JSON_TABLE`). Contains rewritten SQL.
+    JsonStringBind(String),
 }
 
 /// Resolve the list-param action for a given strategy setting and parameter.
@@ -233,8 +238,8 @@ pub fn resolve_list_strategy(strategy: &ListParamStrategy, lp: &Parameter) -> Li
         if let (Some(native_sql), Some(bind)) = (&lp.native_list_sql, &lp.native_list_bind) {
             let sql = rewrite_to_anon_params(native_sql);
             return match bind {
-                NativeListBind::Array => ListAction::PgNative(sql),
-                NativeListBind::Json => ListAction::JsonNative(sql),
+                NativeListBind::Array => ListAction::SqlArrayBind(sql),
+                NativeListBind::Json => ListAction::JsonStringBind(sql),
             };
         }
     }
@@ -598,7 +603,7 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_list_strategy_postgres_native() {
+    fn test_resolve_list_strategy_sql_array_bind() {
         let q = make_query(
             "GetUsers",
             "SELECT * FROM users WHERE id IN ($1)",
@@ -606,8 +611,8 @@ mod tests {
         );
         let lp = &q.params[0];
         match resolve_list_strategy(&ListParamStrategy::Native, lp) {
-            ListAction::PgNative(sql) => assert!(sql.contains("= ANY(")),
-            other => panic!("expected PgNative, got {:?}", std::mem::discriminant(&other)),
+            ListAction::SqlArrayBind(sql) => assert!(sql.contains("= ANY(")),
+            other => panic!("expected SqlArrayBind, got {:?}", std::mem::discriminant(&other)),
         }
     }
 

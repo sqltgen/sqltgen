@@ -6,12 +6,12 @@ use crate::backend::common::{
     group_queries, has_inline_rows, infer_row_type_name, model_name, querier_class_name, queries_file_stem, row_type_name, sql_const_name,
 };
 use crate::backend::naming::to_pascal_case;
-use crate::backend::sql_rewrite::{parse_placeholder_indices, positional_bind_names, rewrite_to_anon_params, split_at_in_clause};
+use crate::backend::sql_rewrite::split_at_in_clause;
 use crate::backend::GeneratedFile;
 use crate::config::{ListParamStrategy, OutputConfig};
 use crate::ir::{EnumType, NativeListBind, Parameter, Query, QueryCmd, ResultColumn, Schema, SqlType};
 
-use super::adapter::{GoBindMode, GoCoreContract, GoPlaceholderMode};
+use super::adapter::GoDriverAdapter;
 use super::typemap::GoTypeMap;
 
 // ─── Package name ─────────────────────────────────────────────────────────────
@@ -109,25 +109,13 @@ fn field_name(col_name: &str) -> String {
     to_pascal_case(col_name)
 }
 
-// ─── SQL normalization ────────────────────────────────────────────────────────
-
-/// Rewrite numbered placeholders for a Go target.
-///
-/// PostgreSQL keeps `$N`; SQLite and MySQL rewrite to `?`.
-fn normalize_sql(sql: &str, contract: &GoCoreContract) -> String {
-    match contract.placeholder_mode {
-        GoPlaceholderMode::NumberedDollar => sql.to_string(),
-        GoPlaceholderMode::QuestionMark => rewrite_to_anon_params(sql),
-    }
-}
-
 // ─── Top-level file generators ────────────────────────────────────────────────
 
 /// Generate all Go source files for the given schema and queries.
 pub(super) fn generate_core_files(
     schema: &Schema,
     queries: &[Query],
-    contract: &GoCoreContract,
+    adapter: &dyn GoDriverAdapter,
     config: &OutputConfig,
     type_map: &GoTypeMap,
 ) -> anyhow::Result<Vec<GeneratedFile>> {
@@ -144,7 +132,7 @@ pub(super) fn generate_core_files(
     for (group, group_queries) in &groups {
         let stem = queries_file_stem(group);
         let filename = if group.is_empty() { "queries.go".to_string() } else { format!("queries_{stem}.go") };
-        let content = build_queries_file(group, group_queries, schema, contract, config, type_map, &pkg)?;
+        let content = build_queries_file(group, group_queries, schema, adapter, config, type_map, &pkg)?;
         let path = PathBuf::from(&config.out).join(filename);
         files.push(GeneratedFile { path, content });
     }
@@ -225,7 +213,7 @@ pub(super) fn build_queries_file(
     group: &str,
     queries: &[Query],
     schema: &Schema,
-    contract: &GoCoreContract,
+    adapter: &dyn GoDriverAdapter,
     config: &OutputConfig,
     type_map: &GoTypeMap,
     pkg: &str,
@@ -238,7 +226,7 @@ pub(super) fn build_queries_file(
     writeln!(src)?;
 
     // Collect all needed imports across all queries
-    let imports = collect_query_imports(queries, schema, contract, type_map, &strategy);
+    let imports = collect_query_imports(queries, schema, adapter, type_map, &strategy);
     imports.write(&mut src);
     writeln!(src)?;
 
@@ -252,7 +240,7 @@ pub(super) fn build_queries_file(
         } else {
             query.sql.clone()
         };
-        let sql = normalize_sql(&base_sql, contract);
+        let sql = adapter.normalize_sql(&base_sql);
         let sql = sql.trim_end().trim_end_matches(';');
         // Escape backticks — Go raw string literals cannot contain backticks
         let sql = sql.replace('`', "` + \"`\" + `");
@@ -277,39 +265,39 @@ pub(super) fn build_queries_file(
     // Query functions
     for query in queries {
         writeln!(src)?;
-        emit_query_func(&mut src, query, schema, contract, type_map, &strategy)?;
+        emit_query_func(&mut src, query, schema, adapter, type_map, &strategy)?;
     }
 
     // Querier struct
     if !queries.is_empty() {
         writeln!(src)?;
-        emit_querier(&mut src, group, queries, schema, contract, type_map)?;
+        emit_querier(&mut src, group, queries, schema, adapter, type_map)?;
     }
 
     Ok(src)
 }
 
 /// Collect all imports needed for the queries file.
-fn collect_query_imports(queries: &[Query], _schema: &Schema, contract: &GoCoreContract, type_map: &GoTypeMap, strategy: &ListParamStrategy) -> GoImports {
-    let mut imp = GoImports { context: true, database_sql: contract.needs_database_sql_import, ..Default::default() };
-    imp.add_import(contract.no_rows_import.map(str::to_string));
+fn collect_query_imports(queries: &[Query], _schema: &Schema, adapter: &dyn GoDriverAdapter, type_map: &GoTypeMap, strategy: &ListParamStrategy) -> GoImports {
+    let mut imp = GoImports { context: true, database_sql: adapter.needs_database_sql_import(), ..Default::default() };
+    imp.add_import(adapter.no_rows_import().map(str::to_string));
 
     for query in queries {
         for p in &query.params {
             if p.is_list {
                 match strategy {
                     ListParamStrategy::Dynamic => {
-                        imp.fmt = contract.placeholder_mode == GoPlaceholderMode::NumberedDollar;
+                        imp.fmt = adapter.dynamic_list_needs_fmt();
                         imp.strings = true;
                     },
                     ListParamStrategy::Native => match &p.native_list_bind {
                         Some(NativeListBind::Json) | None => imp.encoding_json = true,
-                        Some(NativeListBind::Array) => imp.add_import(contract.array_param_import.map(str::to_string)),
+                        Some(NativeListBind::Array) => imp.add_import(adapter.array_param_import().map(str::to_string)),
                     },
                 }
             }
             if matches!(&p.sql_type, SqlType::Array(_)) {
-                if let Some(arr_import) = contract.array_param_import {
+                if let Some(arr_import) = adapter.array_param_import() {
                     imp.add_import(Some(arr_import.to_string()));
                 }
             }
@@ -349,14 +337,14 @@ fn emit_query_func(
     src: &mut String,
     query: &Query,
     schema: &Schema,
-    contract: &GoCoreContract,
+    adapter: &dyn GoDriverAdapter,
     type_map: &GoTypeMap,
     strategy: &ListParamStrategy,
 ) -> anyhow::Result<()> {
     if let Some(lp) = query.params.iter().find(|p| p.is_list) {
-        return emit_list_query_func(src, query, schema, contract, type_map, strategy, lp);
+        return emit_list_query_func(src, query, schema, adapter, type_map, strategy, lp);
     }
-    emit_standard_query_func(src, query, schema, contract, type_map)
+    emit_standard_query_func(src, query, schema, adapter, type_map)
 }
 
 /// Return the Go return type for a query command.
@@ -381,8 +369,8 @@ fn result_row_type(query: &Query, schema: &Schema) -> String {
 }
 
 /// Build the parameter list for a query function signature.
-fn params_sig(query: &Query, contract: &GoCoreContract, type_map: &GoTypeMap) -> String {
-    let mut parts: Vec<String> = vec!["ctx context.Context".to_string(), format!("db {}", contract.db_type)];
+fn params_sig(query: &Query, adapter: &dyn GoDriverAdapter, type_map: &GoTypeMap) -> String {
+    let mut parts: Vec<String> = vec!["ctx context.Context".to_string(), format!("db {}", adapter.db_type())];
     for p in &query.params {
         let ty = if p.is_list { format!("[]{}", type_map.param_type(&p.sql_type, false)) } else { type_map.param_type(&p.sql_type, p.nullable) };
         parts.push(format!("{} {ty}", p.name));
@@ -391,24 +379,24 @@ fn params_sig(query: &Query, contract: &GoCoreContract, type_map: &GoTypeMap) ->
 }
 
 /// Emit a standard (non-list) query function.
-fn emit_standard_query_func(src: &mut String, query: &Query, schema: &Schema, contract: &GoCoreContract, type_map: &GoTypeMap) -> anyhow::Result<()> {
+fn emit_standard_query_func(src: &mut String, query: &Query, schema: &Schema, adapter: &dyn GoDriverAdapter, type_map: &GoTypeMap) -> anyhow::Result<()> {
     let fn_name = to_pascal_case(&query.name);
     let ret = query_return_type(query, schema);
-    let sig = params_sig(query, contract, type_map);
+    let sig = params_sig(query, adapter, type_map);
     let const_name = sql_const_name(&query.name);
 
     writeln!(src, "// {fn_name} executes the {name} query.", name = query.name)?;
     writeln!(src, "func {fn_name}({sig}) {ret} {{")?;
 
-    let plan = build_bind_plan(query, contract);
+    let plan = build_bind_plan(query, adapter);
     for line in &plan.pre_lines {
         writeln!(src, "\t{line}")?;
     }
     let args = &plan.args;
 
-    let exec = contract.exec_method;
-    let query_m = contract.query_method;
-    let query_row = contract.query_row_method;
+    let exec = adapter.exec_method();
+    let query_m = adapter.query_method();
+    let query_row = adapter.query_row_method();
 
     match query.cmd {
         QueryCmd::Exec => {
@@ -432,7 +420,7 @@ fn emit_standard_query_func(src: &mut String, query: &Query, schema: &Schema, co
             } else {
                 writeln!(src, "\trow := db.{query_row}(ctx, {const_name}, {args})")?;
             }
-            emit_scan_one(src, query, schema, contract, type_map)?;
+            emit_scan_one(src, query, schema, adapter, type_map)?;
         },
         QueryCmd::Many => {
             if args.is_empty() {
@@ -444,7 +432,7 @@ fn emit_standard_query_func(src: &mut String, query: &Query, schema: &Schema, co
             writeln!(src, "\t\treturn nil, err")?;
             writeln!(src, "\t}}")?;
             writeln!(src, "\tdefer rows.Close()")?;
-            emit_scan_many(src, query, schema, contract, type_map)?;
+            emit_scan_many(src, query, schema, adapter, type_map)?;
         },
     }
 
@@ -465,15 +453,12 @@ struct BindPlan {
     args: String,
 }
 
-fn build_bind_plan(query: &Query, contract: &GoCoreContract) -> BindPlan {
+fn build_bind_plan(query: &Query, adapter: &dyn GoDriverAdapter) -> BindPlan {
     if query.params.is_empty() {
         return BindPlan { pre_lines: Vec::new(), args: String::new() };
     }
-    let raw_names: Vec<&str> = match contract.bind_mode {
-        GoBindMode::UniqueParams => query.params.iter().map(|p| p.name.as_str()).collect(),
-        GoBindMode::Positional => positional_bind_names(query),
-    };
-    let native_arrays = contract.array_param_expr == "{name}";
+    let raw_names = adapter.scalar_bind_names(query);
+    let native_arrays = adapter.array_param_expr() == "{name}";
     let mut pre_lines = Vec::new();
     let args = raw_names
         .iter()
@@ -488,7 +473,7 @@ fn build_bind_plan(query: &Query, contract: &GoCoreContract) -> BindPlan {
                 pre_lines.push(format!("for _i, _v := range {name} {{ {tmp}[_i] = string(_v) }}"));
                 tmp
             } else if is_array {
-                contract.array_param_expr.replace("{name}", name)
+                adapter.array_param_expr().replace("{name}", name)
             } else {
                 name.to_string()
             }
@@ -499,15 +484,15 @@ fn build_bind_plan(query: &Query, contract: &GoCoreContract) -> BindPlan {
 }
 
 /// Emit the Scan + return block for a `:one` query.
-fn emit_scan_one(src: &mut String, query: &Query, schema: &Schema, contract: &GoCoreContract, type_map: &GoTypeMap) -> anyhow::Result<()> {
+fn emit_scan_one(src: &mut String, query: &Query, schema: &Schema, adapter: &dyn GoDriverAdapter, type_map: &GoTypeMap) -> anyhow::Result<()> {
     let row_type = result_row_type(query, schema);
-    let plan = scan_plan(&query.result_columns, contract, type_map);
+    let plan = scan_plan(&query.result_columns, adapter, type_map);
     writeln!(src, "\tvar r {row_type}")?;
     for line in &plan.pre_lines {
         writeln!(src, "\t{line}")?;
     }
     writeln!(src, "\terr := row.Scan({})", plan.scan_args.join(", "))?;
-    let no_rows = contract.no_rows_expr;
+    let no_rows = adapter.no_rows_expr();
     writeln!(src, "\tif err == {no_rows} {{")?;
     writeln!(src, "\t\treturn nil, nil")?;
     writeln!(src, "\t}}")?;
@@ -522,9 +507,9 @@ fn emit_scan_one(src: &mut String, query: &Query, schema: &Schema, contract: &Go
 }
 
 /// Emit the rows.Next() loop for a `:many` query.
-fn emit_scan_many(src: &mut String, query: &Query, schema: &Schema, contract: &GoCoreContract, type_map: &GoTypeMap) -> anyhow::Result<()> {
+fn emit_scan_many(src: &mut String, query: &Query, schema: &Schema, adapter: &dyn GoDriverAdapter, type_map: &GoTypeMap) -> anyhow::Result<()> {
     let row_type = result_row_type(query, schema);
-    let plan = scan_plan(&query.result_columns, contract, type_map);
+    let plan = scan_plan(&query.result_columns, adapter, type_map);
     writeln!(src, "\tvar results []{row_type}")?;
     writeln!(src, "\tfor rows.Next() {{")?;
     writeln!(src, "\t\tvar r {row_type}")?;
@@ -552,7 +537,7 @@ struct ScanPlan {
     post_lines: Vec<String>,
 }
 
-fn scan_plan(cols: &[ResultColumn], contract: &GoCoreContract, type_map: &GoTypeMap) -> ScanPlan {
+fn scan_plan(cols: &[ResultColumn], adapter: &dyn GoDriverAdapter, type_map: &GoTypeMap) -> ScanPlan {
     let mut pre_lines = Vec::new();
     let mut scan_args = Vec::new();
     let mut post_lines = Vec::new();
@@ -565,7 +550,7 @@ fn scan_plan(cols: &[ResultColumn], contract: &GoCoreContract, type_map: &GoType
                 let tmp = format!("_arr{}", i + 1);
                 let enum_ty = type_map.field_type(inner, false);
                 pre_lines.push(format!("var {tmp} []string"));
-                scan_args.push(contract.array_scan_expr.replace("{dest}", &format!("&{tmp}")));
+                scan_args.push(adapter.array_scan_expr().replace("{dest}", &format!("&{tmp}")));
                 if col.nullable {
                     post_lines.push(format!("if {tmp} != nil {{"));
                     post_lines.push(format!("\t_conv{i} := make([]{enum_ty}, len({tmp}))"));
@@ -582,12 +567,12 @@ fn scan_plan(cols: &[ResultColumn], contract: &GoCoreContract, type_map: &GoType
                     let inner_ty = type_map.field_type(inner, false);
                     let tmp = format!("arr{}", i + 1);
                     pre_lines.push(format!("var {tmp} []{inner_ty}"));
-                    scan_args.push(contract.array_scan_expr.replace("{dest}", &format!("&{tmp}")));
+                    scan_args.push(adapter.array_scan_expr().replace("{dest}", &format!("&{tmp}")));
                     post_lines.push(format!("if {tmp} != nil {{"));
                     post_lines.push(format!("\tr.{field} = &{tmp}"));
                     post_lines.push("}".to_string());
                 } else {
-                    scan_args.push(contract.array_scan_expr.replace("{dest}", &format!("&r.{field}")));
+                    scan_args.push(adapter.array_scan_expr().replace("{dest}", &format!("&r.{field}")));
                 }
             },
             _ => scan_args.push(format!("&r.{field}")),
@@ -604,22 +589,22 @@ fn emit_list_query_func(
     src: &mut String,
     query: &Query,
     schema: &Schema,
-    contract: &GoCoreContract,
+    adapter: &dyn GoDriverAdapter,
     type_map: &GoTypeMap,
     strategy: &ListParamStrategy,
     lp: &Parameter,
 ) -> anyhow::Result<()> {
     let fn_name = to_pascal_case(&query.name);
     let ret = query_return_type(query, schema);
-    let sig = params_sig(query, contract, type_map);
+    let sig = params_sig(query, adapter, type_map);
     let const_name = sql_const_name(&query.name);
 
     writeln!(src, "// {fn_name} executes the {name} query.", name = query.name)?;
     writeln!(src, "func {fn_name}({sig}) {ret} {{")?;
 
     match strategy {
-        ListParamStrategy::Native => emit_native_list_body(src, query, schema, contract, type_map, &const_name, lp)?,
-        ListParamStrategy::Dynamic => emit_dynamic_list_body(src, query, schema, contract, type_map, lp)?,
+        ListParamStrategy::Native => emit_native_list_body(src, query, schema, adapter, type_map, &const_name, lp)?,
+        ListParamStrategy::Dynamic => emit_dynamic_list_body(src, query, schema, adapter, type_map, lp)?,
     }
 
     writeln!(src, "}}")?;
@@ -631,7 +616,7 @@ fn emit_native_list_body(
     src: &mut String,
     query: &Query,
     schema: &Schema,
-    contract: &GoCoreContract,
+    adapter: &dyn GoDriverAdapter,
     type_map: &GoTypeMap,
     const_name: &str,
     lp: &Parameter,
@@ -640,18 +625,18 @@ fn emit_native_list_body(
 
     match &lp.native_list_bind {
         Some(NativeListBind::Array) => {
-            let args = build_native_array_args(&scalar_params, lp, contract);
-            emit_list_exec(src, query, schema, contract, type_map, const_name, &args)
+            let args = build_native_array_args(&scalar_params, lp, adapter);
+            emit_list_exec(src, query, schema, adapter, type_map, const_name, &args)
         },
         Some(NativeListBind::Json) | None => {
-            // SQLite / MySQL: JSON-encode the list
+            // List param is bound as a JSON array string, decoded by the SQL itself.
             writeln!(src, "\t{lp_name}JSON, err := json.Marshal({lp_name})", lp_name = lp.name)?;
             writeln!(src, "\tif err != nil {{")?;
             writeln!(src, "\t\treturn {}", error_zero_return(query))?;
             writeln!(src, "\t}}")?;
             let json_expr = format!("{}JSON", lp.name);
             let args = build_native_json_args(&scalar_params, lp, &json_expr);
-            emit_list_exec(src, query, schema, contract, type_map, const_name, &args)
+            emit_list_exec(src, query, schema, adapter, type_map, const_name, &args)
         },
     }
 }
@@ -666,12 +651,12 @@ fn error_zero_return(query: &Query) -> &'static str {
     }
 }
 
-fn build_native_array_args(scalar_params: &[&Parameter], lp: &Parameter, contract: &GoCoreContract) -> String {
+fn build_native_array_args(scalar_params: &[&Parameter], lp: &Parameter, adapter: &dyn GoDriverAdapter) -> String {
     let mut args: Vec<String> = Vec::new();
     let before: Vec<String> = scalar_params.iter().filter(|p| p.index < lp.index).map(|p| p.name.clone()).collect();
     let after: Vec<String> = scalar_params.iter().filter(|p| p.index > lp.index).map(|p| p.name.clone()).collect();
     args.extend(before);
-    args.push(contract.array_param_expr.replace("{name}", &lp.name));
+    args.push(adapter.array_param_expr().replace("{name}", &lp.name));
     args.extend(after);
     args.join(", ")
 }
@@ -691,36 +676,19 @@ fn emit_dynamic_list_body(
     src: &mut String,
     query: &Query,
     schema: &Schema,
-    contract: &GoCoreContract,
+    adapter: &dyn GoDriverAdapter,
     type_map: &GoTypeMap,
     lp: &Parameter,
 ) -> anyhow::Result<()> {
     let (before_raw, after_raw) = split_at_in_clause(&query.sql, lp.index).unwrap_or_else(|| (query.sql.clone(), String::new()));
-    let before_sql = normalize_sql(&before_raw, contract).replace('`', "` + \"`\" + `");
-    let after_sql = normalize_sql(&after_raw, contract).replace('`', "` + \"`\" + `");
+    let before_sql = adapter.normalize_sql(&before_raw).replace('`', "` + \"`\" + `");
+    let after_sql = adapter.normalize_sql(&after_raw).replace('`', "` + \"`\" + `");
     let scalar_params: Vec<&Parameter> = query.params.iter().filter(|p| !p.is_list).collect();
 
     // Count scalar params before the list param to compute startIdx for $N style
     let scalar_before_count = scalar_params.iter().filter(|p| p.index < lp.index).count();
 
-    match contract.placeholder_mode {
-        GoPlaceholderMode::NumberedDollar => {
-            // We need to compute the start index for the dynamic placeholders.
-            // Scalar params before the list already consumed (scalar_before_count) slots.
-            writeln!(src, "\tplaceholders := make([]string, len({lp_name}))", lp_name = lp.name)?;
-            writeln!(src, "\tfor i := range {lp_name} {{", lp_name = lp.name)?;
-            writeln!(src, "\t\tplaceholders[i] = fmt.Sprintf(\"${{}}\", {start}+i)", start = scalar_before_count + 1)?;
-            writeln!(src, "\t}}")?;
-            writeln!(src, "\tsql := `{before_sql}` + \"IN (\" + strings.Join(placeholders, \", \") + \")\" + `{after_sql}`")?;
-        },
-        GoPlaceholderMode::QuestionMark => {
-            writeln!(src, "\tplaceholders := strings.Repeat(\"?, \", len({lp_name}))", lp_name = lp.name)?;
-            writeln!(src, "\tif len(placeholders) > 0 {{")?;
-            writeln!(src, "\t\tplaceholders = placeholders[:len(placeholders)-2]")?;
-            writeln!(src, "\t}}")?;
-            writeln!(src, "\tsql := `{before_sql}IN (\" + placeholders + \"){after_sql}`")?;
-        },
-    }
+    adapter.emit_dynamic_sql(src, &before_sql, &after_sql, &lp.name, scalar_before_count)?;
 
     // Build the args slice: scalars before + list elements + scalars after
     let before_scalar_names: Vec<String> = scalar_params.iter().filter(|p| p.index < lp.index).map(|p| p.name.clone()).collect();
@@ -739,9 +707,9 @@ fn emit_dynamic_list_body(
 
     // Exec with the dynamic SQL
     let query_sql_var = "sql";
-    let exec = contract.exec_method;
-    let query_m = contract.query_method;
-    let query_row = contract.query_row_method;
+    let exec = adapter.exec_method();
+    let query_m = adapter.query_method();
+    let query_row = adapter.query_row_method();
     match query.cmd {
         QueryCmd::Exec => {
             writeln!(src, "\t_, err := db.{exec}(ctx, {query_sql_var}, args...)")?;
@@ -752,7 +720,7 @@ fn emit_dynamic_list_body(
         },
         QueryCmd::One => {
             writeln!(src, "\trow := db.{query_row}(ctx, {query_sql_var}, args...)")?;
-            emit_scan_one(src, query, schema, contract, type_map)?;
+            emit_scan_one(src, query, schema, adapter, type_map)?;
         },
         QueryCmd::Many => {
             writeln!(src, "\trows, err := db.{query_m}(ctx, {query_sql_var}, args...)")?;
@@ -760,7 +728,7 @@ fn emit_dynamic_list_body(
             writeln!(src, "\t\treturn nil, err")?;
             writeln!(src, "\t}}")?;
             writeln!(src, "\tdefer rows.Close()")?;
-            emit_scan_many(src, query, schema, contract, type_map)?;
+            emit_scan_many(src, query, schema, adapter, type_map)?;
         },
     }
 
@@ -772,14 +740,14 @@ fn emit_list_exec(
     src: &mut String,
     query: &Query,
     schema: &Schema,
-    contract: &GoCoreContract,
+    adapter: &dyn GoDriverAdapter,
     type_map: &GoTypeMap,
     const_name: &str,
     args: &str,
 ) -> anyhow::Result<()> {
-    let exec = contract.exec_method;
-    let query_m = contract.query_method;
-    let query_row = contract.query_row_method;
+    let exec = adapter.exec_method();
+    let query_m = adapter.query_method();
+    let query_row = adapter.query_row_method();
     match query.cmd {
         QueryCmd::Exec => {
             writeln!(src, "\t_, err := db.{exec}(ctx, {const_name}, {args})")?;
@@ -790,7 +758,7 @@ fn emit_list_exec(
         },
         QueryCmd::One => {
             writeln!(src, "\trow := db.{query_row}(ctx, {const_name}, {args})")?;
-            emit_scan_one(src, query, schema, contract, type_map)?;
+            emit_scan_one(src, query, schema, adapter, type_map)?;
         },
         QueryCmd::Many => {
             writeln!(src, "\trows, err := db.{query_m}(ctx, {const_name}, {args})")?;
@@ -798,7 +766,7 @@ fn emit_list_exec(
             writeln!(src, "\t\treturn nil, err")?;
             writeln!(src, "\t}}")?;
             writeln!(src, "\tdefer rows.Close()")?;
-            emit_scan_many(src, query, schema, contract, type_map)?;
+            emit_scan_many(src, query, schema, adapter, type_map)?;
         },
     }
     Ok(())
@@ -807,9 +775,9 @@ fn emit_list_exec(
 // ─── Querier struct ───────────────────────────────────────────────────────────
 
 /// Emit the `Querier` struct and its constructor + methods.
-fn emit_querier(src: &mut String, group: &str, queries: &[Query], schema: &Schema, contract: &GoCoreContract, type_map: &GoTypeMap) -> anyhow::Result<()> {
+fn emit_querier(src: &mut String, group: &str, queries: &[Query], schema: &Schema, adapter: &dyn GoDriverAdapter, type_map: &GoTypeMap) -> anyhow::Result<()> {
     let struct_name = querier_class_name(group);
-    let db_type = contract.db_type;
+    let db_type = adapter.db_type();
     writeln!(src, "// {struct_name} wraps a {db_type} and exposes named query methods.")?;
     writeln!(src, "type {struct_name} struct {{")?;
     writeln!(src, "\tdb {db_type}")?;
@@ -822,7 +790,7 @@ fn emit_querier(src: &mut String, group: &str, queries: &[Query], schema: &Schem
 
     for query in queries {
         writeln!(src)?;
-        emit_querier_method(src, &struct_name, query, schema, contract, type_map)?;
+        emit_querier_method(src, &struct_name, query, schema, adapter, type_map)?;
     }
 
     Ok(())
@@ -834,7 +802,7 @@ fn emit_querier_method(
     struct_name: &str,
     query: &Query,
     schema: &Schema,
-    _contract: &GoCoreContract,
+    _adapter: &dyn GoDriverAdapter,
     type_map: &GoTypeMap,
 ) -> anyhow::Result<()> {
     let fn_name = to_pascal_case(&query.name);
@@ -858,12 +826,4 @@ fn emit_querier_method(
     writeln!(src, "\treturn {fn_name}({call_args_str})")?;
     writeln!(src, "}}")?;
     Ok(())
-}
-
-// ─── Helpers needed by dynamic list emit ─────────────────────────────────────
-
-/// Count how many `$N` / `?N` occurrences appear for params before the list param.
-fn _scalar_placeholder_count_before(query: &Query, lp_index: usize) -> usize {
-    let by_idx: std::collections::HashMap<usize, usize> = query.params.iter().map(|p| (p.index, p.index)).collect();
-    parse_placeholder_indices(&query.sql).iter().filter(|&&i| by_idx.contains_key(&i) && i < lp_index).count()
 }

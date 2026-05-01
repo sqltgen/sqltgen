@@ -59,13 +59,13 @@ pub struct RustCodegen {
 
 impl Codegen for RustCodegen {
     fn generate(&self, schema: &Schema, queries: &[Query], config: &OutputConfig) -> anyhow::Result<Vec<GeneratedFile>> {
-        let contract = adapter::resolve_rust_contract(&self.target);
+        let adapter = adapter::build_adapter(&self.target);
         let type_map = typemap::build_rust_type_map(config);
         let strategy = config.list_params.clone().unwrap_or_default();
-        let ctx = core::GenerationContext { schema, queries, config, contract: &contract, type_map: &type_map, strategy };
+        let ctx = core::GenerationContext { schema, queries, config, adapter: adapter.as_ref(), type_map: &type_map, strategy };
 
         let mut files = Vec::new();
-        files.push(adapter::emit_helper_file(&contract, config));
+        files.push(adapter::emit_helper_file(adapter.as_ref(), config));
         files.extend(core::generate_core_files(&ctx)?);
 
         if let Some(manifest) = build_manifest_file(

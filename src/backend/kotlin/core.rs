@@ -190,9 +190,9 @@ fn emit_kotlin_query(src: &mut String, query: &Query, ctx: &GenerationContext) -
 
     if let Some(lp) = query.params.iter().find(|p| p.is_list) {
         match jdbc::resolve_list_strategy(&ctx.strategy, lp) {
-            ListAction::PgNative(sql) => emit_kotlin_list_pg_native(src, &qctx, lp, &sql),
+            ListAction::SqlArrayBind(sql) => emit_kotlin_list_array_bind(src, &qctx, lp, &sql),
             ListAction::Dynamic => emit_kotlin_list_dynamic(src, &qctx, lp),
-            ListAction::JsonNative(sql) => emit_kotlin_list_json_native(src, &qctx, lp, &sql),
+            ListAction::JsonStringBind(sql) => emit_kotlin_list_json_bind(src, &qctx, lp, &sql),
         }
     } else {
         emit_kotlin_scalar_query(src, &qctx)
@@ -255,8 +255,8 @@ fn emit_kotlin_scalar_query(src: &mut String, ctx: &QueryContext) -> anyhow::Res
     Ok(())
 }
 
-/// Emit a PostgreSQL native list query using `= ANY(?)` with a JDBC array.
-fn emit_kotlin_list_pg_native(src: &mut String, ctx: &QueryContext, lp: &Parameter, rewritten_sql: &str) -> anyhow::Result<()> {
+/// Emit a list query that binds the list as a JDBC `Array` (e.g. `= ANY(?)`).
+fn emit_kotlin_list_array_bind(src: &mut String, ctx: &QueryContext, lp: &Parameter, rewritten_sql: &str) -> anyhow::Result<()> {
     let lp_name = to_camel_case(&lp.name);
     let method_name = to_camel_case(&ctx.query.name);
     let (sql_const, raw_sql) = prepare_sql_const_from(ctx.query, rewritten_sql);
@@ -291,12 +291,12 @@ fn emit_kotlin_list_dynamic(src: &mut String, ctx: &QueryContext, lp: &Parameter
     Ok(())
 }
 
-/// Emit a SQLite or MySQL native list query that passes a JSON array string.
+/// Emit a list query that binds the list as a JSON-encoded string.
 ///
-/// Both engines use the same structure: build a JSON string from the list,
-/// then bind it as a regular string parameter. The caller provides the
-/// already-rewritten SQL (with `json_each` or `JSON_TABLE`).
-fn emit_kotlin_list_json_native(src: &mut String, ctx: &QueryContext, lp: &Parameter, rewritten_sql: &str) -> anyhow::Result<()> {
+/// The caller provides the already-rewritten SQL (e.g. with `json_each` or
+/// `JSON_TABLE`); the generated code builds a JSON array literal from the list
+/// and binds it as a regular string parameter.
+fn emit_kotlin_list_json_bind(src: &mut String, ctx: &QueryContext, lp: &Parameter, rewritten_sql: &str) -> anyhow::Result<()> {
     let method_name = to_camel_case(&ctx.query.name);
     let (sql_const, raw_sql) = prepare_sql_const_from(ctx.query, rewritten_sql);
     emit_kotlin_sql_triple_quoted(src, &sql_const, &raw_sql)?;

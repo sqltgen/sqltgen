@@ -1,82 +1,122 @@
 use std::fmt::Write;
 use std::path::PathBuf;
 
+use crate::backend::sql_rewrite::{positional_bind_names, rewrite_to_anon_params};
 use crate::backend::GeneratedFile;
 use crate::config::OutputConfig;
+use crate::ir::Query;
 
 use super::RustTarget;
 
-/// SQL placeholder normalization mode for sqlx drivers.
-#[derive(Clone, Copy)]
-pub(super) enum RustSqlNormMode {
-    /// Preserve indexed placeholders (`$N`).
-    Preserve,
-    /// Rewrite positional placeholders to anonymous `?`.
-    AnonParams,
+/// Driver-specific behavior consumed by the engine-agnostic core.
+///
+/// Each method encapsulates one place where the generated Rust code differs
+/// between sqlx drivers (Postgres, SQLite, MySQL). The core never branches on
+/// the target — it only calls these methods.
+pub(super) trait RustDriverAdapter {
+    /// sqlx pool type alias used in the generated `sqltgen.rs` helper file.
+    fn pool_type(&self) -> &'static str;
+
+    /// Normalize SQL placeholders for this driver.
+    ///
+    /// Postgres preserves `$N`; SQLite and MySQL rewrite to anonymous `?`.
+    fn normalize_sql(&self, sql: &str) -> String;
+
+    /// Bind names for a scalar query — one entry per `.bind()` call.
+    ///
+    /// Postgres `$N` references by number, so one bind per unique parameter
+    /// suffices. SQLite/MySQL anonymous `?` is positional, so we bind once per
+    /// placeholder occurrence (repeating params get repeated binds).
+    fn scalar_bind_names<'a>(&self, query: &'a Query) -> Vec<&'a str>;
+
+    /// Emit the `let placeholders = …;` binding for a dynamic-list query.
+    ///
+    /// `base` is the 1-based starting index for `$N` placeholders (only used by
+    /// drivers with numbered placeholders).
+    fn emit_dynamic_placeholders(&self, src: &mut String, lp_name: &str, base: usize) -> anyhow::Result<()>;
 }
 
-/// Bind ordering mode for scalar query params.
-#[derive(Clone, Copy)]
-pub(super) enum RustBindMode {
-    /// Bind once per unique parameter index.
-    UniqueParams,
-    /// Bind once per SQL placeholder occurrence.
-    Positional,
-}
+/// Postgres / sqlx-postgres adapter.
+pub(super) struct PgAdapter;
 
-/// Placeholder style for runtime-expanded list params.
-#[derive(Clone, Copy)]
-pub(super) enum RustPlaceholderMode {
-    /// Generate `$N` placeholders.
-    NumberedDollar,
-    /// Generate anonymous `?` placeholders.
-    QuestionMark,
-}
+impl RustDriverAdapter for PgAdapter {
+    fn pool_type(&self) -> &'static str {
+        "PgPool"
+    }
 
-/// Compile-time adapter contract consumed by the Rust core emitter.
-pub(super) struct RustCoreContract {
-    /// Generated helper module source (`_sqltgen.rs`).
-    pub(super) helper_source: String,
-    /// SQL normalization mode for this target.
-    pub(super) sql_norm_mode: RustSqlNormMode,
-    /// Scalar bind ordering mode for this target.
-    pub(super) bind_mode: RustBindMode,
-    /// Dynamic list placeholder style for this target.
-    pub(super) placeholder_mode: RustPlaceholderMode,
-}
+    fn normalize_sql(&self, sql: &str) -> String {
+        sql.to_string()
+    }
 
-/// Resolve the Rust adapter contract for the selected engine target.
-pub(super) fn resolve_rust_contract(target: &RustTarget) -> RustCoreContract {
-    match target {
-        RustTarget::Postgres => RustCoreContract {
-            helper_source: build_helper_file("PgPool"),
-            sql_norm_mode: RustSqlNormMode::Preserve,
-            bind_mode: RustBindMode::UniqueParams,
-            placeholder_mode: RustPlaceholderMode::NumberedDollar,
-        },
-        RustTarget::Sqlite => RustCoreContract {
-            helper_source: build_helper_file("SqlitePool"),
-            sql_norm_mode: RustSqlNormMode::AnonParams,
-            bind_mode: RustBindMode::Positional,
-            placeholder_mode: RustPlaceholderMode::QuestionMark,
-        },
-        RustTarget::Mysql => RustCoreContract {
-            helper_source: build_helper_file("MySqlPool"),
-            sql_norm_mode: RustSqlNormMode::AnonParams,
-            bind_mode: RustBindMode::Positional,
-            placeholder_mode: RustPlaceholderMode::QuestionMark,
-        },
+    fn scalar_bind_names<'a>(&self, query: &'a Query) -> Vec<&'a str> {
+        query.params.iter().map(|p| p.name.as_str()).collect()
+    }
+
+    fn emit_dynamic_placeholders(&self, src: &mut String, lp_name: &str, base: usize) -> anyhow::Result<()> {
+        writeln!(src, "    let placeholders: String = ({lp_name}).iter().enumerate()")?;
+        writeln!(src, "        .map(|(i, _)| format!(\"${{}}\", {base} + i))")?;
+        writeln!(src, "        .collect::<Vec<_>>().join(\", \");")?;
+        Ok(())
     }
 }
 
-/// Emit the engine-specific helper module selected by the contract.
-pub(super) fn emit_helper_file(contract: &RustCoreContract, config: &OutputConfig) -> GeneratedFile {
-    GeneratedFile { path: PathBuf::from(&config.out).join("sqltgen.rs"), content: contract.helper_source.clone() }
+/// SQLite / sqlx-sqlite adapter.
+pub(super) struct SqliteAdapter;
+
+impl RustDriverAdapter for SqliteAdapter {
+    fn pool_type(&self) -> &'static str {
+        "SqlitePool"
+    }
+
+    fn normalize_sql(&self, sql: &str) -> String {
+        rewrite_to_anon_params(sql)
+    }
+
+    fn scalar_bind_names<'a>(&self, query: &'a Query) -> Vec<&'a str> {
+        positional_bind_names(query)
+    }
+
+    fn emit_dynamic_placeholders(&self, src: &mut String, lp_name: &str, _base: usize) -> anyhow::Result<()> {
+        writeln!(src, "    let placeholders = ({lp_name}).iter().map(|_| \"?\").collect::<Vec<_>>().join(\", \");")?;
+        Ok(())
+    }
 }
 
-fn build_helper_file(pool_type: &str) -> String {
+/// MySQL / sqlx-mysql adapter.
+pub(super) struct MysqlAdapter;
+
+impl RustDriverAdapter for MysqlAdapter {
+    fn pool_type(&self) -> &'static str {
+        "MySqlPool"
+    }
+
+    fn normalize_sql(&self, sql: &str) -> String {
+        rewrite_to_anon_params(sql)
+    }
+
+    fn scalar_bind_names<'a>(&self, query: &'a Query) -> Vec<&'a str> {
+        positional_bind_names(query)
+    }
+
+    fn emit_dynamic_placeholders(&self, src: &mut String, lp_name: &str, _base: usize) -> anyhow::Result<()> {
+        writeln!(src, "    let placeholders = ({lp_name}).iter().map(|_| \"?\").collect::<Vec<_>>().join(\", \");")?;
+        Ok(())
+    }
+}
+
+/// Build the adapter for the selected target.
+pub(super) fn build_adapter(target: &RustTarget) -> Box<dyn RustDriverAdapter> {
+    match target {
+        RustTarget::Postgres => Box::new(PgAdapter),
+        RustTarget::Sqlite => Box::new(SqliteAdapter),
+        RustTarget::Mysql => Box::new(MysqlAdapter),
+    }
+}
+
+/// Emit the engine-specific helper module (`sqltgen.rs`) for the selected adapter.
+pub(super) fn emit_helper_file(adapter: &dyn RustDriverAdapter, config: &OutputConfig) -> GeneratedFile {
     let mut src = String::new();
     let _ = writeln!(src, "// Generated by sqltgen. Do not edit.");
-    let _ = writeln!(src, "pub type DbPool = sqlx::{pool_type};");
-    src
+    let _ = writeln!(src, "pub type DbPool = sqlx::{};", adapter.pool_type());
+    GeneratedFile { path: PathBuf::from(&config.out).join("sqltgen.rs"), content: src }
 }
