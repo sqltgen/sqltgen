@@ -188,7 +188,7 @@ fn js_default_type(sql_type: &SqlType, adapter: &dyn JsDriverAdapter) -> String 
         SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_) => "string",
         SqlType::Interval | SqlType::Uuid => "string",
         SqlType::Bytes => "Uint8Array",
-        SqlType::Date => return adapter.date_field_type().to_string(),
+        SqlType::Date => adapter.date_field_type(),
         SqlType::Time => "string",
         SqlType::Timestamp | SqlType::TimestampTz => "Date",
         SqlType::Json | SqlType::Jsonb => "unknown",
