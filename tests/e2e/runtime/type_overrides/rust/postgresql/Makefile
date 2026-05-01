@@ -8,8 +8,8 @@ generate:
 	$(SQLTGEN) generate --config sqltgen-chrono.json
 
 test: generate
-	cargo test --test runtime
-	cargo test --test chrono_runtime
+	cargo test -q --test runtime
+	cargo test -q --test chrono_runtime
 
 clean:
 	cargo clean

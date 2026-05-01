@@ -7,7 +7,7 @@ generate:
 	$(SQLTGEN) generate --config sqltgen.json
 
 test: generate
-	cargo test
+	cargo test -q
 
 clean:
 	cargo clean
