@@ -210,7 +210,7 @@ export async function createAuthor(db, name, bio, birthYear) {
  * @returns {Promise<Author | null>}
  */
 export async function getAuthor(db, id) {
-  const [rows] = await db.query(SQL_GET_AUTHOR, [String(id)]);
+  const [rows] = await db.query(SQL_GET_AUTHOR, [id]);
   const raw = rows[0];
   if (!raw) return null;
   return { ...raw, id: BigInt(raw.id) };
@@ -232,7 +232,7 @@ export async function listAuthors(db) {
  * @returns {Promise<void>}
  */
 export async function updateAuthorBio(db, bio, id) {
-  await db.query(SQL_UPDATE_AUTHOR_BIO, [bio, String(id)]);
+  await db.query(SQL_UPDATE_AUTHOR_BIO, [bio, id]);
 }
 
 /**
@@ -241,7 +241,7 @@ export async function updateAuthorBio(db, bio, id) {
  * @returns {Promise<void>}
  */
 export async function deleteAuthor(db, id) {
-  await db.query(SQL_DELETE_AUTHOR, [String(id)]);
+  await db.query(SQL_DELETE_AUTHOR, [id]);
 }
 
 /**
@@ -254,7 +254,7 @@ export async function deleteAuthor(db, id) {
  * @returns {Promise<void>}
  */
 export async function createBook(db, authorId, title, genre, price, publishedAt) {
-  await db.query(SQL_CREATE_BOOK, [String(authorId), title, genre, price, publishedAt]);
+  await db.query(SQL_CREATE_BOOK, [authorId, title, genre, price, publishedAt]);
 }
 
 /**
@@ -263,7 +263,7 @@ export async function createBook(db, authorId, title, genre, price, publishedAt)
  * @returns {Promise<Book | null>}
  */
 export async function getBook(db, id) {
-  const [rows] = await db.query(SQL_GET_BOOK, [String(id)]);
+  const [rows] = await db.query(SQL_GET_BOOK, [id]);
   const raw = rows[0];
   if (!raw) return null;
   return { ...raw, id: BigInt(raw.id), author_id: BigInt(raw.author_id) };
@@ -316,7 +316,7 @@ export async function createCustomer(db, name, email) {
  * @returns {Promise<void>}
  */
 export async function createSale(db, customerId) {
-  await db.query(SQL_CREATE_SALE, [String(customerId)]);
+  await db.query(SQL_CREATE_SALE, [customerId]);
 }
 
 /**
@@ -328,7 +328,7 @@ export async function createSale(db, customerId) {
  * @returns {Promise<void>}
  */
 export async function addSaleItem(db, saleId, bookId, quantity, unitPrice) {
-  await db.query(SQL_ADD_SALE_ITEM, [String(saleId), String(bookId), quantity, unitPrice]);
+  await db.query(SQL_ADD_SALE_ITEM, [saleId, bookId, quantity, unitPrice]);
 }
 
 /**
@@ -425,7 +425,7 @@ export async function countBooksByGenre(db) {
  * @returns {Promise<ListBooksWithLimitRow[]>}
  */
 export async function listBooksWithLimit(db, limit, offset) {
-  const [rows] = await db.query(SQL_LIST_BOOKS_WITH_LIMIT, [String(limit), String(offset)]);
+  const [rows] = await db.query(SQL_LIST_BOOKS_WITH_LIMIT, [limit, offset]);
   return (rows).map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
@@ -527,7 +527,7 @@ export async function getBookPriceOrDefault(db, price) {
  * @returns {Promise<number>}
  */
 export async function deleteBookById(db, id) {
-  const [result] = await db.query(SQL_DELETE_BOOK_BY_ID, [String(id)]);
+  const [result] = await db.query(SQL_DELETE_BOOK_BY_ID, [id]);
   return result.affectedRows;
 }
 
@@ -543,7 +543,7 @@ export async function deleteBookById(db, id) {
  * @returns {Promise<GetGenresWithManyBooksRow[]>}
  */
 export async function getGenresWithManyBooks(db, count) {
-  const [rows] = await db.query(SQL_GET_GENRES_WITH_MANY_BOOKS, [String(count)]);
+  const [rows] = await db.query(SQL_GET_GENRES_WITH_MANY_BOOKS, [count]);
   return (rows).map(raw => ({ ...raw, book_count: BigInt(raw.book_count) }));
 }
 
@@ -760,7 +760,7 @@ export async function getBooksWithSalesCount(db) {
  * @returns {Promise<CountSaleItemsRow | null>}
  */
 export async function countSaleItems(db, saleId) {
-  const [rows] = await db.query(SQL_COUNT_SALE_ITEMS, [String(saleId)]);
+  const [rows] = await db.query(SQL_COUNT_SALE_ITEMS, [saleId]);
   const raw = rows[0];
   if (!raw) return null;
   return { ...raw, item_count: BigInt(raw.item_count) };

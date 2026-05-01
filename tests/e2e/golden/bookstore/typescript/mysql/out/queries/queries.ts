@@ -197,7 +197,7 @@ export async function createAuthor(db: Db, name: string, bio: string | null, bir
 }
 
 export async function getAuthor(db: Db, id: bigint): Promise<Author | null> {
-  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_AUTHOR, [String(id)]);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_AUTHOR, [id]);
   const raw = rows[0] as Author | undefined;
   if (!raw) return null;
   return { ...raw, id: BigInt(raw.id) };
@@ -209,19 +209,19 @@ export async function listAuthors(db: Db): Promise<Author[]> {
 }
 
 export async function updateAuthorBio(db: Db, bio: string | null, id: bigint): Promise<void> {
-  await db.query(SQL_UPDATE_AUTHOR_BIO, [bio, String(id)]);
+  await db.query(SQL_UPDATE_AUTHOR_BIO, [bio, id]);
 }
 
 export async function deleteAuthor(db: Db, id: bigint): Promise<void> {
-  await db.query(SQL_DELETE_AUTHOR, [String(id)]);
+  await db.query(SQL_DELETE_AUTHOR, [id]);
 }
 
 export async function createBook(db: Db, authorId: bigint, title: string, genre: string, price: string, publishedAt: string | null): Promise<void> {
-  await db.query(SQL_CREATE_BOOK, [String(authorId), title, genre, price, publishedAt]);
+  await db.query(SQL_CREATE_BOOK, [authorId, title, genre, price, publishedAt]);
 }
 
 export async function getBook(db: Db, id: bigint): Promise<Book | null> {
-  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_BOOK, [String(id)]);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_BOOK, [id]);
   const raw = rows[0] as Book | undefined;
   if (!raw) return null;
   return { ...raw, id: BigInt(raw.id), author_id: BigInt(raw.author_id) };
@@ -248,11 +248,11 @@ export async function createCustomer(db: Db, name: string, email: string): Promi
 }
 
 export async function createSale(db: Db, customerId: bigint): Promise<void> {
-  await db.query(SQL_CREATE_SALE, [String(customerId)]);
+  await db.query(SQL_CREATE_SALE, [customerId]);
 }
 
 export async function addSaleItem(db: Db, saleId: bigint, bookId: bigint, quantity: number, unitPrice: string): Promise<void> {
-  await db.query(SQL_ADD_SALE_ITEM, [String(saleId), String(bookId), quantity, unitPrice]);
+  await db.query(SQL_ADD_SALE_ITEM, [saleId, bookId, quantity, unitPrice]);
 }
 
 export interface ListBooksWithAuthorRow {
@@ -318,7 +318,7 @@ export interface ListBooksWithLimitRow {
 }
 
 export async function listBooksWithLimit(db: Db, limit: bigint, offset: bigint): Promise<ListBooksWithLimitRow[]> {
-  const [rows] = await db.query<RowDataPacket[]>(SQL_LIST_BOOKS_WITH_LIMIT, [String(limit), String(offset)]);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_LIST_BOOKS_WITH_LIMIT, [limit, offset]);
   return (rows as ListBooksWithLimitRow[]).map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
@@ -382,7 +382,7 @@ export async function getBookPriceOrDefault(db: Db, price: string | null): Promi
 }
 
 export async function deleteBookById(db: Db, id: bigint): Promise<number> {
-  const [result] = await db.query<ResultSetHeader>(SQL_DELETE_BOOK_BY_ID, [String(id)]);
+  const [result] = await db.query<ResultSetHeader>(SQL_DELETE_BOOK_BY_ID, [id]);
   return result.affectedRows;
 }
 
@@ -392,7 +392,7 @@ export interface GetGenresWithManyBooksRow {
 }
 
 export async function getGenresWithManyBooks(db: Db, count: bigint): Promise<GetGenresWithManyBooksRow[]> {
-  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_GENRES_WITH_MANY_BOOKS, [String(count)]);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_GET_GENRES_WITH_MANY_BOOKS, [count]);
   return (rows as GetGenresWithManyBooksRow[]).map(raw => ({ ...raw, book_count: BigInt(raw.book_count) }));
 }
 
@@ -534,7 +534,7 @@ export interface CountSaleItemsRow {
 }
 
 export async function countSaleItems(db: Db, saleId: bigint): Promise<CountSaleItemsRow | null> {
-  const [rows] = await db.query<RowDataPacket[]>(SQL_COUNT_SALE_ITEMS, [String(saleId)]);
+  const [rows] = await db.query<RowDataPacket[]>(SQL_COUNT_SALE_ITEMS, [saleId]);
   const raw = rows[0] as CountSaleItemsRow | undefined;
   if (!raw) return null;
   return { ...raw, item_count: BigInt(raw.item_count) };

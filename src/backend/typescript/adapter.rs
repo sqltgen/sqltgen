@@ -192,7 +192,11 @@ impl JsDriverAdapter for Mysql2Adapter {
     }
 
     fn bigint_write_expr(&self) -> Option<&'static str> {
-        Some("String({value})")
+        // mysql2 (via sql-escaper) serializes bigint as `value + ''` — exact decimal,
+        // no float rounding — then inlines it as an unquoted numeric literal in SQL.
+        // Wrapping in String() first would produce a quoted string, which MySQL rejects
+        // for LIMIT/OFFSET even though it accepts it for integer column comparisons.
+        None
     }
 
     fn resolve_preset(&self, name: &str) -> Option<ResolvedType> {
