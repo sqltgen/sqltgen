@@ -28,14 +28,6 @@ pub(super) struct GenerationContext<'a> {
     pub strategy: ListParamStrategy,
 }
 
-/// Per-query context forwarded to all emitters within a queries file.
-struct PythonQueryContext<'a> {
-    query: &'a Query,
-    schema: &'a Schema,
-    contract: &'a PythonCoreContract,
-    type_map: &'a PythonTypeMap,
-}
-
 /// Emit all Python files except the helper module.
 pub(super) fn generate_core_files(ctx: &GenerationContext) -> anyhow::Result<Vec<GeneratedFile>> {
     let mut files = Vec::new();
@@ -232,15 +224,14 @@ fn build_queries_file(ctx: &GenerationContext, group: &str, queries: &[Query]) -
     }
 
     for query in queries {
-        let qctx = PythonQueryContext { query, schema: ctx.schema, contract: ctx.contract, type_map: ctx.type_map };
         writeln!(src)?;
         writeln!(src)?;
         if has_inline_rows(query, ctx.schema) {
-            emit_row_dataclass(&mut src, &qctx)?;
+            emit_row_dataclass(&mut src, query, ctx)?;
             writeln!(src)?;
             writeln!(src)?;
         }
-        emit_python_query(&mut src, &qctx, &ctx.strategy)?;
+        emit_python_query(&mut src, query, ctx)?;
     }
 
     if !queries.is_empty() {
@@ -289,56 +280,56 @@ fn emit_python_querier(src: &mut String, group: &str, queries: &[Query], ctx: &G
     Ok(())
 }
 
-fn emit_row_dataclass(src: &mut String, ctx: &PythonQueryContext) -> anyhow::Result<()> {
-    let name = row_type_name(&ctx.query.name);
+fn emit_row_dataclass(src: &mut String, query: &Query, ctx: &GenerationContext) -> anyhow::Result<()> {
+    let name = row_type_name(&query.name);
     writeln!(src, "@dataclasses.dataclass")?;
     writeln!(src, "class {name}:")?;
-    for col in &ctx.query.result_columns {
+    for col in &query.result_columns {
         let ty = ctx.type_map.field_type(&col.sql_type, col.nullable);
         writeln!(src, "    {}: {}", col.name, ty)?;
     }
     Ok(())
 }
 
-fn emit_python_query(src: &mut String, ctx: &PythonQueryContext, strategy: &ListParamStrategy) -> anyhow::Result<()> {
-    if let Some(lp) = ctx.query.params.iter().find(|p| p.is_list) {
-        return emit_python_list_query(src, ctx, strategy, lp);
+fn emit_python_query(src: &mut String, query: &Query, ctx: &GenerationContext) -> anyhow::Result<()> {
+    if let Some(lp) = query.params.iter().find(|p| p.is_list) {
+        return emit_python_list_query(src, query, ctx, lp);
     }
-    emit_standard_query(src, ctx)
+    emit_standard_query(src, query, ctx)
 }
 
-fn emit_standard_query(src: &mut String, ctx: &PythonQueryContext) -> anyhow::Result<()> {
-    let fn_name = to_snake_case(&ctx.query.name);
-    let const_name = sql_const_name(&ctx.query.name);
-    let return_type = cursor_return_type(ctx.query, ctx.schema);
+fn emit_standard_query(src: &mut String, query: &Query, ctx: &GenerationContext) -> anyhow::Result<()> {
+    let fn_name = to_snake_case(&query.name);
+    let const_name = sql_const_name(&query.name);
+    let return_type = cursor_return_type(query, ctx.schema);
     let conn_type = "Connection";
 
     let params_sig: String = std::iter::once(format!("conn: {conn_type}"))
-        .chain(ctx.query.params.iter().map(|p| format!("{}: {}", to_snake_case(&p.name), ctx.type_map.param_type(&p.sql_type, p.nullable))))
+        .chain(query.params.iter().map(|p| format!("{}: {}", to_snake_case(&p.name), ctx.type_map.param_type(&p.sql_type, p.nullable))))
         .collect::<Vec<_>>()
         .join(", ");
 
-    let args = build_helper_args(&const_name, ctx.query, ctx.contract.sql.json_param_wrapper);
+    let args = build_helper_args(&const_name, query, ctx.contract.sql.json_param_wrapper);
     writeln!(src, "def {fn_name}({params_sig}) -> {return_type}:")?;
-    if ctx.query.cmd == QueryCmd::Exec {
+    if query.cmd == QueryCmd::Exec {
         writeln!(src, "    exec_stmt({args})")?;
     } else {
         writeln!(src, "    with execute({args}) as cur:")?;
-        emit_python_result_block(src, ctx, "cur", "        ")?;
+        emit_python_result_block(src, query, ctx, "cur", "        ")?;
     }
     Ok(())
 }
 
-fn emit_python_list_query(src: &mut String, ctx: &PythonQueryContext, strategy: &ListParamStrategy, lp: &Parameter) -> anyhow::Result<()> {
-    let fn_name = to_snake_case(&ctx.query.name);
-    let const_name = sql_const_name(&ctx.query.name);
+fn emit_python_list_query(src: &mut String, query: &Query, ctx: &GenerationContext, lp: &Parameter) -> anyhow::Result<()> {
+    let fn_name = to_snake_case(&query.name);
+    let const_name = sql_const_name(&query.name);
     let conn_type = "Connection";
-    let return_type = cursor_return_type(ctx.query, ctx.schema);
+    let return_type = cursor_return_type(query, ctx.schema);
     let lp_name = to_snake_case(&lp.name);
-    let scalar_params: Vec<&Parameter> = ctx.query.params.iter().filter(|p| !p.is_list).collect();
+    let scalar_params: Vec<&Parameter> = query.params.iter().filter(|p| !p.is_list).collect();
 
     let params_sig: String = std::iter::once(format!("conn: {conn_type}"))
-        .chain(ctx.query.params.iter().map(|p| {
+        .chain(query.params.iter().map(|p| {
             let ty =
                 if p.is_list { format!("list[{}]", ctx.type_map.param_type(&p.sql_type, false)) } else { ctx.type_map.param_type(&p.sql_type, p.nullable) };
             format!("{}: {ty}", to_snake_case(&p.name))
@@ -348,59 +339,59 @@ fn emit_python_list_query(src: &mut String, ctx: &PythonQueryContext, strategy: 
 
     writeln!(src, "def {fn_name}({params_sig}) -> {return_type}:")?;
 
-    match strategy {
+    match &ctx.strategy {
         ListParamStrategy::Native => match &lp.native_list_bind {
             Some(NativeListBind::Array) => {
                 let scalar_args = build_scalar_args(&scalar_params, lp, &lp_name);
-                emit_list_body(src, ctx, &format!("conn, {const_name}, {scalar_args}"))?;
+                emit_list_body(src, query, ctx, &format!("conn, {const_name}, {scalar_args}"))?;
             },
             Some(NativeListBind::Json) | None => {
                 writeln!(src, "    import json")?;
                 writeln!(src, "    {lp_name}_json = json.dumps({lp_name})")?;
                 let scalar_args = build_scalar_args(&scalar_params, lp, &format!("{lp_name}_json"));
-                emit_list_body(src, ctx, &format!("conn, {const_name}, {scalar_args}"))?;
+                emit_list_body(src, query, ctx, &format!("conn, {const_name}, {scalar_args}"))?;
             },
         },
         ListParamStrategy::Dynamic => {
-            let (before_raw, after_raw) = split_at_in_clause(&ctx.query.sql, lp.index).unwrap_or_else(|| (ctx.query.sql.clone(), String::new()));
+            let (before_raw, after_raw) = split_at_in_clause(&query.sql, lp.index).unwrap_or_else(|| (query.sql.clone(), String::new()));
             let before = normalize_sql(&before_raw, ctx.contract.sql.sql_norm_mode).replace('"', "\\\"").replace('\n', " ");
             let after = normalize_sql(&after_raw, ctx.contract.sql.sql_norm_mode).replace('"', "\\\"").replace('\n', " ");
             let args_expr = build_dynamic_args(&scalar_params, lp);
             writeln!(src, "    placeholders = \", \".join([\"{}\"] * len({lp_name}))", ctx.contract.sql.dynamic_placeholder_token)?;
             writeln!(src, "    sql = f\"{before}IN ({{placeholders}}){after}\"")?;
-            emit_list_body(src, ctx, &format!("conn, sql, {args_expr}"))?;
+            emit_list_body(src, query, ctx, &format!("conn, sql, {args_expr}"))?;
         },
     }
 
     Ok(())
 }
 
-fn emit_list_body(src: &mut String, ctx: &PythonQueryContext, helper_args: &str) -> anyhow::Result<()> {
-    if ctx.query.cmd == QueryCmd::Exec {
+fn emit_list_body(src: &mut String, query: &Query, ctx: &GenerationContext, helper_args: &str) -> anyhow::Result<()> {
+    if query.cmd == QueryCmd::Exec {
         writeln!(src, "    exec_stmt({helper_args})")?;
     } else {
         writeln!(src, "    with execute({helper_args}) as cur:")?;
-        emit_python_result_block(src, ctx, "cur", "        ")?;
+        emit_python_result_block(src, query, ctx, "cur", "        ")?;
     }
     Ok(())
 }
 
-fn emit_python_result_block(src: &mut String, ctx: &PythonQueryContext, cursor: &str, indent: &str) -> anyhow::Result<()> {
+fn emit_python_result_block(src: &mut String, query: &Query, ctx: &GenerationContext, cursor: &str, indent: &str) -> anyhow::Result<()> {
     let converters = ctx.contract.field_read_converters;
-    match ctx.query.cmd {
+    match query.cmd {
         QueryCmd::Exec => {},
         QueryCmd::ExecRows => writeln!(src, "{indent}return {cursor}.rowcount")?,
         QueryCmd::One => {
-            let row_type = result_row_type(ctx.query, ctx.schema);
-            let expr = build_row_expr(&row_type, "row", &ctx.query.result_columns, converters);
+            let row_type = result_row_type(query, ctx.schema);
+            let expr = build_row_expr(&row_type, "row", &query.result_columns, converters);
             writeln!(src, "{indent}row = {cursor}.fetchone()")?;
             writeln!(src, "{indent}if row is None:")?;
             writeln!(src, "{indent}    return None")?;
             writeln!(src, "{indent}return {expr}")?;
         },
         QueryCmd::Many => {
-            let row_type = result_row_type(ctx.query, ctx.schema);
-            let expr = build_row_expr(&row_type, "row", &ctx.query.result_columns, converters);
+            let row_type = result_row_type(query, ctx.schema);
+            let expr = build_row_expr(&row_type, "row", &query.result_columns, converters);
             writeln!(src, "{indent}return [{expr} for row in {cursor}.fetchall()]")?;
         },
     }
