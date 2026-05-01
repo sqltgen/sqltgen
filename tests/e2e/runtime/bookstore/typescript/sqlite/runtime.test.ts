@@ -331,7 +331,7 @@ describe('CTE queries', () => {
     assert.equal(rows.length, 3);
     const asimov = rows.find(r => r.name === 'Asimov');
     assert.ok(asimov);
-    assert.equal(asimov.num_books, 2);
+    assert.equal(Number(asimov.num_books), 2);
   });
 });
 
@@ -345,10 +345,10 @@ describe('aggregate queries', () => {
     assert.equal(rows.length, 2);
     const fantasy = rows.find(r => r.genre === 'fantasy');
     assert.ok(fantasy);
-    assert.equal(fantasy.book_count, 1);
+    assert.equal(Number(fantasy.book_count), 1);
     const sciFi = rows.find(r => r.genre === 'sci-fi');
     assert.ok(sciFi);
-    assert.equal(sciFi.book_count, 3);
+    assert.equal(Number(sciFi.book_count), 3);
   });
 });
 
@@ -414,7 +414,7 @@ describe('HAVING queries', () => {
     const results = await queries.getGenresWithManyBooks(db, 1);
     assert.equal(results.length, 1);
     assert.equal(results[0].genre, 'sci-fi');
-    assert.equal(results[0].book_count, 3);
+    assert.equal(Number(results[0].book_count), 3);
   });
 });
 
@@ -555,15 +555,15 @@ describe('LEFT JOIN aggregate queries', () => {
 
     const foundation = rows.find(r => r.title === 'Foundation');
     assert.ok(foundation);
-    assert.equal(foundation.total_quantity, 2);
+    assert.equal(Number(foundation.total_quantity), 2);
 
     const dune = rows.find(r => r.title === 'Dune');
     assert.ok(dune);
-    assert.equal(dune.total_quantity, 1);
+    assert.equal(Number(dune.total_quantity), 1);
 
     const earthsea = rows.find(r => r.title === 'Earthsea');
     assert.ok(earthsea);
-    assert.equal(earthsea.total_quantity, 0);
+    assert.equal(Number(earthsea.total_quantity), 0);
   });
 });
 
@@ -575,7 +575,7 @@ describe('scalar aggregate queries', () => {
     await seed(db);
     const row = await queries.countSaleItems(db, 1);
     assert.ok(row);
-    assert.equal(row.item_count, 2);
+    assert.equal(Number(row.item_count), 2);
   });
 
   it('countSaleItems returns 0 for non-existent sale', async () => {
@@ -583,7 +583,7 @@ describe('scalar aggregate queries', () => {
     await seed(db);
     const row = await queries.countSaleItems(db, 999);
     assert.ok(row);
-    assert.equal(row.item_count, 0);
+    assert.equal(Number(row.item_count), 0);
   });
 });
 
@@ -598,7 +598,7 @@ describe('MIN/MAX/SUM/AVG aggregate queries', () => {
     assert.ok(row !== null);
     assert.equal(row!.min_qty, 1);
     assert.equal(row!.max_qty, 2);
-    assert.equal(row!.sum_qty, 3);
+    assert.equal(Number(row!.sum_qty), 3);
     assert.ok(Math.abs((row!.avg_qty as number) - 1.5) < 0.01);
   });
 
