@@ -77,17 +77,17 @@ impl Codegen for TypeScriptCodegen {
             JsOutput::TypeScript => "ts",
             JsOutput::JavaScript => "js",
         };
-
         let lang = match self.output {
             JsOutput::TypeScript => "typescript",
             JsOutput::JavaScript => "javascript",
         };
-
         let type_map = typemap::build_js_type_map(config, adapter.as_ref());
+        let strategy = config.list_params.clone().unwrap_or_default();
+        let ctx = core::GenerationContext { schema, queries, config, adapter: adapter.as_ref(), type_map: &type_map, strategy };
 
         let mut files = Vec::new();
         files.push(adapter::emit_helper_file(adapter.as_ref(), config, ext));
-        files.extend(core::generate_core_files(self, schema, queries, adapter.as_ref(), config, &type_map)?);
+        files.extend(core::generate_core_files(self, &ctx)?);
 
         if let Some(manifest) = build_manifest_file(
             lang,

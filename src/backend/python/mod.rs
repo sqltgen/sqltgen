@@ -63,10 +63,12 @@ impl Codegen for PythonCodegen {
     fn generate(&self, schema: &Schema, queries: &[Query], config: &OutputConfig) -> anyhow::Result<Vec<GeneratedFile>> {
         let contract = adapter::resolve_python_contract(&self.target);
         let type_map = typemap::build_python_type_map(config, contract.sql.json_mode);
+        let strategy = config.list_params.clone().unwrap_or_default();
+        let ctx = core::GenerationContext { schema, queries, config, contract: &contract, type_map: &type_map, strategy };
 
         let mut files = Vec::new();
         files.push(adapter::emit_helper_file(&contract, config));
-        files.extend(core::generate_core_files(schema, queries, &contract, config, &type_map)?);
+        files.extend(core::generate_core_files(&ctx)?);
 
         if let Some(manifest) = build_manifest_file(
             "python",

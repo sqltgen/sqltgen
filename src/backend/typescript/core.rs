@@ -19,6 +19,16 @@ use super::{JsOutput, TypeScriptCodegen};
 #[cfg(test)]
 use super::JsTarget;
 
+/// All data needed for a single `generate()` call, bundled to reduce parameter threading.
+pub(super) struct GenerationContext<'a> {
+    pub schema: &'a Schema,
+    pub queries: &'a [Query],
+    pub config: &'a OutputConfig,
+    pub adapter: &'a dyn JsDriverAdapter,
+    pub type_map: &'a JsTypeMap,
+    pub strategy: ListParamStrategy,
+}
+
 /// Per-query context computed once and forwarded to body helpers.
 pub(super) struct QueryContext<'a> {
     query: &'a Query,
@@ -40,46 +50,39 @@ impl<'a> QueryContext<'a> {
     }
 }
 
-pub(super) fn generate_core_files(
-    codegen: &TypeScriptCodegen,
-    schema: &Schema,
-    queries: &[Query],
-    adapter: &dyn JsDriverAdapter,
-    config: &OutputConfig,
-    type_map: &JsTypeMap,
-) -> anyhow::Result<Vec<GeneratedFile>> {
+pub(super) fn generate_core_files(codegen: &TypeScriptCodegen, ctx: &GenerationContext) -> anyhow::Result<Vec<GeneratedFile>> {
     let ext = codegen.ext();
-    let ds = schema.default_schema.as_deref();
+    let ds = ctx.schema.default_schema.as_deref();
     let mut files = Vec::new();
-    for table in &schema.tables {
-        let content = codegen.emit_model_file(table, ds, config)?;
+    for table in &ctx.schema.tables {
+        let content = codegen.emit_model_file(table, ds, ctx.config)?;
         let file_stem = model_file_stem(table, ds);
-        files.push(GeneratedFile { path: PathBuf::from(&config.out).join("models").join(format!("{file_stem}.{ext}")), content });
+        files.push(GeneratedFile { path: PathBuf::from(&ctx.config.out).join("models").join(format!("{file_stem}.{ext}")), content });
     }
-    for e in &schema.enums {
+    for e in &ctx.schema.enums {
         let content = codegen.emit_enum_file(e)?;
-        files.push(GeneratedFile { path: PathBuf::from(&config.out).join("models").join(format!("{}.{ext}", e.name)), content });
+        files.push(GeneratedFile { path: PathBuf::from(&ctx.config.out).join("models").join(format!("{}.{ext}", e.name)), content });
     }
-    let groups = group_queries(queries);
+    let groups = group_queries(ctx.queries);
     let mut group_stems: Vec<String> = Vec::new();
     for (group, group_queries) in &groups {
         let stem = queries_file_stem(group).to_string();
         group_stems.push(stem.clone());
-        let content = build_queries_file_with_adapter(group, group_queries, schema, adapter, config, type_map)?;
-        files.push(GeneratedFile { path: PathBuf::from(&config.out).join("queries").join(format!("{stem}.{ext}")), content });
+        let content = build_queries_file_with_adapter(ctx, group, group_queries)?;
+        files.push(GeneratedFile { path: PathBuf::from(&ctx.config.out).join("queries").join(format!("{stem}.{ext}")), content });
     }
-    let index_content = codegen.emit_index_file(schema, &group_stems)?;
-    files.push(GeneratedFile { path: PathBuf::from(&config.out).join(format!("index.{ext}")), content: index_content });
+    let index_content = codegen.emit_index_file(ctx.schema, &group_stems)?;
+    files.push(GeneratedFile { path: PathBuf::from(&ctx.config.out).join(format!("index.{ext}")), content: index_content });
     // models/index.{ext}
-    if !schema.tables.is_empty() || !schema.enums.is_empty() {
-        let stems: Vec<String> = schema.tables.iter().map(|t| model_file_stem(t, ds)).chain(schema.enums.iter().map(|e| e.name.clone())).collect();
+    if !ctx.schema.tables.is_empty() || !ctx.schema.enums.is_empty() {
+        let stems: Vec<String> = ctx.schema.tables.iter().map(|t| model_file_stem(t, ds)).chain(ctx.schema.enums.iter().map(|e| e.name.clone())).collect();
         let content = codegen.emit_subdir_index_file(&stems)?;
-        files.push(GeneratedFile { path: PathBuf::from(&config.out).join("models").join(format!("index.{ext}")), content });
+        files.push(GeneratedFile { path: PathBuf::from(&ctx.config.out).join("models").join(format!("index.{ext}")), content });
     }
     // queries/index.{ext}
     if !group_stems.is_empty() {
         let content = codegen.emit_subdir_index_file(&group_stems)?;
-        files.push(GeneratedFile { path: PathBuf::from(&config.out).join("queries").join(format!("index.{ext}")), content });
+        files.push(GeneratedFile { path: PathBuf::from(&ctx.config.out).join("queries").join(format!("index.{ext}")), content });
     }
     Ok(files)
 }
@@ -239,35 +242,27 @@ pub(super) fn js_type(sql_type: &SqlType, nullable: bool, target: &JsTarget) -> 
 
 // ─── Queries file ─────────────────────────────────────────────────────────────
 
-fn build_queries_file_with_adapter(
-    group: &str,
-    queries: &[Query],
-    schema: &Schema,
-    adapter: &dyn JsDriverAdapter,
-    config: &OutputConfig,
-    type_map: &JsTypeMap,
-) -> anyhow::Result<String> {
-    let strategy = config.list_params.clone().unwrap_or_default();
+fn build_queries_file_with_adapter(ctx: &GenerationContext, group: &str, queries: &[Query]) -> anyhow::Result<String> {
     let mut src = String::new();
     writeln!(src, "// Generated by sqltgen. Do not edit.")?;
-    writeln!(src, "// Runtime: {}", adapter.runtime_hint())?;
-    emit_runtime_imports(&mut src, adapter)?;
-    let ds = schema.default_schema.as_deref();
-    emit_table_imports(&mut src, &needed_tables(queries, schema), ds, adapter.output())?;
-    emit_enum_imports(&mut src, &needed_enums(&queries.iter().collect::<Vec<_>>()), adapter.output())?;
+    writeln!(src, "// Runtime: {}", ctx.adapter.runtime_hint())?;
+    emit_runtime_imports(&mut src, ctx.adapter)?;
+    let ds = ctx.schema.default_schema.as_deref();
+    emit_table_imports(&mut src, &needed_tables(queries, ctx.schema), ds, ctx.adapter.output())?;
+    emit_enum_imports(&mut src, &needed_enums(&queries.iter().collect::<Vec<_>>()), ctx.adapter.output())?;
     writeln!(src)?;
-    emit_sql_constants(&mut src, queries, adapter, &strategy)?;
+    emit_sql_constants(&mut src, queries, ctx.adapter, &ctx.strategy)?;
     for query in queries {
         writeln!(src)?;
-        if has_inline_rows(query, schema) {
-            emit_inline_row_type_with_adapter(&mut src, query, adapter, type_map)?;
+        if has_inline_rows(query, ctx.schema) {
+            emit_inline_row_type_with_adapter(&mut src, query, ctx.adapter, ctx.type_map)?;
             writeln!(src)?;
         }
-        emit_query(&mut src, query, schema, adapter, type_map, &strategy)?;
+        emit_query(&mut src, query, ctx)?;
     }
     if !queries.is_empty() {
         writeln!(src)?;
-        emit_querier_class(&mut src, group, queries, schema, adapter, type_map)?;
+        emit_querier_class(&mut src, group, queries, ctx)?;
     }
     Ok(src)
 }
@@ -283,7 +278,9 @@ pub(super) fn build_queries_file(
 ) -> anyhow::Result<String> {
     let adapter = super::adapter::build_adapter(*target, *output);
     let type_map = super::typemap::build_js_type_map(config, adapter.as_ref());
-    build_queries_file_with_adapter(group, queries, schema, adapter.as_ref(), config, &type_map)
+    let strategy = config.list_params.clone().unwrap_or_default();
+    let ctx = GenerationContext { schema, queries, config, adapter: adapter.as_ref(), type_map: &type_map, strategy };
+    build_queries_file_with_adapter(&ctx, group, queries)
 }
 
 #[cfg(test)]
@@ -293,22 +290,15 @@ pub(super) fn emit_inline_row_type(src: &mut String, query: &Query, output: &JsO
     emit_inline_row_type_with_adapter(src, query, adapter.as_ref(), &type_map)
 }
 
-fn emit_querier_class(
-    src: &mut String,
-    group: &str,
-    queries: &[Query],
-    schema: &Schema,
-    adapter: &dyn JsDriverAdapter,
-    type_map: &JsTypeMap,
-) -> anyhow::Result<()> {
+fn emit_querier_class(src: &mut String, group: &str, queries: &[Query], ctx: &GenerationContext) -> anyhow::Result<()> {
     let class_name = querier_class_name(group);
-    match adapter.output() {
+    match ctx.adapter.output() {
         JsOutput::TypeScript => {
             writeln!(src, "export class {class_name} {{")?;
             writeln!(src, "  constructor(private readonly connect: ConnectFn) {{}}")?;
             for query in queries {
                 writeln!(src)?;
-                emit_ts_querier_method(src, query, schema, type_map)?;
+                emit_ts_querier_method(src, query, ctx.schema, ctx.type_map)?;
             }
             writeln!(src, "}}")?;
         },
@@ -457,16 +447,9 @@ fn emit_sql_constants(src: &mut String, queries: &[Query], adapter: &dyn JsDrive
 
 // ─── Query function emission ──────────────────────────────────────────────────
 
-fn emit_query(
-    src: &mut String,
-    query: &Query,
-    schema: &Schema,
-    adapter: &dyn JsDriverAdapter,
-    type_map: &JsTypeMap,
-    strategy: &ListParamStrategy,
-) -> anyhow::Result<()> {
-    let ctx = QueryContext::new(query, schema, adapter, type_map, "Db");
-    adapter.emit_query(src, &ctx, strategy)
+fn emit_query(src: &mut String, query: &Query, ctx: &GenerationContext) -> anyhow::Result<()> {
+    let qctx = QueryContext::new(query, ctx.schema, ctx.adapter, ctx.type_map, "Db");
+    ctx.adapter.emit_query(src, &qctx, &ctx.strategy)
 }
 
 /// Emit the JSDoc annotation block for a query function (JS output only).

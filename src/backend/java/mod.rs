@@ -21,7 +21,9 @@ impl Codegen for JavaCodegen {
     fn generate(&self, schema: &Schema, queries: &[Query], config: &OutputConfig) -> anyhow::Result<Vec<GeneratedFile>> {
         let contract = adapter::resolve_java_contract(self.target);
         let type_map = typemap::build_java_type_map(config);
-        let mut files = core::generate_core_files(schema, queries, &contract, config, &type_map)?;
+        let strategy = config.list_params.clone().unwrap_or_default();
+        let ctx = core::GenerationContext { schema, queries, config, contract: &contract, type_map: &type_map, strategy };
+        let mut files = core::generate_core_files(&ctx)?;
 
         if let Some(manifest) = build_manifest_file(
             "java",

@@ -14,19 +14,23 @@ use crate::ir::{EnumType, NativeListBind, Parameter, Query, QueryCmd, Schema, Sq
 use super::adapter::{RustBindMode, RustCoreContract, RustPlaceholderMode, RustSqlNormMode};
 use super::typemap::RustTypeMap;
 
-pub(super) fn generate_core_files(
-    schema: &Schema,
-    queries: &[Query],
-    contract: &RustCoreContract,
-    config: &OutputConfig,
-    type_map: &RustTypeMap,
-) -> anyhow::Result<Vec<GeneratedFile>> {
+/// All data needed for a single `generate()` call, bundled to reduce parameter threading.
+pub(super) struct GenerationContext<'a> {
+    pub schema: &'a Schema,
+    pub queries: &'a [Query],
+    pub config: &'a OutputConfig,
+    pub contract: &'a RustCoreContract,
+    pub type_map: &'a RustTypeMap,
+    pub strategy: ListParamStrategy,
+}
+
+pub(super) fn generate_core_files(ctx: &GenerationContext) -> anyhow::Result<Vec<GeneratedFile>> {
     let mut files = Vec::new();
 
-    let ds = schema.default_schema.as_deref();
+    let ds = ctx.schema.default_schema.as_deref();
 
     // One struct file per table
-    for table in &schema.tables {
+    for table in &ctx.schema.tables {
         let struct_name = model_name(table, ds);
         let mut src = String::new();
         // Import any enum types referenced by this table's columns
@@ -46,25 +50,24 @@ pub(super) fn generate_core_files(
         writeln!(src, "#[derive(Debug, sqlx::FromRow)]")?;
         writeln!(src, "pub struct {struct_name} {{")?;
         for col in &table.columns {
-            writeln!(src, "    pub {}: {},", col.name, type_map.field_type(&col.sql_type, col.nullable))?;
+            writeln!(src, "    pub {}: {},", col.name, ctx.type_map.field_type(&col.sql_type, col.nullable))?;
         }
         writeln!(src, "}}")?;
 
-        let path = PathBuf::from(&config.out).join("models").join(format!("{}.rs", model_file_stem(table, ds)));
+        let path = PathBuf::from(&ctx.config.out).join("models").join(format!("{}.rs", model_file_stem(table, ds)));
         files.push(GeneratedFile { path, content: src });
     }
 
     // One enum file per CREATE TYPE ... AS ENUM
-    for e in &schema.enums {
+    for e in &ctx.schema.enums {
         let mut src = String::new();
         emit_rust_enum(&mut src, e)?;
-        let path = PathBuf::from(&config.out).join("models").join(format!("{}.rs", e.name));
+        let path = PathBuf::from(&ctx.config.out).join("models").join(format!("{}.rs", e.name));
         files.push(GeneratedFile { path, content: src });
     }
 
     // One .rs file per query group
-    let strategy = config.list_params.clone().unwrap_or_default();
-    let groups = group_queries(queries);
+    let groups = group_queries(ctx.queries);
     let mut group_stems: Vec<String> = Vec::new();
     for (group, group_queries) in &groups {
         let stem = queries_file_stem(group).to_string();
@@ -76,7 +79,7 @@ pub(super) fn generate_core_files(
 
         // Import only table structs that are actually used as return types
         let needed: Vec<_> = {
-            let mut tables: Vec<_> = group_queries.iter().filter_map(|q| infer_table(q, schema)).collect();
+            let mut tables: Vec<_> = group_queries.iter().filter_map(|q| infer_table(q, ctx.schema)).collect();
             tables.sort_by_key(|t| &t.name);
             tables.dedup_by_key(|t| &t.name);
             tables
@@ -96,8 +99,8 @@ pub(super) fn generate_core_files(
 
         // Custom row structs for queries that don't return a whole table
         for query in group_queries {
-            if has_inline_rows(query, schema) {
-                emit_row_struct(&mut src, query, type_map)?;
+            if has_inline_rows(query, ctx.schema) {
+                emit_row_struct(&mut src, query, ctx.type_map)?;
                 writeln!(src)?;
             }
         }
@@ -107,15 +110,15 @@ pub(super) fn generate_core_files(
             if i > 0 {
                 writeln!(src)?;
             }
-            emit_rust_query(&mut src, query, schema, "DbPool", contract, &strategy, type_map)?;
+            emit_rust_query(&mut src, query, "DbPool", ctx)?;
         }
 
         if !group_queries.is_empty() {
             writeln!(src)?;
-            emit_rust_querier(&mut src, group, group_queries, schema, "DbPool", type_map)?;
+            emit_rust_querier(&mut src, group, group_queries, "DbPool", ctx)?;
         }
 
-        let path = PathBuf::from(&config.out).join("queries").join(format!("{stem}.rs"));
+        let path = PathBuf::from(&ctx.config.out).join("queries").join(format!("{stem}.rs"));
         files.push(GeneratedFile { path, content: src });
     }
 
@@ -125,26 +128,26 @@ pub(super) fn generate_core_files(
         writeln!(src, "#![allow(dead_code)]")?;
         writeln!(src)?;
         writeln!(src, "pub mod sqltgen;")?;
-        if !schema.tables.is_empty() || !schema.enums.is_empty() {
+        if !ctx.schema.tables.is_empty() || !ctx.schema.enums.is_empty() {
             writeln!(src, "pub mod models;")?;
         }
         if !group_stems.is_empty() {
             writeln!(src, "pub mod queries;")?;
         }
-        let path = PathBuf::from(&config.out).join("mod.rs");
+        let path = PathBuf::from(&ctx.config.out).join("mod.rs");
         files.push(GeneratedFile { path, content: src });
     }
 
     // models/mod.rs
-    if !schema.tables.is_empty() || !schema.enums.is_empty() {
+    if !ctx.schema.tables.is_empty() || !ctx.schema.enums.is_empty() {
         let mut src = String::new();
-        for table in &schema.tables {
+        for table in &ctx.schema.tables {
             writeln!(src, "pub mod {};", model_file_stem(table, ds))?;
         }
-        for e in &schema.enums {
+        for e in &ctx.schema.enums {
             writeln!(src, "pub mod {};", e.name)?;
         }
-        let path = PathBuf::from(&config.out).join("models").join("mod.rs");
+        let path = PathBuf::from(&ctx.config.out).join("models").join("mod.rs");
         files.push(GeneratedFile { path, content: src });
     }
 
@@ -154,7 +157,7 @@ pub(super) fn generate_core_files(
         for stem in &group_stems {
             writeln!(src, "pub mod {stem};")?;
         }
-        let path = PathBuf::from(&config.out).join("queries").join("mod.rs");
+        let path = PathBuf::from(&ctx.config.out).join("queries").join("mod.rs");
         files.push(GeneratedFile { path, content: src });
     }
 
@@ -172,17 +175,9 @@ fn emit_row_struct(src: &mut String, query: &Query, type_map: &RustTypeMap) -> a
     Ok(())
 }
 
-fn emit_rust_query(
-    src: &mut String,
-    query: &Query,
-    schema: &Schema,
-    pool_type: &str,
-    contract: &RustCoreContract,
-    strategy: &ListParamStrategy,
-    type_map: &RustTypeMap,
-) -> anyhow::Result<()> {
+fn emit_rust_query(src: &mut String, query: &Query, pool_type: &str, ctx: &GenerationContext) -> anyhow::Result<()> {
     let fn_name = to_snake_case(&query.name);
-    let row_type = result_row_type(query, schema);
+    let row_type = result_row_type(query, ctx.schema);
 
     let return_type = match query.cmd {
         QueryCmd::One => format!("Result<Option<{row_type}>, sqlx::Error>"),
@@ -192,22 +187,22 @@ fn emit_rust_query(
     };
 
     let params_sig: String =
-        std::iter::once(format!("pool: &{pool_type}")).chain(query.params.iter().map(|p| rust_param_sig(p, type_map))).collect::<Vec<_>>().join(", ");
+        std::iter::once(format!("pool: &{pool_type}")).chain(query.params.iter().map(|p| rust_param_sig(p, ctx.type_map))).collect::<Vec<_>>().join(", ");
 
     writeln!(src, "pub async fn {fn_name}({params_sig}) -> {return_type} {{")?;
 
     let list_param = query.params.iter().find(|p| p.is_list);
     if let Some(lp) = list_param {
-        emit_rust_list_query(src, query, &row_type, contract, strategy, lp)?;
+        emit_rust_list_query(src, query, &row_type, ctx, lp)?;
     } else {
-        emit_rust_scalar_query(src, query, &row_type, contract)?;
+        emit_rust_scalar_query(src, query, &row_type, ctx.contract)?;
     }
 
     writeln!(src, "}}")?;
     Ok(())
 }
 
-fn emit_rust_querier(src: &mut String, group: &str, queries: &[Query], schema: &Schema, pool_type: &str, type_map: &RustTypeMap) -> anyhow::Result<()> {
+fn emit_rust_querier(src: &mut String, group: &str, queries: &[Query], pool_type: &str, ctx: &GenerationContext) -> anyhow::Result<()> {
     let struct_name = querier_class_name(group);
     writeln!(src, "pub struct {struct_name}<'a> {{")?;
     writeln!(src, "    pool: &'a {pool_type},")?;
@@ -220,23 +215,23 @@ fn emit_rust_querier(src: &mut String, group: &str, queries: &[Query], schema: &
 
     for query in queries {
         writeln!(src)?;
-        emit_rust_querier_method(src, query, schema, type_map)?;
+        emit_rust_querier_method(src, query, ctx)?;
     }
 
     writeln!(src, "}}")?;
     Ok(())
 }
 
-fn emit_rust_querier_method(src: &mut String, query: &Query, schema: &Schema, type_map: &RustTypeMap) -> anyhow::Result<()> {
+fn emit_rust_querier_method(src: &mut String, query: &Query, ctx: &GenerationContext) -> anyhow::Result<()> {
     let fn_name = to_snake_case(&query.name);
-    let row_type = result_row_type(query, schema);
+    let row_type = result_row_type(query, ctx.schema);
     let return_type = match query.cmd {
         QueryCmd::One => format!("Result<Option<{row_type}>, sqlx::Error>"),
         QueryCmd::Many => format!("Result<Vec<{row_type}>, sqlx::Error>"),
         QueryCmd::Exec => "Result<(), sqlx::Error>".to_string(),
         QueryCmd::ExecRows => "Result<u64, sqlx::Error>".to_string(),
     };
-    let params_sig = query.params.iter().map(|p| rust_param_sig(p, type_map)).collect::<Vec<_>>().join(", ");
+    let params_sig = query.params.iter().map(|p| rust_param_sig(p, ctx.type_map)).collect::<Vec<_>>().join(", ");
     let args = query.params.iter().map(|p| to_snake_case(&p.name)).collect::<Vec<_>>().join(", ");
     let call_args = if args.is_empty() { "self.pool".to_string() } else { format!("self.pool, {args}") };
 
@@ -275,25 +270,18 @@ fn emit_rust_scalar_query(src: &mut String, query: &Query, row_type: &str, contr
 }
 
 /// Emit the body for a query that contains a list parameter.
-fn emit_rust_list_query(
-    src: &mut String,
-    query: &Query,
-    row_type: &str,
-    contract: &RustCoreContract,
-    strategy: &ListParamStrategy,
-    list_param: &Parameter,
-) -> anyhow::Result<()> {
+fn emit_rust_list_query(src: &mut String, query: &Query, row_type: &str, ctx: &GenerationContext, list_param: &Parameter) -> anyhow::Result<()> {
     // Use the pre-computed native SQL from the IR when available and strategy is Native.
     // The native SQL was produced by the frontend and uses $N placeholders; each backend
     // applies its own standard placeholder rewriting (a general rule, not dialect logic).
-    if *strategy == ListParamStrategy::Native {
+    if ctx.strategy == ListParamStrategy::Native {
         if let Some(native_sql) = &list_param.native_list_sql {
-            return emit_rust_native_list_query(src, query, row_type, list_param, native_sql, contract);
+            return emit_rust_native_list_query(src, query, row_type, list_param, native_sql, ctx.contract);
         }
     }
     // Dynamic expansion: language-specific, not dialect-specific.
     let lp_name = to_snake_case(&list_param.name);
-    match contract.placeholder_mode {
+    match ctx.contract.placeholder_mode {
         RustPlaceholderMode::NumberedDollar => {
             let base = list_param.index;
             writeln!(src, "    let placeholders: String = ({lp_name}).iter().enumerate()")?;
@@ -304,7 +292,7 @@ fn emit_rust_list_query(
             writeln!(src, "    let placeholders = ({lp_name}).iter().map(|_| \"?\").collect::<Vec<_>>().join(\", \");")?;
         },
     }
-    emit_rust_dynamic_query(src, query, row_type, list_param, contract)
+    emit_rust_dynamic_query(src, query, row_type, list_param, ctx.contract)
 }
 
 /// Emit a native list query using the pre-computed `native_sql` from the IR.
