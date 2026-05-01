@@ -42,10 +42,10 @@ async function seed(client: Client): Promise<void> {
   const a3 = await queries.createAuthor(client, 'Le Guin', 'Earthsea', 1929);
   assert.ok(a1 && a2 && a3);
 
-  const b1 = await queries.createBook(client, a1.id, 'Foundation', 'sci-fi', 9.99, '1951-01-01');
-  const b2 = await queries.createBook(client, a1.id, 'I Robot', 'sci-fi', 7.99, '1950-01-01');
-  const b3 = await queries.createBook(client, a2.id, 'Dune', 'sci-fi', 12.99, '1965-01-01');
-  const b4 = await queries.createBook(client, a3.id, 'Earthsea', 'fantasy', 8.99, '1968-01-01');
+  const b1 = await queries.createBook(client, a1.id, 'Foundation', 'sci-fi', '9.99', '1951-01-01');
+  const b2 = await queries.createBook(client, a1.id, 'I Robot', 'sci-fi', '7.99', '1950-01-01');
+  const b3 = await queries.createBook(client, a2.id, 'Dune', 'sci-fi', '12.99', '1965-01-01');
+  const b4 = await queries.createBook(client, a3.id, 'Earthsea', 'fantasy', '8.99', '1968-01-01');
   assert.ok(b1 && b2 && b3 && b4);
 
   const alice = await queries.createCustomer(client, 'Alice', 'alice@example.com');
@@ -54,12 +54,12 @@ async function seed(client: Client): Promise<void> {
 
   const sale1 = await queries.createSale(client, alice.id);
   assert.ok(sale1);
-  await queries.addSaleItem(client, sale1.id, b1.id, 2, 9.99);
-  await queries.addSaleItem(client, sale1.id, b3.id, 1, 12.99);
+  await queries.addSaleItem(client, sale1.id, b1.id, 2, '9.99');
+  await queries.addSaleItem(client, sale1.id, b3.id, 1, '12.99');
 
   const sale2 = await queries.createSale(client, bob.id);
   assert.ok(sale2);
-  await queries.addSaleItem(client, sale2.id, b4.id, 1, 8.99);
+  await queries.addSaleItem(client, sale2.id, b4.id, 1, '8.99');
 }
 
 // ─── :one tests ───────────────────────────────────────────────────────────────
@@ -69,7 +69,7 @@ describe(':one queries', () => {
     const { client, schema } = await makeClient();
     try {
       await seed(client);
-      const author = await queries.getAuthor(client, 1);
+      const author = await queries.getAuthor(client, 1n);
       assert.ok(author);
       assert.equal(author.name, 'Asimov');
       assert.equal(author.bio, 'Sci-fi master');
@@ -80,7 +80,7 @@ describe(':one queries', () => {
   it('getAuthor returns null for unknown id', async () => {
     const { client, schema } = await makeClient();
     try {
-      assert.equal(await queries.getAuthor(client, 999), null);
+      assert.equal(await queries.getAuthor(client, 999n), null);
     } finally { await teardown(client, schema); }
   });
 
@@ -88,7 +88,7 @@ describe(':one queries', () => {
     const { client, schema } = await makeClient();
     try {
       await seed(client);
-      const book = await queries.getBook(client, 1);
+      const book = await queries.getBook(client, 1n);
       assert.ok(book);
       assert.equal(book.title, 'Foundation');
       assert.equal(book.genre, 'sci-fi');
@@ -139,7 +139,7 @@ describe('updateAuthorBio / deleteAuthor queries', () => {
     const { client, schema } = await makeClient();
     try {
       await seed(client);
-      const updated = await queries.updateAuthorBio(client, 'Updated bio', 1);
+      const updated = await queries.updateAuthorBio(client, 'Updated bio', 1n);
       assert.ok(updated);
       assert.equal(updated.name, 'Asimov');
       assert.equal(updated.bio, 'Updated bio');
@@ -166,7 +166,7 @@ describe('createBook / addSaleItem queries', () => {
     const { client, schema } = await makeClient();
     try {
       await seed(client);
-      const book = await queries.createBook(client, 1, 'New Book', 'mystery', 14.50, null);
+      const book = await queries.createBook(client, 1n, 'New Book', 'mystery', '14.50', null);
       assert.ok(book);
       assert.equal(book.title, 'New Book');
       assert.equal(book.genre, 'mystery');
@@ -179,7 +179,7 @@ describe('createBook / addSaleItem queries', () => {
     try {
       await seed(client);
       // Add Earthsea (book 4) to sale 1
-      await queries.addSaleItem(client, 1, 4, 1, 8.99);
+      await queries.addSaleItem(client, 1n, 4n, 1, '8.99');
       const { rows } = await client.query('SELECT COUNT(*) FROM sale_item WHERE sale_id = 1');
       assert.equal(Number(rows[0].count), 3);
     } finally { await teardown(client, schema); }
@@ -193,7 +193,7 @@ describe('CASE / COALESCE queries', () => {
     const { client, schema } = await makeClient();
     try {
       await seed(client);
-      const rows = await queries.getBookPriceLabel(client, 10);
+      const rows = await queries.getBookPriceLabel(client, '10');
       assert.equal(rows.length, 4);
       const dune = rows.find(r => r.title === 'Dune');
       assert.ok(dune);
@@ -208,7 +208,7 @@ describe('CASE / COALESCE queries', () => {
     const { client, schema } = await makeClient();
     try {
       await seed(client);
-      const rows = await queries.getBookPriceOrDefault(client, 0);
+      const rows = await queries.getBookPriceOrDefault(client, '0');
       assert.equal(rows.length, 4);
       assert.ok(rows.every(r => Number(r.effective_price) > 0));
     } finally { await teardown(client, schema); }
@@ -308,8 +308,8 @@ describe(':execrows queries', () => {
     const { client, schema } = await makeClient();
     try {
       await seed(client);
-      assert.equal(await queries.deleteBookById(client, 2), 1);
-      assert.equal(await queries.deleteBookById(client, 999), 0);
+      assert.equal(await queries.deleteBookById(client, 2n), 1);
+      assert.equal(await queries.deleteBookById(client, 999n), 0);
     } finally { await teardown(client, schema); }
   });
 });
@@ -413,8 +413,8 @@ describe('LIMIT/OFFSET queries', () => {
     const { client, schema } = await makeClient();
     try {
       await seed(client);
-      const page1 = await queries.listBooksWithLimit(client, 2, 0);
-      const page2 = await queries.listBooksWithLimit(client, 2, 2);
+      const page1 = await queries.listBooksWithLimit(client, 2n, 0n);
+      const page2 = await queries.listBooksWithLimit(client, 2n, 2n);
       assert.equal(page1.length, 2);
       assert.equal(page2.length, 2);
       const t1 = new Set(page1.map(r => r.title));
@@ -445,7 +445,7 @@ describe('BETWEEN queries', () => {
     const { client, schema } = await makeClient();
     try {
       await seed(client);
-      const results = await queries.getBooksByPriceRange(client, 8, 10);
+      const results = await queries.getBooksByPriceRange(client, '8', '10');
       assert.equal(results.length, 2);
     } finally { await teardown(client, schema); }
   });
@@ -471,7 +471,7 @@ describe('HAVING queries', () => {
     const { client, schema } = await makeClient();
     try {
       await seed(client);
-      const results = await queries.getGenresWithManyBooks(client, 1);
+      const results = await queries.getGenresWithManyBooks(client, 1n);
       assert.equal(results.length, 1);
       assert.equal(results[0].genre, 'sci-fi');
       assert.equal(Number(results[0].book_count), 3);
@@ -554,7 +554,7 @@ describe('list param queries', () => {
     const { client, schema } = await makeClient();
     try {
       await seed(client);
-      const books = await queries.getBooksByIds(client, [1, 3]);
+      const books = await queries.getBooksByIds(client, [1n, 3n]);
       assert.equal(books.length, 2);
       const titles = new Set(books.map(b => b.title));
       assert.ok(titles.has('Foundation'));
@@ -647,7 +647,7 @@ describe('scalar aggregate queries', () => {
     const { client, schema } = await makeClient();
     try {
       await seed(client);
-      const row = await queries.countSaleItems(client, 1);
+      const row = await queries.countSaleItems(client, 1n);
       assert.ok(row);
       assert.equal(Number(row.item_count), 2);
     } finally { await teardown(client, schema); }
