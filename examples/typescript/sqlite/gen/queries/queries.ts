@@ -93,8 +93,8 @@ export async function getBook(db: Db, id: number): Promise<Book | null> {
   return row ?? null;
 }
 
-export async function getBooksByIds(db: Db, ids: number[]): Promise<Book[]> {
-  const idsJson = JSON.stringify(ids);
+export async function getBooksByIds(db: Db, ids: bigint[]): Promise<Book[]> {
+  const idsJson = JSON.stringify(ids, (_, v) => typeof v === 'bigint' ? String(v) : v);
   return db.prepare(SQL_GET_BOOKS_BY_IDS).all(idsJson) as Book[];
 }
 
@@ -141,11 +141,11 @@ export interface GetTopSellingBooksRow {
   title: string;
   genre: string;
   price: number;
-  units_sold: number | null;
+  units_sold: bigint | null;
 }
 
 export async function getTopSellingBooks(db: Db): Promise<GetTopSellingBooksRow[]> {
-  return db.prepare(SQL_GET_TOP_SELLING_BOOKS).all() as GetTopSellingBooksRow[];
+  return (db.prepare(SQL_GET_TOP_SELLING_BOOKS).all() as GetTopSellingBooksRow[]).map(raw => ({ ...raw, units_sold: BigInt(raw.units_sold) }));
 }
 
 export interface GetBestCustomersRow {
@@ -207,7 +207,7 @@ export class Querier {
     }
   }
 
-  async getBooksByIds(ids: number[]): Promise<Book[]> {
+  async getBooksByIds(ids: bigint[]): Promise<Book[]> {
     const db = await this.connect();
     try {
       return getBooksByIds(db, ids);

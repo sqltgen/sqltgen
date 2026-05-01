@@ -9,7 +9,7 @@ fn test_ts_model_file_interface() {
     let gen = TypeScriptCodegen { target: JsTarget::Pg, output: JsOutput::TypeScript };
     let content = gen.emit_model_file(&schema.tables[0], None, &cfg()).unwrap();
     assert!(content.contains("export interface Users {"));
-    assert!(content.contains("id: number;"));
+    assert!(content.contains("id: bigint;"));
     assert!(content.contains("name: string;"));
     assert!(content.contains("email: string | null;"));
 }
@@ -20,7 +20,7 @@ fn test_js_model_file_typedef() {
     let gen = TypeScriptCodegen { target: JsTarget::Pg, output: JsOutput::JavaScript };
     let content = gen.emit_model_file(&schema.tables[0], None, &cfg()).unwrap();
     assert!(content.contains("@typedef {Object} Users"));
-    assert!(content.contains("@property {number} id"));
+    assert!(content.contains("@property {bigint} id"));
     assert!(content.contains("@property {string} name"));
     assert!(content.contains("@property {string | null} email"));
 }
@@ -58,9 +58,11 @@ fn test_pg_ts_one_query() {
     assert!(content.contains("import type { ConnectFn, Db } from '../sqltgen';"));
     assert!(content.contains("import { releaseDb } from '../sqltgen';"));
     assert!(content.contains("import type { Users } from '../models/users';"));
-    assert!(content.contains("async function getUser(db: Db, id: number): Promise<Users | null>"));
+    assert!(content.contains("async function getUser(db: Db, id: bigint): Promise<Users | null>"));
     assert!(content.contains("db.query<Users>"));
-    assert!(content.contains("result.rows[0] ?? null"));
+    // pg returns BIGINT as string; generated code converts result rows to proper JS bigint.
+    assert!(content.contains("BigInt(raw.id)"));
+    assert!(content.contains("if (!raw) return null"));
 }
 
 #[test]
@@ -70,7 +72,9 @@ fn test_pg_ts_many_query() {
     let gen = TypeScriptCodegen { target: JsTarget::Pg, output: JsOutput::TypeScript };
     let content = build_queries_file("", &queries, &schema, &gen.target, &gen.output, &config()).unwrap();
     assert!(content.contains("Promise<Users[]>"));
-    assert!(content.contains("return result.rows;"));
+    // BigInt result column triggers row transform on every row.
+    assert!(content.contains("result.rows.map(raw =>"));
+    assert!(content.contains("BigInt(raw.id)"));
 }
 
 #[test]
@@ -93,11 +97,12 @@ fn test_pg_js_one_query() {
     assert!(content.contains("@typedef {import('../sqltgen.js').Db} Db"));
     assert!(content.contains("@typedef {import('../sqltgen.js').ConnectFn} ConnectFn"));
     assert!(content.contains("@param {Db} db"));
-    assert!(content.contains("@param {number} id"));
+    assert!(content.contains("@param {bigint} id"));
     assert!(content.contains("@returns {Promise<Users | null>}"));
     assert!(content.contains("export async function getUser(db, id)"));
     assert!(!content.contains("db.query<Users>")); // no generics in JS
-    assert!(content.contains("result.rows[0] ?? null"));
+    assert!(content.contains("BigInt(raw.id)"));
+    assert!(content.contains("if (!raw) return null"));
 }
 
 // ─── sqlite queries file ─────────────────────────────────────────────────
@@ -110,8 +115,11 @@ fn test_sqlite_ts_one_query() {
     let content = build_queries_file("", &queries, &schema, &gen.target, &gen.output, &config()).unwrap();
     assert!(content.contains("import type { ConnectFn, Db } from '../sqltgen';"));
     assert!(content.contains("db: Db"));
+    // better-sqlite3 returns INTEGER as number by default; BigInt({raw}) converts to bigint.
+    // The id param is passed directly (better-sqlite3 accepts bigint natively).
     assert!(content.contains(".get(id) as Users | undefined"));
-    assert!(content.contains("row ?? null"));
+    assert!(content.contains("BigInt(raw.id)"));
+    assert!(content.contains("if (!raw) return null"));
 }
 
 #[test]
@@ -120,7 +128,8 @@ fn test_sqlite_ts_many_query() {
     let queries = vec![list_users_query()];
     let gen = TypeScriptCodegen { target: JsTarget::BetterSqlite3, output: JsOutput::TypeScript };
     let content = build_queries_file("", &queries, &schema, &gen.target, &gen.output, &config()).unwrap();
-    assert!(content.contains(".all() as Users[]"));
+    assert!(content.contains(".all()"));
+    assert!(content.contains("BigInt(raw.id)"));
 }
 
 #[test]
@@ -132,7 +141,8 @@ fn test_sqlite_js_one_query() {
     assert!(content.contains("@typedef {import('../sqltgen.js').Db} Db"));
     assert!(content.contains("export async function getUser(db, id)"));
     assert!(!content.contains("as Users")); // no casts in JS
-    assert!(content.contains("row ?? null"));
+    assert!(content.contains("BigInt(raw.id)"));
+    assert!(content.contains("if (!raw) return null"));
 }
 
 // ─── mysql queries file ───────────────────────────────────────────────────
@@ -147,7 +157,9 @@ fn test_mysql_ts_one_query() {
     assert!(content.contains("db: Db"));
     assert!(content.contains("query<RowDataPacket[]>"));
     assert!(content.contains("as Users | undefined"));
-    assert!(content.contains("?? null"));
+    // mysql2 returns BIGINT as string; generated code converts result rows to proper JS bigint.
+    assert!(content.contains("BigInt(raw.id)"));
+    assert!(content.contains("if (!raw) return null"));
 }
 
 #[test]
@@ -168,7 +180,7 @@ fn test_ts_querier_wrapper_is_emitted() {
     let content = build_queries_file("", &queries, &schema, &gen.target, &gen.output, &config()).unwrap();
     assert!(content.contains("export class Querier {"));
     assert!(content.contains("constructor(private readonly connect: ConnectFn)"));
-    assert!(content.contains("async getUser(id: number): Promise<Users | null>"));
+    assert!(content.contains("async getUser(id: bigint): Promise<Users | null>"));
     assert!(content.contains("const db = await this.connect();"));
     assert!(content.contains("return getUser(db, id);"));
     assert!(content.contains("await releaseDb(db);"));
@@ -182,7 +194,7 @@ fn test_inline_row_type_ts() {
     let mut src = String::new();
     emit_inline_row_type(&mut src, &query, &JsOutput::TypeScript, &JsTarget::Pg, &cfg()).unwrap();
     assert!(src.contains("export interface GetStatsRow {"));
-    assert!(src.contains("total: number | null;"));
+    assert!(src.contains("total: bigint | null;"));
 }
 
 #[test]
@@ -191,5 +203,5 @@ fn test_inline_row_type_js() {
     let mut src = String::new();
     emit_inline_row_type(&mut src, &query, &JsOutput::JavaScript, &JsTarget::Pg, &cfg()).unwrap();
     assert!(src.contains("@typedef {Object} GetStatsRow"));
-    assert!(src.contains("@property {number | null} total"));
+    assert!(src.contains("@property {bigint | null} total"));
 }

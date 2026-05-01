@@ -25,71 +25,79 @@ ORDER BY created_at`;
 const SQL_COUNT_EVENTS = `SELECT COUNT(*) AS total FROM event WHERE created_at > $1`;
 const SQL_UPDATE_EVENT_DATE = `UPDATE event SET event_date = $1 WHERE id = $2`;
 
-export async function getEvent(db: Db, id: number): Promise<Event | null> {
-  const result = await db.query<Event>(SQL_GET_EVENT, [id]);
-  return result.rows[0] ?? null;
+export async function getEvent(db: Db, id: bigint): Promise<Event | null> {
+  const result = await db.query<Event>(SQL_GET_EVENT, [String(id)]);
+  const raw = result.rows[0];
+  if (!raw) return null;
+  return { ...raw, id: BigInt(raw.id) };
 }
 
 export async function listEvents(db: Db): Promise<Event[]> {
   const result = await db.query<Event>(SQL_LIST_EVENTS, []);
-  return result.rows;
+  return result.rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
-export async function insertEvent(db: Db, name: string, payload: unknown, meta: unknown | null, docId: string, createdAt: Date, scheduledAt: Date | null, eventDate: Date | null, eventTime: Date | null): Promise<void> {
+export async function insertEvent(db: Db, name: string, payload: unknown, meta: unknown | null, docId: string, createdAt: Date, scheduledAt: Date | null, eventDate: Date | null, eventTime: string | null): Promise<void> {
   await db.query(SQL_INSERT_EVENT, [name, JSON.stringify(payload), JSON.stringify(meta), docId, createdAt, scheduledAt, eventDate, eventTime]);
 }
 
-export async function updatePayload(db: Db, payload: unknown, meta: unknown | null, id: number): Promise<void> {
-  await db.query(SQL_UPDATE_PAYLOAD, [JSON.stringify(payload), JSON.stringify(meta), id]);
+export async function updatePayload(db: Db, payload: unknown, meta: unknown | null, id: bigint): Promise<void> {
+  await db.query(SQL_UPDATE_PAYLOAD, [JSON.stringify(payload), JSON.stringify(meta), String(id)]);
 }
 
 export interface FindByDateRow {
-  id: number;
+  id: bigint;
   name: string;
 }
 
 export async function findByDate(db: Db, eventDate: Date | null): Promise<FindByDateRow | null> {
   const result = await db.query<FindByDateRow>(SQL_FIND_BY_DATE, [eventDate]);
-  return result.rows[0] ?? null;
+  const raw = result.rows[0];
+  if (!raw) return null;
+  return { ...raw, id: BigInt(raw.id) };
 }
 
 export interface FindByUuidRow {
-  id: number;
+  id: bigint;
   name: string;
 }
 
 export async function findByUuid(db: Db, docId: string): Promise<FindByUuidRow | null> {
   const result = await db.query<FindByUuidRow>(SQL_FIND_BY_UUID, [docId]);
-  return result.rows[0] ?? null;
+  const raw = result.rows[0];
+  if (!raw) return null;
+  return { ...raw, id: BigInt(raw.id) };
 }
 
-export async function insertEventRows(db: Db, name: string, payload: unknown, meta: unknown | null, docId: string, createdAt: Date, scheduledAt: Date | null, eventDate: Date | null, eventTime: Date | null): Promise<number> {
+export async function insertEventRows(db: Db, name: string, payload: unknown, meta: unknown | null, docId: string, createdAt: Date, scheduledAt: Date | null, eventDate: Date | null, eventTime: string | null): Promise<number> {
   const result = await db.query(SQL_INSERT_EVENT_ROWS, [name, JSON.stringify(payload), JSON.stringify(meta), docId, createdAt, scheduledAt, eventDate, eventTime]);
   return result.rowCount ?? 0;
 }
 
 export async function getEventsByDateRange(db: Db, createdAt: Date, createdAt2: Date): Promise<Event[]> {
   const result = await db.query<Event>(SQL_GET_EVENTS_BY_DATE_RANGE, [createdAt, createdAt2]);
-  return result.rows;
+  return result.rows.map(raw => ({ ...raw, id: BigInt(raw.id) }));
 }
 
 export interface CountEventsRow {
-  total: number;
+  total: bigint;
 }
 
 export async function countEvents(db: Db, createdAt: Date): Promise<CountEventsRow | null> {
   const result = await db.query<CountEventsRow>(SQL_COUNT_EVENTS, [createdAt]);
-  return result.rows[0] ?? null;
+  const raw = result.rows[0];
+  if (!raw) return null;
+  return { ...raw, total: BigInt(raw.total) };
 }
 
-export async function updateEventDate(db: Db, eventDate: Date | null, id: number): Promise<void> {
-  await db.query(SQL_UPDATE_EVENT_DATE, [eventDate, id]);
+export async function updateEventDate(db: Db, eventDate: Date | null, id: bigint): Promise<void> {
+  await db.query(SQL_UPDATE_EVENT_DATE, [eventDate, String(id)]);
 }
 
 export class Querier {
   constructor(private readonly connect: ConnectFn) {}
 
-  async getEvent(id: number): Promise<Event | null> {
+  async getEvent(id: bigint): Promise<Event | null> {
     const db = await this.connect();
     try {
       return getEvent(db, id);
@@ -107,7 +115,7 @@ export class Querier {
     }
   }
 
-  async insertEvent(name: string, payload: unknown, meta: unknown | null, docId: string, createdAt: Date, scheduledAt: Date | null, eventDate: Date | null, eventTime: Date | null): Promise<void> {
+  async insertEvent(name: string, payload: unknown, meta: unknown | null, docId: string, createdAt: Date, scheduledAt: Date | null, eventDate: Date | null, eventTime: string | null): Promise<void> {
     const db = await this.connect();
     try {
       return insertEvent(db, name, payload, meta, docId, createdAt, scheduledAt, eventDate, eventTime);
@@ -116,7 +124,7 @@ export class Querier {
     }
   }
 
-  async updatePayload(payload: unknown, meta: unknown | null, id: number): Promise<void> {
+  async updatePayload(payload: unknown, meta: unknown | null, id: bigint): Promise<void> {
     const db = await this.connect();
     try {
       return updatePayload(db, payload, meta, id);
@@ -143,7 +151,7 @@ export class Querier {
     }
   }
 
-  async insertEventRows(name: string, payload: unknown, meta: unknown | null, docId: string, createdAt: Date, scheduledAt: Date | null, eventDate: Date | null, eventTime: Date | null): Promise<number> {
+  async insertEventRows(name: string, payload: unknown, meta: unknown | null, docId: string, createdAt: Date, scheduledAt: Date | null, eventDate: Date | null, eventTime: string | null): Promise<number> {
     const db = await this.connect();
     try {
       return insertEventRows(db, name, payload, meta, docId, createdAt, scheduledAt, eventDate, eventTime);
@@ -170,7 +178,7 @@ export class Querier {
     }
   }
 
-  async updateEventDate(eventDate: Date | null, id: number): Promise<void> {
+  async updateEventDate(eventDate: Date | null, id: bigint): Promise<void> {
     const db = await this.connect();
     try {
       return updateEventDate(db, eventDate, id);

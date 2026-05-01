@@ -7,10 +7,10 @@ fn test_js_type_primitives() {
     let pg = JsTarget::Pg;
     assert_eq!(js_type(&SqlType::Boolean, false, &pg), "boolean");
     assert_eq!(js_type(&SqlType::Integer, false, &pg), "number");
-    assert_eq!(js_type(&SqlType::BigInt, false, &pg), "number");
+    assert_eq!(js_type(&SqlType::BigInt, false, &pg), "bigint");
     assert_eq!(js_type(&SqlType::Text, false, &pg), "string");
     assert_eq!(js_type(&SqlType::Uuid, false, &pg), "string");
-    assert_eq!(js_type(&SqlType::Bytes, false, &pg), "Buffer");
+    assert_eq!(js_type(&SqlType::Bytes, false, &pg), "Uint8Array");
     assert_eq!(js_type(&SqlType::Date, false, &pg), "Date");
     assert_eq!(js_type(&SqlType::Timestamp, false, &pg), "Date");
     assert_eq!(js_type(&SqlType::Json, false, &pg), "unknown");
@@ -23,7 +23,7 @@ fn test_js_type_primitives() {
 fn test_js_type_nullable() {
     let pg = JsTarget::Pg;
     assert_eq!(js_type(&SqlType::Text, true, &pg), "string | null");
-    assert_eq!(js_type(&SqlType::BigInt, true, &pg), "number | null");
+    assert_eq!(js_type(&SqlType::BigInt, true, &pg), "bigint | null");
 }
 
 #[test]

@@ -13,8 +13,8 @@ fn test_nullable_param_pg_ts() {
     );
     let content = build_queries_file("", &[query], &schema, &JsTarget::Pg, &JsOutput::TypeScript, &config()).unwrap();
     assert!(content.contains("bio: string | null"), "nullable param should be string | null");
-    assert!(content.contains("id: number"), "non-nullable param should be plain number");
-    assert!(!content.contains("id: number | null"), "non-nullable param must not be nullable");
+    assert!(content.contains("id: bigint"), "non-nullable param should be plain bigint");
+    assert!(!content.contains("id: bigint | null"), "non-nullable param must not be nullable");
 }
 
 #[test]
@@ -27,7 +27,7 @@ fn test_nullable_param_sqlite_ts() {
     );
     let content = build_queries_file("", &[query], &schema, &JsTarget::BetterSqlite3, &JsOutput::TypeScript, &config()).unwrap();
     assert!(content.contains("bio: string | null"), "nullable param should be string | null");
-    assert!(content.contains("id: number"), "non-nullable param should be plain number");
+    assert!(content.contains("id: bigint"), "non-nullable param should be plain bigint");
 }
 
 #[test]
@@ -40,5 +40,5 @@ fn test_nullable_param_mysql_ts() {
     );
     let content = build_queries_file("", &[query], &schema, &JsTarget::Mysql2, &JsOutput::TypeScript, &config()).unwrap();
     assert!(content.contains("bio: string | null"), "nullable param should be string | null");
-    assert!(content.contains("id: number"), "non-nullable param should be plain number");
+    assert!(content.contains("id: bigint"), "non-nullable param should be plain bigint");
 }

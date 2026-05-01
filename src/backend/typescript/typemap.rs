@@ -2,38 +2,11 @@ use std::collections::HashMap;
 
 use crate::backend::common::{canonical_sql_types, sql_type_key, SqlTypeKey};
 use crate::backend::naming::to_pascal_case;
-use crate::config::{resolve_type_override, Language, OutputConfig, ResolvedType, TypeVariant};
+use crate::config::{resolve_type_override, Language, OutputConfig, TypeVariant};
 use crate::ir::{Parameter, Query, SqlType};
 
-use super::adapter::TsCoreContract;
+use super::adapter::JsDriverAdapter;
 use super::JsOutput;
-
-/// Resolve a TypeScript/JavaScript preset name.
-///
-/// `json_needs_parse` controls whether the "object" preset emits `JSON.parse` on read
-/// (needed for drivers that return JSON as a string rather than a parsed value).
-fn try_preset_ts(name: &str, output: &JsOutput, json_needs_parse: bool) -> Option<ResolvedType> {
-    match name {
-        "object" => {
-            let read_expr = if json_needs_parse {
-                match output {
-                    JsOutput::TypeScript => Some("JSON.parse({raw} as string)".to_string()),
-                    JsOutput::JavaScript => Some("JSON.parse({raw})".to_string()),
-                }
-            } else {
-                None
-            };
-            Some(ResolvedType {
-                name: "unknown".to_string(),
-                import: None,
-                read_expr,
-                write_expr: Some("JSON.stringify({value})".to_string()),
-                extra_fields: vec![],
-            })
-        },
-        _ => None,
-    }
-}
 
 /// Fully resolved code-generation entry for one SQL type in the TypeScript/JavaScript backend.
 ///
@@ -56,12 +29,14 @@ pub(super) struct JsTypeEntry {
 ///
 /// Constructed once by [`build_js_type_map`]; consumed by the emitters in `core.rs`
 /// without any further override or dispatch logic.
-pub(super) struct JsTypeMap(HashMap<SqlTypeKey, JsTypeEntry>);
+pub(super) struct JsTypeMap {
+    entries: HashMap<SqlTypeKey, JsTypeEntry>,
+}
 
 impl JsTypeMap {
     /// Return the resolved entry for `sql_type`.
     pub(super) fn get(&self, sql_type: &SqlType) -> &JsTypeEntry {
-        &self.0[&sql_type_key(sql_type)]
+        &self.entries[&sql_type_key(sql_type)]
     }
 
     /// Return the JS/TS field type for `sql_type`, with nullability applied.
@@ -117,6 +92,19 @@ impl JsTypeMap {
         }
     }
 
+    /// Build the `JSON.stringify(...)` expression for a list parameter.
+    ///
+    /// `bigint[]` is not JSON-serializable with the default replacer, so BigInt list
+    /// params use a replacer that converts each element to a string before serialization.
+    /// All other element types use plain `JSON.stringify`.
+    pub(super) fn list_json_stringify(&self, sql_type: &SqlType, name: &str) -> String {
+        if matches!(sql_type, SqlType::BigInt) {
+            format!("JSON.stringify({name}, (_, v) => typeof v === 'bigint' ? String(v) : v)")
+        } else {
+            format!("JSON.stringify({name})")
+        }
+    }
+
     /// Build a row-transform expression if any result column has a `read_expr` override.
     ///
     /// Returns `None` when no columns need transformation. Returns `Some(expr)` that
@@ -154,51 +142,58 @@ impl JsTypeMap {
 
 /// Build the fully-resolved type map for the TypeScript/JavaScript backend.
 ///
-/// Type defaults depend on `contract.date_as_string` and `contract.output`.
-/// Override resolution uses `contract.json_needs_parse` for the "object" preset.
-pub(super) fn build_js_type_map(config: &OutputConfig, contract: &TsCoreContract) -> JsTypeMap {
-    let language = match contract.output {
+/// Delegates all driver-specific type behavior to `adapter` — no branching on flags.
+pub(super) fn build_js_type_map(config: &OutputConfig, adapter: &dyn JsDriverAdapter) -> JsTypeMap {
+    let output = adapter.output();
+    let language = match output {
         JsOutput::TypeScript => Language::TypeScript,
         JsOutput::JavaScript => Language::JavaScript,
     };
-    let output = contract.output;
-    let json_needs_parse = contract.json_needs_parse;
 
     let types = canonical_sql_types();
-    let mut map = HashMap::with_capacity(types.len());
+    let mut entries = HashMap::with_capacity(types.len());
     for sql_type in &types {
-        let preset = |s: &str| try_preset_ts(s, &output, json_needs_parse);
+        let preset = |s: &str| adapter.resolve_preset(s);
         let field_ov = resolve_type_override(sql_type, TypeVariant::Field, config, language, preset);
         let param_ov = resolve_type_override(sql_type, TypeVariant::Param, config, language, preset);
-        let default_field = js_default_type(sql_type, contract);
+        let default_field = js_default_type(sql_type, adapter);
         let field_type = field_ov.as_ref().map(|o| o.name.clone()).unwrap_or(default_field.clone());
         let param_type = param_ov.as_ref().map(|o| o.name.clone()).or_else(|| field_ov.as_ref().map(|o| o.name.clone())).unwrap_or(default_field);
-        let read_expr = field_ov.as_ref().and_then(|o| o.read_expr.clone());
-        let write_expr = param_ov.and_then(|o| o.write_expr).or_else(|| field_ov.and_then(|o| o.write_expr));
-        map.insert(sql_type_key(sql_type), JsTypeEntry { field_type, param_type, read_expr, write_expr });
+        let read_expr = field_ov.as_ref().and_then(|o| o.read_expr.clone()).or_else(|| bigint_default_read_expr(sql_type));
+        let write_expr = param_ov
+            .and_then(|o| o.write_expr)
+            .or_else(|| field_ov.and_then(|o| o.write_expr))
+            .or_else(|| adapter.bigint_write_expr().filter(|_| matches!(sql_type, SqlType::BigInt)).map(String::from));
+        entries.insert(sql_type_key(sql_type), JsTypeEntry { field_type, param_type, read_expr, write_expr });
     }
-    JsTypeMap(map)
+    JsTypeMap { entries }
 }
 
-fn js_default_type(sql_type: &SqlType, contract: &TsCoreContract) -> String {
+/// Default read expression for BigInt: all drivers return BIGINT as a non-bigint primitive.
+fn bigint_default_read_expr(sql_type: &SqlType) -> Option<String> {
+    if matches!(sql_type, SqlType::BigInt) {
+        Some("BigInt({raw})".to_string())
+    } else {
+        None
+    }
+}
+
+fn js_default_type(sql_type: &SqlType, adapter: &dyn JsDriverAdapter) -> String {
     match sql_type {
         SqlType::Boolean => "boolean",
-        SqlType::SmallInt | SqlType::Integer | SqlType::BigInt => "number",
-        SqlType::Real | SqlType::Double | SqlType::Decimal => "number",
+        SqlType::SmallInt | SqlType::Integer => "number",
+        SqlType::BigInt => "bigint",
+        SqlType::Real | SqlType::Double => "number",
+        SqlType::Decimal => "string",
         SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_) => "string",
         SqlType::Interval | SqlType::Uuid => "string",
-        SqlType::Bytes => "Buffer",
-        SqlType::Date => {
-            if contract.date_as_string {
-                "string"
-            } else {
-                "Date"
-            }
-        },
-        SqlType::Time | SqlType::Timestamp | SqlType::TimestampTz => "Date",
+        SqlType::Bytes => "Uint8Array",
+        SqlType::Date => return adapter.date_field_type().to_string(),
+        SqlType::Time => "string",
+        SqlType::Timestamp | SqlType::TimestampTz => "Date",
         SqlType::Json | SqlType::Jsonb => "unknown",
         SqlType::Custom(_) => "unknown",
         SqlType::Enum(_) | SqlType::Array(_) => unreachable!("enums and arrays are not in the canonical type list"),
     }
-    .into()
+    .to_string()
 }

@@ -10,24 +10,26 @@ const SQL_GET_USER = `SELECT * FROM public.users WHERE id = $1`;
 const SQL_LIST_AUDIT_LOGS = `SELECT * FROM internal.audit_log ORDER BY created_at DESC`;
 const SQL_CREATE_AUDIT_LOG = `INSERT INTO internal.audit_log (user_id, action) VALUES ($1, $2)`;
 
-export async function getUser(db: Db, id: number): Promise<Users | null> {
-  const result = await db.query<Users>(SQL_GET_USER, [id]);
-  return result.rows[0] ?? null;
+export async function getUser(db: Db, id: bigint): Promise<Users | null> {
+  const result = await db.query<Users>(SQL_GET_USER, [String(id)]);
+  const raw = result.rows[0];
+  if (!raw) return null;
+  return { ...raw, id: BigInt(raw.id) };
 }
 
 export async function listAuditLogs(db: Db): Promise<Internal_AuditLog[]> {
   const result = await db.query<Internal_AuditLog>(SQL_LIST_AUDIT_LOGS, []);
-  return result.rows;
+  return result.rows.map(raw => ({ ...raw, id: BigInt(raw.id), user_id: BigInt(raw.user_id) }));
 }
 
-export async function createAuditLog(db: Db, userId: number, action: string): Promise<void> {
-  await db.query(SQL_CREATE_AUDIT_LOG, [userId, action]);
+export async function createAuditLog(db: Db, userId: bigint, action: string): Promise<void> {
+  await db.query(SQL_CREATE_AUDIT_LOG, [String(userId), action]);
 }
 
 export class Querier {
   constructor(private readonly connect: ConnectFn) {}
 
-  async getUser(id: number): Promise<Users | null> {
+  async getUser(id: bigint): Promise<Users | null> {
     const db = await this.connect();
     try {
       return getUser(db, id);
@@ -45,7 +47,7 @@ export class Querier {
     }
   }
 
-  async createAuditLog(userId: number, action: string): Promise<void> {
+  async createAuditLog(userId: bigint, action: string): Promise<void> {
     const db = await this.connect();
     try {
       return createAuditLog(db, userId, action);

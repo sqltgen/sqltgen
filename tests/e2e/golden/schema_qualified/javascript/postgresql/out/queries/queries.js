@@ -13,12 +13,14 @@ const SQL_CREATE_AUDIT_LOG = `INSERT INTO internal.audit_log (user_id, action) V
 
 /**
  * @param {Db} db
- * @param {number} id
+ * @param {bigint} id
  * @returns {Promise<Users | null>}
  */
 export async function getUser(db, id) {
-  const result = await db.query(SQL_GET_USER, [id]);
-  return result.rows[0] ?? null;
+  const result = await db.query(SQL_GET_USER, [String(id)]);
+  const raw = result.rows[0];
+  if (!raw) return null;
+  return { ...raw, id: BigInt(raw.id) };
 }
 
 /**
@@ -27,17 +29,17 @@ export async function getUser(db, id) {
  */
 export async function listAuditLogs(db) {
   const result = await db.query(SQL_LIST_AUDIT_LOGS, []);
-  return result.rows;
+  return result.rows.map(raw => ({ ...raw, id: BigInt(raw.id), user_id: BigInt(raw.user_id) }));
 }
 
 /**
  * @param {Db} db
- * @param {number} userId
+ * @param {bigint} userId
  * @param {string} action
  * @returns {Promise<void>}
  */
 export async function createAuditLog(db, userId, action) {
-  await db.query(SQL_CREATE_AUDIT_LOG, [userId, action]);
+  await db.query(SQL_CREATE_AUDIT_LOG, [String(userId), action]);
 }
 
 export class Querier {

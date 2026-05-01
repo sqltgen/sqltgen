@@ -8,7 +8,7 @@ export interface Product {
   weight_kg: number | null;
   rating: number | null;
   metadata: unknown | null;
-  thumbnail: Buffer | null;
+  thumbnail: Uint8Array | null;
   created_at: Date;
   stock_count: number;
 }

@@ -2,7 +2,7 @@
 
 /**
  * @typedef {Object} SciFiBooks
- * @property {number} id
+ * @property {bigint} id
  * @property {string} title
  * @property {string} author_name
  */

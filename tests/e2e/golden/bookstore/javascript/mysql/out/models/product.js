@@ -9,7 +9,7 @@
  * @property {number | null} weight_kg
  * @property {number | null} rating
  * @property {unknown | null} metadata
- * @property {Buffer | null} thumbnail
+ * @property {Uint8Array | null} thumbnail
  * @property {Date} created_at
  * @property {number} stock_count
  */

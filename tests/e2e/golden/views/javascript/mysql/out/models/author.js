@@ -2,6 +2,6 @@
 
 /**
  * @typedef {Object} Author
- * @property {number} id
+ * @property {bigint} id
  * @property {string} name
  */

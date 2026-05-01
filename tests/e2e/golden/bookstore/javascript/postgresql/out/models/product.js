@@ -10,7 +10,7 @@
  * @property {number | null} rating
  * @property {string[]} tags
  * @property {unknown | null} metadata
- * @property {Buffer | null} thumbnail
+ * @property {Uint8Array | null} thumbnail
  * @property {Date} created_at
  * @property {number} stock_count
  */
