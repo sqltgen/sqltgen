@@ -39,7 +39,7 @@ SQLTGEN := ./target/debug/sqltgen
        e2e-runtime-enums-rust-postgresql \
        e2e-db-up e2e-db-down \
        e2e-testgen-setup e2e-testgen-generate e2e-testgen-generate-python \
-       ci-fmt ci-clippy ci-test ci-check-suite ci-examples-drift ci-testgen-mypy ci-testgen-drift ci-runtime-sqlite ci-runtime-postgresql ci-runtime-mysql ci-runtime-db
+       ci-fmt ci-clippy ci-test ci-check-suite ci-examples-drift ci-testgen-mypy ci-testgen-drift ci-build ci-runtime-sqlite ci-runtime-postgresql ci-runtime-mysql ci-runtime-db
 
 all: build test
 
@@ -331,7 +331,7 @@ e2e-runtime-go-mysql: $(SQLTGEN) e2e-db-up
 # ── E2E Docker lifecycle ────────────────────────────────────────────────────
 
 e2e-db-up:
-	docker compose -f $(E2E_RUNTIME_DIR)/docker-compose.yml up -d --wait
+	docker compose -f $(E2E_RUNTIME_DIR)/docker-compose.yml up -d --wait --quiet-pull
 
 e2e-db-down:
 	docker compose -f $(E2E_RUNTIME_DIR)/docker-compose.yml down
@@ -365,6 +365,9 @@ e2e-testgen-generate-python: $(E2E_TESTGEN_STAMP) $(SQLTGEN)
 
 # ── CI targets ────────────────────────────────────────────────────────────────
 
+ci-build:
+	cargo build -q
+
 ci-fmt:
 	cargo fmt --check
 
@@ -389,7 +392,7 @@ ci-testgen-drift: build
 	$(MAKE) e2e-testgen-generate
 	git diff --exit-code -- tests/e2e/runtime/
 
-ci-runtime-sqlite: build
+ci-runtime-sqlite: ci-build
 	pip install --quiet pytest
 	$(MAKE) e2e-runtime-rust-sqlite
 	$(MAKE) e2e-runtime-python-sqlite
@@ -404,7 +407,7 @@ ci-runtime-sqlite: build
 	$(MAKE) e2e-runtime-type-overrides-kotlin-sqlite
 	$(MAKE) e2e-runtime-type-overrides-go-sqlite
 
-ci-runtime-postgresql: build
+ci-runtime-postgresql: ci-build
 	pip install --quiet pytest "psycopg[binary]"
 	$(MAKE) e2e-runtime-rust-postgresql
 	$(MAKE) e2e-runtime-java-postgresql
@@ -422,7 +425,7 @@ ci-runtime-postgresql: build
 	$(MAKE) e2e-runtime-type-overrides-go-postgresql
 	$(MAKE) e2e-runtime-enums
 
-ci-runtime-mysql: build
+ci-runtime-mysql: ci-build
 	pip install --quiet pytest mysql-connector-python
 	$(MAKE) e2e-runtime-rust-mysql
 	$(MAKE) e2e-runtime-java-mysql
