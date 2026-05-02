@@ -63,10 +63,12 @@ impl Codegen for GoCodegen {
         let adapter = adapter::build_adapter(&self.target);
         let type_map = typemap::build_go_type_map(config, adapter.json_mode());
         let pkg = core::package_name(config);
+        let strategy = config.list_params.clone().unwrap_or_default();
+        let ctx = core::GenerationContext { schema, queries, config, adapter: adapter.as_ref(), type_map: &type_map, strategy };
 
         let mut files = Vec::new();
         files.push(adapter::emit_helper_file(adapter.as_ref(), &pkg, config));
-        files.extend(core::generate_core_files(schema, queries, adapter.as_ref(), config, &type_map)?);
+        files.extend(core::generate_core_files(&ctx)?);
 
         if let Some(manifest) = build_manifest_file(
             "go",
