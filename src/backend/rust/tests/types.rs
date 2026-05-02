@@ -39,7 +39,7 @@ fn test_rust_type_temporal() {
 fn test_rust_type_uuid_and_json() {
     assert_eq!(rust_type(&SqlType::Uuid, false), "uuid::Uuid");
     assert_eq!(rust_type(&SqlType::Json, false), "serde_json::Value");
-    assert_eq!(rust_type(&SqlType::Custom("geometry".to_string()), false), "serde_json::Value");
+    assert_eq!(rust_type(&SqlType::Custom("geometry".to_string()), false), "String");
 }
 
 #[test]

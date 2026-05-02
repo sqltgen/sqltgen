@@ -118,7 +118,7 @@ fn rust_default_type_name(sql_type: &SqlType) -> &'static str {
         SqlType::TimestampTz => "time::OffsetDateTime",
         SqlType::Uuid => "uuid::Uuid",
         SqlType::Json | SqlType::Jsonb => "serde_json::Value",
-        SqlType::Custom(_) => "serde_json::Value",
+        SqlType::Custom(_) => "String",
         SqlType::Enum(_) | SqlType::Array(_) => unreachable!("enums and arrays are not in the canonical type list"),
     }
 }
