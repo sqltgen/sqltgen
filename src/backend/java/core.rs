@@ -7,29 +7,37 @@ use crate::backend::common::{
     row_type_name,
 };
 use crate::backend::jdbc::{
-    self, emit_dynamic_binds, emit_jdbc_binds, prepare_dynamic_sql_parts, prepare_sql_const, prepare_sql_const_from, ListAction, QuerierContext,
+    self, emit_dynamic_binds, emit_jdbc_binds, prepare_dynamic_sql_parts, prepare_sql_const, prepare_sql_const_from, JsonBindMode, ListAction, QuerierContext,
 };
 use crate::backend::naming::{to_camel_case, to_pascal_case, to_screaming_snake_case};
 use crate::backend::GeneratedFile;
 use crate::config::{ListParamStrategy, OutputConfig};
 use crate::ir::{EnumType, Parameter, Query, QueryCmd, Schema};
 
-use super::adapter::JvmCoreContract;
 use super::typemap::JavaTypeMap;
+
+// ─── Language-level constants ────────────────────────────────────────────────
+
+/// Statement-end token appended after JDBC calls.
+const STATEMENT_END: &str = ";";
+/// Fallback row type when a query has no result columns.
+const FALLBACK_TYPE: &str = "Object[]";
+/// How to access a `List`'s size in Java.
+const SIZE_ACCESS: &str = ".size()";
 
 /// All data needed for a single `generate()` call, bundled to reduce parameter threading.
 pub(super) struct GenerationContext<'a> {
     pub schema: &'a Schema,
     pub queries: &'a [Query],
     pub config: &'a OutputConfig,
-    pub contract: &'a JvmCoreContract,
+    pub json_bind: JsonBindMode,
     pub type_map: &'a JavaTypeMap,
     pub strategy: ListParamStrategy,
 }
 
 /// Java return type (`Optional<R>`, `List<R>`, `void`, or `long`) for a query.
-fn java_return_type(query: &Query, ctx: &GenerationContext) -> String {
-    jdbc::jdbc_return_type(query, ctx.schema, ctx.contract.fallback_type, |r| format!("Optional<{r}>"), |r| format!("List<{r}>"), "void", "long")
+fn java_return_type(query: &Query, schema: &Schema) -> String {
+    jdbc::jdbc_return_type(query, schema, FALLBACK_TYPE, |r| format!("Optional<{r}>"), |r| format!("List<{r}>"), "void", "long")
 }
 
 /// Java parameter list signature (always starts with `Connection conn`).
@@ -90,19 +98,19 @@ pub(super) fn generate_core_files(ctx: &GenerationContext) -> anyhow::Result<Vec
         let mpkg = models_package(&ctx.config.package);
         let mut src = String::new();
         emit_package(&mut src, &qpkg, ";");
-        // Standard JDBC imports + any override-specific imports, all sorted
-        let mut all_imports: BTreeSet<String> = [
-            "java.sql.Connection",
-            "java.sql.PreparedStatement",
-            "java.sql.ResultSet",
-            "java.sql.SQLException",
-            "java.util.ArrayList",
-            "java.util.List",
-            "java.util.Optional",
-        ]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
+        // Standard JDBC imports + any override-specific imports, all sorted.
+        // `Optional`, `List`, `ArrayList` are only emitted when actually used.
+        let has_one = group_queries.iter().any(|q| q.cmd == QueryCmd::One);
+        let has_many = group_queries.iter().any(|q| q.cmd == QueryCmd::Many);
+        let mut all_imports: BTreeSet<String> =
+            ["java.sql.Connection", "java.sql.PreparedStatement", "java.sql.ResultSet", "java.sql.SQLException"].iter().map(|s| s.to_string()).collect();
+        if has_one {
+            all_imports.insert("java.util.Optional".to_string());
+        }
+        if has_many {
+            all_imports.insert("java.util.ArrayList".to_string());
+            all_imports.insert("java.util.List".to_string());
+        }
         let mut model_imports: BTreeSet<String> = BTreeSet::new();
         for query in &group_queries {
             if let Some(table) = infer_table(query, ctx.schema) {
@@ -197,12 +205,12 @@ fn emit_java_scalar_query(src: &mut String, ctx: &GenerationContext, query: &Que
     writeln!(
         src,
         "    public static {} {}({}) throws SQLException {{",
-        java_return_type(query, ctx),
+        java_return_type(query, ctx.schema),
         to_camel_case(&query.name),
         java_params_sig(query, ctx.type_map)
     )?;
     writeln!(src, "        try (PreparedStatement ps = conn.prepareStatement({sql_const})) {{")?;
-    emit_jdbc_binds(src, query, "", ctx.contract.statement_end, "toArray()", ctx.contract.json_bind, |p| ctx.type_map.write_expr(p))?;
+    emit_jdbc_binds(src, query, "", STATEMENT_END, "toArray()", ctx.json_bind, |p| ctx.type_map.write_expr(p))?;
     emit_java_result_block(src, ctx, query)?;
     writeln!(src, "        }}")?;
     writeln!(src, "    }}")?;
@@ -215,11 +223,11 @@ fn emit_java_list_array_bind(src: &mut String, ctx: &GenerationContext, query: &
     let method_name = to_camel_case(&query.name);
     let (sql_const, raw_sql) = prepare_sql_const_from(query, rewritten_sql);
     emit_java_sql_text_block(src, &sql_const, &raw_sql)?;
-    writeln!(src, "    public static {} {method_name}({}) throws SQLException {{", java_return_type(query, ctx), java_params_sig(query, ctx.type_map))?;
+    writeln!(src, "    public static {} {method_name}({}) throws SQLException {{", java_return_type(query, ctx.schema), java_params_sig(query, ctx.type_map))?;
     let type_name = pg_array_type_name(&lp.sql_type);
     writeln!(src, "        java.sql.Array arr = conn.createArrayOf(\"{type_name}\", {lp_name}.toArray());")?;
     writeln!(src, "        try (PreparedStatement ps = conn.prepareStatement({sql_const})) {{")?;
-    emit_jdbc_binds(src, query, "arr", ctx.contract.statement_end, "toArray()", ctx.contract.json_bind, |p| ctx.type_map.write_expr(p))?;
+    emit_jdbc_binds(src, query, "arr", STATEMENT_END, "toArray()", ctx.json_bind, |p| ctx.type_map.write_expr(p))?;
     emit_java_result_block(src, ctx, query)?;
     writeln!(src, "        }}")?;
     writeln!(src, "    }}")?;
@@ -231,11 +239,11 @@ fn emit_java_list_dynamic(src: &mut String, ctx: &GenerationContext, query: &Que
     let lp_name = to_camel_case(&lp.name);
     let method_name = to_camel_case(&query.name);
     let (before_esc, after_esc) = prepare_dynamic_sql_parts(query, lp);
-    writeln!(src, "    public static {} {method_name}({}) throws SQLException {{", java_return_type(query, ctx), java_params_sig(query, ctx.type_map))?;
+    writeln!(src, "    public static {} {method_name}({}) throws SQLException {{", java_return_type(query, ctx.schema), java_params_sig(query, ctx.type_map))?;
     writeln!(src, "        String marks = {lp_name}.stream().map(x -> \"?\").collect(java.util.stream.Collectors.joining(\", \"));")?;
     writeln!(src, "        String sql = \"{before_esc}\" + \"IN (\" + marks + \"){after_esc};\";")?;
     writeln!(src, "        try (PreparedStatement ps = conn.prepareStatement(sql)) {{")?;
-    emit_dynamic_binds(src, query, lp, ctx.contract.statement_end, ctx.contract.size_access, &|src, lp_name, base, setter| {
+    emit_dynamic_binds(src, query, lp, STATEMENT_END, SIZE_ACCESS, &|src, lp_name, base, setter| {
         writeln!(src, "            for (int i = 0; i < {lp_name}.size(); i++) {{")?;
         writeln!(src, "                ps.{setter}({base} + i + 1, {lp_name}.get(i));")?;
         writeln!(src, "            }}")?;
@@ -256,10 +264,10 @@ fn emit_java_list_json_bind(src: &mut String, ctx: &GenerationContext, query: &Q
     let method_name = to_camel_case(&query.name);
     let (sql_const, raw_sql) = prepare_sql_const_from(query, rewritten_sql);
     emit_java_sql_text_block(src, &sql_const, &raw_sql)?;
-    writeln!(src, "    public static {} {method_name}({}) throws SQLException {{", java_return_type(query, ctx), java_params_sig(query, ctx.type_map))?;
+    writeln!(src, "    public static {} {method_name}({}) throws SQLException {{", java_return_type(query, ctx.schema), java_params_sig(query, ctx.type_map))?;
     emit_java_json_builder(src, lp)?;
     writeln!(src, "        try (PreparedStatement ps = conn.prepareStatement({sql_const})) {{")?;
-    emit_jdbc_binds(src, query, "json", ctx.contract.statement_end, "toArray()", ctx.contract.json_bind, |p| ctx.type_map.write_expr(p))?;
+    emit_jdbc_binds(src, query, "json", STATEMENT_END, "toArray()", ctx.json_bind, |p| ctx.type_map.write_expr(p))?;
     emit_java_result_block(src, ctx, query)?;
     writeln!(src, "        }}")?;
     writeln!(src, "    }}")?;
@@ -291,14 +299,14 @@ fn emit_java_result_block(src: &mut String, ctx: &GenerationContext, query: &Que
         QueryCmd::One => {
             writeln!(src, "            try (ResultSet rs = ps.executeQuery()) {{")?;
             writeln!(src, "                if (!rs.next()) return Optional.empty();")?;
-            writeln!(src, "                return Optional.of({});", emit_row_constructor(query, ctx.schema, ctx.type_map, ctx.contract))?;
+            writeln!(src, "                return Optional.of({});", emit_row_constructor(query, ctx.schema, ctx.type_map))?;
             writeln!(src, "            }}")?;
         },
         QueryCmd::Many => {
-            let row_type = result_row_type(query, ctx.schema, ctx.contract);
+            let row_type = result_row_type(query, ctx.schema);
             writeln!(src, "            List<{row_type}> rows = new ArrayList<>();")?;
             writeln!(src, "            try (ResultSet rs = ps.executeQuery()) {{")?;
-            writeln!(src, "                while (rs.next()) rows.add({});", emit_row_constructor(query, ctx.schema, ctx.type_map, ctx.contract))?;
+            writeln!(src, "                while (rs.next()) rows.add({});", emit_row_constructor(query, ctx.schema, ctx.type_map))?;
             writeln!(src, "            }}")?;
             writeln!(src, "            return rows;")?;
         },
@@ -349,7 +357,7 @@ fn emit_java_querier(src: &mut String, queries: &[Query], querier_ctx: &QuerierC
 
 /// Emits one instance method on the querier class that wraps the corresponding static method.
 fn emit_java_querier_method(src: &mut String, query: &Query, class_name: &str, ctx: &GenerationContext) -> anyhow::Result<()> {
-    let row = jdbc::ds_result_row_type(query, ctx.schema, ctx.contract.fallback_type, class_name);
+    let row = jdbc::ds_result_row_type(query, ctx.schema, FALLBACK_TYPE, class_name);
     let return_type = match query.cmd {
         QueryCmd::One => format!("Optional<{row}>"),
         QueryCmd::Many => format!("List<{row}>"),
@@ -375,8 +383,8 @@ fn emit_java_querier_method(src: &mut String, query: &Query, class_name: &str, c
     Ok(())
 }
 
-fn result_row_type(query: &Query, schema: &Schema, contract: &JvmCoreContract) -> String {
-    jdbc::result_row_type(query, schema, contract.fallback_type)
+fn result_row_type(query: &Query, schema: &Schema) -> String {
+    jdbc::result_row_type(query, schema, FALLBACK_TYPE)
 }
 
 fn emit_row_record(src: &mut String, query: &Query, type_map: &JavaTypeMap) -> anyhow::Result<()> {
@@ -389,8 +397,8 @@ fn emit_row_record(src: &mut String, query: &Query, type_map: &JavaTypeMap) -> a
     Ok(())
 }
 
-fn emit_row_constructor(query: &Query, schema: &Schema, type_map: &JavaTypeMap, contract: &JvmCoreContract) -> String {
-    jdbc::build_row_constructor(query, schema, contract.fallback_type, "new ", |sql_type, nullable, idx| type_map.read_expr(sql_type, nullable, idx))
+fn emit_row_constructor(query: &Query, schema: &Schema, type_map: &JavaTypeMap) -> String {
+    jdbc::build_row_constructor(query, schema, FALLBACK_TYPE, "new ", |sql_type, nullable, idx| type_map.read_expr(sql_type, nullable, idx))
 }
 
 /// Emit private static helper methods for null-safe reads of primitive JDBC columns.

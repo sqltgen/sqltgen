@@ -7,15 +7,23 @@ use crate::backend::common::{
     row_type_name,
 };
 use crate::backend::jdbc::{
-    self, emit_dynamic_binds, emit_jdbc_binds, prepare_dynamic_sql_parts, prepare_sql_const, prepare_sql_const_from, ListAction, QuerierContext,
+    self, emit_dynamic_binds, emit_jdbc_binds, prepare_dynamic_sql_parts, prepare_sql_const, prepare_sql_const_from, JsonBindMode, ListAction, QuerierContext,
 };
 use crate::backend::naming::{to_camel_case, to_pascal_case, to_screaming_snake_case};
 use crate::backend::GeneratedFile;
 use crate::config::{ExtraField, ListParamStrategy, OutputConfig};
 use crate::ir::{EnumType, Parameter, Query, QueryCmd, Schema, SqlType, Table};
 
-use super::adapter::JvmCoreContract;
 use super::typemap::{KotlinTypeEntry, KotlinTypeMap};
+
+// ─── Language-level constants ────────────────────────────────────────────────
+
+/// Statement-end token appended after JDBC calls (Kotlin is semicolon-free).
+const STATEMENT_END: &str = "";
+/// Fallback row type when a query has no result columns.
+const FALLBACK_TYPE: &str = "Any";
+/// How to access a `List`'s size in Kotlin.
+const SIZE_ACCESS: &str = ".size";
 
 /// Return the Kotlin type string for a parameter, resolved from the type map.
 pub(super) fn kotlin_param_type(p: &Parameter, type_map: &KotlinTypeMap) -> String {
@@ -47,14 +55,14 @@ pub(super) struct GenerationContext<'a> {
     pub schema: &'a Schema,
     pub queries: &'a [Query],
     pub config: &'a OutputConfig,
-    pub contract: &'a JvmCoreContract,
+    pub json_bind: JsonBindMode,
     pub type_map: &'a KotlinTypeMap,
     pub strategy: ListParamStrategy,
 }
 
 /// Kotlin return type (`R?`, `List<R>`, `Unit`, or `Long`) for a query.
-fn kotlin_return_type(query: &Query, ctx: &GenerationContext) -> String {
-    jdbc::jdbc_return_type(query, ctx.schema, ctx.contract.fallback_type, |r| format!("{r}?"), |r| format!("List<{r}>"), "Unit", "Long")
+fn kotlin_return_type(query: &Query, schema: &Schema) -> String {
+    jdbc::jdbc_return_type(query, schema, FALLBACK_TYPE, |r| format!("{r}?"), |r| format!("List<{r}>"), "Unit", "Long")
 }
 
 /// Kotlin parameter list signature (always starts with `conn: Connection`).
@@ -237,9 +245,9 @@ fn escape_kotlin_dollar(sql: &str) -> String {
 fn emit_kotlin_scalar_query(src: &mut String, ctx: &GenerationContext, query: &Query) -> anyhow::Result<()> {
     let (sql_const, raw_sql) = prepare_sql_const(query);
     emit_kotlin_sql_triple_quoted(src, &sql_const, &raw_sql)?;
-    writeln!(src, "    fun {}({}): {} {{", to_camel_case(&query.name), kotlin_params_sig(query, ctx.type_map), kotlin_return_type(query, ctx))?;
+    writeln!(src, "    fun {}({}): {} {{", to_camel_case(&query.name), kotlin_params_sig(query, ctx.type_map), kotlin_return_type(query, ctx.schema))?;
     writeln!(src, "        conn.prepareStatement({sql_const}).use {{ ps ->")?;
-    emit_jdbc_binds(src, query, "", ctx.contract.statement_end, "toTypedArray()", ctx.contract.json_bind, |p| kotlin_write_expr(p, ctx.type_map))?;
+    emit_jdbc_binds(src, query, "", STATEMENT_END, "toTypedArray()", ctx.json_bind, |p| kotlin_write_expr(p, ctx.type_map))?;
     emit_kotlin_result_block(src, ctx, query)?;
     writeln!(src, "        }}")?;
     writeln!(src, "    }}")?;
@@ -252,11 +260,11 @@ fn emit_kotlin_list_array_bind(src: &mut String, ctx: &GenerationContext, query:
     let method_name = to_camel_case(&query.name);
     let (sql_const, raw_sql) = prepare_sql_const_from(query, rewritten_sql);
     emit_kotlin_sql_triple_quoted(src, &sql_const, &raw_sql)?;
-    writeln!(src, "    fun {method_name}({}): {} {{", kotlin_params_sig(query, ctx.type_map), kotlin_return_type(query, ctx))?;
+    writeln!(src, "    fun {method_name}({}): {} {{", kotlin_params_sig(query, ctx.type_map), kotlin_return_type(query, ctx.schema))?;
     let type_name = pg_array_type_name(&lp.sql_type);
     writeln!(src, "        val arr = conn.createArrayOf(\"{type_name}\", {lp_name}.toTypedArray())")?;
     writeln!(src, "        conn.prepareStatement({sql_const}).use {{ ps ->")?;
-    emit_jdbc_binds(src, query, "arr", ctx.contract.statement_end, "toTypedArray()", ctx.contract.json_bind, |p| kotlin_write_expr(p, ctx.type_map))?;
+    emit_jdbc_binds(src, query, "arr", STATEMENT_END, "toTypedArray()", ctx.json_bind, |p| kotlin_write_expr(p, ctx.type_map))?;
     emit_kotlin_result_block(src, ctx, query)?;
     writeln!(src, "        }}")?;
     writeln!(src, "    }}")?;
@@ -268,11 +276,11 @@ fn emit_kotlin_list_dynamic(src: &mut String, ctx: &GenerationContext, query: &Q
     let lp_name = to_camel_case(&lp.name);
     let method_name = to_camel_case(&query.name);
     let (before_esc, after_esc) = prepare_dynamic_sql_parts(query, lp);
-    writeln!(src, "    fun {method_name}({}): {} {{", kotlin_params_sig(query, ctx.type_map), kotlin_return_type(query, ctx))?;
+    writeln!(src, "    fun {method_name}({}): {} {{", kotlin_params_sig(query, ctx.type_map), kotlin_return_type(query, ctx.schema))?;
     writeln!(src, "        val marks = {lp_name}.joinToString(\", \") {{ \"?\" }}")?;
     writeln!(src, "        val sql = \"{before_esc}\" + \"IN (${{marks}}){after_esc};\"")?;
     writeln!(src, "        conn.prepareStatement(sql).use {{ ps ->")?;
-    emit_dynamic_binds(src, query, lp, ctx.contract.statement_end, ctx.contract.size_access, &|src, lp_name, base, setter| {
+    emit_dynamic_binds(src, query, lp, STATEMENT_END, SIZE_ACCESS, &|src, lp_name, base, setter| {
         writeln!(src, "            {lp_name}.forEachIndexed {{ i, v -> ps.{setter}({base} + i + 1, v) }}")?;
         Ok(())
     })?;
@@ -291,10 +299,10 @@ fn emit_kotlin_list_json_bind(src: &mut String, ctx: &GenerationContext, query: 
     let method_name = to_camel_case(&query.name);
     let (sql_const, raw_sql) = prepare_sql_const_from(query, rewritten_sql);
     emit_kotlin_sql_triple_quoted(src, &sql_const, &raw_sql)?;
-    writeln!(src, "    fun {method_name}({}): {} {{", kotlin_params_sig(query, ctx.type_map), kotlin_return_type(query, ctx))?;
+    writeln!(src, "    fun {method_name}({}): {} {{", kotlin_params_sig(query, ctx.type_map), kotlin_return_type(query, ctx.schema))?;
     emit_kotlin_json_builder(src, lp)?;
     writeln!(src, "        conn.prepareStatement({sql_const}).use {{ ps ->")?;
-    emit_jdbc_binds(src, query, "json", ctx.contract.statement_end, "toTypedArray()", ctx.contract.json_bind, |p| kotlin_write_expr(p, ctx.type_map))?;
+    emit_jdbc_binds(src, query, "json", STATEMENT_END, "toTypedArray()", ctx.json_bind, |p| kotlin_write_expr(p, ctx.type_map))?;
     emit_kotlin_result_block(src, ctx, query)?;
     writeln!(src, "        }}")?;
     writeln!(src, "    }}")?;
@@ -326,14 +334,14 @@ fn emit_kotlin_result_block(src: &mut String, ctx: &GenerationContext, query: &Q
         QueryCmd::One => {
             writeln!(src, "            ps.executeQuery().use {{ rs ->")?;
             writeln!(src, "                if (!rs.next()) return null")?;
-            writeln!(src, "                return {}", emit_row_constructor(query, ctx.schema, ctx.type_map, ctx.contract))?;
+            writeln!(src, "                return {}", emit_row_constructor(query, ctx.schema, ctx.type_map))?;
             writeln!(src, "            }}")?;
         },
         QueryCmd::Many => {
-            let row_type = result_row_type(query, ctx.schema, ctx.contract);
+            let row_type = result_row_type(query, ctx.schema);
             writeln!(src, "            val rows = mutableListOf<{row_type}>()")?;
             writeln!(src, "            ps.executeQuery().use {{ rs ->")?;
-            writeln!(src, "                while (rs.next()) rows.add({})", emit_row_constructor(query, ctx.schema, ctx.type_map, ctx.contract))?;
+            writeln!(src, "                while (rs.next()) rows.add({})", emit_row_constructor(query, ctx.schema, ctx.type_map))?;
             writeln!(src, "            }}")?;
             writeln!(src, "            return rows")?;
         },
@@ -370,7 +378,7 @@ fn emit_kotlin_querier(src: &mut String, queries: &[Query], querier_ctx: &Querie
 
 /// Emits one method on the querier class that wraps the corresponding method in `{class_name}`.
 fn emit_kotlin_querier_method(src: &mut String, query: &Query, class_name: &str, ctx: &GenerationContext) -> anyhow::Result<()> {
-    let row = jdbc::ds_result_row_type(query, ctx.schema, ctx.contract.fallback_type, class_name);
+    let row = jdbc::ds_result_row_type(query, ctx.schema, FALLBACK_TYPE, class_name);
     let return_type = match query.cmd {
         QueryCmd::One => format!("{row}?"),
         QueryCmd::Many => format!("List<{row}>"),
@@ -390,8 +398,8 @@ fn emit_kotlin_querier_method(src: &mut String, query: &Query, class_name: &str,
     Ok(())
 }
 
-fn result_row_type(query: &Query, schema: &Schema, contract: &JvmCoreContract) -> String {
-    jdbc::result_row_type(query, schema, contract.fallback_type)
+fn result_row_type(query: &Query, schema: &Schema) -> String {
+    jdbc::result_row_type(query, schema, FALLBACK_TYPE)
 }
 
 fn emit_row_class(src: &mut String, query: &Query, type_map: &KotlinTypeMap) -> anyhow::Result<()> {
@@ -407,13 +415,13 @@ fn emit_row_class(src: &mut String, query: &Query, type_map: &KotlinTypeMap) -> 
     Ok(())
 }
 
-fn emit_row_constructor(query: &Query, schema: &Schema, type_map: &KotlinTypeMap, contract: &JvmCoreContract) -> String {
-    jdbc::build_row_constructor(query, schema, contract.fallback_type, "", |sql_type, nullable, idx| resultset_read_expr(sql_type, nullable, idx, type_map))
+fn emit_row_constructor(query: &Query, schema: &Schema, type_map: &KotlinTypeMap) -> String {
+    jdbc::build_row_constructor(query, schema, FALLBACK_TYPE, "", |sql_type, nullable, idx| resultset_read_expr(sql_type, nullable, idx, type_map))
 }
 
 // ─── Emitter helpers (consume the type map) ───────────────────────────────────
 
-fn resultset_read_expr(sql_type: &SqlType, nullable: bool, idx: usize, type_map: &KotlinTypeMap) -> String {
+pub(super) fn resultset_read_expr(sql_type: &SqlType, nullable: bool, idx: usize, type_map: &KotlinTypeMap) -> String {
     if let SqlType::Enum(name) = sql_type {
         let ty = to_pascal_case(name);
         return if nullable { format!("rs.getString({idx})?.let {{ {ty}.fromValue(it) }}") } else { format!("{ty}.fromValue(rs.getString({idx}))") };
@@ -514,12 +522,6 @@ fn emit_array_helper(src: &mut String) -> anyhow::Result<()> {
     writeln!(src, "    private fun <T> jdbcArrayToList(arr: java.sql.Array): List<T> =")?;
     writeln!(src, "        (arr.array as Array<T>).toList()")?;
     Ok(())
-}
-
-/// Test shim: exposes `resultset_read_expr` to the parent module's `#[cfg(test)]` helpers.
-#[cfg(test)]
-pub(super) fn resultset_read_expr_pub(sql_type: &SqlType, nullable: bool, idx: usize, type_map: &KotlinTypeMap) -> String {
-    resultset_read_expr(sql_type, nullable, idx, type_map)
 }
 
 /// Emit a Kotlin enum class for a SQL enum type.

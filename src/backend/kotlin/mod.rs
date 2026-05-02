@@ -19,10 +19,10 @@ pub struct KotlinCodegen {
 
 impl Codegen for KotlinCodegen {
     fn generate(&self, schema: &Schema, queries: &[Query], config: &OutputConfig) -> anyhow::Result<Vec<GeneratedFile>> {
-        let contract = adapter::resolve_kotlin_contract(self.target);
+        let json_bind = adapter::json_bind_for(self.target);
         let type_map = typemap::build_kotlin_type_map(config);
         let strategy = config.list_params.clone().unwrap_or_default();
-        let ctx = core::GenerationContext { schema, queries, config, contract: &contract, type_map: &type_map, strategy };
+        let ctx = core::GenerationContext { schema, queries, config, json_bind, type_map: &type_map, strategy };
         let mut files = core::generate_core_files(&ctx)?;
 
         if let Some(manifest) = build_manifest_file(
@@ -50,7 +50,7 @@ fn kotlin_type(sql_type: &crate::ir::SqlType, nullable: bool) -> String {
 #[cfg(test)]
 fn resultset_read_expr(sql_type: &crate::ir::SqlType, nullable: bool, idx: usize, config: &crate::config::OutputConfig) -> String {
     let type_map = typemap::build_kotlin_type_map(config);
-    core::resultset_read_expr_pub(sql_type, nullable, idx, &type_map)
+    core::resultset_read_expr(sql_type, nullable, idx, &type_map)
 }
 
 #[cfg(test)]

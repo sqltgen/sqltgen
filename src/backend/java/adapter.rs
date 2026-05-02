@@ -1,10 +1,12 @@
-pub(super) use crate::backend::jdbc::{JdbcTarget, JsonBindMode, JvmCoreContract};
+pub(super) use crate::backend::jdbc::{JdbcTarget, JsonBindMode};
 
-/// Resolve the Java adapter contract for the given engine target.
-pub(super) fn resolve_java_contract(target: JdbcTarget) -> JvmCoreContract {
-    let json_bind = match target {
+/// Resolve the JDBC `JsonBindMode` for the given engine target.
+///
+/// PostgreSQL requires `setObject(idx, val, Types.OTHER)` for jsonb; MySQL and
+/// SQLite work with plain `setString` (or `setObject` for nullable values).
+pub(super) fn json_bind_for(target: JdbcTarget) -> JsonBindMode {
+    match target {
         JdbcTarget::Postgres => JsonBindMode::TypesOther,
         JdbcTarget::Mysql | JdbcTarget::Sqlite => JsonBindMode::SetString,
-    };
-    JvmCoreContract { statement_end: ";", fallback_type: "Object[]", size_access: ".size()", json_bind }
+    }
 }

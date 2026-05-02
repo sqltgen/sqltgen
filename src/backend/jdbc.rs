@@ -7,24 +7,6 @@ use crate::backend::sql_rewrite::{rewrite_to_anon_params, split_at_in_clause};
 use crate::config::{Engine, ExtraField, ListParamStrategy, OutputConfig, ResolvedType, TypeVariant};
 use crate::ir::{NativeListBind, Parameter, Query, QueryCmd, Schema, SqlType, Table};
 
-/// Compile-time adapter contract consumed by the JVM core emitters.
-///
-/// Holds the small set of language-level constants that differ between Java and
-/// Kotlin. Defined once here to avoid duplication across the two backend adapters.
-pub struct JvmCoreContract {
-    /// Statement-end token appended after JDBC calls (`";"` for Java, `""` for Kotlin).
-    pub statement_end: &'static str,
-    /// Fallback row type when a query has no result columns (`"Object[]"` / `"Any"`).
-    pub fallback_type: &'static str,
-    /// How to access a `List` size (`".size()"` for Java, `".size"` for Kotlin).
-    pub size_access: &'static str,
-    /// JDBC type hint for JSON/JSONB parameter binding.
-    ///
-    /// PostgreSQL requires `java.sql.Types.OTHER` for jsonb columns, while MySQL and
-    /// SQLite work with plain `setString`. The adapter resolves this based on the engine.
-    pub json_bind: JsonBindMode,
-}
-
 /// Groups the per-query-group metadata needed to emit a querier class.
 pub struct QuerierContext<'a> {
     /// Static-methods class name (e.g. `Queries`, `UsersQueries`).
