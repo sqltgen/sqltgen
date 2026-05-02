@@ -7,9 +7,11 @@ use crate::backend::common::{
     row_type_name,
 };
 use crate::backend::jdbc::{
-    self, emit_dynamic_binds, emit_jdbc_binds, prepare_dynamic_sql_parts, prepare_sql_const, prepare_sql_const_from, JsonBindMode, ListAction, QuerierContext,
+    self, emit_dynamic_binds, emit_jdbc_binds, prepare_dynamic_sql_parts, prepare_sql_const, prepare_sql_const_from, JsonBindMode, QuerierContext,
 };
+use crate::backend::list_strategy::{self, ListAction};
 use crate::backend::naming::{to_camel_case, to_pascal_case, to_screaming_snake_case};
+use crate::backend::sql_rewrite::rewrite_to_anon_params;
 use crate::backend::GeneratedFile;
 use crate::config::{ListParamStrategy, OutputConfig};
 use crate::ir::{EnumType, Parameter, Query, QueryCmd, Schema};
@@ -169,10 +171,10 @@ pub(super) fn generate_core_files(ctx: &GenerationContext) -> anyhow::Result<Vec
 
 fn emit_java_query(src: &mut String, query: &Query, ctx: &GenerationContext) -> anyhow::Result<()> {
     if let Some(lp) = query.params.iter().find(|p| p.is_list) {
-        match jdbc::resolve_list_strategy(&ctx.strategy, lp) {
-            ListAction::SqlArrayBind(sql) => emit_java_list_array_bind(src, ctx, query, lp, &sql),
+        match list_strategy::resolve(&ctx.strategy, lp) {
+            ListAction::SqlArrayBind(sql) => emit_java_list_array_bind(src, ctx, query, lp, &rewrite_to_anon_params(&sql)),
             ListAction::Dynamic => emit_java_list_dynamic(src, ctx, query, lp),
-            ListAction::JsonStringBind(sql) => emit_java_list_json_bind(src, ctx, query, lp, &sql),
+            ListAction::JsonStringBind(sql) => emit_java_list_json_bind(src, ctx, query, lp, &rewrite_to_anon_params(&sql)),
         }
     } else {
         emit_java_scalar_query(src, ctx, query)

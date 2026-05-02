@@ -5,11 +5,12 @@ use std::path::PathBuf;
 use crate::backend::common::{
     group_queries, has_inline_rows, infer_row_type_name, model_name, querier_class_name, queries_file_stem, row_type_name, sql_const_name,
 };
+use crate::backend::list_strategy::{self, ListAction};
 use crate::backend::naming::to_pascal_case;
 use crate::backend::sql_rewrite::split_at_in_clause;
 use crate::backend::GeneratedFile;
 use crate::config::{ListParamStrategy, OutputConfig};
-use crate::ir::{EnumType, NativeListBind, Parameter, Query, QueryCmd, ResultColumn, Schema, SqlType};
+use crate::ir::{EnumType, Parameter, Query, QueryCmd, ResultColumn, Schema, SqlType};
 
 use super::adapter::GoDriverAdapter;
 use super::typemap::GoTypeMap;
@@ -285,15 +286,13 @@ fn collect_query_imports(queries: &[Query], _schema: &Schema, adapter: &dyn GoDr
     for query in queries {
         for p in &query.params {
             if p.is_list {
-                match strategy {
-                    ListParamStrategy::Dynamic => {
+                match list_strategy::resolve(strategy, p) {
+                    ListAction::Dynamic => {
                         imp.fmt = adapter.dynamic_list_needs_fmt();
                         imp.strings = true;
                     },
-                    ListParamStrategy::Native => match &p.native_list_bind {
-                        Some(NativeListBind::Json) | None => imp.encoding_json = true,
-                        Some(NativeListBind::Array) => imp.add_import(adapter.array_param_import().map(str::to_string)),
-                    },
+                    ListAction::JsonStringBind(_) => imp.encoding_json = true,
+                    ListAction::SqlArrayBind(_) => imp.add_import(adapter.array_param_import().map(str::to_string)),
                 }
             }
             if matches!(&p.sql_type, SqlType::Array(_)) {
@@ -602,17 +601,18 @@ fn emit_list_query_func(
     writeln!(src, "// {fn_name} executes the {name} query.", name = query.name)?;
     writeln!(src, "func {fn_name}({sig}) {ret} {{")?;
 
-    match strategy {
-        ListParamStrategy::Native => emit_native_list_body(src, query, schema, adapter, type_map, &const_name, lp)?,
-        ListParamStrategy::Dynamic => emit_dynamic_list_body(src, query, schema, adapter, type_map, lp)?,
+    match list_strategy::resolve(strategy, lp) {
+        ListAction::SqlArrayBind(_) => emit_native_array_body(src, query, schema, adapter, type_map, &const_name, lp)?,
+        ListAction::JsonStringBind(_) => emit_native_json_body(src, query, schema, adapter, type_map, &const_name, lp)?,
+        ListAction::Dynamic => emit_dynamic_list_body(src, query, schema, adapter, type_map, lp)?,
     }
 
     writeln!(src, "}}")?;
     Ok(())
 }
 
-/// Emit the body for a native list param query.
-fn emit_native_list_body(
+/// Emit a list-query body that binds the list directly as a SQL array argument.
+fn emit_native_array_body(
     src: &mut String,
     query: &Query,
     schema: &Schema,
@@ -622,23 +622,29 @@ fn emit_native_list_body(
     lp: &Parameter,
 ) -> anyhow::Result<()> {
     let scalar_params: Vec<&Parameter> = query.params.iter().filter(|p| !p.is_list).collect();
+    let args = build_native_array_args(&scalar_params, lp, adapter);
+    emit_list_exec(src, query, schema, adapter, type_map, const_name, &args)
+}
 
-    match &lp.native_list_bind {
-        Some(NativeListBind::Array) => {
-            let args = build_native_array_args(&scalar_params, lp, adapter);
-            emit_list_exec(src, query, schema, adapter, type_map, const_name, &args)
-        },
-        Some(NativeListBind::Json) | None => {
-            // List param is bound as a JSON array string, decoded by the SQL itself.
-            writeln!(src, "\t{lp_name}JSON, err := json.Marshal({lp_name})", lp_name = lp.name)?;
-            writeln!(src, "\tif err != nil {{")?;
-            writeln!(src, "\t\treturn {}", error_zero_return(query))?;
-            writeln!(src, "\t}}")?;
-            let json_expr = format!("{}JSON", lp.name);
-            let args = build_native_json_args(&scalar_params, lp, &json_expr);
-            emit_list_exec(src, query, schema, adapter, type_map, const_name, &args)
-        },
-    }
+/// Emit a list-query body that binds the list as a JSON-encoded string,
+/// decoded by SQL functions like `json_each` or `JSON_TABLE`.
+fn emit_native_json_body(
+    src: &mut String,
+    query: &Query,
+    schema: &Schema,
+    adapter: &dyn GoDriverAdapter,
+    type_map: &GoTypeMap,
+    const_name: &str,
+    lp: &Parameter,
+) -> anyhow::Result<()> {
+    let scalar_params: Vec<&Parameter> = query.params.iter().filter(|p| !p.is_list).collect();
+    writeln!(src, "\t{lp_name}JSON, err := json.Marshal({lp_name})", lp_name = lp.name)?;
+    writeln!(src, "\tif err != nil {{")?;
+    writeln!(src, "\t\treturn {}", error_zero_return(query))?;
+    writeln!(src, "\t}}")?;
+    let json_expr = format!("{}JSON", lp.name);
+    let args = build_native_json_args(&scalar_params, lp, &json_expr);
+    emit_list_exec(src, query, schema, adapter, type_map, const_name, &args)
 }
 
 /// Error zero return appropriate for the query command.

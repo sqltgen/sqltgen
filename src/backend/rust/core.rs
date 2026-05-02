@@ -5,11 +5,12 @@ use std::path::PathBuf;
 use crate::backend::common::{
     group_queries, has_inline_rows, infer_row_type_name, infer_table, model_file_stem, model_name, querier_class_name, queries_file_stem, row_type_name,
 };
+use crate::backend::list_strategy::{self, ListAction};
 use crate::backend::naming::{to_pascal_case, to_snake_case};
 use crate::backend::sql_rewrite::split_at_in_clause;
 use crate::backend::GeneratedFile;
 use crate::config::{ListParamStrategy, OutputConfig};
-use crate::ir::{EnumType, NativeListBind, Parameter, Query, QueryCmd, Schema, SqlType};
+use crate::ir::{EnumType, Parameter, Query, QueryCmd, Schema, SqlType};
 
 use super::adapter::RustDriverAdapter;
 use super::typemap::RustTypeMap;
@@ -266,26 +267,36 @@ fn emit_rust_scalar_query(src: &mut String, query: &Query, row_type: &str, adapt
 
 /// Emit the body for a query that contains a list parameter.
 fn emit_rust_list_query(src: &mut String, query: &Query, row_type: &str, ctx: &GenerationContext, list_param: &Parameter) -> anyhow::Result<()> {
-    // Use the pre-computed native SQL from the IR when available and strategy is Native.
-    // The native SQL was produced by the frontend and uses $N placeholders; each backend
-    // applies its own standard placeholder rewriting (a general rule, not dialect logic).
-    if ctx.strategy == ListParamStrategy::Native {
-        if let Some(native_sql) = &list_param.native_list_sql {
-            return emit_rust_native_list_query(src, query, row_type, list_param, native_sql, ctx.adapter);
-        }
+    match list_strategy::resolve(&ctx.strategy, list_param) {
+        ListAction::SqlArrayBind(native_sql) => emit_rust_native_array_bind(src, query, row_type, list_param, &native_sql, ctx.adapter),
+        ListAction::JsonStringBind(native_sql) => emit_rust_native_json_bind(src, query, row_type, list_param, &native_sql, ctx.adapter),
+        ListAction::Dynamic => {
+            let lp_name = to_snake_case(&list_param.name);
+            ctx.adapter.emit_dynamic_placeholders(src, &lp_name, list_param.index)?;
+            emit_rust_dynamic_query(src, query, row_type, list_param, ctx.adapter)
+        },
     }
-    // Dynamic expansion: language-specific, not dialect-specific.
-    let lp_name = to_snake_case(&list_param.name);
-    ctx.adapter.emit_dynamic_placeholders(src, &lp_name, list_param.index)?;
-    emit_rust_dynamic_query(src, query, row_type, list_param, ctx.adapter)
 }
 
-/// Emit a native list query using the pre-computed `native_sql` from the IR.
-///
-/// The `native_sql` already contains the dialect-specific SQL (e.g. `json_each`,
-/// `= ANY`, `JSON_TABLE`) with `$N` placeholders. This function applies the
-/// backend's standard placeholder rewriting and emits the appropriate bind call.
-fn emit_rust_native_list_query(
+/// Emit a native list query that binds the list directly as a SQL array
+/// (e.g. sqlx handles `Vec<T>` → `ANY($1)` for Postgres).
+fn emit_rust_native_array_bind(
+    src: &mut String,
+    query: &Query,
+    row_type: &str,
+    _list_param: &Parameter,
+    native_sql: &str,
+    adapter: &dyn RustDriverAdapter,
+) -> anyhow::Result<()> {
+    let raw_sql = adapter.normalize_sql(native_sql);
+    emit_rust_sql_let(src, raw_sql.trim_end().trim_end_matches(';'))?;
+    let bind_names: Vec<&str> = query.params.iter().map(|p| p.name.as_str()).collect();
+    emit_rust_sqlx_call(src, query, "sql", &bind_names, row_type)
+}
+
+/// Emit a native list query that binds the list as a JSON-encoded string
+/// (decoded by SQL functions like `json_each` or `JSON_TABLE`).
+fn emit_rust_native_json_bind(
     src: &mut String,
     query: &Query,
     row_type: &str,
@@ -294,23 +305,12 @@ fn emit_rust_native_list_query(
     adapter: &dyn RustDriverAdapter,
 ) -> anyhow::Result<()> {
     let raw_sql = adapter.normalize_sql(native_sql);
-    let raw_sql = raw_sql.trim_end().trim_end_matches(';');
-    emit_rust_sql_let(src, raw_sql)?;
+    emit_rust_sql_let(src, raw_sql.trim_end().trim_end_matches(';'))?;
     let lp_name = to_snake_case(&list_param.name);
-    match list_param.native_list_bind {
-        Some(NativeListBind::Array) => {
-            // Driver binds the list directly (e.g. sqlx handles Vec<T> → ANY($1)).
-            let bind_names: Vec<&str> = query.params.iter().map(|p| p.name.as_str()).collect();
-            emit_rust_sqlx_call(src, query, "sql", &bind_names, row_type)
-        },
-        Some(NativeListBind::Json) | None => {
-            // List param is bound as a JSON array string, decoded by the SQL itself.
-            writeln!(src, "    let {lp_name}_json = {};", json_list_expr(&lp_name, &list_param.sql_type))?;
-            let bind_names: Vec<String> = query.params.iter().map(|p| if p.is_list { format!("{lp_name}_json") } else { to_snake_case(&p.name) }).collect();
-            let bind_refs: Vec<&str> = bind_names.iter().map(|s| s.as_str()).collect();
-            emit_rust_sqlx_call(src, query, "sql", &bind_refs, row_type)
-        },
-    }
+    writeln!(src, "    let {lp_name}_json = {};", json_list_expr(&lp_name, &list_param.sql_type))?;
+    let bind_names: Vec<String> = query.params.iter().map(|p| if p.is_list { format!("{lp_name}_json") } else { to_snake_case(&p.name) }).collect();
+    let bind_refs: Vec<&str> = bind_names.iter().map(|s| s.as_str()).collect();
+    emit_rust_sqlx_call(src, query, "sql", &bind_refs, row_type)
 }
 
 /// Emit the shared tail of a dynamic list query: build SQL, bind scalars, bind list.

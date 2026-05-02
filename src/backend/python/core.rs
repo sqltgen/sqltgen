@@ -6,11 +6,12 @@ use crate::backend::common::{
     group_queries, has_inline_rows, infer_row_type_name, infer_table, model_file_stem, model_name, needed_enums, querier_class_name, queries_file_stem,
     row_type_name, sql_const_name,
 };
+use crate::backend::list_strategy::{self, ListAction};
 use crate::backend::naming::{to_pascal_case, to_screaming_snake_case, to_snake_case};
 use crate::backend::sql_rewrite::{positional_bind_names, rewrite_to_anon_params, rewrite_to_percent_s, split_at_in_clause};
 use crate::backend::GeneratedFile;
 use crate::config::{ListParamStrategy, OutputConfig};
-use crate::ir::{EnumType, NativeListBind, Parameter, Query, QueryCmd, Schema, SqlType};
+use crate::ir::{EnumType, Parameter, Query, QueryCmd, Schema, SqlType};
 
 use super::adapter::{FieldReadConverter, PythonCoreContract, PythonSqlNormMode};
 use super::typemap::PythonTypeMap;
@@ -339,20 +340,18 @@ fn emit_python_list_query(src: &mut String, query: &Query, ctx: &GenerationConte
 
     writeln!(src, "def {fn_name}({params_sig}) -> {return_type}:")?;
 
-    match &ctx.strategy {
-        ListParamStrategy::Native => match &lp.native_list_bind {
-            Some(NativeListBind::Array) => {
-                let scalar_args = build_scalar_args(&scalar_params, lp, &lp_name);
-                emit_list_body(src, query, ctx, &format!("conn, {const_name}, {scalar_args}"))?;
-            },
-            Some(NativeListBind::Json) | None => {
-                writeln!(src, "    import json")?;
-                writeln!(src, "    {lp_name}_json = json.dumps({lp_name})")?;
-                let scalar_args = build_scalar_args(&scalar_params, lp, &format!("{lp_name}_json"));
-                emit_list_body(src, query, ctx, &format!("conn, {const_name}, {scalar_args}"))?;
-            },
+    match list_strategy::resolve(&ctx.strategy, lp) {
+        ListAction::SqlArrayBind(_) => {
+            let scalar_args = build_scalar_args(&scalar_params, lp, &lp_name);
+            emit_list_body(src, query, ctx, &format!("conn, {const_name}, {scalar_args}"))?;
         },
-        ListParamStrategy::Dynamic => {
+        ListAction::JsonStringBind(_) => {
+            writeln!(src, "    import json")?;
+            writeln!(src, "    {lp_name}_json = json.dumps({lp_name})")?;
+            let scalar_args = build_scalar_args(&scalar_params, lp, &format!("{lp_name}_json"));
+            emit_list_body(src, query, ctx, &format!("conn, {const_name}, {scalar_args}"))?;
+        },
+        ListAction::Dynamic => {
             let (before_raw, after_raw) = split_at_in_clause(&query.sql, lp.index).unwrap_or_else(|| (query.sql.clone(), String::new()));
             let before = normalize_sql(&before_raw, ctx.contract.sql.sql_norm_mode).replace('"', "\\\"").replace('\n', " ");
             let after = normalize_sql(&after_raw, ctx.contract.sql.sql_norm_mode).replace('"', "\\\"").replace('\n', " ");

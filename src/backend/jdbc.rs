@@ -4,8 +4,8 @@ use std::fmt::Write;
 use crate::backend::common::{infer_row_type_name, infer_table, jdbc_bind_sequence, jdbc_setter, model_name, pg_array_type_name, sql_const_name};
 use crate::backend::naming::to_camel_case;
 use crate::backend::sql_rewrite::{rewrite_to_anon_params, split_at_in_clause};
-use crate::config::{Engine, ExtraField, ListParamStrategy, OutputConfig, ResolvedType, TypeVariant};
-use crate::ir::{NativeListBind, Parameter, Query, QueryCmd, Schema, SqlType, Table};
+use crate::config::{Engine, ExtraField, OutputConfig, ResolvedType, TypeVariant};
+use crate::ir::{Parameter, Query, QueryCmd, Schema, SqlType, Table};
 
 /// Groups the per-query-group metadata needed to emit a querier class.
 pub struct QuerierContext<'a> {
@@ -192,41 +192,11 @@ pub fn jdbc_return_type(
     }
 }
 
-/// The resolved list-param action for JDBC backends.
-///
-/// Used by [`resolve_list_strategy`] to communicate which code path to take,
-/// along with any pre-computed rewritten SQL. Variants are named by *bind shape*,
-/// not by engine — `SqlArrayBind` is currently used by Postgres but the name
-/// reflects the JDBC mechanism (`Connection.createArrayOf` + `setArray`), not
-/// the engine.
-pub enum ListAction {
-    /// Bind a JDBC array to a single placeholder (e.g. `= ANY(?)`).
-    /// Contains rewritten SQL.
-    SqlArrayBind(String),
-    /// Dynamic: runtime `IN (?,?,…,?)` expansion.
-    Dynamic,
-    /// Bind a JSON-encoded array string consumed by an SQL function
-    /// (e.g. SQLite `json_each`, MySQL `JSON_TABLE`). Contains rewritten SQL.
-    JsonStringBind(String),
-}
-
-/// Resolve the list-param action for a given strategy setting and parameter.
-///
-/// Uses the pre-computed `native_list_sql` and `native_list_bind` from the IR
-/// (set by the dialect frontend) so this function contains no dialect-specific logic.
-/// Falls back to dynamic expansion when native SQL is unavailable or not requested.
-pub fn resolve_list_strategy(strategy: &ListParamStrategy, lp: &Parameter) -> ListAction {
-    if *strategy == ListParamStrategy::Native {
-        if let (Some(native_sql), Some(bind)) = (&lp.native_list_sql, &lp.native_list_bind) {
-            let sql = rewrite_to_anon_params(native_sql);
-            return match bind {
-                NativeListBind::Array => ListAction::SqlArrayBind(sql),
-                NativeListBind::Json => ListAction::JsonStringBind(sql),
-            };
-        }
-    }
-    ListAction::Dynamic
-}
+// `ListAction` and `resolve_list_strategy` live in `crate::backend::list_strategy`
+// — the resolution logic is invariant across all backends, not just JDBC.
+//
+// The shared resolver returns the raw native SQL (with `$N` placeholders); JDBC
+// callers must rewrite to `?` via `rewrite_to_anon_params` after matching.
 
 /// Shared logic for emitting dynamic `IN (?,?,…,?)` list-param bind calls.
 ///
@@ -582,27 +552,6 @@ mod tests {
         assert_eq!(name, "SQL_GET_USER");
         // Returns raw SQL (placeholder rewritten, no string-literal escaping)
         assert_eq!(sql, "SELECT * FROM users WHERE id = ?");
-    }
-
-    #[test]
-    fn test_resolve_list_strategy_sql_array_bind() {
-        let q = make_query(
-            "GetUsers",
-            "SELECT * FROM users WHERE id IN ($1)",
-            vec![Parameter::list(1, "ids", SqlType::BigInt, false).with_native_list("SELECT * FROM users WHERE id = ANY($1)", NativeListBind::Array)],
-        );
-        let lp = &q.params[0];
-        match resolve_list_strategy(&ListParamStrategy::Native, lp) {
-            ListAction::SqlArrayBind(sql) => assert!(sql.contains("= ANY(")),
-            other => panic!("expected SqlArrayBind, got {:?}", std::mem::discriminant(&other)),
-        }
-    }
-
-    #[test]
-    fn test_resolve_list_strategy_dynamic() {
-        let q = make_query("GetUsers", "SELECT * FROM users WHERE id IN ($1)", vec![Parameter::list(1, "ids", SqlType::BigInt, false)]);
-        let lp = &q.params[0];
-        assert!(matches!(resolve_list_strategy(&ListParamStrategy::Dynamic, lp), ListAction::Dynamic));
     }
 
     #[test]
