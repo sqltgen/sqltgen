@@ -2,8 +2,11 @@ use std::collections::HashMap;
 use std::fmt::Write;
 use std::path::PathBuf;
 
+use indoc::{formatdoc, writedoc};
+
 use crate::backend::common::{
-    group_queries, has_inline_rows, infer_row_type_name, infer_table, model_file_stem, model_name, querier_class_name, queries_file_stem, row_type_name,
+    group_queries, has_inline_rows, infer_row_type_name, infer_table, model_file_stem, model_name, push_indented, querier_class_name, queries_file_stem,
+    row_type_name,
 };
 use crate::backend::list_strategy::{self, ListAction};
 use crate::backend::naming::{to_pascal_case, to_snake_case};
@@ -248,11 +251,11 @@ fn emit_rust_querier_method(src: &mut String, query: &Query, ctx: &GenerationCon
 /// Uses double-`#` raw strings (`r##"..."##`) so any `"#` sequence in SQL is handled
 /// without escaping. Callers pass `sql_expr = "sql"` to [`emit_rust_sqlx_call`].
 fn emit_rust_sql_let(src: &mut String, sql: &str) -> anyhow::Result<()> {
-    writeln!(src, "    let sql = r##\"")?;
+    writeln!(src, r##"    let sql = r##""##)?;
     for line in sql.lines() {
         writeln!(src, "        {line}")?;
     }
-    writeln!(src, "    \"##;")?;
+    writeln!(src, r###"    "##;"###)?;
     Ok(())
 }
 
@@ -320,14 +323,22 @@ fn emit_rust_dynamic_query(src: &mut String, query: &Query, row_type: &str, list
     let (before, after) = split_at_in_clause(&query.sql, list_param.index).unwrap_or_else(|| (query.sql.clone(), String::new()));
     let before_esc = adapter.normalize_sql(&before).replace('"', "\\\"").replace('\n', " ");
     let after_esc = adapter.normalize_sql(&after).replace('"', "\\\"").replace('\n', " ");
-    writeln!(src, "    let sql = format!(\"{before_esc}IN ({{placeholders}}){after_esc}\");")?;
+    writeln!(src, r#"    let sql = format!("{before_esc}IN ({{placeholders}}){after_esc}");"#)?;
     writeln!(src, "    let mut q = sqlx::query_as::<_, {row_type}>(&sql);")?;
     for sp in &scalar_params {
         writeln!(src, "    q = q.bind({});", to_snake_case(&sp.name))?;
     }
-    writeln!(src, "    for v in {lp_name} {{")?;
-    writeln!(src, "        q = q.bind(v);")?;
-    writeln!(src, "    }}")?;
+    push_indented(
+        src,
+        "    ",
+        &formatdoc!(
+            r#"
+        for v in {lp_name} {{
+            q = q.bind(v);
+        }}
+    "#
+        ),
+    );
     writeln!(src, "    q.{}.await", fetch_method(query))?;
     Ok(())
 }
@@ -430,43 +441,60 @@ fn result_row_type(query: &Query, schema: &Schema) -> String {
 fn emit_rust_enum(src: &mut String, e: &EnumType) -> anyhow::Result<()> {
     let name = to_pascal_case(&e.name);
 
-    writeln!(src, "use std::fmt;")?;
-    writeln!(src, "use std::str::FromStr;")?;
-    writeln!(src)?;
-    writeln!(src, "#[derive(Debug, Clone, PartialEq, Eq, sqlx::Type)]")?;
-    writeln!(src, "#[sqlx(type_name = \"{}\", rename_all = \"snake_case\")]", e.name)?;
-    writeln!(src, "pub enum {name} {{")?;
+    writedoc!(
+        src,
+        r#"
+        use std::fmt;
+        use std::str::FromStr;
+
+        #[derive(Debug, Clone, PartialEq, Eq, sqlx::Type)]
+        #[sqlx(type_name = "{}", rename_all = "snake_case")]
+        pub enum {name} {{
+        "#,
+        e.name
+    )?;
     for variant in &e.variants {
         writeln!(src, "    {},", to_pascal_case(variant))?;
     }
-    writeln!(src, "}}")?;
-    writeln!(src)?;
+    writedoc!(
+        src,
+        r#"
+    }}
 
-    // Display impl — returns the original SQL label
-    writeln!(src, "impl fmt::Display for {name} {{")?;
-    writeln!(src, "    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {{")?;
-    writeln!(src, "        f.write_str(match self {{")?;
+    impl fmt::Display for {name} {{
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {{
+            f.write_str(match self {{
+    "#
+    )?;
     for variant in &e.variants {
-        writeln!(src, "            Self::{} => \"{}\",", to_pascal_case(variant), variant)?;
+        writeln!(src, r#"            Self::{} => "{}","#, to_pascal_case(variant), variant)?;
     }
-    writeln!(src, "        }})")?;
-    writeln!(src, "    }}")?;
-    writeln!(src, "}}")?;
-    writeln!(src)?;
+    writedoc!(
+        src,
+        r#"
+            }})
+        }}
+    }}
 
-    // FromStr impl — parses from the SQL label
-    writeln!(src, "impl FromStr for {name} {{")?;
-    writeln!(src, "    type Err = String;")?;
-    writeln!(src)?;
-    writeln!(src, "    fn from_str(s: &str) -> Result<Self, Self::Err> {{")?;
-    writeln!(src, "        match s {{")?;
+    impl FromStr for {name} {{
+        type Err = String;
+
+        fn from_str(s: &str) -> Result<Self, Self::Err> {{
+            match s {{
+    "#
+    )?;
     for variant in &e.variants {
-        writeln!(src, "            \"{}\" => Ok(Self::{}),", variant, to_pascal_case(variant))?;
+        writeln!(src, r#"            "{}" => Ok(Self::{}),"#, variant, to_pascal_case(variant))?;
     }
-    writeln!(src, "            _ => Err(format!(\"unknown {name}: {{}}\", s)),")?;
-    writeln!(src, "        }}")?;
-    writeln!(src, "    }}")?;
-    writeln!(src, "}}")?;
+    writedoc!(
+        src,
+        r#"
+                _ => Err(format!("unknown {name}: {{}}", s)),
+            }}
+        }}
+    }}
+    "#
+    )?;
 
     Ok(())
 }

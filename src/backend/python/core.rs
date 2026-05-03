@@ -217,11 +217,11 @@ fn build_queries_file(ctx: &GenerationContext, group: &str, queries: &[Query]) -
         let sql = normalize_sql(&base_sql, ctx.contract.sql.sql_norm_mode);
         let sql = sql.trim_end().trim_end_matches(';');
         let sql = sql.replace("\"\"\"", "\\\"\\\"\\\"");
-        writeln!(src, "{const_name} = \"\"\"\\")?;
+        writeln!(src, r#"{const_name} = """\"#)?;
         for line in sql.lines() {
             writeln!(src, "{line}")?;
         }
-        writeln!(src, "\"\"\"")?;
+        writeln!(src, r#"""""#)?;
     }
 
     for query in queries {
@@ -356,8 +356,8 @@ fn emit_python_list_query(src: &mut String, query: &Query, ctx: &GenerationConte
             let before = normalize_sql(&before_raw, ctx.contract.sql.sql_norm_mode).replace('"', "\\\"").replace('\n', " ");
             let after = normalize_sql(&after_raw, ctx.contract.sql.sql_norm_mode).replace('"', "\\\"").replace('\n', " ");
             let args_expr = build_dynamic_args(&scalar_params, lp);
-            writeln!(src, "    placeholders = \", \".join([\"{}\"] * len({lp_name}))", ctx.contract.sql.dynamic_placeholder_token)?;
-            writeln!(src, "    sql = f\"{before}IN ({{placeholders}}){after}\"")?;
+            writeln!(src, r#"    placeholders = ", ".join(["{}"] * len({lp_name}))"#, ctx.contract.sql.dynamic_placeholder_token)?;
+            writeln!(src, r##"    sql = f"{before}IN ({{placeholders}}){after}""##)?;
             emit_list_body(src, query, ctx, &format!("conn, sql, {args_expr}"))?;
         },
     }
@@ -525,7 +525,7 @@ fn emit_python_enum(src: &mut String, e: &EnumType) -> anyhow::Result<()> {
     writeln!(src, "class {class_name}(str, enum.Enum):")?;
     for v in &e.variants {
         let variant_name = to_screaming_snake_case(v);
-        writeln!(src, "    {variant_name} = \"{v}\"")?;
+        writeln!(src, r##"    {variant_name} = "{v}""##)?;
     }
     Ok(())
 }

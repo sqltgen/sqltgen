@@ -189,7 +189,7 @@ fn emit_js_typedef(src: &mut String, name: &str, fields: &[(&str, &SqlType, bool
 
 /// Emit a TypeScript union type for a SQL enum.
 fn emit_ts_enum(src: &mut String, name: &str, e: &EnumType) -> anyhow::Result<()> {
-    let variants: Vec<String> = e.variants.iter().map(|v| format!("\"{}\"", v)).collect();
+    let variants: Vec<String> = e.variants.iter().map(|v| format!(r##""{}""##, v)).collect();
     writeln!(src, "export type {name} = {};", variants.join(" | "))?;
     Ok(())
 }
@@ -200,7 +200,7 @@ fn emit_js_enum(src: &mut String, name: &str, e: &EnumType) -> anyhow::Result<()
     writeln!(src, "export const {name} = Object.freeze(/** @type {{const}} */ ({{")?;
     for v in &e.variants {
         let variant_name = to_screaming_snake_case(v);
-        writeln!(src, "  {variant_name}: \"{v}\",")?;
+        writeln!(src, r#"  {variant_name}: "{v}","#)?;
     }
     writeln!(src, "}}));")?;
     Ok(())

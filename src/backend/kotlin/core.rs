@@ -2,9 +2,11 @@ use std::collections::BTreeSet;
 use std::fmt::Write;
 use std::path::PathBuf;
 
+use indoc::{formatdoc, writedoc};
+
 use crate::backend::common::{
-    emit_package, group_queries, has_inline_rows, infer_table, model_name, needed_enums, pg_array_type_name, querier_class_name, queries_class_name,
-    row_type_name,
+    emit_package, group_queries, has_inline_rows, infer_table, model_name, needed_enums, pg_array_type_name, push_indented, querier_class_name,
+    queries_class_name, row_type_name,
 };
 use crate::backend::jdbc::{
     self, emit_dynamic_binds, emit_jdbc_binds, prepare_dynamic_sql_parts, prepare_sql_const, prepare_sql_const_from, JsonBindMode, QuerierContext,
@@ -209,7 +211,7 @@ fn emit_kotlin_sql_triple_quoted(src: &mut String, sql_const: &str, raw_sql: &st
     let trimmed = raw_sql.trim_end().trim_end_matches(';');
     let escaped = jdbc::escape_sql_triple_quoted(trimmed);
     let escaped = escape_kotlin_dollar(&escaped);
-    writeln!(src, "    private val {sql_const} = \"\"\"")?;
+    writeln!(src, r#"    private val {sql_const} = """"#)?;
     let mut lines = escaped.lines().peekable();
     while let Some(line) = lines.next() {
         if lines.peek().is_none() {
@@ -218,7 +220,7 @@ fn emit_kotlin_sql_triple_quoted(src: &mut String, sql_const: &str, raw_sql: &st
             writeln!(src, "        {line}")?;
         }
     }
-    writeln!(src, "    \"\"\".trimIndent()")?;
+    writeln!(src, r#"    """.trimIndent()"#)?;
     Ok(())
 }
 
@@ -264,7 +266,7 @@ fn emit_kotlin_list_array_bind(src: &mut String, ctx: &GenerationContext, query:
     emit_kotlin_sql_triple_quoted(src, &sql_const, &raw_sql)?;
     writeln!(src, "    fun {method_name}({}): {} {{", kotlin_params_sig(query, ctx.type_map), kotlin_return_type(query, ctx.schema))?;
     let type_name = pg_array_type_name(&lp.sql_type);
-    writeln!(src, "        val arr = conn.createArrayOf(\"{type_name}\", {lp_name}.toTypedArray())")?;
+    writeln!(src, r#"        val arr = conn.createArrayOf("{type_name}", {lp_name}.toTypedArray())"#)?;
     writeln!(src, "        conn.prepareStatement({sql_const}).use {{ ps ->")?;
     emit_jdbc_binds(src, query, "arr", STATEMENT_END, "toTypedArray()", ctx.json_bind, |p| kotlin_write_expr(p, ctx.type_map))?;
     emit_kotlin_result_block(src, ctx, query)?;
@@ -279,8 +281,8 @@ fn emit_kotlin_list_dynamic(src: &mut String, ctx: &GenerationContext, query: &Q
     let method_name = to_camel_case(&query.name);
     let (before_esc, after_esc) = prepare_dynamic_sql_parts(query, lp);
     writeln!(src, "    fun {method_name}({}): {} {{", kotlin_params_sig(query, ctx.type_map), kotlin_return_type(query, ctx.schema))?;
-    writeln!(src, "        val marks = {lp_name}.joinToString(\", \") {{ \"?\" }}")?;
-    writeln!(src, "        val sql = \"{before_esc}\" + \"IN (${{marks}}){after_esc};\"")?;
+    writeln!(src, r#"        val marks = {lp_name}.joinToString(", ") {{ "?" }}"#)?;
+    writeln!(src, r##"        val sql = "{before_esc}" + "IN (${{marks}}){after_esc};"##)?;
     writeln!(src, "        conn.prepareStatement(sql).use {{ ps ->")?;
     emit_dynamic_binds(src, query, lp, STATEMENT_END, SIZE_ACCESS, &|src, lp_name, base, setter| {
         writeln!(src, "            {lp_name}.forEachIndexed {{ i, v -> ps.{setter}({base} + i + 1, v) }}")?;
@@ -323,7 +325,7 @@ fn emit_kotlin_json_builder(src: &mut String, lp: &Parameter) -> anyhow::Result<
             r#"        val json = "[" + {lp_name}.joinToString(",") {{ "\"" + it.toString().replace("\\", "\\\\").replace("\"", "\\\"") + "\"" }} + "]""#
         )?;
     } else {
-        writeln!(src, "        val json = \"[\" + {lp_name}.joinToString(\",\") + \"]\"")?;
+        writeln!(src, r##"        val json = "[" + {lp_name}.joinToString(",") + "]""##)?;
     }
     Ok(())
 }
@@ -334,18 +336,36 @@ fn emit_kotlin_result_block(src: &mut String, ctx: &GenerationContext, query: &Q
         QueryCmd::Exec => writeln!(src, "            ps.executeUpdate()")?,
         QueryCmd::ExecRows => writeln!(src, "            return ps.executeUpdate().toLong()")?,
         QueryCmd::One => {
-            writeln!(src, "            ps.executeQuery().use {{ rs ->")?;
-            writeln!(src, "                if (!rs.next()) return null")?;
-            writeln!(src, "                return {}", emit_row_constructor(query, ctx.schema, ctx.type_map))?;
-            writeln!(src, "            }}")?;
+            let row_ctor = emit_row_constructor(query, ctx.schema, ctx.type_map);
+            push_indented(
+                src,
+                "            ",
+                &formatdoc!(
+                    r#"
+                ps.executeQuery().use {{ rs ->
+                    if (!rs.next()) return null
+                    return {row_ctor}
+                }}
+            "#
+                ),
+            );
         },
         QueryCmd::Many => {
             let row_type = result_row_type(query, ctx.schema);
-            writeln!(src, "            val rows = mutableListOf<{row_type}>()")?;
-            writeln!(src, "            ps.executeQuery().use {{ rs ->")?;
-            writeln!(src, "                while (rs.next()) rows.add({})", emit_row_constructor(query, ctx.schema, ctx.type_map))?;
-            writeln!(src, "            }}")?;
-            writeln!(src, "            return rows")?;
+            let row_ctor = emit_row_constructor(query, ctx.schema, ctx.type_map);
+            push_indented(
+                src,
+                "            ",
+                &formatdoc!(
+                    r#"
+                val rows = mutableListOf<{row_type}>()
+                ps.executeQuery().use {{ rs ->
+                    while (rs.next()) rows.add({row_ctor})
+                }}
+                return rows
+            "#
+                ),
+            );
         },
     }
     Ok(())
@@ -520,7 +540,7 @@ fn emit_nullable_primitive_helpers(src: &mut String) -> anyhow::Result<()> {
 /// All SQL ARRAY column reads are routed through this function so the single
 /// `@Suppress("UNCHECKED_CAST")` annotation covers every array type.
 fn emit_array_helper(src: &mut String) -> anyhow::Result<()> {
-    writeln!(src, "    @Suppress(\"UNCHECKED_CAST\")")?;
+    writeln!(src, r#"    @Suppress("UNCHECKED_CAST")"#)?;
     writeln!(src, "    private fun <T> jdbcArrayToList(arr: java.sql.Array): List<T> =")?;
     writeln!(src, "        (arr.array as Array<T>).toList()")?;
     Ok(())
@@ -530,14 +550,19 @@ fn emit_array_helper(src: &mut String) -> anyhow::Result<()> {
 fn emit_kotlin_enum(src: &mut String, package: &str, class_name: &str, enum_type: &EnumType) -> anyhow::Result<()> {
     emit_package(src, package, "");
     writeln!(src, "enum class {class_name}(val value: String) {{")?;
-    let variants: Vec<String> = enum_type.variants.iter().map(|v| format!("    {}(\"{}\")", to_screaming_snake_case(v), v)).collect();
+    let variants: Vec<String> = enum_type.variants.iter().map(|v| format!(r#"    {}("{}")"#, to_screaming_snake_case(v), v)).collect();
     writeln!(src, "{};", variants.join(",\n"))?;
-    writeln!(src)?;
-    writeln!(src, "    companion object {{")?;
-    writeln!(src, "        fun fromValue(value: String): {class_name} =")?;
-    writeln!(src, "            entries.first {{ it.value == value }}")?;
-    writeln!(src, "    }}")?;
-    writeln!(src, "}}")?;
+    writedoc!(
+        src,
+        r#"
+
+        companion object {{
+            fun fromValue(value: String): {class_name} =
+                entries.first {{ it.value == value }}
+        }}
+    }}
+    "#
+    )?;
     Ok(())
 }
 

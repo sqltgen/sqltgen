@@ -2,9 +2,11 @@ use std::collections::BTreeSet;
 use std::fmt::Write;
 use std::path::PathBuf;
 
+use indoc::{formatdoc, writedoc};
+
 use crate::backend::common::{
-    emit_package, group_queries, has_inline_rows, infer_table, model_name, needed_enums, pg_array_type_name, querier_class_name, queries_class_name,
-    row_type_name,
+    emit_package, group_queries, has_inline_rows, infer_table, model_name, needed_enums, pg_array_type_name, push_indented, querier_class_name,
+    queries_class_name, row_type_name,
 };
 use crate::backend::jdbc::{
     self, emit_dynamic_binds, emit_jdbc_binds, prepare_dynamic_sql_parts, prepare_sql_const, prepare_sql_const_from, JsonBindMode, QuerierContext,
@@ -188,7 +190,7 @@ fn emit_java_query(src: &mut String, query: &Query, ctx: &GenerationContext) -> 
 /// whitespace, leaving the SQL with no indentation at runtime.
 fn emit_java_sql_text_block(src: &mut String, sql_const: &str, raw_sql: &str) -> anyhow::Result<()> {
     let trimmed = jdbc::escape_sql_triple_quoted(raw_sql.trim_end().trim_end_matches(';'));
-    writeln!(src, "    private static final String {sql_const} = \"\"\"")?;
+    writeln!(src, r#"    private static final String {sql_const} = """"#)?;
     let mut lines = trimmed.lines().peekable();
     while let Some(line) = lines.next() {
         if lines.peek().is_none() {
@@ -197,7 +199,7 @@ fn emit_java_sql_text_block(src: &mut String, sql_const: &str, raw_sql: &str) ->
             writeln!(src, "            {line}")?;
         }
     }
-    writeln!(src, "            \"\"\";")?;
+    writeln!(src, r#"            """;"#)?;
     Ok(())
 }
 
@@ -227,7 +229,7 @@ fn emit_java_list_array_bind(src: &mut String, ctx: &GenerationContext, query: &
     emit_java_sql_text_block(src, &sql_const, &raw_sql)?;
     writeln!(src, "    public static {} {method_name}({}) throws SQLException {{", java_return_type(query, ctx.schema), java_params_sig(query, ctx.type_map))?;
     let type_name = pg_array_type_name(&lp.sql_type);
-    writeln!(src, "        java.sql.Array arr = conn.createArrayOf(\"{type_name}\", {lp_name}.toArray());")?;
+    writeln!(src, r#"        java.sql.Array arr = conn.createArrayOf("{type_name}", {lp_name}.toArray());"#)?;
     writeln!(src, "        try (PreparedStatement ps = conn.prepareStatement({sql_const})) {{")?;
     emit_jdbc_binds(src, query, "arr", STATEMENT_END, "toArray()", ctx.json_bind, |p| ctx.type_map.write_expr(p))?;
     emit_java_result_block(src, ctx, query)?;
@@ -242,13 +244,21 @@ fn emit_java_list_dynamic(src: &mut String, ctx: &GenerationContext, query: &Que
     let method_name = to_camel_case(&query.name);
     let (before_esc, after_esc) = prepare_dynamic_sql_parts(query, lp);
     writeln!(src, "    public static {} {method_name}({}) throws SQLException {{", java_return_type(query, ctx.schema), java_params_sig(query, ctx.type_map))?;
-    writeln!(src, "        String marks = {lp_name}.stream().map(x -> \"?\").collect(java.util.stream.Collectors.joining(\", \"));")?;
-    writeln!(src, "        String sql = \"{before_esc}\" + \"IN (\" + marks + \"){after_esc};\";")?;
+    writeln!(src, r#"        String marks = {lp_name}.stream().map(x -> "?").collect(java.util.stream.Collectors.joining(", "));"#)?;
+    writeln!(src, r#"        String sql = "{before_esc}" + "IN (" + marks + "){after_esc};";"#)?;
     writeln!(src, "        try (PreparedStatement ps = conn.prepareStatement(sql)) {{")?;
     emit_dynamic_binds(src, query, lp, STATEMENT_END, SIZE_ACCESS, &|src, lp_name, base, setter| {
-        writeln!(src, "            for (int i = 0; i < {lp_name}.size(); i++) {{")?;
-        writeln!(src, "                ps.{setter}({base} + i + 1, {lp_name}.get(i));")?;
-        writeln!(src, "            }}")?;
+        push_indented(
+            src,
+            "            ",
+            &formatdoc!(
+                r#"
+            for (int i = 0; i < {lp_name}.size(); i++) {{
+                ps.{setter}({base} + i + 1, {lp_name}.get(i));
+            }}
+        "#
+            ),
+        );
         Ok(())
     })?;
     emit_java_result_block(src, ctx, query)?;
@@ -285,10 +295,10 @@ fn emit_java_json_builder(src: &mut String, lp: &Parameter) -> anyhow::Result<()
     if lp.sql_type.needs_json_quoting() {
         writeln!(
             src,
-            "        String json = \"[\" + {lp_name}.stream().map(x -> \"\\\"\" + x.toString().replace(\"\\\\\", \"\\\\\\\\\").replace(\"\\\"\", \"\\\\\\\"\") + \"\\\"\").collect(java.util.stream.Collectors.joining(\",\")) + \"]\";"
+            r#"        String json = "[" + {lp_name}.stream().map(x -> "\"" + x.toString().replace("\\", "\\\\").replace("\"", "\\\"") + "\"").collect(java.util.stream.Collectors.joining(",")) + "]";"#
         )?;
     } else {
-        writeln!(src, "        String json = \"[\" + {lp_name}.stream().map(Object::toString).collect(java.util.stream.Collectors.joining(\",\")) + \"]\";")?;
+        writeln!(src, r#"        String json = "[" + {lp_name}.stream().map(Object::toString).collect(java.util.stream.Collectors.joining(",")) + "]";"#)?;
     }
     Ok(())
 }
@@ -299,18 +309,36 @@ fn emit_java_result_block(src: &mut String, ctx: &GenerationContext, query: &Que
         QueryCmd::Exec => writeln!(src, "            ps.executeUpdate();")?,
         QueryCmd::ExecRows => writeln!(src, "            return ps.executeUpdate();")?,
         QueryCmd::One => {
-            writeln!(src, "            try (ResultSet rs = ps.executeQuery()) {{")?;
-            writeln!(src, "                if (!rs.next()) return Optional.empty();")?;
-            writeln!(src, "                return Optional.of({});", emit_row_constructor(query, ctx.schema, ctx.type_map))?;
-            writeln!(src, "            }}")?;
+            let row_ctor = emit_row_constructor(query, ctx.schema, ctx.type_map);
+            push_indented(
+                src,
+                "            ",
+                &formatdoc!(
+                    r#"
+                try (ResultSet rs = ps.executeQuery()) {{
+                    if (!rs.next()) return Optional.empty();
+                    return Optional.of({row_ctor});
+                }}
+            "#
+                ),
+            );
         },
         QueryCmd::Many => {
             let row_type = result_row_type(query, ctx.schema);
-            writeln!(src, "            List<{row_type}> rows = new ArrayList<>();")?;
-            writeln!(src, "            try (ResultSet rs = ps.executeQuery()) {{")?;
-            writeln!(src, "                while (rs.next()) rows.add({});", emit_row_constructor(query, ctx.schema, ctx.type_map))?;
-            writeln!(src, "            }}")?;
-            writeln!(src, "            return rows;")?;
+            let row_ctor = emit_row_constructor(query, ctx.schema, ctx.type_map);
+            push_indented(
+                src,
+                "            ",
+                &formatdoc!(
+                    r#"
+                List<{row_type}> rows = new ArrayList<>();
+                try (ResultSet rs = ps.executeQuery()) {{
+                    while (rs.next()) rows.add({row_ctor});
+                }}
+                return rows;
+            "#
+                ),
+            );
         },
     }
     Ok(())
@@ -430,28 +458,33 @@ fn emit_nullable_primitive_helpers(src: &mut String) -> anyhow::Result<()> {
 fn emit_java_enum(src: &mut String, package: &str, class_name: &str, enum_type: &EnumType) -> anyhow::Result<()> {
     emit_package(src, package, ";");
     writeln!(src, "public enum {class_name} {{")?;
-    let variants: Vec<String> = enum_type.variants.iter().map(|v| format!("    {}(\"{}\")", to_screaming_snake_case(v), v)).collect();
+    let variants: Vec<String> = enum_type.variants.iter().map(|v| format!(r#"    {}("{}")"#, to_screaming_snake_case(v), v)).collect();
     writeln!(src, "{};", variants.join(",\n"))?;
-    writeln!(src)?;
-    writeln!(src, "    private final String value;")?;
-    writeln!(src)?;
-    writeln!(src, "    {class_name}(String value) {{")?;
-    writeln!(src, "        this.value = value;")?;
-    writeln!(src, "    }}")?;
-    writeln!(src)?;
-    writeln!(src, "    public String getValue() {{")?;
-    writeln!(src, "        return value;")?;
-    writeln!(src, "    }}")?;
-    writeln!(src)?;
-    writeln!(src, "    public static {class_name} fromValue(String value) {{")?;
-    writeln!(src, "        for ({class_name} e : values()) {{")?;
-    writeln!(src, "            if (e.value.equals(value)) {{")?;
-    writeln!(src, "                return e;")?;
-    writeln!(src, "            }}")?;
-    writeln!(src, "        }}")?;
-    writeln!(src, "        throw new IllegalArgumentException(\"Unknown {class_name}: \" + value);")?;
-    writeln!(src, "    }}")?;
-    writeln!(src, "}}")?;
+    writedoc!(
+        src,
+        r#"
+
+        private final String value;
+
+        {class_name}(String value) {{
+            this.value = value;
+        }}
+
+        public String getValue() {{
+            return value;
+        }}
+
+        public static {class_name} fromValue(String value) {{
+            for ({class_name} e : values()) {{
+                if (e.value.equals(value)) {{
+                    return e;
+                }}
+            }}
+            throw new IllegalArgumentException("Unknown {class_name}: " + value);
+        }}
+    }}
+    "#
+    )?;
     Ok(())
 }
 

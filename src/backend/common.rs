@@ -213,6 +213,25 @@ pub fn collect_enum_names_from_type(sql_type: &SqlType, out: &mut std::collectio
     }
 }
 
+/// Append `text` to `dst` with `indent` prepended to every non-empty line.
+///
+/// Designed for use with `formatdoc!`: `formatdoc!` strips the common Rust-source
+/// indentation (leaving content at column 0), then `push_indented` adds the desired
+/// output indentation. Pass `"    "` (spaces) for space-indented languages (Java,
+/// Kotlin, Rust, Python, TypeScript) or `"\t"` for tab-indented ones (Go). Empty
+/// lines are emitted as bare newlines — no leading whitespace.
+pub fn push_indented(dst: &mut String, indent: &str, text: &str) {
+    for line in text.lines() {
+        if line.is_empty() {
+            dst.push('\n');
+        } else {
+            dst.push_str(indent);
+            dst.push_str(line);
+            dst.push('\n');
+        }
+    }
+}
+
 /// Emit a package declaration if non-empty. Pass `";"` for Java, `""` for Kotlin.
 pub fn emit_package(src: &mut String, package: &str, terminator: &str) {
     if !package.is_empty() {
