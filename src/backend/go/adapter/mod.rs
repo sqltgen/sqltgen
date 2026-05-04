@@ -91,10 +91,6 @@ pub(super) trait GoDriverAdapter {
     fn helper_content(&self, package_name: &str) -> String;
 }
 
-// ── pgx (Postgres) ───────────────────────────────────────────────────────────
-
-// ── database/sql (SQLite, MySQL) ─────────────────────────────────────────────
-
 /// Build the adapter for the selected target.
 pub(super) fn build_adapter(target: &GoTarget) -> Box<dyn GoDriverAdapter> {
     match target {
