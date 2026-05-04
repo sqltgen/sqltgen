@@ -1,5 +1,5 @@
 use crate::backend::go::adapter;
-use crate::backend::go::adapter::{GoDriverAdapter, GoJsonMode};
+use crate::backend::go::adapter::{GoDriverAdapter, GoJsonMode, GoTimeScanMode};
 use crate::ir::Query;
 use std::fmt::Write;
 
@@ -32,6 +32,9 @@ impl GoDriverAdapter for PgxAdapter {
     }
     fn needs_database_sql_import(&self) -> bool {
         false
+    }
+    fn time_scan_mode(&self) -> GoTimeScanMode {
+        GoTimeScanMode::ViaPointer
     }
 
     fn normalize_sql(&self, sql: &str) -> String {

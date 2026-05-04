@@ -12,7 +12,7 @@ use crate::backend::GeneratedFile;
 use crate::config::{ListParamStrategy, OutputConfig};
 use crate::ir::{EnumType, Parameter, Query, QueryCmd, ResultColumn, Schema, SqlType};
 
-use super::adapter::GoDriverAdapter;
+use super::adapter::{GoDriverAdapter, GoTimeScanMode};
 use super::typemap::GoTypeMap;
 
 /// All data needed for a single `generate()` call, bundled to reduce parameter threading.
@@ -299,6 +299,10 @@ fn collect_query_imports(ctx: &GenerationContext, queries: &[Query]) -> GoImport
 
         for col in &query.result_columns {
             imp.add_import(ctx.type_map.import_for(&col.sql_type, col.nullable));
+            // ViaPointer scan wrapper uses *time.Time + sql.NullTime conversion.
+            if col.nullable && matches!(col.sql_type, SqlType::Time) && ctx.adapter.time_scan_mode() == GoTimeScanMode::ViaPointer {
+                imp.time = true;
+            }
         }
 
         for p in &query.params {
@@ -561,6 +565,14 @@ fn scan_plan(cols: &[ResultColumn], ctx: &GenerationContext) -> ScanPlan {
                 } else {
                     scan_args.push(ctx.adapter.array_scan_expr().replace("{dest}", &format!("&r.{field}")));
                 }
+            },
+            SqlType::Time if col.nullable && ctx.adapter.time_scan_mode() == GoTimeScanMode::ViaPointer => {
+                let tmp = format!("_time{}", i + 1);
+                pre_lines.push(format!("var {tmp} *time.Time"));
+                scan_args.push(format!("&{tmp}"));
+                post_lines.push(format!("if {tmp} != nil {{"));
+                post_lines.push(format!("\tr.{field} = sql.NullTime{{Time: *{tmp}, Valid: true}}"));
+                post_lines.push("}".to_string());
             },
             _ => scan_args.push(format!("&r.{field}")),
         }

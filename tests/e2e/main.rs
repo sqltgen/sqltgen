@@ -440,6 +440,21 @@ fn snapshot_type_overrides_typescript() {
     );
 }
 
+#[test]
+fn snapshot_type_overrides_go_postgresql() {
+    snapshot_test_with_config("type_overrides", &PostgresParser, "go", &GoCodegen { target: GoTarget::Postgres }, output_config());
+}
+
+#[test]
+fn snapshot_type_overrides_go_sqlite() {
+    snapshot_test_with_config("type_overrides/sqlite", &SqliteParser, "go", &GoCodegen { target: GoTarget::Sqlite }, output_config());
+}
+
+#[test]
+fn snapshot_type_overrides_go_mysql() {
+    snapshot_test_with_config("type_overrides/mysql", &MysqlParser, "go", &GoCodegen { target: GoTarget::Mysql }, output_config());
+}
+
 // ─── Schema-qualified model emission ──────────────────────────────────────
 
 fn snapshot_schema_qualified(backend_name: &str, codegen: &dyn Codegen) {

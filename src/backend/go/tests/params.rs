@@ -75,6 +75,10 @@ fn test_go_type_date() {
 #[test]
 fn test_go_type_time() {
     assert_eq!(go_type(&SqlType::Time, false, &GoTarget::Postgres), "time.Time");
+    // Nullable TIME still uses sql.NullTime in the struct — the scan wrapper is
+    // in the generated query code, not the type map.
+    assert_eq!(go_type(&SqlType::Time, true, &GoTarget::Postgres), "sql.NullTime");
+    assert_eq!(go_type(&SqlType::Time, true, &GoTarget::Sqlite), "sql.NullTime");
 }
 
 #[test]

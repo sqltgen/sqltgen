@@ -20,6 +20,19 @@ pub(super) enum GoJsonMode {
     String,
 }
 
+/// Whether nullable TIME columns need a scan wrapper.
+///
+/// pgx returns TIME as a string internally; `sql.NullTime.Scan()` cannot
+/// handle string input. When `ViaPointer` is set, the scan plan uses a
+/// `*time.Time` intermediate and converts to `sql.NullTime` after scanning.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum GoTimeScanMode {
+    /// Scan directly into `sql.NullTime` — works with `database/sql` drivers.
+    Direct,
+    /// Scan into `*time.Time`, then convert to `sql.NullTime` — needed for pgx.
+    ViaPointer,
+}
+
 /// Driver-specific behavior consumed by the engine-agnostic core.
 ///
 /// Each method encapsulates one place where the generated Go code differs
@@ -66,6 +79,14 @@ pub(super) trait GoDriverAdapter {
 
     /// Whether queries files need `database/sql` imported unconditionally.
     fn needs_database_sql_import(&self) -> bool;
+
+    /// How nullable TIME columns are scanned by this driver.
+    ///
+    /// Defaults to `Direct`. pgx overrides to `ViaPointer` because it returns
+    /// TIME as a string internally and `sql.NullTime.Scan()` cannot handle that.
+    fn time_scan_mode(&self) -> GoTimeScanMode {
+        GoTimeScanMode::Direct
+    }
 
     // ── Behavior driven by placeholder/bind style ────────────────────────────
 
