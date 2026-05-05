@@ -129,10 +129,10 @@ $(E2E_MYSQL_TARGETS): | e2e-db-up
 # ── E2E Docker lifecycle ────────────────────────────────────────────────────
 
 e2e-db-up:
-	docker compose -f $(E2E_RUNTIME_DIR)/docker-compose.yml up -d --wait --quiet-pull
+	docker compose -f tests/e2e/docker-compose.yml up -d --wait --quiet-pull
 
 e2e-db-down:
-	docker compose -f $(E2E_RUNTIME_DIR)/docker-compose.yml down
+	docker compose -f tests/e2e/docker-compose.yml down
 
 # ── CI targets ────────────────────────────────────────────────────────────────
 
