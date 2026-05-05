@@ -12,16 +12,22 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
 
 ### Added
 - **E2E runtime test infrastructure overhaul** — runtime tests under
-  `tests/e2e/runtime/` are now hand-written and laid out as
-  `<fixture>/<engine>/<lang>/`. Each combo is self-contained (own build files,
-  `sqltgen.json`, test code, committed sqltgen output). Filesystem presence is
-  the matrix: a combo exists iff its directory exists. Auto-discovered Make
-  targets `e2e-runtime-{sqlite,postgresql,mysql}` glob the tree at runtime,
+  `tests/e2e/fixtures/<fixture>/<engine>/<lang>/` are hand-written. Each combo
+  is self-contained (own build files, `sqltgen.json`, test code, committed
+  sqltgen output). Filesystem presence is the matrix: a combo exists iff its
+  directory exists. Auto-discovered Make targets
+  `e2e-runtime-{sqlite,postgresql,mysql}` glob the tree at runtime,
   removing ~100 lines of hand-listed targets. The previous generator-based
   infrastructure (`scripts/e2e_testgen/`, fixture `test_spec.yaml` files) was
-  removed. The committed sqltgen output under each runtime project serves as
-  both the snapshot and the input to runtime tests, enabling future
-  snapshot-as-gate workflows.
+  removed.
+- **Snapshot-as-gate for runtime tests** — `make test` in any combo regenerates
+  the sqltgen output, diffs it against the committed snapshot, and branches:
+  locally a clean diff skips the runtime suite (dev-iteration speed); a dirty
+  diff runs the runtime suite. Under `CI=1` a dirty diff fails fast (printing
+  the offending diff) before exercising any test; a clean diff still runs the
+  full runtime suite to verify the committed bytes work. `FORCE_RUNTIME=1`
+  bypasses the gate. Implementation lives in
+  `tests/e2e/fixtures/snapshot-gate.mk`, included by every per-combo Makefile.
 - **Schema-qualified table references** — queries and DDL can now use
   `schema.table` syntax (e.g. `SELECT * FROM public.users`). Two tables with the
   same name in different schemas are correctly treated as distinct. Unqualified

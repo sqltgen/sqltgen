@@ -1,15 +1,18 @@
-REPO_ROOT := $(shell git rev-parse --show-toplevel)
-SQLTGEN   := $(REPO_ROOT)/target/debug/sqltgen
+REPO_ROOT  := $(shell git rev-parse --show-toplevel)
+SQLTGEN    := $(REPO_ROOT)/target/debug/sqltgen
+OUTPUT_DIR := src/db
 
-.PHONY: generate test clean
+.PHONY: generate runtime-test clean
 
 generate:
-	rm -rf src/db
+	rm -rf $(OUTPUT_DIR)
 	$(SQLTGEN) generate --config sqltgen.json
 
-test: generate
+runtime-test:
 	cargo test
 
 clean:
 	cargo clean
-	rm -rf src/db
+	rm -rf $(OUTPUT_DIR)
+
+include $(REPO_ROOT)/tests/e2e/fixtures/snapshot-gate.mk
