@@ -78,7 +78,7 @@ run-all: $(SQLTGEN)
 
 # ── E2E tests ────────────────────────────────────────────────────────────────
 
-E2E_RUNTIME_DIR := tests/e2e/runtime
+E2E_RUNTIME_DIR := tests/e2e/fixtures
 
 e2e: e2e-snapshot e2e-runtime
 
@@ -91,7 +91,7 @@ e2e-snapshot:
 	cargo test --test e2e
 
 # Runtime tests: auto-discovered from the filesystem.
-# Layout is tests/e2e/runtime/<fixture>/<engine>/<lang>/sqltgen.json.
+# Layout is tests/e2e/fixtures/<fixture>/<engine>/<lang>/sqltgen.json.
 # A combo exists iff its directory exists — no exclusion lists, no flags.
 #
 # Usage:
@@ -104,7 +104,7 @@ E2E_SQLITE_COMBOS := $(shell find $(E2E_RUNTIME_DIR) -path '*/sqlite/*/sqltgen.j
 E2E_PG_COMBOS     := $(shell find $(E2E_RUNTIME_DIR) -path '*/postgresql/*/sqltgen.json' -not -path '*/node_modules/*' -not -path '*/target/*' -printf '%h\n' 2>/dev/null | sort)
 E2E_MYSQL_COMBOS  := $(shell find $(E2E_RUNTIME_DIR) -path '*/mysql/*/sqltgen.json' -not -path '*/node_modules/*' -not -path '*/target/*' -printf '%h\n' 2>/dev/null | sort)
 
-# Per-combo targets: tests/e2e/runtime/<fixture>/<engine>/<lang> → .e2e/<fixture>/<engine>/<lang>
+# Per-combo targets: tests/e2e/fixtures/<fixture>/<engine>/<lang> → .e2e/<fixture>/<engine>/<lang>
 E2E_SQLITE_TARGETS := $(patsubst $(E2E_RUNTIME_DIR)/%,.e2e/%,$(E2E_SQLITE_COMBOS))
 E2E_PG_TARGETS     := $(patsubst $(E2E_RUNTIME_DIR)/%,.e2e/%,$(E2E_PG_COMBOS))
 E2E_MYSQL_TARGETS  := $(patsubst $(E2E_RUNTIME_DIR)/%,.e2e/%,$(E2E_MYSQL_COMBOS))
