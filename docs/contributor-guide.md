@@ -114,9 +114,11 @@ src/
 tests/
   e2e/
     main.rs            E2E snapshot tests
-    fixtures/          Input SQL (bookstore schema/queries per dialect)
+    check_suite.py     Cross-fixture/runtime sanity checker (ci-check-suite)
     golden/            Expected output files (committed, regenerated with UPDATE_GOLDEN=1)
-    runtime/           Self-contained sub-projects that actually run against real databases
+    fixtures/          SQL fixtures + per-language runtime projects
+      <fixture>/<engine>/{schema.sql,queries.sql}  — fixture input
+      <fixture>/<engine>/<lang>/                   — self-contained runtime project
 examples/
   {java,kotlin,rust,python,typescript,javascript}/{postgresql,sqlite,mysql}/
 ```
@@ -500,26 +502,29 @@ If you add a new generated file, the manifest is updated automatically.
 
 ### Runtime tests
 
-Runtime tests live in `tests/e2e/runtime/{lang}/{dialect}/`. Each is a
-self-contained sub-project (Maven, Cargo, npm, etc.) that:
+Runtime tests live alongside their SQL fixtures at
+`tests/e2e/fixtures/<fixture>/<engine>/<lang>/`. Each project is self-contained
+(Maven, Cargo, npm, etc.) and:
 
-1. Reads a `sqltgen.json` and runs `sqltgen generate`.
+1. Reads `sqltgen.json` (which points at sibling `../schema.sql` and
+   `../queries.sql`) and runs `sqltgen generate`.
 2. Compiles and runs the generated code against a real database.
 3. Asserts the results are correct.
 
-```sh
-# No Docker needed:
-make e2e-runtime-rust-sqlite
-make e2e-runtime-python-sqlite
-make e2e-runtime-typescript-sqlite
-make e2e-runtime-java-sqlite
+The matrix of (fixture, engine, language) is the filesystem itself — a combo
+exists iff its directory does. Make targets are auto-discovered.
 
-# Requires Docker:
-make e2e-db-up                       # start PostgreSQL + MySQL containers
-make e2e-runtime-rust-postgresql
-make e2e-runtime-kotlin-mysql
-# …etc.
+```sh
+make e2e-runtime              # all engines, sequential
+make -j$(nproc) --output-sync e2e-runtime    # parallel
+make e2e-runtime-sqlite       # no Docker
+make e2e-runtime-postgresql   # auto-starts Docker (e2e-db-up)
+make e2e-runtime-mysql        # auto-starts Docker
+make e2e-db-down              # stop containers
 ```
+
+Each runtime project also commits its sqltgen output (`gen/`, `src/db/`,
+`src/main/.../db/`, etc.) — pull-request diffs surface codegen drift visually.
 
 ### CI targets
 
