@@ -140,7 +140,7 @@ fn process_statement(stmt: &Statement, schema: &mut Schema, dialect: DdlDialect,
                 None => {},
             }
         },
-        Statement::DropFunction(DropFunction { func_desc, .. }) => apply_drop_functions(func_desc, &mut schema.functions, default_schema),
+        Statement::DropFunction(DropFunction { func_desc, .. }) => apply_drop_functions(func_desc, &mut schema.functions, dialect, default_schema),
         Statement::CreateType { name, representation: Some(UserDefinedTypeRepresentation::Enum { labels }) } => {
             let enum_name = obj_name_to_str(name);
             let enum_schema = obj_schema_to_str(name);
@@ -161,10 +161,37 @@ fn apply_drop_views(names: &[sqlparser::ast::ObjectName], pending_views: &mut Ve
 }
 
 /// Remove every function named in `func_desc` from the in-progress function list.
-fn apply_drop_functions(func_desc: &[sqlparser::ast::FunctionDesc], functions: &mut Vec<ScalarFunction>, default_schema: Option<&str>) {
+///
+/// PostgreSQL overloads functions by argument signature, so a single name can
+/// resolve to multiple distinct functions. Matching rules:
+/// - `DROP FUNCTION fn(t1, t2, …)` — match name + schema + IN-arg type list.
+///   Only the exact overload is removed; sibling overloads with a different
+///   signature are preserved.
+/// - `DROP FUNCTION fn` — no arg list given; match name + schema only. This
+///   mirrors the existing limitation around `CREATE OR REPLACE FUNCTION`,
+///   which matches by arity rather than full signature.
+///
+/// `OUT` parameters are excluded because PostgreSQL uses only IN/INOUT/VARIADIC
+/// for overload resolution. (`INOUT` is currently treated as not-IN by
+/// [`process_statement`]'s `CreateFunction` branch; that asymmetry is a known
+/// limitation tracked separately and should not be silently fixed here.)
+fn apply_drop_functions(func_desc: &[sqlparser::ast::FunctionDesc], functions: &mut Vec<ScalarFunction>, dialect: DdlDialect, default_schema: Option<&str>) {
     for desc in func_desc {
         let name = obj_name_to_str(&desc.name);
         let schema = obj_schema_to_str(&desc.name);
-        functions.retain(|f| f.name != name || !schema_matches(schema.as_deref(), f.schema.as_deref(), default_schema));
+        let arg_types: Option<Vec<SqlType>> = desc
+            .args
+            .as_ref()
+            .map(|args| args.iter().filter(|a| matches!(a.mode, None | Some(ArgMode::In))).map(|a| (dialect.map_type)(&a.data_type)).collect());
+        functions.retain(|f| {
+            let same_name = f.name == name && schema_matches(schema.as_deref(), f.schema.as_deref(), default_schema);
+            if !same_name {
+                return true;
+            }
+            match &arg_types {
+                Some(types) => f.param_types != *types,
+                None => false,
+            }
+        });
     }
 }

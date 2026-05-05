@@ -543,6 +543,85 @@ mod tests {
     }
 
     #[test]
+    fn test_drop_function_preserves_other_overload_in_same_schema() {
+        let ddl = "\
+            CREATE FUNCTION fetch_name(resource_id bigint) RETURNS text LANGUAGE sql AS $$ SELECT '' $$;\
+            CREATE FUNCTION fetch_name(resource_id text) RETURNS text LANGUAGE sql AS $$ SELECT '' $$;\
+            DROP FUNCTION fetch_name(bigint);";
+        let schema = parse_schema(ddl, None).unwrap();
+        assert_eq!(schema.functions.len(), 1, "DROP FUNCTION fetch_name(bigint) must preserve fetch_name(text)");
+        assert_eq!(schema.functions[0].param_types, vec![SqlType::Text]);
+    }
+
+    #[test]
+    fn test_drop_function_does_not_remove_same_signature_in_other_schema() {
+        let ddl = "\
+            CREATE FUNCTION public.fetch_name(resource_id bigint) RETURNS text LANGUAGE sql AS $$ SELECT '' $$;\
+            CREATE FUNCTION internal.fetch_name(resource_id bigint) RETURNS bigint LANGUAGE sql AS $$ SELECT 1 $$;\
+            DROP FUNCTION internal.fetch_name(bigint);";
+        let schema = parse_schema(ddl, None).unwrap();
+        assert_eq!(schema.functions.len(), 1, "dropping internal.fetch_name(bigint) must preserve public.fetch_name(bigint)");
+        assert_eq!(schema.functions[0].schema.as_deref(), Some("public"));
+    }
+
+    #[test]
+    fn test_drop_function_with_zero_args_targets_only_no_arg_overload() {
+        let ddl = "\
+            CREATE FUNCTION fetch_name() RETURNS text LANGUAGE sql AS $$ SELECT '' $$;\
+            CREATE FUNCTION fetch_name(resource_id bigint) RETURNS text LANGUAGE sql AS $$ SELECT '' $$;\
+            DROP FUNCTION fetch_name();";
+        let schema = parse_schema(ddl, None).unwrap();
+        assert_eq!(schema.functions.len(), 1, "DROP FUNCTION fetch_name() must preserve fetch_name(bigint)");
+        assert_eq!(schema.functions[0].param_types, vec![SqlType::BigInt]);
+    }
+
+    #[test]
+    fn test_drop_function_two_arg_signature() {
+        let ddl = "\
+            CREATE FUNCTION fetch_name(a bigint, b text) RETURNS text LANGUAGE sql AS $$ SELECT '' $$;\
+            CREATE FUNCTION fetch_name(a bigint, b bigint) RETURNS text LANGUAGE sql AS $$ SELECT '' $$;\
+            DROP FUNCTION fetch_name(bigint, text);";
+        let schema = parse_schema(ddl, None).unwrap();
+        assert_eq!(schema.functions.len(), 1, "DROP FUNCTION must use full arg-list to disambiguate overloads");
+        assert_eq!(schema.functions[0].param_types, vec![SqlType::BigInt, SqlType::BigInt]);
+    }
+
+    #[test]
+    fn test_drop_function_without_arg_list_drops_by_name_only() {
+        let ddl = "\
+            CREATE FUNCTION fetch_name(resource_id bigint) RETURNS text LANGUAGE sql AS $$ SELECT '' $$;\
+            CREATE FUNCTION fetch_name(resource_id text) RETURNS text LANGUAGE sql AS $$ SELECT '' $$;\
+            DROP FUNCTION fetch_name;";
+        let schema = parse_schema(ddl, None).unwrap();
+        assert_eq!(schema.functions.len(), 0, "DROP FUNCTION without parens removes all overloads (known limitation)");
+    }
+
+    #[test]
+    fn test_drop_function_does_not_remove_table_valued_function() {
+        // TVFs live in schema.tables (as views), not schema.functions, so DROP FUNCTION
+        // does not touch them. Documented limitation: removing a TVF via DROP FUNCTION
+        // is not supported. Authors must redefine the TVF with CREATE OR REPLACE FUNCTION
+        // ... RETURNS TABLE(...) instead.
+        let ddl = "\
+            CREATE FUNCTION get_users() RETURNS TABLE(id BIGINT, name TEXT) LANGUAGE sql AS $$ SELECT id, name FROM users $$;\
+            DROP FUNCTION get_users();";
+        let schema = parse_schema(ddl, None).unwrap();
+        assert_eq!(schema.functions.len(), 0, "TVFs are not registered as scalar functions");
+        assert_eq!(schema.tables.len(), 1, "DROP FUNCTION does not remove TVFs (known limitation)");
+        assert!(schema.tables[0].is_view());
+    }
+
+    #[test]
+    fn test_drop_function_with_unknown_signature_keeps_existing() {
+        let ddl = "\
+            CREATE FUNCTION fetch_name(resource_id bigint) RETURNS text LANGUAGE sql AS $$ SELECT '' $$;\
+            DROP FUNCTION fetch_name(text);";
+        let schema = parse_schema(ddl, None).unwrap();
+        assert_eq!(schema.functions.len(), 1, "DROP FUNCTION with non-matching signature must be a no-op");
+        assert_eq!(schema.functions[0].param_types, vec![SqlType::BigInt]);
+    }
+
+    #[test]
     fn test_or_replace_schema_qualified_function_does_not_replace_other_schema_function() {
         let ddl = "\
             CREATE FUNCTION public.fetch_name(resource_id bigint) RETURNS text LANGUAGE sql AS $$ SELECT '' $$;\

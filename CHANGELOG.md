@@ -54,6 +54,15 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
   during migration (see Fixed below).
 
 ### Fixed
+- **`DROP FUNCTION` now matches by argument signature** — previously,
+  `DROP FUNCTION fn(t1)` removed every overload named `fn` in the schema,
+  ignoring the argument list. With overloaded functions (e.g. `fn(bigint)` and
+  `fn(text)` coexisting), this could silently remove the wrong function from the
+  IR. Drop now matches name + schema + IN-arg type list, so only the targeted
+  overload is removed. `DROP FUNCTION fn` without a parenthesised arg list
+  continues to drop every overload by name (matches the existing
+  `CREATE OR REPLACE FUNCTION` arity-only behaviour). Table-valued functions are
+  still untouched by `DROP FUNCTION` (they live in `schema.tables`).
 - **Recursive CTE (`WITH RECURSIVE`) parameters now collected** — parameters in
   both the anchor term and the recursive term of a `WITH RECURSIVE … UNION ALL …`
   CTE are now typed and collected. The CTE's virtual table is registered with
