@@ -27,7 +27,7 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
   the offending diff) before exercising any test; a clean diff still runs the
   full runtime suite to verify the committed bytes work. `FORCE_RUNTIME=1`
   bypasses the gate. Implementation lives in
-  `tests/e2e/fixtures/snapshot-gate.mk`, included by every per-combo Makefile.
+  `tests/e2e/snapshot-gate.mk`, included by every per-combo Makefile.
 - **Schema-qualified table references** — queries and DDL can now use
   `schema.table` syntax (e.g. `SELECT * FROM public.users`). Two tables with the
   same name in different schemas are correctly treated as distinct. Unqualified
