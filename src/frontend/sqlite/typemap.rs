@@ -18,10 +18,7 @@ pub(crate) fn map(dt: &DataType) -> SqlType {
 
         // SQLite has no native date/time types — these are stored as TEXT.
         // No driver can guarantee the stored value is a valid date/time string.
-        DataType::Time(_, _)
-        | DataType::Date
-        | DataType::Timestamp(_, _)
-        | DataType::Datetime(_) => SqlType::Text,
+        DataType::Time(_, _) | DataType::Date | DataType::Timestamp(_, _) | DataType::Datetime(_) => SqlType::Text,
 
         // SQLite stores NUMERIC/DECIMAL as REAL (floating-point affinity).
         // Mapping to Double avoids exposing `rust_decimal::Decimal` in Rust backends
