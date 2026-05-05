@@ -52,7 +52,7 @@ ORDER BY title
 const SQL_LIST_BOOKS_BY_GENRE_OR_ALL = `
 SELECT id, author_id, title, genre, price, published_at
 FROM book
-WHERE ? = 'all' OR genre = ?
+WHERE ? IS NULL OR genre = ?
 ORDER BY title
 `
 const SQL_CREATE_CUSTOMER = `
@@ -583,7 +583,7 @@ func ListBooksByGenre(ctx context.Context, db *sql.DB, genre string) ([]Book, er
 }
 
 // ListBooksByGenreOrAll executes the ListBooksByGenreOrAll query.
-func ListBooksByGenreOrAll(ctx context.Context, db *sql.DB, genre string) ([]Book, error) {
+func ListBooksByGenreOrAll(ctx context.Context, db *sql.DB, genre sql.NullString) ([]Book, error) {
 	rows, err := db.QueryContext(ctx, SQL_LIST_BOOKS_BY_GENRE_OR_ALL, genre, genre)
 	if err != nil {
 		return nil, err
@@ -1242,7 +1242,7 @@ func (q *Querier) ListBooksByGenre(ctx context.Context, genre string) ([]Book, e
 }
 
 // ListBooksByGenreOrAll delegates to the package-level ListBooksByGenreOrAll function.
-func (q *Querier) ListBooksByGenreOrAll(ctx context.Context, genre string) ([]Book, error) {
+func (q *Querier) ListBooksByGenreOrAll(ctx context.Context, genre sql.NullString) ([]Book, error) {
 	return ListBooksByGenreOrAll(ctx, q.db, genre)
 }
 

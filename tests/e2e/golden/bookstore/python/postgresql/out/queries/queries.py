@@ -67,7 +67,7 @@ ORDER BY title
 SQL_LIST_BOOKS_BY_GENRE_OR_ALL = """\
 SELECT id, author_id, title, genre, price, published_at
 FROM book
-WHERE %s = 'all' OR genre = %s
+WHERE %s::text IS NULL OR genre = %s
 ORDER BY title
 """
 SQL_CREATE_CUSTOMER = """\
@@ -392,7 +392,7 @@ def list_books_by_genre(conn: Connection, genre: str) -> list[Book]:
         return [Book(*row) for row in cur.fetchall()]
 
 
-def list_books_by_genre_or_all(conn: Connection, genre: str) -> list[Book]:
+def list_books_by_genre_or_all(conn: Connection, genre: str | None) -> list[Book]:
     with execute(conn, SQL_LIST_BOOKS_BY_GENRE_OR_ALL, (genre, genre)) as cur:
         return [Book(*row) for row in cur.fetchall()]
 
@@ -855,7 +855,7 @@ class Querier:
         with closing(self._connect()) as conn:
             return list_books_by_genre(conn, genre)
 
-    def list_books_by_genre_or_all(self, genre: str) -> list[Book]:
+    def list_books_by_genre_or_all(self, genre: str | None) -> list[Book]:
         with closing(self._connect()) as conn:
             return list_books_by_genre_or_all(conn, genre)
 

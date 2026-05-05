@@ -161,13 +161,13 @@ object Queries {
     private val SQL_LIST_BOOKS_BY_GENRE_OR_ALL = """
         SELECT id, author_id, title, genre, price, published_at
         FROM book
-        WHERE ? = 'all' OR genre = ?
+        WHERE ?::text IS NULL OR genre = ?
         ORDER BY title;
     """.trimIndent()
-    fun listBooksByGenreOrAll(conn: Connection, genre: String): List<Book> {
+    fun listBooksByGenreOrAll(conn: Connection, genre: String?): List<Book> {
         conn.prepareStatement(SQL_LIST_BOOKS_BY_GENRE_OR_ALL).use { ps ->
-            ps.setString(1, genre)
-            ps.setString(2, genre)
+            ps.setObject(1, genre)
+            ps.setObject(2, genre)
             val rows = mutableListOf<Book>()
             ps.executeQuery().use { rs ->
                 while (rs.next()) rows.add(Book(rs.getLong(1), rs.getLong(2), rs.getString(3), rs.getString(4), rs.getBigDecimal(5), rs.getObject(6, java.time.LocalDate::class.java)))

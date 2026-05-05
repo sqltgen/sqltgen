@@ -37,7 +37,7 @@ WHERE genre = $1
 ORDER BY title`;
 const SQL_LIST_BOOKS_BY_GENRE_OR_ALL = `SELECT id, author_id, title, genre, price, published_at
 FROM book
-WHERE $1 = 'all' OR genre = $1
+WHERE $1::text IS NULL OR genre = $1
 ORDER BY title`;
 const SQL_CREATE_CUSTOMER = `INSERT INTO customer (name, email)
 VALUES ($1, $2)
@@ -284,7 +284,7 @@ export async function listBooksByGenre(db: Db, genre: string): Promise<Book[]> {
   return rows.map(raw => ({ ...raw, id: BigInt(raw.id), author_id: BigInt(raw.author_id) }));
 }
 
-export async function listBooksByGenreOrAll(db: Db, genre: string): Promise<Book[]> {
+export async function listBooksByGenreOrAll(db: Db, genre: string | null): Promise<Book[]> {
   const result = await db.query<Book>(SQL_LIST_BOOKS_BY_GENRE_OR_ALL, [genre]);
   const rows = result.rows;
   return rows.map(raw => ({ ...raw, id: BigInt(raw.id), author_id: BigInt(raw.author_id) }));
@@ -779,7 +779,7 @@ export class Querier {
     }
   }
 
-  async listBooksByGenreOrAll(genre: string): Promise<Book[]> {
+  async listBooksByGenreOrAll(genre: string | null): Promise<Book[]> {
     const db = await this.connect();
     try {
       return listBooksByGenreOrAll(db, genre);

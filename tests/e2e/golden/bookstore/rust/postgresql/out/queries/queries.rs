@@ -340,11 +340,11 @@ pub async fn list_books_by_genre(pool: &DbPool, genre: String) -> Result<Vec<Boo
         .await
 }
 
-pub async fn list_books_by_genre_or_all(pool: &DbPool, genre: String) -> Result<Vec<Book>, sqlx::Error> {
+pub async fn list_books_by_genre_or_all(pool: &DbPool, genre: Option<String>) -> Result<Vec<Book>, sqlx::Error> {
     let sql = r##"
         SELECT id, author_id, title, genre, price, published_at
         FROM book
-        WHERE $1 = 'all' OR genre = $1
+        WHERE $1::text IS NULL OR genre = $1
         ORDER BY title
     "##;
     sqlx::query_as::<_, Book>(sql)
@@ -911,7 +911,7 @@ impl<'a> Querier<'a> {
         list_books_by_genre(self.pool, genre).await
     }
 
-    pub async fn list_books_by_genre_or_all(&self, genre: String) -> Result<Vec<Book>, sqlx::Error> {
+    pub async fn list_books_by_genre_or_all(&self, genre: Option<String>) -> Result<Vec<Book>, sqlx::Error> {
         list_books_by_genre_or_all(self.pool, genre).await
     }
 

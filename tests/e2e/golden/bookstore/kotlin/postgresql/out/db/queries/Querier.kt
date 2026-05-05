@@ -35,7 +35,7 @@ class Querier(private val dataSource: DataSource) {
     fun listBooksByGenre(genre: String): List<Book> =
         dataSource.connection.use { conn -> Queries.listBooksByGenre(conn, genre) }
 
-    fun listBooksByGenreOrAll(genre: String): List<Book> =
+    fun listBooksByGenreOrAll(genre: String?): List<Book> =
         dataSource.connection.use { conn -> Queries.listBooksByGenreOrAll(conn, genre) }
 
     fun createCustomer(name: String, email: String): Queries.CreateCustomerRow? =

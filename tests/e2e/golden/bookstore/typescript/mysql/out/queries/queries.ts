@@ -32,7 +32,7 @@ WHERE genre = ?
 ORDER BY title`;
 const SQL_LIST_BOOKS_BY_GENRE_OR_ALL = `SELECT id, author_id, title, genre, price, published_at
 FROM book
-WHERE ? = 'all' OR genre = ?
+WHERE ? IS NULL OR genre = ?
 ORDER BY title`;
 const SQL_CREATE_CUSTOMER = `INSERT INTO customer (name, email)
 VALUES (?, ?)`;
@@ -241,7 +241,7 @@ export async function listBooksByGenre(db: Db, genre: string): Promise<Book[]> {
   return rows.map(raw => ({ ...raw, id: BigInt(raw.id), author_id: BigInt(raw.author_id) }));
 }
 
-export async function listBooksByGenreOrAll(db: Db, genre: string): Promise<Book[]> {
+export async function listBooksByGenreOrAll(db: Db, genre: string | null): Promise<Book[]> {
   const [rdp] = await db.query<RowDataPacket[]>(SQL_LIST_BOOKS_BY_GENRE_OR_ALL, [genre, genre]);
   const rows = rdp as Book[];
   return rows.map(raw => ({ ...raw, id: BigInt(raw.id), author_id: BigInt(raw.author_id) }));
@@ -680,7 +680,7 @@ export class Querier {
     }
   }
 
-  async listBooksByGenreOrAll(genre: string): Promise<Book[]> {
+  async listBooksByGenreOrAll(genre: string | null): Promise<Book[]> {
     const db = await this.connect();
     try {
       return listBooksByGenreOrAll(db, genre);

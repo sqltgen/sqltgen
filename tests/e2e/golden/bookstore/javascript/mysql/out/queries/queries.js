@@ -33,7 +33,7 @@ WHERE genre = ?
 ORDER BY title`;
 const SQL_LIST_BOOKS_BY_GENRE_OR_ALL = `SELECT id, author_id, title, genre, price, published_at
 FROM book
-WHERE ? = 'all' OR genre = ?
+WHERE ? IS NULL OR genre = ?
 ORDER BY title`;
 const SQL_CREATE_CUSTOMER = `INSERT INTO customer (name, email)
 VALUES (?, ?)`;
@@ -295,7 +295,7 @@ export async function listBooksByGenre(db, genre) {
 
 /**
  * @param {Db} db
- * @param {string} genre
+ * @param {string | null} genre
  * @returns {Promise<Book[]>}
  */
 export async function listBooksByGenreOrAll(db, genre) {
