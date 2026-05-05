@@ -48,7 +48,7 @@ ORDER BY title;
 -- name: ListBooksByGenreOrAll :many
 SELECT id, author_id, title, genre, price, published_at
 FROM book
-WHERE @genre = 'all' OR genre = @genre
+WHERE @genre::text IS NULL OR genre = @genre
 ORDER BY title;
 
 -- name: CreateCustomer :one

@@ -1,0 +1,29 @@
+# Build artifacts only. The sqltgen output directories (src/db, gen,
+# src/main/java/com/example/db, etc.) are NOT ignored — they are committed
+# so that snapshot-diff can detect codegen drift before running runtime
+# tests (see docs/E2E_RUNTIME_STATUS.md for the snapshot-as-gate workflow).
+
+# Rust
+**/target/
+**/Cargo.lock.bak
+
+# Java / Kotlin (Maven)
+**/target/
+**/.classpath
+**/.project
+**/.settings/
+
+# Eclipse / IntelliJ scratch files
+**/.idea/
+**/*.iml
+
+# Python
+**/__pycache__/
+**/.pytest_cache/
+**/*.pyc
+
+# Node
+**/node_modules/
+
+# Go
+**/vendor/

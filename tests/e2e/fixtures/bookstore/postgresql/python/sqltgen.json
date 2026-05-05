@@ -1,0 +1,13 @@
+{
+    "version": "1",
+    "engine": "postgresql",
+    "schema": "../schema.sql",
+    "queries": "../queries.sql",
+    "gen": {
+        "python": {
+            "out": "gen",
+            "package": "gen",
+            "manifest": "gen/manifest.json"
+        }
+    }
+}

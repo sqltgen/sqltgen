@@ -11,6 +11,17 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
 ## [Unreleased]
 
 ### Added
+- **E2E runtime test infrastructure overhaul** — runtime tests under
+  `tests/e2e/runtime/` are now hand-written and laid out as
+  `<fixture>/<engine>/<lang>/`. Each combo is self-contained (own build files,
+  `sqltgen.json`, test code, committed sqltgen output). Filesystem presence is
+  the matrix: a combo exists iff its directory exists. Auto-discovered Make
+  targets `e2e-runtime-{sqlite,postgresql,mysql}` glob the tree at runtime,
+  removing ~100 lines of hand-listed targets. The previous generator-based
+  infrastructure (`scripts/e2e_testgen/`, fixture `test_spec.yaml` files) was
+  removed. The committed sqltgen output under each runtime project serves as
+  both the snapshot and the input to runtime tests, enabling future
+  snapshot-as-gate workflows.
 - **Schema-qualified table references** — queries and DDL can now use
   `schema.table` syntax (e.g. `SELECT * FROM public.users`). Two tables with the
   same name in different schemas are correctly treated as distinct. Unqualified

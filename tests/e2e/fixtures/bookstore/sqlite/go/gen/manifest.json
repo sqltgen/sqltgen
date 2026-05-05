@@ -1,0 +1,1526 @@
+{
+  "language": "go",
+  "engine": "sqlite",
+  "package": "gen",
+  "models": [
+    {
+      "name": "Author",
+      "fields": [
+        {
+          "name": "id",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "bio",
+          "lang_type": "sql.NullString",
+          "sql_type": "text",
+          "nullable": true
+        },
+        {
+          "name": "birth_year",
+          "lang_type": "sql.NullInt32",
+          "sql_type": "integer",
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "name": "Book",
+      "fields": [
+        {
+          "name": "id",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "author_id",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "title",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "genre",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "price",
+          "lang_type": "float64",
+          "sql_type": "double",
+          "nullable": false
+        },
+        {
+          "name": "published_at",
+          "lang_type": "sql.NullString",
+          "sql_type": "text",
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "name": "Customer",
+      "fields": [
+        {
+          "name": "id",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "email",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "name": "Sale",
+      "fields": [
+        {
+          "name": "id",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "customer_id",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "ordered_at",
+          "lang_type": "time.Time",
+          "sql_type": "timestamp",
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "name": "SaleItem",
+      "fields": [
+        {
+          "name": "id",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "sale_id",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "book_id",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "quantity",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "unit_price",
+          "lang_type": "float64",
+          "sql_type": "double",
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "name": "Product",
+      "fields": [
+        {
+          "name": "id",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "sku",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "active",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "weight_kg",
+          "lang_type": "*float32",
+          "sql_type": "real",
+          "nullable": true
+        },
+        {
+          "name": "rating",
+          "lang_type": "*float32",
+          "sql_type": "real",
+          "nullable": true
+        },
+        {
+          "name": "metadata",
+          "lang_type": "sql.NullString",
+          "sql_type": "text",
+          "nullable": true
+        },
+        {
+          "name": "thumbnail",
+          "lang_type": "[]byte",
+          "sql_type": "bytes",
+          "nullable": true
+        },
+        {
+          "name": "created_at",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "stock_count",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "name": "ListBooksWithAuthorRow",
+      "fields": [
+        {
+          "name": "id",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "title",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "genre",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "price",
+          "lang_type": "float64",
+          "sql_type": "double",
+          "nullable": false
+        },
+        {
+          "name": "published_at",
+          "lang_type": "sql.NullString",
+          "sql_type": "text",
+          "nullable": true
+        },
+        {
+          "name": "author_name",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "author_bio",
+          "lang_type": "sql.NullString",
+          "sql_type": "text",
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "name": "GetTopSellingBooksRow",
+      "fields": [
+        {
+          "name": "id",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "title",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "genre",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "price",
+          "lang_type": "float64",
+          "sql_type": "double",
+          "nullable": false
+        },
+        {
+          "name": "units_sold",
+          "lang_type": "sql.NullInt64",
+          "sql_type": "bigint",
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "name": "GetBestCustomersRow",
+      "fields": [
+        {
+          "name": "id",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "email",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "total_spent",
+          "lang_type": "sql.NullFloat64",
+          "sql_type": "double",
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "name": "CountBooksByGenreRow",
+      "fields": [
+        {
+          "name": "genre",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "book_count",
+          "lang_type": "int64",
+          "sql_type": "bigint",
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "name": "ListBooksWithLimitRow",
+      "fields": [
+        {
+          "name": "id",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "title",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "genre",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "price",
+          "lang_type": "float64",
+          "sql_type": "double",
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "name": "SearchBooksByTitleRow",
+      "fields": [
+        {
+          "name": "id",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "title",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "genre",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "price",
+          "lang_type": "float64",
+          "sql_type": "double",
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "name": "GetBooksByPriceRangeRow",
+      "fields": [
+        {
+          "name": "id",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "title",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "genre",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "price",
+          "lang_type": "float64",
+          "sql_type": "double",
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "name": "GetBooksInGenresRow",
+      "fields": [
+        {
+          "name": "id",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "title",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "genre",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "price",
+          "lang_type": "float64",
+          "sql_type": "double",
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "name": "GetBookPriceLabelRow",
+      "fields": [
+        {
+          "name": "id",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "title",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "price",
+          "lang_type": "float64",
+          "sql_type": "double",
+          "nullable": false
+        },
+        {
+          "name": "price_label",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "name": "GetBookPriceOrDefaultRow",
+      "fields": [
+        {
+          "name": "id",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "title",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "effective_price",
+          "lang_type": "float64",
+          "sql_type": "double",
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "name": "GetGenresWithManyBooksRow",
+      "fields": [
+        {
+          "name": "genre",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "book_count",
+          "lang_type": "int64",
+          "sql_type": "bigint",
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "name": "GetBooksByAuthorParamRow",
+      "fields": [
+        {
+          "name": "id",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "title",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "price",
+          "lang_type": "float64",
+          "sql_type": "double",
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "name": "GetBooksNotByAuthorRow",
+      "fields": [
+        {
+          "name": "id",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "title",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "genre",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "name": "GetBooksWithRecentSalesRow",
+      "fields": [
+        {
+          "name": "id",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "title",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "genre",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "name": "GetBookWithAuthorNameRow",
+      "fields": [
+        {
+          "name": "id",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "title",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "author_name",
+          "lang_type": "sql.NullString",
+          "sql_type": "text",
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "name": "GetAuthorStatsRow",
+      "fields": [
+        {
+          "name": "id",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "num_books",
+          "lang_type": "int64",
+          "sql_type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "total_sold",
+          "lang_type": "int64",
+          "sql_type": "bigint",
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "name": "ListActiveProductsRow",
+      "fields": [
+        {
+          "name": "id",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "sku",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "active",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "weight_kg",
+          "lang_type": "*float32",
+          "sql_type": "real",
+          "nullable": true
+        },
+        {
+          "name": "rating",
+          "lang_type": "*float32",
+          "sql_type": "real",
+          "nullable": true
+        },
+        {
+          "name": "metadata",
+          "lang_type": "sql.NullString",
+          "sql_type": "text",
+          "nullable": true
+        },
+        {
+          "name": "created_at",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "stock_count",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "name": "GetAuthorsWithNullBioRow",
+      "fields": [
+        {
+          "name": "id",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "birth_year",
+          "lang_type": "sql.NullInt32",
+          "sql_type": "integer",
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "name": "GetBooksPublishedBetweenRow",
+      "fields": [
+        {
+          "name": "id",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "title",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "genre",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "price",
+          "lang_type": "float64",
+          "sql_type": "double",
+          "nullable": false
+        },
+        {
+          "name": "published_at",
+          "lang_type": "sql.NullString",
+          "sql_type": "text",
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "name": "GetDistinctGenresRow",
+      "fields": [
+        {
+          "name": "genre",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "name": "GetBooksWithSalesCountRow",
+      "fields": [
+        {
+          "name": "id",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "title",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "genre",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "total_quantity",
+          "lang_type": "int64",
+          "sql_type": "bigint",
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "name": "CountSaleItemsRow",
+      "fields": [
+        {
+          "name": "item_count",
+          "lang_type": "int64",
+          "sql_type": "bigint",
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "name": "GetSaleItemQuantityAggregatesRow",
+      "fields": [
+        {
+          "name": "min_qty",
+          "lang_type": "sql.NullInt32",
+          "sql_type": "integer",
+          "nullable": true
+        },
+        {
+          "name": "max_qty",
+          "lang_type": "sql.NullInt32",
+          "sql_type": "integer",
+          "nullable": true
+        },
+        {
+          "name": "sum_qty",
+          "lang_type": "sql.NullInt64",
+          "sql_type": "bigint",
+          "nullable": true
+        },
+        {
+          "name": "avg_qty",
+          "lang_type": "sql.NullFloat64",
+          "sql_type": "double",
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "name": "GetBookPriceAggregatesRow",
+      "fields": [
+        {
+          "name": "min_price",
+          "lang_type": "sql.NullFloat64",
+          "sql_type": "double",
+          "nullable": true
+        },
+        {
+          "name": "max_price",
+          "lang_type": "sql.NullFloat64",
+          "sql_type": "double",
+          "nullable": true
+        },
+        {
+          "name": "sum_price",
+          "lang_type": "sql.NullFloat64",
+          "sql_type": "double",
+          "nullable": true
+        },
+        {
+          "name": "avg_price",
+          "lang_type": "sql.NullFloat64",
+          "sql_type": "double",
+          "nullable": true
+        }
+      ]
+    }
+  ],
+  "functions": [
+    {
+      "name": "CreateAuthor",
+      "command": "exec",
+      "params": [
+        {
+          "name": "name",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "bio",
+          "lang_type": "sql.NullString",
+          "sql_type": "text",
+          "nullable": true
+        },
+        {
+          "name": "birth_year",
+          "lang_type": "sql.NullInt32",
+          "sql_type": "integer",
+          "nullable": true
+        }
+      ],
+      "returns": null
+    },
+    {
+      "name": "GetAuthor",
+      "command": "one",
+      "params": [
+        {
+          "name": "id",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        }
+      ],
+      "returns": "Author"
+    },
+    {
+      "name": "ListAuthors",
+      "command": "many",
+      "params": [],
+      "returns": "Author"
+    },
+    {
+      "name": "CreateBook",
+      "command": "exec",
+      "params": [
+        {
+          "name": "author_id",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "title",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "genre",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "price",
+          "lang_type": "float64",
+          "sql_type": "double",
+          "nullable": false
+        },
+        {
+          "name": "published_at",
+          "lang_type": "sql.NullString",
+          "sql_type": "text",
+          "nullable": true
+        }
+      ],
+      "returns": null
+    },
+    {
+      "name": "GetBook",
+      "command": "one",
+      "params": [
+        {
+          "name": "id",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        }
+      ],
+      "returns": "Book"
+    },
+    {
+      "name": "GetBooksByIds",
+      "command": "many",
+      "params": [
+        {
+          "name": "ids",
+          "lang_type": "int64",
+          "sql_type": "bigint",
+          "nullable": false
+        }
+      ],
+      "returns": "Book"
+    },
+    {
+      "name": "ListBooksByGenre",
+      "command": "many",
+      "params": [
+        {
+          "name": "genre",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        }
+      ],
+      "returns": "Book"
+    },
+    {
+      "name": "ListBooksByGenreOrAll",
+      "command": "many",
+      "params": [
+        {
+          "name": "genre",
+          "lang_type": "sql.NullString",
+          "sql_type": "text",
+          "nullable": true
+        }
+      ],
+      "returns": "Book"
+    },
+    {
+      "name": "CreateCustomer",
+      "command": "exec",
+      "params": [
+        {
+          "name": "name",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "email",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        }
+      ],
+      "returns": null
+    },
+    {
+      "name": "CreateSale",
+      "command": "exec",
+      "params": [
+        {
+          "name": "customer_id",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        }
+      ],
+      "returns": null
+    },
+    {
+      "name": "AddSaleItem",
+      "command": "exec",
+      "params": [
+        {
+          "name": "sale_id",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "book_id",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "quantity",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "unit_price",
+          "lang_type": "float64",
+          "sql_type": "double",
+          "nullable": false
+        }
+      ],
+      "returns": null
+    },
+    {
+      "name": "ListBooksWithAuthor",
+      "command": "many",
+      "params": [],
+      "returns": "ListBooksWithAuthorRow"
+    },
+    {
+      "name": "GetBooksNeverOrdered",
+      "command": "many",
+      "params": [],
+      "returns": "Book"
+    },
+    {
+      "name": "GetTopSellingBooks",
+      "command": "many",
+      "params": [],
+      "returns": "GetTopSellingBooksRow"
+    },
+    {
+      "name": "GetBestCustomers",
+      "command": "many",
+      "params": [],
+      "returns": "GetBestCustomersRow"
+    },
+    {
+      "name": "CountBooksByGenre",
+      "command": "many",
+      "params": [],
+      "returns": "CountBooksByGenreRow"
+    },
+    {
+      "name": "ListBooksWithLimit",
+      "command": "many",
+      "params": [
+        {
+          "name": "limit",
+          "lang_type": "int64",
+          "sql_type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "offset",
+          "lang_type": "int64",
+          "sql_type": "bigint",
+          "nullable": false
+        }
+      ],
+      "returns": "ListBooksWithLimitRow"
+    },
+    {
+      "name": "SearchBooksByTitle",
+      "command": "many",
+      "params": [
+        {
+          "name": "title",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        }
+      ],
+      "returns": "SearchBooksByTitleRow"
+    },
+    {
+      "name": "GetBooksByPriceRange",
+      "command": "many",
+      "params": [
+        {
+          "name": "price",
+          "lang_type": "float64",
+          "sql_type": "double",
+          "nullable": false
+        },
+        {
+          "name": "price_2",
+          "lang_type": "float64",
+          "sql_type": "double",
+          "nullable": false
+        }
+      ],
+      "returns": "GetBooksByPriceRangeRow"
+    },
+    {
+      "name": "GetBooksInGenres",
+      "command": "many",
+      "params": [
+        {
+          "name": "genre",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "genre_2",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "genre_3",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        }
+      ],
+      "returns": "GetBooksInGenresRow"
+    },
+    {
+      "name": "GetBookPriceLabel",
+      "command": "many",
+      "params": [
+        {
+          "name": "price",
+          "lang_type": "float64",
+          "sql_type": "double",
+          "nullable": false
+        }
+      ],
+      "returns": "GetBookPriceLabelRow"
+    },
+    {
+      "name": "GetBookPriceOrDefault",
+      "command": "many",
+      "params": [
+        {
+          "name": "price",
+          "lang_type": "sql.NullFloat64",
+          "sql_type": "double",
+          "nullable": true
+        }
+      ],
+      "returns": "GetBookPriceOrDefaultRow"
+    },
+    {
+      "name": "DeleteBookById",
+      "command": "execrows",
+      "params": [
+        {
+          "name": "id",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        }
+      ],
+      "returns": null
+    },
+    {
+      "name": "GetGenresWithManyBooks",
+      "command": "many",
+      "params": [
+        {
+          "name": "count",
+          "lang_type": "int64",
+          "sql_type": "bigint",
+          "nullable": false
+        }
+      ],
+      "returns": "GetGenresWithManyBooksRow"
+    },
+    {
+      "name": "GetBooksByAuthorParam",
+      "command": "many",
+      "params": [
+        {
+          "name": "birth_year",
+          "lang_type": "sql.NullInt32",
+          "sql_type": "integer",
+          "nullable": true
+        }
+      ],
+      "returns": "GetBooksByAuthorParamRow"
+    },
+    {
+      "name": "GetAllBookFields",
+      "command": "many",
+      "params": [],
+      "returns": "Book"
+    },
+    {
+      "name": "GetBooksNotByAuthor",
+      "command": "many",
+      "params": [
+        {
+          "name": "name",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        }
+      ],
+      "returns": "GetBooksNotByAuthorRow"
+    },
+    {
+      "name": "GetBooksWithRecentSales",
+      "command": "many",
+      "params": [
+        {
+          "name": "ordered_at",
+          "lang_type": "time.Time",
+          "sql_type": "timestamp",
+          "nullable": false
+        }
+      ],
+      "returns": "GetBooksWithRecentSalesRow"
+    },
+    {
+      "name": "GetBookWithAuthorName",
+      "command": "many",
+      "params": [],
+      "returns": "GetBookWithAuthorNameRow"
+    },
+    {
+      "name": "GetAuthorStats",
+      "command": "many",
+      "params": [],
+      "returns": "GetAuthorStatsRow"
+    },
+    {
+      "name": "GetProduct",
+      "command": "one",
+      "params": [
+        {
+          "name": "id",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        }
+      ],
+      "returns": "Product"
+    },
+    {
+      "name": "ListActiveProducts",
+      "command": "many",
+      "params": [
+        {
+          "name": "active",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        }
+      ],
+      "returns": "ListActiveProductsRow"
+    },
+    {
+      "name": "GetAuthorsWithNullBio",
+      "command": "many",
+      "params": [],
+      "returns": "GetAuthorsWithNullBioRow"
+    },
+    {
+      "name": "GetAuthorsWithBio",
+      "command": "many",
+      "params": [],
+      "returns": "Author"
+    },
+    {
+      "name": "GetBooksPublishedBetween",
+      "command": "many",
+      "params": [
+        {
+          "name": "published_at",
+          "lang_type": "sql.NullString",
+          "sql_type": "text",
+          "nullable": true
+        },
+        {
+          "name": "published_at_2",
+          "lang_type": "sql.NullString",
+          "sql_type": "text",
+          "nullable": true
+        }
+      ],
+      "returns": "GetBooksPublishedBetweenRow"
+    },
+    {
+      "name": "GetDistinctGenres",
+      "command": "many",
+      "params": [],
+      "returns": "GetDistinctGenresRow"
+    },
+    {
+      "name": "GetBooksWithSalesCount",
+      "command": "many",
+      "params": [],
+      "returns": "GetBooksWithSalesCountRow"
+    },
+    {
+      "name": "CountSaleItems",
+      "command": "one",
+      "params": [
+        {
+          "name": "sale_id",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        }
+      ],
+      "returns": "CountSaleItemsRow"
+    },
+    {
+      "name": "UpdateAuthorBio",
+      "command": "exec",
+      "params": [
+        {
+          "name": "bio",
+          "lang_type": "sql.NullString",
+          "sql_type": "text",
+          "nullable": true
+        },
+        {
+          "name": "id",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        }
+      ],
+      "returns": null
+    },
+    {
+      "name": "DeleteAuthor",
+      "command": "exec",
+      "params": [
+        {
+          "name": "id",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        }
+      ],
+      "returns": null
+    },
+    {
+      "name": "InsertProduct",
+      "command": "exec",
+      "params": [
+        {
+          "name": "id",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "sku",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "active",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "weight_kg",
+          "lang_type": "*float32",
+          "sql_type": "real",
+          "nullable": true
+        },
+        {
+          "name": "rating",
+          "lang_type": "*float32",
+          "sql_type": "real",
+          "nullable": true
+        },
+        {
+          "name": "metadata",
+          "lang_type": "sql.NullString",
+          "sql_type": "text",
+          "nullable": true
+        },
+        {
+          "name": "thumbnail",
+          "lang_type": "[]byte",
+          "sql_type": "bytes",
+          "nullable": true
+        },
+        {
+          "name": "stock_count",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        }
+      ],
+      "returns": null
+    },
+    {
+      "name": "UpsertProduct",
+      "command": "exec",
+      "params": [
+        {
+          "name": "id",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "sku",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "active",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        },
+        {
+          "name": "metadata",
+          "lang_type": "sql.NullString",
+          "sql_type": "text",
+          "nullable": true
+        },
+        {
+          "name": "stock_count",
+          "lang_type": "int32",
+          "sql_type": "integer",
+          "nullable": false
+        }
+      ],
+      "returns": null
+    },
+    {
+      "name": "GetSaleItemQuantityAggregates",
+      "command": "one",
+      "params": [],
+      "returns": "GetSaleItemQuantityAggregatesRow"
+    },
+    {
+      "name": "GetBookPriceAggregates",
+      "command": "one",
+      "params": [],
+      "returns": "GetBookPriceAggregatesRow"
+    }
+  ]
+}
