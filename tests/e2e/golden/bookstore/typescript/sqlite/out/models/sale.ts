@@ -3,5 +3,5 @@
 export interface Sale {
   id: number;
   customer_id: number;
-  ordered_at: string;
+  ordered_at: Date;
 }

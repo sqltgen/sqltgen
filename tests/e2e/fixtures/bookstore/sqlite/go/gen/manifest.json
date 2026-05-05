@@ -113,8 +113,8 @@
         },
         {
           "name": "ordered_at",
-          "lang_type": "string",
-          "sql_type": "text",
+          "lang_type": "time.Time",
+          "sql_type": "timestamp",
           "nullable": false
         }
       ]
@@ -1273,8 +1273,8 @@
       "params": [
         {
           "name": "ordered_at",
-          "lang_type": "string",
-          "sql_type": "text",
+          "lang_type": "time.Time",
+          "sql_type": "timestamp",
           "nullable": false
         }
       ],

@@ -553,9 +553,9 @@ object Queries {
         )
         ORDER BY title;
     """.trimIndent()
-    fun getBooksWithRecentSales(conn: Connection, orderedAt: String): List<GetBooksWithRecentSalesRow> {
+    fun getBooksWithRecentSales(conn: Connection, orderedAt: java.time.LocalDateTime): List<GetBooksWithRecentSalesRow> {
         conn.prepareStatement(SQL_GET_BOOKS_WITH_RECENT_SALES).use { ps ->
-            ps.setString(1, orderedAt)
+            ps.setObject(1, orderedAt)
             val rows = mutableListOf<GetBooksWithRecentSalesRow>()
             ps.executeQuery().use { rs ->
                 while (rs.next()) rows.add(GetBooksWithRecentSalesRow(rs.getInt(1), rs.getString(2), rs.getString(3)))

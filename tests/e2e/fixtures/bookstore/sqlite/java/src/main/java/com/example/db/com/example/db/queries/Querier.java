@@ -178,7 +178,7 @@ public final class Querier {
         }
     }
 
-    public List<Queries.GetBooksWithRecentSalesRow> getBooksWithRecentSales(String orderedAt) throws SQLException {
+    public List<Queries.GetBooksWithRecentSalesRow> getBooksWithRecentSales(java.time.LocalDateTime orderedAt) throws SQLException {
         try (Connection conn = dataSource.getConnection()) {
             return Queries.getBooksWithRecentSales(conn, orderedAt);
         }

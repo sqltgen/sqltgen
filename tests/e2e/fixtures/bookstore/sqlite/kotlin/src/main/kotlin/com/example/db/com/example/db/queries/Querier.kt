@@ -88,7 +88,7 @@ class Querier(private val dataSource: DataSource) {
     fun getBooksNotByAuthor(name: String): List<Queries.GetBooksNotByAuthorRow> =
         dataSource.connection.use { conn -> Queries.getBooksNotByAuthor(conn, name) }
 
-    fun getBooksWithRecentSales(orderedAt: String): List<Queries.GetBooksWithRecentSalesRow> =
+    fun getBooksWithRecentSales(orderedAt: java.time.LocalDateTime): List<Queries.GetBooksWithRecentSalesRow> =
         dataSource.connection.use { conn -> Queries.getBooksWithRecentSales(conn, orderedAt) }
 
     fun getBookWithAuthorName(): List<Queries.GetBookWithAuthorNameRow> =

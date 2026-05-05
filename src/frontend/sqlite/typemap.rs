@@ -16,9 +16,9 @@ pub(crate) fn map(dt: &DataType) -> SqlType {
         // SQLite uses BLOB for binary data
         DataType::Blob(_) | DataType::Bytea | DataType::Varbinary(_) | DataType::Binary(_) => SqlType::Bytes,
 
-        // SQLite has no native date/time types — these are stored as TEXT.
-        // No driver can guarantee the stored value is a valid date/time string.
-        DataType::Time(_, _) | DataType::Date | DataType::Timestamp(_, _) | DataType::Datetime(_) => SqlType::Text,
+        DataType::Time(_, _) => SqlType::Time,
+
+        DataType::Timestamp(_, _) | DataType::Datetime(_) => SqlType::Timestamp,
 
         // SQLite stores NUMERIC/DECIMAL as REAL (floating-point affinity).
         // Mapping to Double avoids exposing `rust_decimal::Decimal` in Rust backends
@@ -52,7 +52,7 @@ fn map_custom(name: &ObjectName) -> SqlType {
         "NUMBER" | "DECIMAL" | "NUMERIC" => SqlType::Double,
         "TEXT" | "CLOB" | "VARCHAR" | "NVARCHAR" | "NCHAR" | "VARYING CHARACTER" => SqlType::Text,
         "BLOB" | "NONE" => SqlType::Bytes,
-        "DATETIME" | "DATE" | "TIME" | "TIMESTAMP" => SqlType::Text,
+        "DATETIME" => SqlType::Timestamp,
         _ => map_custom_common(&upper).unwrap_or_else(|| fallback_custom_name(&upper)),
     }
 }
@@ -115,14 +115,15 @@ mod tests {
     }
 
     #[test]
-    fn test_map_date_time_to_text() {
-        // SQLite has no native date/time types — all map to Text.
-        assert_eq!(map(&DataType::Date), SqlType::Text);
+    fn test_map_date_time() {
+        assert_eq!(map(&DataType::Date), SqlType::Date);
         use sqlparser::ast::TimezoneInfo;
-        assert_eq!(map(&DataType::Time(None, TimezoneInfo::None)), SqlType::Text);
-        assert_eq!(map(&DataType::Timestamp(None, TimezoneInfo::None)), SqlType::Text);
-        assert_eq!(map(&DataType::Timestamp(None, TimezoneInfo::WithTimeZone)), SqlType::Text);
-        assert_eq!(map(&DataType::Datetime(None)), SqlType::Text);
+        assert_eq!(map(&DataType::Time(None, TimezoneInfo::None)), SqlType::Time);
+        assert_eq!(map(&DataType::Timestamp(None, TimezoneInfo::None)), SqlType::Timestamp);
+        // SQLite ignores timezone info — always maps to plain Timestamp/Time
+        assert_eq!(map(&DataType::Timestamp(None, TimezoneInfo::WithTimeZone)), SqlType::Timestamp);
+        // DATETIME (parsed as DataType::Datetime by sqlparser) maps to Timestamp
+        assert_eq!(map(&DataType::Datetime(None)), SqlType::Timestamp);
     }
 
     #[test]
@@ -176,11 +177,11 @@ mod tests {
     }
 
     #[test]
-    fn test_map_custom_date_time_to_text() {
-        assert_eq!(map_custom_str("DATE"), SqlType::Text);
-        assert_eq!(map_custom_str("TIME"), SqlType::Text);
-        assert_eq!(map_custom_str("DATETIME"), SqlType::Text);
-        assert_eq!(map_custom_str("TIMESTAMP"), SqlType::Text);
+    fn test_map_custom_date_time() {
+        assert_eq!(map_custom_str("DATE"), SqlType::Date);
+        assert_eq!(map_custom_str("TIME"), SqlType::Time);
+        assert_eq!(map_custom_str("DATETIME"), SqlType::Timestamp);
+        assert_eq!(map_custom_str("TIMESTAMP"), SqlType::Timestamp);
     }
 
     #[test]

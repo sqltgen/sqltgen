@@ -560,9 +560,9 @@ public final class Queries {
             )
             ORDER BY title;
             """;
-    public static List<GetBooksWithRecentSalesRow> getBooksWithRecentSales(Connection conn, String orderedAt) throws SQLException {
+    public static List<GetBooksWithRecentSalesRow> getBooksWithRecentSales(Connection conn, java.time.LocalDateTime orderedAt) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_GET_BOOKS_WITH_RECENT_SALES)) {
-            ps.setString(1, orderedAt);
+            ps.setObject(1, orderedAt);
             List<GetBooksWithRecentSalesRow> rows = new ArrayList<>();
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) rows.add(new GetBooksWithRecentSalesRow(rs.getInt(1), rs.getString(2), rs.getString(3)));

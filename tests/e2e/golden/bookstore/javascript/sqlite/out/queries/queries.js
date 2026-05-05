@@ -585,7 +585,7 @@ export async function getBooksNotByAuthor(db, name) {
 
 /**
  * @param {Db} db
- * @param {string} orderedAt
+ * @param {Date} orderedAt
  * @returns {Promise<GetBooksWithRecentSalesRow[]>}
  */
 export async function getBooksWithRecentSales(db, orderedAt) {
