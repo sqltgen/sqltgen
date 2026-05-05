@@ -14,4 +14,4 @@ runtime-test:
 clean:
 	rm -rf $(OUTPUT_DIR) __pycache__ .pytest_cache
 
-include $(REPO_ROOT)/tests/e2e/fixtures/snapshot-gate.mk
+include $(REPO_ROOT)/tests/e2e/snapshot-gate.mk
