@@ -12,7 +12,7 @@ import Database from 'better-sqlite3';
 
 import * as queries from './gen/queries';
 
-const FIXTURES = join(__dirname, '..
+const FIXTURES = join(__dirname, '..');
 
 function makeDb(): Database.Database {
   const db = new Database(':memory:');

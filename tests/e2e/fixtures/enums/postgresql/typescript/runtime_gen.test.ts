@@ -12,7 +12,7 @@ import { Client } from 'pg';
 
 import * as queries from './gen/queries';
 
-const FIXTURES = join(__dirname, '..
+const FIXTURES = join(__dirname, '..');
 const DATABASE_URL = process.env['DATABASE_URL']
   ?? 'postgresql://sqltgen:sqltgen@localhost:15432/sqltgen_e2e';
 

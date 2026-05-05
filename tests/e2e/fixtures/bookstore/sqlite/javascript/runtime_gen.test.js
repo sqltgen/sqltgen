@@ -12,7 +12,7 @@ import Database from 'better-sqlite3';
 
 import * as queries from './gen/queries/index.js';
 
-const FIXTURES = join(import.meta.dirname, '..
+const FIXTURES = join(import.meta.dirname, '..');
 
 function makeDb() {
   const db = new Database(':memory:');
