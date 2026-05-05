@@ -1,0 +1,13 @@
+{
+    "version": "1",
+    "engine": "sqlite",
+    "schema": "../schema.sql",
+    "queries": "../queries.sql",
+    "gen": {
+        "rust": {
+            "out": "src/db",
+            "package": "db",
+            "manifest": "src/db/manifest.json"
+        }
+    }
+}
