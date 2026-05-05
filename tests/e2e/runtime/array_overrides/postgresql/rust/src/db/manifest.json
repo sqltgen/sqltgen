@@ -1,0 +1,76 @@
+{
+  "language": "rust",
+  "engine": "postgresql",
+  "package": "db",
+  "models": [
+    {
+      "name": "Record",
+      "fields": [
+        {
+          "name": "id",
+          "lang_type": "i64",
+          "sql_type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "label",
+          "lang_type": "String",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "timestamps",
+          "lang_type": "Vec<time::PrimitiveDateTime>",
+          "sql_type": "timestamp[]",
+          "nullable": false
+        },
+        {
+          "name": "uuids",
+          "lang_type": "Vec<uuid::Uuid>",
+          "sql_type": "uuid[]",
+          "nullable": false
+        }
+      ]
+    }
+  ],
+  "functions": [
+    {
+      "name": "insert_record",
+      "command": "exec",
+      "params": [
+        {
+          "name": "label",
+          "lang_type": "String",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "timestamps",
+          "lang_type": "Vec<time::PrimitiveDateTime>",
+          "sql_type": "timestamp[]",
+          "nullable": false
+        },
+        {
+          "name": "uuids",
+          "lang_type": "Vec<uuid::Uuid>",
+          "sql_type": "uuid[]",
+          "nullable": false
+        }
+      ],
+      "returns": null
+    },
+    {
+      "name": "get_record",
+      "command": "one",
+      "params": [
+        {
+          "name": "id",
+          "lang_type": "i64",
+          "sql_type": "bigint",
+          "nullable": false
+        }
+      ],
+      "returns": "Record"
+    }
+  ]
+}

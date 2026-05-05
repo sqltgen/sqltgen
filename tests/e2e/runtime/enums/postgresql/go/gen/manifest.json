@@ -1,0 +1,402 @@
+{
+  "language": "go",
+  "engine": "postgresql",
+  "package": "gen",
+  "models": [
+    {
+      "name": "Task",
+      "fields": [
+        {
+          "name": "id",
+          "lang_type": "int64",
+          "sql_type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "title",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "priority",
+          "lang_type": "Priority",
+          "sql_type": "priority",
+          "nullable": false
+        },
+        {
+          "name": "status",
+          "lang_type": "Status",
+          "sql_type": "status",
+          "nullable": false
+        },
+        {
+          "name": "description",
+          "lang_type": "sql.NullString",
+          "sql_type": "text",
+          "nullable": true
+        },
+        {
+          "name": "tags",
+          "lang_type": "[]Priority",
+          "sql_type": "priority[]",
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "name": "GetTaskRow",
+      "fields": [
+        {
+          "name": "id",
+          "lang_type": "int64",
+          "sql_type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "title",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "priority",
+          "lang_type": "Priority",
+          "sql_type": "priority",
+          "nullable": false
+        },
+        {
+          "name": "status",
+          "lang_type": "Status",
+          "sql_type": "status",
+          "nullable": false
+        },
+        {
+          "name": "description",
+          "lang_type": "sql.NullString",
+          "sql_type": "text",
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "name": "ListTasksByPriorityRow",
+      "fields": [
+        {
+          "name": "id",
+          "lang_type": "int64",
+          "sql_type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "title",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "priority",
+          "lang_type": "Priority",
+          "sql_type": "priority",
+          "nullable": false
+        },
+        {
+          "name": "status",
+          "lang_type": "Status",
+          "sql_type": "status",
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "name": "ListTasksByStatusRow",
+      "fields": [
+        {
+          "name": "id",
+          "lang_type": "int64",
+          "sql_type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "title",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "priority",
+          "lang_type": "Priority",
+          "sql_type": "priority",
+          "nullable": false
+        },
+        {
+          "name": "status",
+          "lang_type": "Status",
+          "sql_type": "status",
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "name": "ListTasksByPriorityOrAllRow",
+      "fields": [
+        {
+          "name": "id",
+          "lang_type": "int64",
+          "sql_type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "title",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "priority",
+          "lang_type": "Priority",
+          "sql_type": "priority",
+          "nullable": false
+        },
+        {
+          "name": "status",
+          "lang_type": "Status",
+          "sql_type": "status",
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "name": "CountByStatusRow",
+      "fields": [
+        {
+          "name": "status",
+          "lang_type": "Status",
+          "sql_type": "status",
+          "nullable": false
+        },
+        {
+          "name": "task_count",
+          "lang_type": "int64",
+          "sql_type": "bigint",
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "name": "GetTaskTagsRow",
+      "fields": [
+        {
+          "name": "id",
+          "lang_type": "int64",
+          "sql_type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "title",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "tags",
+          "lang_type": "[]Priority",
+          "sql_type": "priority[]",
+          "nullable": false
+        }
+      ]
+    }
+  ],
+  "functions": [
+    {
+      "name": "CreateTask",
+      "command": "one",
+      "params": [
+        {
+          "name": "title",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "priority",
+          "lang_type": "Priority",
+          "sql_type": "priority",
+          "nullable": false
+        },
+        {
+          "name": "status",
+          "lang_type": "Status",
+          "sql_type": "status",
+          "nullable": false
+        },
+        {
+          "name": "description",
+          "lang_type": "sql.NullString",
+          "sql_type": "text",
+          "nullable": true
+        }
+      ],
+      "returns": "Task"
+    },
+    {
+      "name": "GetTask",
+      "command": "one",
+      "params": [
+        {
+          "name": "id",
+          "lang_type": "int64",
+          "sql_type": "bigint",
+          "nullable": false
+        }
+      ],
+      "returns": "GetTaskRow"
+    },
+    {
+      "name": "ListTasksByPriority",
+      "command": "many",
+      "params": [
+        {
+          "name": "priority",
+          "lang_type": "Priority",
+          "sql_type": "priority",
+          "nullable": false
+        }
+      ],
+      "returns": "ListTasksByPriorityRow"
+    },
+    {
+      "name": "ListTasksByStatus",
+      "command": "many",
+      "params": [
+        {
+          "name": "status",
+          "lang_type": "Status",
+          "sql_type": "status",
+          "nullable": false
+        }
+      ],
+      "returns": "ListTasksByStatusRow"
+    },
+    {
+      "name": "UpdateTaskStatus",
+      "command": "one",
+      "params": [
+        {
+          "name": "status",
+          "lang_type": "Status",
+          "sql_type": "status",
+          "nullable": false
+        },
+        {
+          "name": "id",
+          "lang_type": "int64",
+          "sql_type": "bigint",
+          "nullable": false
+        }
+      ],
+      "returns": "Task"
+    },
+    {
+      "name": "ListTasksByPriorityOrAll",
+      "command": "many",
+      "params": [
+        {
+          "name": "priority",
+          "lang_type": "*Priority",
+          "sql_type": "priority",
+          "nullable": true
+        }
+      ],
+      "returns": "ListTasksByPriorityOrAllRow"
+    },
+    {
+      "name": "CountByStatus",
+      "command": "many",
+      "params": [],
+      "returns": "CountByStatusRow"
+    },
+    {
+      "name": "CreateTaskWithTags",
+      "command": "one",
+      "params": [
+        {
+          "name": "title",
+          "lang_type": "string",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "priority",
+          "lang_type": "Priority",
+          "sql_type": "priority",
+          "nullable": false
+        },
+        {
+          "name": "status",
+          "lang_type": "Status",
+          "sql_type": "status",
+          "nullable": false
+        },
+        {
+          "name": "description",
+          "lang_type": "sql.NullString",
+          "sql_type": "text",
+          "nullable": true
+        },
+        {
+          "name": "tags",
+          "lang_type": "[]Priority",
+          "sql_type": "priority[]",
+          "nullable": false
+        }
+      ],
+      "returns": "Task"
+    },
+    {
+      "name": "GetTaskTags",
+      "command": "one",
+      "params": [
+        {
+          "name": "id",
+          "lang_type": "int64",
+          "sql_type": "bigint",
+          "nullable": false
+        }
+      ],
+      "returns": "GetTaskTagsRow"
+    },
+    {
+      "name": "UpdateTaskTags",
+      "command": "one",
+      "params": [
+        {
+          "name": "tags",
+          "lang_type": "[]Priority",
+          "sql_type": "priority[]",
+          "nullable": false
+        },
+        {
+          "name": "id",
+          "lang_type": "int64",
+          "sql_type": "bigint",
+          "nullable": false
+        }
+      ],
+      "returns": "Task"
+    },
+    {
+      "name": "DeleteTask",
+      "command": "exec",
+      "params": [
+        {
+          "name": "id",
+          "lang_type": "int64",
+          "sql_type": "bigint",
+          "nullable": false
+        }
+      ],
+      "returns": null
+    }
+  ]
+}

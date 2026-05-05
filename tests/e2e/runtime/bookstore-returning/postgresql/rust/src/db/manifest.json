@@ -1,0 +1,203 @@
+{
+  "language": "rust",
+  "engine": "postgresql",
+  "package": "db",
+  "models": [
+    {
+      "name": "Author",
+      "fields": [
+        {
+          "name": "id",
+          "lang_type": "i64",
+          "sql_type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "lang_type": "String",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "bio",
+          "lang_type": "Option<String>",
+          "sql_type": "text",
+          "nullable": true
+        },
+        {
+          "name": "birth_year",
+          "lang_type": "Option<i32>",
+          "sql_type": "integer",
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "name": "Book",
+      "fields": [
+        {
+          "name": "id",
+          "lang_type": "i64",
+          "sql_type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "author_id",
+          "lang_type": "i64",
+          "sql_type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "title",
+          "lang_type": "String",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "genre",
+          "lang_type": "String",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "price",
+          "lang_type": "rust_decimal::Decimal",
+          "sql_type": "decimal",
+          "nullable": false
+        },
+        {
+          "name": "published_at",
+          "lang_type": "Option<time::Date>",
+          "sql_type": "date",
+          "nullable": true
+        }
+      ]
+    },
+    {
+      "name": "DeleteAuthorRow",
+      "fields": [
+        {
+          "name": "id",
+          "lang_type": "i64",
+          "sql_type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "lang_type": "String",
+          "sql_type": "text",
+          "nullable": false
+        }
+      ]
+    }
+  ],
+  "functions": [
+    {
+      "name": "create_author",
+      "command": "one",
+      "params": [
+        {
+          "name": "name",
+          "lang_type": "String",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "bio",
+          "lang_type": "Option<String>",
+          "sql_type": "text",
+          "nullable": true
+        },
+        {
+          "name": "birth_year",
+          "lang_type": "Option<i32>",
+          "sql_type": "integer",
+          "nullable": true
+        }
+      ],
+      "returns": "Author"
+    },
+    {
+      "name": "get_author",
+      "command": "one",
+      "params": [
+        {
+          "name": "id",
+          "lang_type": "i64",
+          "sql_type": "bigint",
+          "nullable": false
+        }
+      ],
+      "returns": "Author"
+    },
+    {
+      "name": "update_author_bio",
+      "command": "one",
+      "params": [
+        {
+          "name": "bio",
+          "lang_type": "Option<String>",
+          "sql_type": "text",
+          "nullable": true
+        },
+        {
+          "name": "id",
+          "lang_type": "i64",
+          "sql_type": "bigint",
+          "nullable": false
+        }
+      ],
+      "returns": "Author"
+    },
+    {
+      "name": "delete_author",
+      "command": "one",
+      "params": [
+        {
+          "name": "id",
+          "lang_type": "i64",
+          "sql_type": "bigint",
+          "nullable": false
+        }
+      ],
+      "returns": "DeleteAuthorRow"
+    },
+    {
+      "name": "create_book",
+      "command": "one",
+      "params": [
+        {
+          "name": "author_id",
+          "lang_type": "i64",
+          "sql_type": "bigint",
+          "nullable": false
+        },
+        {
+          "name": "title",
+          "lang_type": "String",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "genre",
+          "lang_type": "String",
+          "sql_type": "text",
+          "nullable": false
+        },
+        {
+          "name": "price",
+          "lang_type": "rust_decimal::Decimal",
+          "sql_type": "decimal",
+          "nullable": false
+        },
+        {
+          "name": "published_at",
+          "lang_type": "Option<time::Date>",
+          "sql_type": "date",
+          "nullable": true
+        }
+      ],
+      "returns": "Book"
+    }
+  ]
+}
