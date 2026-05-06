@@ -352,6 +352,46 @@ fn java_type_info(sql_type: &SqlType) -> JavaTypeInfo {
             array_elem: None,
             array_raw: "it.toString()",
         },
+        // MySQL UNSIGNED integers are widened to the next signed Java integer that
+        // fits the entire unsigned range. BIGINT UNSIGNED has no Java primitive
+        // wide enough, so it maps to java.math.BigInteger; users who know their
+        // values fit in long can opt into it via a type override (lossy).
+        SqlType::TinyIntUnsigned => JavaTypeInfo {
+            field_type: "short",
+            field_type_boxed: "Short",
+            scalar_read: "rs.getShort({idx})",
+            nullable_helper: Some("getNullableShort"),
+            uses_get_object: false,
+            array_elem: None,
+            array_raw: "it.toString()",
+        },
+        SqlType::SmallIntUnsigned => JavaTypeInfo {
+            field_type: "int",
+            field_type_boxed: "Integer",
+            scalar_read: "rs.getInt({idx})",
+            nullable_helper: Some("getNullableInt"),
+            uses_get_object: false,
+            array_elem: None,
+            array_raw: "it.toString()",
+        },
+        SqlType::IntegerUnsigned => JavaTypeInfo {
+            field_type: "long",
+            field_type_boxed: "Long",
+            scalar_read: "rs.getLong({idx})",
+            nullable_helper: Some("getNullableLong"),
+            uses_get_object: false,
+            array_elem: None,
+            array_raw: "it.toString()",
+        },
+        SqlType::BigIntUnsigned => JavaTypeInfo {
+            field_type: "java.math.BigInteger",
+            field_type_boxed: "java.math.BigInteger",
+            scalar_read: "rs.getObject({idx}, java.math.BigInteger.class)",
+            nullable_helper: None,
+            uses_get_object: true,
+            array_elem: None,
+            array_raw: "it.toString()",
+        },
         SqlType::Real => JavaTypeInfo {
             field_type: "float",
             field_type_boxed: "Float",
@@ -485,6 +525,22 @@ mod tests {
 
     fn read(sql_type: SqlType, nullable: bool) -> String {
         resultset_read_expr_pub(&sql_type, nullable, 1)
+    }
+
+    #[test]
+    fn test_unsigned_integer_widening() {
+        // TINYINT UNSIGNED (0..255) does not fit in Java byte, widens to short.
+        assert_eq!(java_type_pub(&SqlType::TinyIntUnsigned, false), "short");
+        assert_eq!(java_type_pub(&SqlType::TinyIntUnsigned, true), "Short");
+        // SMALLINT UNSIGNED (0..65535) does not fit in Java short, widens to int.
+        assert_eq!(java_type_pub(&SqlType::SmallIntUnsigned, false), "int");
+        assert_eq!(java_type_pub(&SqlType::SmallIntUnsigned, true), "Integer");
+        // INT UNSIGNED (0..2^32-1) does not fit in Java int, widens to long.
+        assert_eq!(java_type_pub(&SqlType::IntegerUnsigned, false), "long");
+        assert_eq!(java_type_pub(&SqlType::IntegerUnsigned, true), "Long");
+        // BIGINT UNSIGNED (0..2^64-1) exceeds Java long; default to BigInteger.
+        assert_eq!(java_type_pub(&SqlType::BigIntUnsigned, false), "java.math.BigInteger");
+        assert_eq!(java_type_pub(&SqlType::BigIntUnsigned, true), "java.math.BigInteger");
     }
 
     #[test]

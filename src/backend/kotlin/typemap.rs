@@ -233,6 +233,41 @@ fn kotlin_type_info(sql_type: &SqlType) -> KotlinTypeInfo {
             array_elem: None,
             array_raw: "it.toString()",
         },
+        // MySQL UNSIGNED integers widen to the next signed Kotlin integer that
+        // covers the full unsigned range. BIGINT UNSIGNED has no Kotlin
+        // primitive wide enough; map to java.math.BigInteger by default.
+        SqlType::TinyIntUnsigned => KotlinTypeInfo {
+            name: "Short",
+            scalar_read: "rs.getShort({idx})",
+            nullable_helper: Some("getNullableShort"),
+            uses_get_object: false,
+            array_elem: None,
+            array_raw: "it.toString()",
+        },
+        SqlType::SmallIntUnsigned => KotlinTypeInfo {
+            name: "Int",
+            scalar_read: "rs.getInt({idx})",
+            nullable_helper: Some("getNullableInt"),
+            uses_get_object: false,
+            array_elem: None,
+            array_raw: "it.toString()",
+        },
+        SqlType::IntegerUnsigned => KotlinTypeInfo {
+            name: "Long",
+            scalar_read: "rs.getLong({idx})",
+            nullable_helper: Some("getNullableLong"),
+            uses_get_object: false,
+            array_elem: None,
+            array_raw: "it.toString()",
+        },
+        SqlType::BigIntUnsigned => KotlinTypeInfo {
+            name: "java.math.BigInteger",
+            scalar_read: "rs.getObject({idx}, java.math.BigInteger::class.java)",
+            nullable_helper: None,
+            uses_get_object: true,
+            array_elem: None,
+            array_raw: "it.toString()",
+        },
         SqlType::Real => KotlinTypeInfo {
             name: "Float",
             scalar_read: "rs.getFloat({idx})",

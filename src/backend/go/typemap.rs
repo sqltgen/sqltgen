@@ -175,6 +175,41 @@ fn go_default_entry(sql_type: &SqlType, json_mode: GoJsonMode) -> GoTypeEntry {
             import: None,
             import_nullable: db_sql,
         },
+        // MySQL UNSIGNED integers map to native Go unsigned widths. database/sql has
+        // no NullUintN helpers, so nullable forms use pointer types (the same pattern
+        // used for `Real`/`float32`).
+        SqlType::TinyIntUnsigned => GoTypeEntry {
+            field_type: "uint8".into(),
+            field_type_nullable: "*uint8".into(),
+            param_type: "uint8".into(),
+            param_type_nullable: "*uint8".into(),
+            import: None,
+            import_nullable: None,
+        },
+        SqlType::SmallIntUnsigned => GoTypeEntry {
+            field_type: "uint16".into(),
+            field_type_nullable: "*uint16".into(),
+            param_type: "uint16".into(),
+            param_type_nullable: "*uint16".into(),
+            import: None,
+            import_nullable: None,
+        },
+        SqlType::IntegerUnsigned => GoTypeEntry {
+            field_type: "uint32".into(),
+            field_type_nullable: "*uint32".into(),
+            param_type: "uint32".into(),
+            param_type_nullable: "*uint32".into(),
+            import: None,
+            import_nullable: None,
+        },
+        SqlType::BigIntUnsigned => GoTypeEntry {
+            field_type: "uint64".into(),
+            field_type_nullable: "*uint64".into(),
+            param_type: "uint64".into(),
+            param_type_nullable: "*uint64".into(),
+            import: None,
+            import_nullable: None,
+        },
         SqlType::Real => GoTypeEntry {
             field_type: "float32".into(),
             field_type_nullable: "*float32".into(),
@@ -250,5 +285,29 @@ fn go_default_entry(sql_type: &SqlType, json_mode: GoJsonMode) -> GoTypeEntry {
             import_nullable: None,
         },
         SqlType::Enum(_) | SqlType::Array(_) => unreachable!("enums and arrays are not in the canonical type list"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unsigned_integers_map_to_native_unsigned_widths() {
+        let entry = go_default_entry(&SqlType::TinyIntUnsigned, GoJsonMode::String);
+        assert_eq!(entry.field_type, "uint8");
+        assert_eq!(entry.field_type_nullable, "*uint8");
+
+        let entry = go_default_entry(&SqlType::SmallIntUnsigned, GoJsonMode::String);
+        assert_eq!(entry.field_type, "uint16");
+        assert_eq!(entry.field_type_nullable, "*uint16");
+
+        let entry = go_default_entry(&SqlType::IntegerUnsigned, GoJsonMode::String);
+        assert_eq!(entry.field_type, "uint32");
+        assert_eq!(entry.field_type_nullable, "*uint32");
+
+        let entry = go_default_entry(&SqlType::BigIntUnsigned, GoJsonMode::String);
+        assert_eq!(entry.field_type, "uint64");
+        assert_eq!(entry.field_type_nullable, "*uint64");
     }
 }

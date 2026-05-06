@@ -11,6 +11,21 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
 ## [Unreleased]
 
 ### Added
+- **MySQL `UNSIGNED` integer modifiers** — the parser previously dropped the
+  `UNSIGNED` modifier and emitted the signed counterpart, silently truncating
+  the upper half of every unsigned column at the type-system boundary. New IR
+  variants `TinyIntUnsigned`, `SmallIntUnsigned`, `IntegerUnsigned`, and
+  `BigIntUnsigned` carry the unsigned distinction through to backends, where
+  each language picks the most precise representation:
+  - **Rust** / **Go**: native unsigned widths (`u8`/`uint8` … `u64`/`uint64`).
+  - **Java** / **Kotlin**: widen to the next signed primitive that contains
+    the full unsigned range (`Short` / `Int` / `Long`); `BIGINT UNSIGNED`
+    defaults to `java.math.BigInteger` because no Java/Kotlin primitive fits.
+    Users can opt back into `Long` (lossy at the upper end) via a
+    `bigint_unsigned` type override.
+  - **Python**: `int` (arbitrary precision; nothing to widen).
+  - **TypeScript**: `number` for sub-64-bit; `bigint` for `BIGINT UNSIGNED`.
+  `TINYINT(1) UNSIGNED` continues to follow the boolean convention.
 - **E2E runtime test infrastructure overhaul** — runtime tests under
   `tests/e2e/fixtures/<fixture>/<engine>/<lang>/` are hand-written. Each combo
   is self-contained (own build files, `sqltgen.json`, test code, committed

@@ -10,11 +10,22 @@ use crate::ir::SqlType;
 pub(crate) fn map(dt: &DataType) -> SqlType {
     // Dialect-specific arms first
     match dt {
-        // TINYINT(1) is MySQL's boolean convention; any other width is a small integer
-        DataType::TinyInt(Some(1)) => SqlType::Boolean,
+        // TINYINT(1) is MySQL's boolean convention (signed or unsigned); any other
+        // width is an integer. Unsigned variants must widen to a larger signed type
+        // (or stay unsigned in backends that have native unsigned types) so the full
+        // unsigned range fits — see `SqlType::*Unsigned` and the per-backend typemaps.
+        DataType::TinyInt(Some(1)) | DataType::TinyIntUnsigned(Some(1)) => SqlType::Boolean,
         DataType::TinyInt(_) => SqlType::SmallInt,
+        DataType::TinyIntUnsigned(_) => SqlType::TinyIntUnsigned,
+
+        DataType::SmallIntUnsigned(_) | DataType::Int2Unsigned(_) => SqlType::SmallIntUnsigned,
 
         DataType::MediumInt(_) => SqlType::Integer,
+        DataType::MediumIntUnsigned(_) => SqlType::IntegerUnsigned,
+
+        DataType::IntUnsigned(_) | DataType::IntegerUnsigned(_) | DataType::Int4Unsigned(_) => SqlType::IntegerUnsigned,
+
+        DataType::BigIntUnsigned(_) | DataType::Int8Unsigned(_) => SqlType::BigIntUnsigned,
 
         DataType::Varchar(_) | DataType::CharacterVarying(_) | DataType::Nvarchar(_) => SqlType::VarChar(None),
 
@@ -83,6 +94,22 @@ mod tests {
         assert_eq!(map(&DataType::TinyInt(None)), SqlType::SmallInt);
         assert_eq!(map(&DataType::TinyInt(Some(4))), SqlType::SmallInt);
         assert_eq!(map(&DataType::MediumInt(None)), SqlType::Integer);
+    }
+
+    #[test]
+    fn unsigned_integer_types() {
+        // TINYINT(1) UNSIGNED still follows the boolean convention.
+        assert_eq!(map(&DataType::TinyIntUnsigned(Some(1))), SqlType::Boolean);
+        assert_eq!(map(&DataType::TinyIntUnsigned(None)), SqlType::TinyIntUnsigned);
+        assert_eq!(map(&DataType::TinyIntUnsigned(Some(3))), SqlType::TinyIntUnsigned);
+        assert_eq!(map(&DataType::SmallIntUnsigned(None)), SqlType::SmallIntUnsigned);
+        assert_eq!(map(&DataType::Int2Unsigned(None)), SqlType::SmallIntUnsigned);
+        assert_eq!(map(&DataType::MediumIntUnsigned(None)), SqlType::IntegerUnsigned);
+        assert_eq!(map(&DataType::IntUnsigned(None)), SqlType::IntegerUnsigned);
+        assert_eq!(map(&DataType::IntegerUnsigned(None)), SqlType::IntegerUnsigned);
+        assert_eq!(map(&DataType::Int4Unsigned(None)), SqlType::IntegerUnsigned);
+        assert_eq!(map(&DataType::BigIntUnsigned(None)), SqlType::BigIntUnsigned);
+        assert_eq!(map(&DataType::Int8Unsigned(None)), SqlType::BigIntUnsigned);
     }
 
     #[test]

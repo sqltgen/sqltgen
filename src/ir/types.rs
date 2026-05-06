@@ -2,10 +2,19 @@
 pub enum SqlType {
     // Boolean
     Boolean,
-    // Integers
+    // Signed integers
     SmallInt,
     Integer,
     BigInt,
+    // Unsigned integers (MySQL `UNSIGNED` modifier).
+    // Each variant carries a strictly-larger value range than its signed peer,
+    // so backends without native unsigned types must widen accordingly to
+    // preserve correctness — e.g. `TINYINT UNSIGNED` (0..=255) cannot fit in
+    // Java's `byte` (-128..=127) and must widen to `Short`.
+    TinyIntUnsigned,
+    SmallIntUnsigned,
+    IntegerUnsigned,
+    BigIntUnsigned,
     // Floating point
     Real,
     Double,
@@ -43,6 +52,19 @@ impl SqlType {
     /// Numeric and boolean types produce valid JSON via `toString()`;
     /// everything else (text, dates, UUIDs, etc.) must be quoted.
     pub fn needs_json_quoting(&self) -> bool {
-        !matches!(self, SqlType::Boolean | SqlType::SmallInt | SqlType::Integer | SqlType::BigInt | SqlType::Real | SqlType::Double | SqlType::Decimal)
+        !matches!(
+            self,
+            SqlType::Boolean
+                | SqlType::SmallInt
+                | SqlType::Integer
+                | SqlType::BigInt
+                | SqlType::TinyIntUnsigned
+                | SqlType::SmallIntUnsigned
+                | SqlType::IntegerUnsigned
+                | SqlType::BigIntUnsigned
+                | SqlType::Real
+                | SqlType::Double
+                | SqlType::Decimal
+        )
     }
 }

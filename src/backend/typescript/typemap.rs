@@ -98,7 +98,7 @@ impl JsTypeMap {
     /// params use a replacer that converts each element to a string before serialization.
     /// All other element types use plain `JSON.stringify`.
     pub(super) fn list_json_stringify(&self, sql_type: &SqlType, name: &str) -> String {
-        if matches!(sql_type, SqlType::BigInt) {
+        if matches!(sql_type, SqlType::BigInt | SqlType::BigIntUnsigned) {
             format!("JSON.stringify({name}, (_, v) => typeof v === 'bigint' ? String(v) : v)")
         } else {
             format!("JSON.stringify({name})")
@@ -171,7 +171,7 @@ pub(super) fn build_js_type_map(config: &OutputConfig, adapter: &dyn JsDriverAda
 
 /// Default read expression for BigInt: all drivers return BIGINT as a non-bigint primitive.
 fn bigint_default_read_expr(sql_type: &SqlType) -> Option<String> {
-    if matches!(sql_type, SqlType::BigInt) {
+    if matches!(sql_type, SqlType::BigInt | SqlType::BigIntUnsigned) {
         Some("BigInt({raw})".to_string())
     } else {
         None
@@ -183,6 +183,11 @@ fn js_default_type(sql_type: &SqlType, adapter: &dyn JsDriverAdapter) -> String 
         SqlType::Boolean => "boolean",
         SqlType::SmallInt | SqlType::Integer => "number",
         SqlType::BigInt => "bigint",
+        // MySQL UNSIGNED variants. Up through INT UNSIGNED (2^32-1) the value
+        // fits in JS `number` (safe integer range goes to 2^53-1). BIGINT
+        // UNSIGNED (2^64-1) exceeds that, so it must use `bigint`.
+        SqlType::TinyIntUnsigned | SqlType::SmallIntUnsigned | SqlType::IntegerUnsigned => "number",
+        SqlType::BigIntUnsigned => "bigint",
         SqlType::Real | SqlType::Double => "number",
         SqlType::Decimal => "string",
         SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_) => "string",
@@ -196,4 +201,21 @@ fn js_default_type(sql_type: &SqlType, adapter: &dyn JsDriverAdapter) -> String 
         SqlType::Enum(_) | SqlType::Array(_) => unreachable!("enums and arrays are not in the canonical type list"),
     }
     .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::backend::typescript::{adapter::build_adapter, JsOutput, JsTarget};
+
+    #[test]
+    fn unsigned_integers_widen_only_for_64bit() {
+        // Up through INT UNSIGNED (2^32-1) the value fits safely in JS `number`.
+        // BIGINT UNSIGNED (2^64-1) exceeds Number.MAX_SAFE_INTEGER and must use bigint.
+        let adapter = build_adapter(JsTarget::Mysql2, JsOutput::TypeScript);
+        assert_eq!(js_default_type(&SqlType::TinyIntUnsigned, adapter.as_ref()), "number");
+        assert_eq!(js_default_type(&SqlType::SmallIntUnsigned, adapter.as_ref()), "number");
+        assert_eq!(js_default_type(&SqlType::IntegerUnsigned, adapter.as_ref()), "number");
+        assert_eq!(js_default_type(&SqlType::BigIntUnsigned, adapter.as_ref()), "bigint");
+    }
 }
