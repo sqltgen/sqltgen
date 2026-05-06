@@ -22,10 +22,17 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
     the full unsigned range (`Short` / `Int` / `Long`); `BIGINT UNSIGNED`
     defaults to `java.math.BigInteger` because no Java/Kotlin primitive fits.
     Users can opt back into `Long` (lossy at the upper end) via a
-    `bigint_unsigned` type override.
+    `bigint_unsigned` type override. The JDBC bind path for `BIGINT UNSIGNED`
+    converts `BigInteger` → `BigDecimal` at bind time and uses
+    `setBigDecimal`, since `setObject(BigInteger)` is rejected by MySQL
+    Connector/J for values above `Long.MAX_VALUE`.
   - **Python**: `int` (arbitrary precision; nothing to widen).
   - **TypeScript**: `number` for sub-64-bit; `bigint` for `BIGINT UNSIGNED`.
   `TINYINT(1) UNSIGNED` continues to follow the boolean convention.
+- **Runtime e2e fixture `unsigned_integers/mysql/`** — exercises every backend
+  (Rust, Java, Kotlin, Python, Go, TypeScript, JavaScript) by inserting and
+  reading back boundary values for every unsigned width, including `2⁶⁴-1`
+  for `BIGINT UNSIGNED`.
 - **E2E runtime test infrastructure overhaul** — runtime tests under
   `tests/e2e/fixtures/<fixture>/<engine>/<lang>/` are hand-written. Each combo
   is self-contained (own build files, `sqltgen.json`, test code, committed

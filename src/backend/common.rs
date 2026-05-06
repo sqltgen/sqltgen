@@ -255,6 +255,18 @@ pub fn jdbc_setter(sql_type: &SqlType) -> &'static str {
         SqlType::SmallInt => "setShort",
         SqlType::Integer => "setInt",
         SqlType::BigInt => "setLong",
+        // Unsigned widths are stored in the next-larger signed primitive (see
+        // backend/{java,kotlin}/typemap.rs), so the matching JDBC setter for
+        // that primitive is correct here.
+        SqlType::TinyIntUnsigned => "setShort",
+        SqlType::SmallIntUnsigned => "setInt",
+        SqlType::IntegerUnsigned => "setLong",
+        // BIGINT UNSIGNED carries values beyond Long.MAX_VALUE; the field is a
+        // BigInteger, but the JDBC driver only accepts numeric binding via
+        // setBigDecimal for the upper half of the unsigned range. The Java/
+        // Kotlin backends pair this setter with a `write` template that wraps
+        // the value in `new java.math.BigDecimal(value)`.
+        SqlType::BigIntUnsigned => "setBigDecimal",
         SqlType::Real => "setFloat",
         SqlType::Double => "setDouble",
         SqlType::Decimal => "setBigDecimal",

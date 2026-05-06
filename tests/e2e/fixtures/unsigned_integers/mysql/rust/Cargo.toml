@@ -1,0 +1,10 @@
+[package]
+name = "e2e-unsigned-integers-rust-mysql"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+sqlx = { version = "0.8", features = ["runtime-tokio", "mysql"] }
+uuid = { version = "1", features = ["v4"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
