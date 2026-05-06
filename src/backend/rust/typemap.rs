@@ -107,6 +107,10 @@ fn rust_default_type_name(sql_type: &SqlType) -> &'static str {
         SqlType::SmallInt => "i16",
         SqlType::Integer => "i32",
         SqlType::BigInt => "i64",
+        SqlType::TinyIntUnsigned => "u8",
+        SqlType::SmallIntUnsigned => "u16",
+        SqlType::IntegerUnsigned => "u32",
+        SqlType::BigIntUnsigned => "u64",
         SqlType::Real => "f32",
         SqlType::Double => "f64",
         SqlType::Decimal => "rust_decimal::Decimal",
@@ -120,5 +124,18 @@ fn rust_default_type_name(sql_type: &SqlType) -> &'static str {
         SqlType::Json | SqlType::Jsonb => "serde_json::Value",
         SqlType::Custom(_) => "String",
         SqlType::Enum(_) | SqlType::Array(_) => unreachable!("enums and arrays are not in the canonical type list"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unsigned_integers_map_to_native_unsigned_widths() {
+        assert_eq!(rust_default_type_name(&SqlType::TinyIntUnsigned), "u8");
+        assert_eq!(rust_default_type_name(&SqlType::SmallIntUnsigned), "u16");
+        assert_eq!(rust_default_type_name(&SqlType::IntegerUnsigned), "u32");
+        assert_eq!(rust_default_type_name(&SqlType::BigIntUnsigned), "u64");
     }
 }

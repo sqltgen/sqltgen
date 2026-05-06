@@ -1,0 +1,93 @@
+{
+  "language": "python",
+  "engine": "mysql",
+  "package": "gen",
+  "models": [
+    {
+      "name": "UnsignedValues",
+      "fields": [
+        {
+          "name": "id",
+          "lang_type": "int",
+          "sql_type": "bigint_unsigned",
+          "nullable": false
+        },
+        {
+          "name": "u8_val",
+          "lang_type": "int",
+          "sql_type": "tinyint_unsigned",
+          "nullable": false
+        },
+        {
+          "name": "u16_val",
+          "lang_type": "int",
+          "sql_type": "smallint_unsigned",
+          "nullable": false
+        },
+        {
+          "name": "u24_val",
+          "lang_type": "int",
+          "sql_type": "integer_unsigned",
+          "nullable": false
+        },
+        {
+          "name": "u32_val",
+          "lang_type": "int",
+          "sql_type": "integer_unsigned",
+          "nullable": false
+        },
+        {
+          "name": "u64_val",
+          "lang_type": "int",
+          "sql_type": "bigint_unsigned",
+          "nullable": false
+        }
+      ]
+    }
+  ],
+  "functions": [
+    {
+      "name": "insert_unsigned_row",
+      "command": "exec",
+      "params": [
+        {
+          "name": "u8_val",
+          "lang_type": "int",
+          "sql_type": "tinyint_unsigned",
+          "nullable": false
+        },
+        {
+          "name": "u16_val",
+          "lang_type": "int",
+          "sql_type": "smallint_unsigned",
+          "nullable": false
+        },
+        {
+          "name": "u24_val",
+          "lang_type": "int",
+          "sql_type": "integer_unsigned",
+          "nullable": false
+        },
+        {
+          "name": "u32_val",
+          "lang_type": "int",
+          "sql_type": "integer_unsigned",
+          "nullable": false
+        },
+        {
+          "name": "u64_val",
+          "lang_type": "int",
+          "sql_type": "bigint_unsigned",
+          "nullable": false
+        }
+      ],
+      "returns": null
+    },
+    {
+      "name": "get_unsigned_rows",
+      "command": "many",
+      "params": [],
+      "returns": "UnsignedValues"
+    }
+  ]
+}

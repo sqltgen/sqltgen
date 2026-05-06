@@ -1,0 +1,93 @@
+{
+  "language": "go",
+  "engine": "mysql",
+  "package": "gen",
+  "models": [
+    {
+      "name": "UnsignedValues",
+      "fields": [
+        {
+          "name": "id",
+          "lang_type": "uint64",
+          "sql_type": "bigint_unsigned",
+          "nullable": false
+        },
+        {
+          "name": "u8_val",
+          "lang_type": "uint8",
+          "sql_type": "tinyint_unsigned",
+          "nullable": false
+        },
+        {
+          "name": "u16_val",
+          "lang_type": "uint16",
+          "sql_type": "smallint_unsigned",
+          "nullable": false
+        },
+        {
+          "name": "u24_val",
+          "lang_type": "uint32",
+          "sql_type": "integer_unsigned",
+          "nullable": false
+        },
+        {
+          "name": "u32_val",
+          "lang_type": "uint32",
+          "sql_type": "integer_unsigned",
+          "nullable": false
+        },
+        {
+          "name": "u64_val",
+          "lang_type": "uint64",
+          "sql_type": "bigint_unsigned",
+          "nullable": false
+        }
+      ]
+    }
+  ],
+  "functions": [
+    {
+      "name": "InsertUnsignedRow",
+      "command": "exec",
+      "params": [
+        {
+          "name": "u8_val",
+          "lang_type": "uint8",
+          "sql_type": "tinyint_unsigned",
+          "nullable": false
+        },
+        {
+          "name": "u16_val",
+          "lang_type": "uint16",
+          "sql_type": "smallint_unsigned",
+          "nullable": false
+        },
+        {
+          "name": "u24_val",
+          "lang_type": "uint32",
+          "sql_type": "integer_unsigned",
+          "nullable": false
+        },
+        {
+          "name": "u32_val",
+          "lang_type": "uint32",
+          "sql_type": "integer_unsigned",
+          "nullable": false
+        },
+        {
+          "name": "u64_val",
+          "lang_type": "uint64",
+          "sql_type": "bigint_unsigned",
+          "nullable": false
+        }
+      ],
+      "returns": null
+    },
+    {
+      "name": "GetUnsignedRows",
+      "command": "many",
+      "params": [],
+      "returns": "UnsignedValues"
+    }
+  ]
+}

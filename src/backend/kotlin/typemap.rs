@@ -151,7 +151,7 @@ fn build_entry(defaults: &KotlinTypeInfo, field_ov: Option<&ResolvedType>, param
     let field_type = field_ov.map(|o| o.name.clone()).unwrap_or_else(|| defaults.name.to_string());
     let param_type = param_ov.map(|o| o.name.clone()).unwrap_or_else(|| defaults.name.to_string());
     let (read, read_nullable, array_elem) = resolve_read_exprs(defaults, field_ov);
-    let write = param_ov.and_then(|o| o.write_expr.clone());
+    let write = param_ov.and_then(|o| o.write_expr.clone()).or_else(|| defaults.default_write.map(|s| s.to_string()));
     let import = field_ov.and_then(|o| o.import.clone()).or_else(|| param_ov.and_then(|o| o.import.clone()));
     let extra_fields = field_ov.map(|o| o.extra_fields.clone()).unwrap_or_default();
     KotlinTypeEntry { field_type, param_type, read, read_nullable, write, array_elem, import, extra_fields }
@@ -197,6 +197,10 @@ struct KotlinTypeInfo {
     uses_get_object: bool,
     array_elem: Option<&'static str>,
     array_raw: &'static str, // {raw} substitution for read_expr overrides on array elements
+    /// Default `write` template applied at bind time, with `{value}` substitution.
+    /// Used when the field type cannot be passed directly to its JDBC setter — e.g.
+    /// binding `BigInteger` to BIGINT UNSIGNED requires wrapping in `BigDecimal(...)`.
+    default_write: Option<&'static str>,
 }
 
 fn kotlin_type_info(sql_type: &SqlType) -> KotlinTypeInfo {
@@ -208,6 +212,7 @@ fn kotlin_type_info(sql_type: &SqlType) -> KotlinTypeInfo {
             uses_get_object: false,
             array_elem: None,
             array_raw: "it.toString()",
+            default_write: None,
         },
         SqlType::SmallInt => KotlinTypeInfo {
             name: "Short",
@@ -216,6 +221,7 @@ fn kotlin_type_info(sql_type: &SqlType) -> KotlinTypeInfo {
             uses_get_object: false,
             array_elem: None,
             array_raw: "it.toString()",
+            default_write: None,
         },
         SqlType::Integer => KotlinTypeInfo {
             name: "Int",
@@ -224,6 +230,7 @@ fn kotlin_type_info(sql_type: &SqlType) -> KotlinTypeInfo {
             uses_get_object: false,
             array_elem: None,
             array_raw: "it.toString()",
+            default_write: None,
         },
         SqlType::BigInt => KotlinTypeInfo {
             name: "Long",
@@ -232,6 +239,49 @@ fn kotlin_type_info(sql_type: &SqlType) -> KotlinTypeInfo {
             uses_get_object: false,
             array_elem: None,
             array_raw: "it.toString()",
+            default_write: None,
+        },
+        // MySQL UNSIGNED integers widen to the next signed Kotlin integer that
+        // covers the full unsigned range. BIGINT UNSIGNED has no Kotlin
+        // primitive wide enough; map to java.math.BigInteger by default.
+        SqlType::TinyIntUnsigned => KotlinTypeInfo {
+            name: "Short",
+            scalar_read: "rs.getShort({idx})",
+            nullable_helper: Some("getNullableShort"),
+            uses_get_object: false,
+            array_elem: None,
+            array_raw: "it.toString()",
+            default_write: None,
+        },
+        SqlType::SmallIntUnsigned => KotlinTypeInfo {
+            name: "Int",
+            scalar_read: "rs.getInt({idx})",
+            nullable_helper: Some("getNullableInt"),
+            uses_get_object: false,
+            array_elem: None,
+            array_raw: "it.toString()",
+            default_write: None,
+        },
+        SqlType::IntegerUnsigned => KotlinTypeInfo {
+            name: "Long",
+            scalar_read: "rs.getLong({idx})",
+            nullable_helper: Some("getNullableLong"),
+            uses_get_object: false,
+            array_elem: None,
+            array_raw: "it.toString()",
+            default_write: None,
+        },
+        SqlType::BigIntUnsigned => KotlinTypeInfo {
+            name: "java.math.BigInteger",
+            scalar_read: "rs.getObject({idx}, java.math.BigInteger::class.java)",
+            nullable_helper: None,
+            uses_get_object: true,
+            array_elem: None,
+            array_raw: "it.toString()",
+            // MySQL Connector/J rejects setObject(BigInteger) for BIGINT UNSIGNED
+            // when the value exceeds Long.MAX_VALUE. Convert to BigDecimal at bind
+            // time and pair with `setBigDecimal` (see jdbc_setter).
+            default_write: Some("java.math.BigDecimal({value})"),
         },
         SqlType::Real => KotlinTypeInfo {
             name: "Float",
@@ -240,6 +290,7 @@ fn kotlin_type_info(sql_type: &SqlType) -> KotlinTypeInfo {
             uses_get_object: false,
             array_elem: None,
             array_raw: "it.toString()",
+            default_write: None,
         },
         SqlType::Double => KotlinTypeInfo {
             name: "Double",
@@ -248,6 +299,7 @@ fn kotlin_type_info(sql_type: &SqlType) -> KotlinTypeInfo {
             uses_get_object: false,
             array_elem: None,
             array_raw: "it.toString()",
+            default_write: None,
         },
         SqlType::Decimal => KotlinTypeInfo {
             name: "java.math.BigDecimal",
@@ -256,6 +308,7 @@ fn kotlin_type_info(sql_type: &SqlType) -> KotlinTypeInfo {
             uses_get_object: false,
             array_elem: None,
             array_raw: "it.toString()",
+            default_write: None,
         },
         SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_) | SqlType::Interval => KotlinTypeInfo {
             name: "String",
@@ -264,6 +317,7 @@ fn kotlin_type_info(sql_type: &SqlType) -> KotlinTypeInfo {
             uses_get_object: false,
             array_elem: None,
             array_raw: "it as String",
+            default_write: None,
         },
         SqlType::Bytes => KotlinTypeInfo {
             name: "ByteArray",
@@ -272,6 +326,7 @@ fn kotlin_type_info(sql_type: &SqlType) -> KotlinTypeInfo {
             uses_get_object: false,
             array_elem: None,
             array_raw: "it.toString()",
+            default_write: None,
         },
         SqlType::Date => KotlinTypeInfo {
             name: "java.time.LocalDate",
@@ -280,6 +335,7 @@ fn kotlin_type_info(sql_type: &SqlType) -> KotlinTypeInfo {
             uses_get_object: true,
             array_elem: Some("(it as java.sql.Date).toLocalDate()"),
             array_raw: "(it as java.sql.Date).toString()",
+            default_write: None,
         },
         SqlType::Time => KotlinTypeInfo {
             name: "java.time.LocalTime",
@@ -288,6 +344,7 @@ fn kotlin_type_info(sql_type: &SqlType) -> KotlinTypeInfo {
             uses_get_object: true,
             array_elem: Some("(it as java.sql.Time).toLocalTime()"),
             array_raw: "(it as java.sql.Time).toString()",
+            default_write: None,
         },
         SqlType::Timestamp => KotlinTypeInfo {
             name: "java.time.LocalDateTime",
@@ -296,6 +353,7 @@ fn kotlin_type_info(sql_type: &SqlType) -> KotlinTypeInfo {
             uses_get_object: true,
             array_elem: Some("(it as java.sql.Timestamp).toLocalDateTime()"),
             array_raw: "(it as java.sql.Timestamp).toString()",
+            default_write: None,
         },
         SqlType::TimestampTz => KotlinTypeInfo {
             name: "java.time.OffsetDateTime",
@@ -304,6 +362,7 @@ fn kotlin_type_info(sql_type: &SqlType) -> KotlinTypeInfo {
             uses_get_object: true,
             array_elem: Some("(it as java.sql.Timestamp).toInstant().atOffset(java.time.ZoneOffset.UTC)"),
             array_raw: "(it as java.sql.Timestamp).toString()",
+            default_write: None,
         },
         SqlType::Uuid => KotlinTypeInfo {
             name: "java.util.UUID",
@@ -312,6 +371,7 @@ fn kotlin_type_info(sql_type: &SqlType) -> KotlinTypeInfo {
             uses_get_object: true,
             array_elem: Some("(it as java.util.UUID)"),
             array_raw: "(it as java.util.UUID).toString()",
+            default_write: None,
         },
         SqlType::Json | SqlType::Jsonb => KotlinTypeInfo {
             name: "String",
@@ -320,6 +380,7 @@ fn kotlin_type_info(sql_type: &SqlType) -> KotlinTypeInfo {
             uses_get_object: false,
             array_elem: None,
             array_raw: "it as String",
+            default_write: None,
         },
         SqlType::Array(_) | SqlType::Enum(_) | SqlType::Custom(_) => KotlinTypeInfo {
             name: "Any",
@@ -328,6 +389,7 @@ fn kotlin_type_info(sql_type: &SqlType) -> KotlinTypeInfo {
             uses_get_object: false,
             array_elem: None,
             array_raw: "it.toString()",
+            default_write: None,
         },
     }
 }

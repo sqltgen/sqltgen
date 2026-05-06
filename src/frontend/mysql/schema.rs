@@ -56,6 +56,29 @@ mod tests {
     }
 
     #[test]
+    fn parses_unsigned_integer_columns() {
+        let ddl = "
+            CREATE TABLE counts (
+                tiny  TINYINT      UNSIGNED NOT NULL,
+                small SMALLINT     UNSIGNED NOT NULL,
+                med   MEDIUMINT    UNSIGNED NOT NULL,
+                ints  INT          UNSIGNED NOT NULL,
+                big   BIGINT       UNSIGNED NOT NULL,
+                flag  TINYINT(1)   UNSIGNED NOT NULL
+            );
+        ";
+        let schema = parse_schema(ddl, None).unwrap();
+        let cols = &schema.tables[0].columns;
+        assert_eq!(cols[0].sql_type, SqlType::TinyIntUnsigned);
+        assert_eq!(cols[1].sql_type, SqlType::SmallIntUnsigned);
+        assert_eq!(cols[2].sql_type, SqlType::IntegerUnsigned);
+        assert_eq!(cols[3].sql_type, SqlType::IntegerUnsigned);
+        assert_eq!(cols[4].sql_type, SqlType::BigIntUnsigned);
+        // TINYINT(1) UNSIGNED preserves the boolean convention.
+        assert_eq!(cols[5].sql_type, SqlType::Boolean);
+    }
+
+    #[test]
     fn parses_auto_increment_primary_key() {
         let ddl = "
             CREATE TABLE items (

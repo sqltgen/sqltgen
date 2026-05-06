@@ -1,0 +1,93 @@
+{
+  "language": "java",
+  "engine": "mysql",
+  "package": "com.example.db",
+  "models": [
+    {
+      "name": "UnsignedValues",
+      "fields": [
+        {
+          "name": "id",
+          "lang_type": "java.math.BigInteger",
+          "sql_type": "bigint_unsigned",
+          "nullable": false
+        },
+        {
+          "name": "u8_val",
+          "lang_type": "short",
+          "sql_type": "tinyint_unsigned",
+          "nullable": false
+        },
+        {
+          "name": "u16_val",
+          "lang_type": "int",
+          "sql_type": "smallint_unsigned",
+          "nullable": false
+        },
+        {
+          "name": "u24_val",
+          "lang_type": "long",
+          "sql_type": "integer_unsigned",
+          "nullable": false
+        },
+        {
+          "name": "u32_val",
+          "lang_type": "long",
+          "sql_type": "integer_unsigned",
+          "nullable": false
+        },
+        {
+          "name": "u64_val",
+          "lang_type": "java.math.BigInteger",
+          "sql_type": "bigint_unsigned",
+          "nullable": false
+        }
+      ]
+    }
+  ],
+  "functions": [
+    {
+      "name": "insertUnsignedRow",
+      "command": "exec",
+      "params": [
+        {
+          "name": "u8_val",
+          "lang_type": "short",
+          "sql_type": "tinyint_unsigned",
+          "nullable": false
+        },
+        {
+          "name": "u16_val",
+          "lang_type": "int",
+          "sql_type": "smallint_unsigned",
+          "nullable": false
+        },
+        {
+          "name": "u24_val",
+          "lang_type": "long",
+          "sql_type": "integer_unsigned",
+          "nullable": false
+        },
+        {
+          "name": "u32_val",
+          "lang_type": "long",
+          "sql_type": "integer_unsigned",
+          "nullable": false
+        },
+        {
+          "name": "u64_val",
+          "lang_type": "java.math.BigInteger",
+          "sql_type": "bigint_unsigned",
+          "nullable": false
+        }
+      ],
+      "returns": null
+    },
+    {
+      "name": "getUnsignedRows",
+      "command": "many",
+      "params": [],
+      "returns": "UnsignedValues"
+    }
+  ]
+}

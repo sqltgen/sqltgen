@@ -255,6 +255,18 @@ pub fn jdbc_setter(sql_type: &SqlType) -> &'static str {
         SqlType::SmallInt => "setShort",
         SqlType::Integer => "setInt",
         SqlType::BigInt => "setLong",
+        // Unsigned widths are stored in the next-larger signed primitive (see
+        // backend/{java,kotlin}/typemap.rs), so the matching JDBC setter for
+        // that primitive is correct here.
+        SqlType::TinyIntUnsigned => "setShort",
+        SqlType::SmallIntUnsigned => "setInt",
+        SqlType::IntegerUnsigned => "setLong",
+        // BIGINT UNSIGNED carries values beyond Long.MAX_VALUE; the field is a
+        // BigInteger, but the JDBC driver only accepts numeric binding via
+        // setBigDecimal for the upper half of the unsigned range. The Java/
+        // Kotlin backends pair this setter with a `write` template that wraps
+        // the value in `new java.math.BigDecimal(value)`.
+        SqlType::BigIntUnsigned => "setBigDecimal",
         SqlType::Real => "setFloat",
         SqlType::Double => "setDouble",
         SqlType::Decimal => "setBigDecimal",
@@ -329,6 +341,10 @@ pub enum SqlTypeKey {
     SmallInt,
     Integer,
     BigInt,
+    TinyIntUnsigned,
+    SmallIntUnsigned,
+    IntegerUnsigned,
+    BigIntUnsigned,
     Real,
     Double,
     Decimal,
@@ -356,6 +372,10 @@ pub fn sql_type_key(sql_type: &SqlType) -> SqlTypeKey {
         SqlType::SmallInt => SqlTypeKey::SmallInt,
         SqlType::Integer => SqlTypeKey::Integer,
         SqlType::BigInt => SqlTypeKey::BigInt,
+        SqlType::TinyIntUnsigned => SqlTypeKey::TinyIntUnsigned,
+        SqlType::SmallIntUnsigned => SqlTypeKey::SmallIntUnsigned,
+        SqlType::IntegerUnsigned => SqlTypeKey::IntegerUnsigned,
+        SqlType::BigIntUnsigned => SqlTypeKey::BigIntUnsigned,
         SqlType::Real => SqlTypeKey::Real,
         SqlType::Double => SqlTypeKey::Double,
         SqlType::Decimal => SqlTypeKey::Decimal,
@@ -383,6 +403,10 @@ pub fn canonical_sql_types() -> Vec<SqlType> {
         SqlType::SmallInt,
         SqlType::Integer,
         SqlType::BigInt,
+        SqlType::TinyIntUnsigned,
+        SqlType::SmallIntUnsigned,
+        SqlType::IntegerUnsigned,
+        SqlType::BigIntUnsigned,
         SqlType::Real,
         SqlType::Double,
         SqlType::Decimal,

@@ -131,6 +131,9 @@ fn python_default_entry(sql_type: &SqlType, json_mode: PythonJsonMode) -> Python
     match sql_type {
         SqlType::Boolean => PythonDefaultEntry::simple("bool"),
         SqlType::SmallInt | SqlType::Integer | SqlType::BigInt => PythonDefaultEntry::simple("int"),
+        // Python `int` is arbitrary precision, so unsigned variants are
+        // exactly representable without widening.
+        SqlType::TinyIntUnsigned | SqlType::SmallIntUnsigned | SqlType::IntegerUnsigned | SqlType::BigIntUnsigned => PythonDefaultEntry::simple("int"),
         SqlType::Real | SqlType::Double => PythonDefaultEntry::simple("float"),
         SqlType::Decimal => PythonDefaultEntry::with_import("decimal.Decimal", "import decimal"),
         SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_) => PythonDefaultEntry::simple("str"),
@@ -193,5 +196,15 @@ mod tests {
     fn test_array_element_type_respects_override() {
         let map = map_with_override("timestamp", "MyTimestamp");
         assert_eq!(map.field_type(&SqlType::Array(Box::new(SqlType::Timestamp)), false), "list[MyTimestamp]");
+    }
+
+    #[test]
+    fn test_unsigned_integers_map_to_int() {
+        // Python int is arbitrary precision, so all unsigned widths map to plain int.
+        let map = map_default();
+        assert_eq!(map.field_type(&SqlType::TinyIntUnsigned, false), "int");
+        assert_eq!(map.field_type(&SqlType::SmallIntUnsigned, false), "int");
+        assert_eq!(map.field_type(&SqlType::IntegerUnsigned, false), "int");
+        assert_eq!(map.field_type(&SqlType::BigIntUnsigned, false), "int");
     }
 }

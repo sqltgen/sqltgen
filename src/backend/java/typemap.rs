@@ -255,6 +255,10 @@ struct JavaTypeInfo {
     array_elem: Option<&'static str>,
     /// Per-element raw-value expression substituted for `{raw}` in `read_expr` overrides.
     array_raw: &'static str,
+    /// Default `write` template applied at bind time, with `{value}` substitution. Used
+    /// when the field type cannot be passed directly to its JDBC setter — e.g. binding
+    /// `BigInteger` to BIGINT UNSIGNED requires wrapping in `new BigDecimal(...)`.
+    default_write: Option<&'static str>,
 }
 
 /// Build the fully-resolved type map for the Java backend.
@@ -283,7 +287,7 @@ fn build_entry(defaults: &JavaTypeInfo, field_ov: Option<&ResolvedType>, param_o
     let param_type_boxed =
         param_ov.map(|o| o.name.clone()).or_else(|| field_ov.map(|o| o.name.clone())).unwrap_or_else(|| defaults.field_type_boxed.to_string());
     let (read, read_nullable, array_elem) = resolve_read_exprs(defaults, field_ov);
-    let write = param_ov.and_then(|o| o.write_expr.clone());
+    let write = param_ov.and_then(|o| o.write_expr.clone()).or_else(|| defaults.default_write.map(|s| s.to_string()));
     let import = field_ov.and_then(|o| o.import.clone()).or_else(|| param_ov.and_then(|o| o.import.clone()));
     let extra_fields = field_ov.map(|o| o.extra_fields.clone()).unwrap_or_default();
     JavaTypeEntry { field_type, field_type_boxed, param_type, param_type_boxed, read, read_nullable, write, import, extra_fields, array_elem }
@@ -324,6 +328,7 @@ fn java_type_info(sql_type: &SqlType) -> JavaTypeInfo {
             uses_get_object: false,
             array_elem: None,
             array_raw: "it.toString()",
+            default_write: None,
         },
         SqlType::SmallInt => JavaTypeInfo {
             field_type: "short",
@@ -333,6 +338,7 @@ fn java_type_info(sql_type: &SqlType) -> JavaTypeInfo {
             uses_get_object: false,
             array_elem: None,
             array_raw: "it.toString()",
+            default_write: None,
         },
         SqlType::Integer => JavaTypeInfo {
             field_type: "int",
@@ -342,6 +348,7 @@ fn java_type_info(sql_type: &SqlType) -> JavaTypeInfo {
             uses_get_object: false,
             array_elem: None,
             array_raw: "it.toString()",
+            default_write: None,
         },
         SqlType::BigInt => JavaTypeInfo {
             field_type: "long",
@@ -351,6 +358,54 @@ fn java_type_info(sql_type: &SqlType) -> JavaTypeInfo {
             uses_get_object: false,
             array_elem: None,
             array_raw: "it.toString()",
+            default_write: None,
+        },
+        // MySQL UNSIGNED integers are widened to the next signed Java integer that
+        // fits the entire unsigned range. BIGINT UNSIGNED has no Java primitive
+        // wide enough, so it maps to java.math.BigInteger; users who know their
+        // values fit in long can opt into it via a type override (lossy).
+        SqlType::TinyIntUnsigned => JavaTypeInfo {
+            field_type: "short",
+            field_type_boxed: "Short",
+            scalar_read: "rs.getShort({idx})",
+            nullable_helper: Some("getNullableShort"),
+            uses_get_object: false,
+            array_elem: None,
+            array_raw: "it.toString()",
+            default_write: None,
+        },
+        SqlType::SmallIntUnsigned => JavaTypeInfo {
+            field_type: "int",
+            field_type_boxed: "Integer",
+            scalar_read: "rs.getInt({idx})",
+            nullable_helper: Some("getNullableInt"),
+            uses_get_object: false,
+            array_elem: None,
+            array_raw: "it.toString()",
+            default_write: None,
+        },
+        SqlType::IntegerUnsigned => JavaTypeInfo {
+            field_type: "long",
+            field_type_boxed: "Long",
+            scalar_read: "rs.getLong({idx})",
+            nullable_helper: Some("getNullableLong"),
+            uses_get_object: false,
+            array_elem: None,
+            array_raw: "it.toString()",
+            default_write: None,
+        },
+        SqlType::BigIntUnsigned => JavaTypeInfo {
+            field_type: "java.math.BigInteger",
+            field_type_boxed: "java.math.BigInteger",
+            scalar_read: "rs.getObject({idx}, java.math.BigInteger.class)",
+            nullable_helper: None,
+            uses_get_object: true,
+            array_elem: None,
+            array_raw: "it.toString()",
+            // MySQL Connector/J rejects setObject(BigInteger) for BIGINT UNSIGNED
+            // when the value exceeds Long.MAX_VALUE. Convert to BigDecimal at bind
+            // time and pair with `setBigDecimal` (see jdbc_setter).
+            default_write: Some("new java.math.BigDecimal({value})"),
         },
         SqlType::Real => JavaTypeInfo {
             field_type: "float",
@@ -360,6 +415,7 @@ fn java_type_info(sql_type: &SqlType) -> JavaTypeInfo {
             uses_get_object: false,
             array_elem: None,
             array_raw: "it.toString()",
+            default_write: None,
         },
         SqlType::Double => JavaTypeInfo {
             field_type: "double",
@@ -369,6 +425,7 @@ fn java_type_info(sql_type: &SqlType) -> JavaTypeInfo {
             uses_get_object: false,
             array_elem: None,
             array_raw: "it.toString()",
+            default_write: None,
         },
         SqlType::Decimal => JavaTypeInfo {
             field_type: "java.math.BigDecimal",
@@ -378,6 +435,7 @@ fn java_type_info(sql_type: &SqlType) -> JavaTypeInfo {
             uses_get_object: false,
             array_elem: None,
             array_raw: "it.toString()",
+            default_write: None,
         },
         SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_) | SqlType::Interval => JavaTypeInfo {
             field_type: "String",
@@ -387,6 +445,7 @@ fn java_type_info(sql_type: &SqlType) -> JavaTypeInfo {
             uses_get_object: false,
             array_elem: None,
             array_raw: "(String) it",
+            default_write: None,
         },
         SqlType::Bytes => JavaTypeInfo {
             field_type: "byte[]",
@@ -396,6 +455,7 @@ fn java_type_info(sql_type: &SqlType) -> JavaTypeInfo {
             uses_get_object: false,
             array_elem: None,
             array_raw: "it.toString()",
+            default_write: None,
         },
         SqlType::Date => JavaTypeInfo {
             field_type: "java.time.LocalDate",
@@ -405,6 +465,7 @@ fn java_type_info(sql_type: &SqlType) -> JavaTypeInfo {
             uses_get_object: true,
             array_elem: Some("((java.sql.Date) it).toLocalDate()"),
             array_raw: "((java.sql.Date) it).toString()",
+            default_write: None,
         },
         SqlType::Time => JavaTypeInfo {
             field_type: "java.time.LocalTime",
@@ -414,6 +475,7 @@ fn java_type_info(sql_type: &SqlType) -> JavaTypeInfo {
             uses_get_object: true,
             array_elem: Some("((java.sql.Time) it).toLocalTime()"),
             array_raw: "((java.sql.Time) it).toString()",
+            default_write: None,
         },
         SqlType::Timestamp => JavaTypeInfo {
             field_type: "java.time.LocalDateTime",
@@ -423,6 +485,7 @@ fn java_type_info(sql_type: &SqlType) -> JavaTypeInfo {
             uses_get_object: true,
             array_elem: Some("((java.sql.Timestamp) it).toLocalDateTime()"),
             array_raw: "((java.sql.Timestamp) it).toString()",
+            default_write: None,
         },
         SqlType::TimestampTz => JavaTypeInfo {
             field_type: "java.time.OffsetDateTime",
@@ -432,6 +495,7 @@ fn java_type_info(sql_type: &SqlType) -> JavaTypeInfo {
             uses_get_object: true,
             array_elem: Some("((java.sql.Timestamp) it).toInstant().atOffset(java.time.ZoneOffset.UTC)"),
             array_raw: "((java.sql.Timestamp) it).toString()",
+            default_write: None,
         },
         SqlType::Uuid => JavaTypeInfo {
             field_type: "java.util.UUID",
@@ -441,6 +505,7 @@ fn java_type_info(sql_type: &SqlType) -> JavaTypeInfo {
             uses_get_object: true,
             array_elem: Some("(java.util.UUID) it"),
             array_raw: "((java.util.UUID) it).toString()",
+            default_write: None,
         },
         SqlType::Json | SqlType::Jsonb => JavaTypeInfo {
             field_type: "String",
@@ -450,6 +515,7 @@ fn java_type_info(sql_type: &SqlType) -> JavaTypeInfo {
             uses_get_object: false,
             array_elem: None,
             array_raw: "(String) it",
+            default_write: None,
         },
         SqlType::Array(_) | SqlType::Enum(_) | SqlType::Custom(_) => JavaTypeInfo {
             field_type: "Object",
@@ -459,6 +525,7 @@ fn java_type_info(sql_type: &SqlType) -> JavaTypeInfo {
             uses_get_object: false,
             array_elem: None,
             array_raw: "it.toString()",
+            default_write: None,
         },
     }
 }
@@ -485,6 +552,22 @@ mod tests {
 
     fn read(sql_type: SqlType, nullable: bool) -> String {
         resultset_read_expr_pub(&sql_type, nullable, 1)
+    }
+
+    #[test]
+    fn test_unsigned_integer_widening() {
+        // TINYINT UNSIGNED (0..255) does not fit in Java byte, widens to short.
+        assert_eq!(java_type_pub(&SqlType::TinyIntUnsigned, false), "short");
+        assert_eq!(java_type_pub(&SqlType::TinyIntUnsigned, true), "Short");
+        // SMALLINT UNSIGNED (0..65535) does not fit in Java short, widens to int.
+        assert_eq!(java_type_pub(&SqlType::SmallIntUnsigned, false), "int");
+        assert_eq!(java_type_pub(&SqlType::SmallIntUnsigned, true), "Integer");
+        // INT UNSIGNED (0..2^32-1) does not fit in Java int, widens to long.
+        assert_eq!(java_type_pub(&SqlType::IntegerUnsigned, false), "long");
+        assert_eq!(java_type_pub(&SqlType::IntegerUnsigned, true), "Long");
+        // BIGINT UNSIGNED (0..2^64-1) exceeds Java long; default to BigInteger.
+        assert_eq!(java_type_pub(&SqlType::BigIntUnsigned, false), "java.math.BigInteger");
+        assert_eq!(java_type_pub(&SqlType::BigIntUnsigned, true), "java.math.BigInteger");
     }
 
     #[test]

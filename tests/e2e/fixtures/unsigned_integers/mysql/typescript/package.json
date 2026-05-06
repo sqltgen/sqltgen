@@ -1,0 +1,16 @@
+{
+  "name": "e2e-unsigned-integers-typescript-mysql",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "test": "tsx --test runtime_gen.test.ts"
+  },
+  "dependencies": {
+    "mysql2": "^3.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}
