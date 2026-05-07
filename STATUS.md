@@ -30,7 +30,7 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | Type: interval | ✅ | — | — |
 | Type: uuid | ✅ | ✅ (TEXT affinity) | — |
 | Type: json / jsonb | ✅ | ✅ (TEXT affinity) | ✅ (JSON only) |
-| Type: enum / set | — | — | ✅ (→ `Text`) |
+| Type: enum / set | ✅ (`CREATE TYPE AS ENUM`) | — | ✅ (→ `Text`) |
 | Type: arrays (`type[]`) | ✅ | — | — |
 | Type: unknown → `Custom` | ✅ | ✅ | ✅ |
 | Query: `-- name: X :cmd` annotation | ✅ | ✅ | ✅ |
@@ -73,7 +73,10 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | Schema-qualified table refs (`schema.table`) | ✅ | ✅ | ✅ |
 | `CREATE VIEW` (column type inference) | ✅ | ✅ | ✅ |
 | `DROP VIEW [IF EXISTS]` | ✅ | ✅ | ✅ |
-| `CREATE TYPE … AS ENUM` | ❌ | — | — |
+| `CREATE TYPE … AS ENUM` | ✅ | — | — |
+| `CREATE FUNCTION` (scalar UDF) | ✅ | — | ✅ |
+| `CREATE FUNCTION … RETURNS TABLE` (TVF) | ✅ | — | ✅ |
+| MySQL `UNSIGNED` integer modifiers | — | — | ✅ |
 
 ---
 
@@ -88,7 +91,7 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | Package / namespace / module | ✅ `.models` + `.queries` subpackages | ✅ `.models` + `.queries` subpackages | ✅ `mod.rs` at root; `models/mod.rs` + `queries/mod.rs` | ✅ `models/models.go` + `queries/queries_{group}.go` | ✅ `models/__init__.py` + `queries/__init__.py` | ✅ `models/index.ts` + `queries/index.ts` barrel | ✅ `models/index.js` + `queries/index.js` barrel |
 | Output subdirectory layout (models/ + queries/) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Helper file (`sqltgen.*` at output root, no `_` prefix) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Enum types (aliased string / sealed class) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Enum types (idiomatic per-language) | ✅ enum class | ✅ enum class | ✅ enum + `Display`/`FromStr`/`sqlx::Type` | ✅ string type + consts | ✅ `str + enum.Enum` | ✅ string union | ✅ `Object.freeze` |
 | JSON serialization tags / annotations | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Struct embedding (nested row types) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 
@@ -139,8 +142,10 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | `Uuid` | ✅ `UUID` | ✅ `UUID` | ✅ `uuid::Uuid` | ✅ `string` | ✅ `uuid.UUID` | ✅ `string` | ✅ `string` |
 | `Json`/`Jsonb` | ✅ `String` | ✅ `String` | ✅ `serde_json::Value` | ✅ `json.RawMessage` | ✅ `Any` | ✅ `unknown` | ✅ `unknown` |
 | `Array(T)` | ✅ `List<T>` | ✅ `List<T>` | ✅ `Vec<T>` | ✅ `pq.Array` / `[]T` | ✅ `list[T]` | ✅ `T[]` | ✅ `T[]` |
-| `Custom` | ✅ `Object` | ✅ `Any` | ✅ `serde_json::Value` | ✅ `interface{}` | ✅ `Any` | ✅ `unknown` | ✅ `unknown` |
-| `Enum(name)` (aliased string / sealed class) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| `Custom` | ✅ `Object` | ✅ `Any` | ✅ `String` | ✅ `interface{}` | ✅ `Any` | ✅ `unknown` | ✅ `unknown` |
+| `Enum(name)` | ✅ enum class | ✅ enum class | ✅ enum + `sqlx::Type` | ✅ string type | ✅ `str + enum.Enum` | ✅ string union | ✅ `Object.freeze` |
+| `TinyIntUnsigned` / `SmallIntUnsigned` / `IntegerUnsigned` (MySQL) | ✅ widened to `Short`/`Int`/`Long` | ✅ widened to `Short`/`Int`/`Long` | ✅ `u8`/`u16`/`u32` | ✅ `uint8`/`uint16`/`uint32` | ✅ `int` | ✅ `number` | ✅ `number` |
+| `BigIntUnsigned` (MySQL) | ✅ `BigInteger` (override → `long`) | ✅ `BigInteger` (override → `Long`) | ✅ `u64` | ✅ `uint64` | ✅ `int` | ✅ `bigint` | ✅ `bigint` |
 
 ---
 
@@ -195,29 +200,36 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 
 ## Test suite
 
-| Module | Tests |
+| Layer | Tests |
 |---|---|
-| Config | 29 |
-| Frontend — PostgreSQL (typemap + schema + query) | 95 |
-| Frontend — SQLite (typemap + schema + query) | 44 |
-| Frontend — MySQL (typemap + schema + query) | 39 |
-| Frontend — common (query parser, CTEs, subqueries, named params, list params, source_table) | 204 |
-| Backend — Java | 66 |
-| Backend — Kotlin | 70 |
-| Backend — Rust | 44 |
-| Backend — Python | 53 |
-| Backend — Go | 41 |
-| Backend — common (common + sql_rewrite + naming + manifest) | 58 |
-| Backend — JDBC | 15 |
-| Backend — TypeScript / JavaScript | 50 |
-| Integration (snapshots + resilience) | 45 |
-| **Total** | **861** |
+| Library unit tests (`cargo test --lib`) | 944 |
+| Integration tests (`cargo test --tests`, includes lib) | 1000 |
+| **Rust total** | **1000+** |
+| E2E runtime fixtures (filesystem-driven, snapshot-gated) | 9 fixtures × 7 langs × {sqlite, postgresql, mysql} where applicable |
+
+Run breakdown (per test crate):
+- Codegen snapshot tests: `tests/codegen/`
+- Runtime fixtures: `tests/e2e/fixtures/<fixture>/<engine>/<lang>/` — `bookstore`, `bookstore-returning`, `enums`, `unsigned_integers`, `views`, `schema_qualified`, `array_overrides`, `type_overrides`, `provenance`, `resilience`. Snapshot-as-gate logic in `snapshot-gate.mk`.
 
 ---
 
 ## Open-source launch
 
-See `PLAN.md` → Roadmap section, and `memory/roadmap.md` for full distribution plan.
+See `PLAN.md` → Roadmap section for full distribution plan.
 
-Pending: CI/CD release workflow (cargo-dist), distribution channels.
-Done: license (Apache 2.0), docs (mdBook under `docs/src/`; `docs.yml` CI deploy action), CI (`ci.yml`).
+**Done:**
+- License (Apache 2.0)
+- README, CHANGELOG, CONTRIBUTING
+- mdBook documentation under `docs/src/` + `docs.yml` deploy action
+- `ci.yml` — build/test/clippy/fmt on PRs
+- `docker.yml` — Docker image build
+- All Tier 1 correctness bugs cleared (CASE WHEN, COALESCE/NULLIF, aggregate, INSERT...SELECT, UPDATE...FROM, schema-qualified tables, MySQL TINYINT(1) boolean, model/query file collision)
+- Enum support (`CREATE TYPE AS ENUM` + arrays) across all 7 backends with e2e runtime tests
+- MySQL UNSIGNED integers with type widening across all 7 backends with e2e runtime tests
+- Upsert (ON CONFLICT / ON DUPLICATE KEY UPDATE)
+- Window function type inference, recursive CTE param collection
+- Snapshot-as-gate runtime test infrastructure
+
+**Pending:**
+- `release.yml` + `cargo dist init` (task 005) — release blocker
+- Tier 2 distribution channels (AUR, Scoop, .deb, .rpm) (task 007)

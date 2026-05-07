@@ -44,8 +44,8 @@ SQL files
 
 | File | Status | Notes |
 |---|---|---|
-| `types.rs` — `SqlType` enum | ✅ | Boolean, integers, floats, decimal, text, bytes, date/time, uuid, json/jsonb, array, custom |
-| `schema.rs` — `Schema`, `Table`, `Column`, `TableKind` | ✅ | `TableKind::Table` / `TableKind::View`; views registered via two-pass schema parsing |
+| `types.rs` — `SqlType` enum | ✅ | Boolean, integers (signed + MySQL unsigned), floats, decimal, text, bytes, date/time, uuid, json/jsonb, array, enum, custom |
+| `schema.rs` — `Schema`, `Table`, `Column`, `TableKind`, `EnumType` | ✅ | `TableKind::Table` / `TableKind::View`; `Schema.enums` for `CREATE TYPE AS ENUM`; views and enums registered via two-pass schema parsing |
 | `query.rs` — `Query`, `QueryCmd`, `Parameter`, `ResultColumn` | ✅ | |
 
 ## Config (`src/config.rs`)
@@ -64,14 +64,14 @@ SQL files
 |---|---|---|
 | `DialectParser` trait | ✅ | `parse_schema`, `parse_queries` |
 | Named params (`@name`, `-- @name [type] [null\|not null]`) | ✅ | `src/frontend/common/named_params.rs`; rewrites to `$N` before parsing; `-- @name type[]` marks list params |
-| **PostgreSQL** | ✅ | Full DDL + query parsing; 60+ tests |
+| **PostgreSQL** | ✅ | Full DDL + query parsing |
 | `typemap.rs` | ✅ | Includes `JSON`, `JSONB` |
-| `schema.rs` | ✅ | CREATE/ALTER/DROP TABLE + CREATE/DROP VIEW (two-pass, view-on-view ordering, unknown-table fallback); 29 tests |
-| `query.rs` | ✅ | SELECT/INSERT/UPDATE/DELETE + JOINs + subqueries + derived tables + CTEs + RETURNING |
-| **SQLite** | ✅ | Full DialectParser; schema + query; `?N` and `$N` params |
+| `schema.rs` | ✅ | CREATE/ALTER/DROP TABLE + CREATE/DROP VIEW + `CREATE TYPE AS ENUM` + scalar UDF + RETURNS TABLE TVF; two-pass with enum/view/UDF resolution; schema-qualified table refs |
+| `query.rs` | ✅ | SELECT/INSERT/UPDATE/DELETE + JOINs + subqueries + derived tables + CTEs (incl. recursive) + RETURNING + UNION/INTERSECT/EXCEPT + window functions + `INSERT ... SELECT` + `UPDATE ... FROM` + `ON CONFLICT` / `ON DUPLICATE KEY UPDATE` |
+| **SQLite** | ✅ | Full DialectParser; schema + query; `?N` and `$N` params; schema-qualified |
 | `typemap.rs` | ✅ | `JSON` recognized via `map_custom` → `SqlType::Json` |
-| **MySQL** | ✅ | Full DialectParser; schema + query; `$N` params; 30+ tests |
-| `typemap.rs` | ✅ | Includes `JSON`; no `JSONB` (MySQL doesn't have it) |
+| **MySQL** | ✅ | Full DialectParser; schema + query; `$N` params; `TINYINT(1)`→Boolean; `UNSIGNED` integer modifiers |
+| `typemap.rs` | ✅ | Includes `JSON`; no `JSONB` (MySQL doesn't have it); UNSIGNED variants |
 
 ## Backend layer (`src/backend/`)
 
@@ -109,42 +109,41 @@ sqltgen aims for excellent JSON support across all backends. Current state and g
 | `json[]` / `jsonb[]` arrays (PostgreSQL) | ❌ | Untested / likely unhandled |
 | Type overrides (e.g. `json → JsonNode`) | ✅ | Full type_overrides config with jackson/gson/serde_json/object presets |
 
-### Planned improvements
-1. ~~**SQLite**: recognize `JSON` as a type keyword → `SqlType::Json`~~ ✅ Done
-2. ~~**Python**: `Any` → `object` for psycopg3 (already deserialized); `str` for sqlite3/mysql~~ ✅ Done
-3. ~~**Java/Kotlin**: document the `String` limitation; unlock proper types via config type overrides~~ ✅ Done via type_overrides presets
-4. **Arrays**: test and fix `json[]` / `jsonb[]` in PostgreSQL
-
 ---
 
 ## Remaining work
 
-### High priority
+For the live, sequenced list see `tasks/PRIORITIES.md`. High-level summary below.
 
-1. ~~**Go backend** — generate structs + `database/sql` functions~~ ✅
-2. ~~**Two-layer backend architecture rollout** — all non-stub backends (Java, Kotlin, Rust, Python, TypeScript/JavaScript) now follow the compile-time adapter + engine-agnostic core pattern~~ ✅
-3. ~~**Output layout restructured** — model files emitted under `{out}/models/`, query files under `{out}/queries/`, helper renamed from `_sqltgen.*` to `sqltgen.*`; eliminates silent file overwrite when a table name matches a query group name~~ ✅
+### Release blockers
 
-### Medium priority
+1. **`release.yml` + `cargo dist init`** — ci.yml + docs.yml already in place. (task 005)
 
-1. ~~**`CAST(x AS type)` result type** — call `typemap::map()` on the cast's `DataType`~~ ✅
-2. ~~**Type overrides config** — per-language map of `SqlType` → custom host-language type with import management~~ ✅ Done (jackson, gson, serde_json, object presets; FQN strings; explicit TypeRef object form)
-3. **Better error messages** — surface parse errors with line numbers
-4. **Glob patterns** for `schema` and `queries` config fields
-5. **Transaction support** — `with_tx(tx)` on Querier
-6. **Params struct** — emit `{Query}Params` + `QueriesParams` wrapper for queries with many params
+### Should-ship before v0.1.0
+
+1. **Tier 2 distribution** — AUR, Scoop, .deb, .rpm. (task 007)
+2. **`REPLACE INTO` / `INSERT OR REPLACE`** — likely fails to parse today. (task 063)
+3. **SQLite STRICT tables** — modern SQLite schemas may fail to parse. (task 064)
+4. **MySQL TEXT variants** (TINYTEXT/MEDIUMTEXT/LONGTEXT) — may fall through to `Custom`. (task 061)
+
+### Medium priority (post-launch)
+
+1. **Transaction support** — `with_tx(tx)` on Querier. (task 037)
+2. **Params struct** — `{Query}Params` + `QueriesParams` for queries with many params. (task 036)
+3. **`:execresult` / `:execlastid`** — return driver result / last insert ID. (task 039)
+4. **Driver-agnostic scan wrappers** — sqltgen owns the API; drivers are transport. (task 121, umbrella for 115/120)
+5. **Multi-target config** — generate multiple language outputs from one config. (task 054)
+6. **Querier interface / mock** — testability without a real database. (tasks 041, 083)
+7. **Glob patterns for `schema`** — currently queries-only.
 
 ### Low priority / future
 
-1. **Querier interface** — emit an interface/protocol/ABC for the generated Querier type (testability)
-2. **Enum support** — `CREATE TYPE foo AS ENUM` → typed enum / sealed class / string alias
-3. **`:execresult` / `:execlastid`** — return driver result object or last insert ID
-4. ~~**Schema-qualified tables**~~ ✅ — `schema.table` references in queries
-5. **Table-valued functions** — TVF support in frontend + backends
-6. **Field renaming config** — `rename: { db_col: "FieldName" }` map in config
-7. **JSON tags / serialization annotations** — emit Jackson/serde/dataclasses-json annotations
-8. **`sqltgen init`** subcommand — scaffold a starter `sqltgen.json`
-9. **C / C++ / C# backends**
+1. **Field renaming config** — `rename: { db_col: "FieldName" }` map. (task 079)
+2. **JSON tags / serialization annotations** — Jackson/serde/dataclasses-json. (task 075)
+3. **`sqltgen init` / `verify` / `lint` / `watch` / `explain` / `diff`** subcommands.
+4. **PostgreSQL domain types, composite types, sequences, materialized views.**
+5. **Additional backends** (C# / .NET, PHP, Swift, Ruby) — see task 105 for review framework.
+6. **Additional dialects** (SQL Server / T-SQL, DuckDB, Oracle).
 
 ---
 
@@ -175,10 +174,8 @@ Identified from the [sqlc documentation](https://docs.sqlc.dev).
 
 ## Open-source launch
 
-See `RELEASE_ROADMAP.md` (in the parent directory) for the full plan. Summary:
-
 - ~~Phase 1: License, CHANGELOG, CONTRIBUTING, README~~ ✅
-- Phase 2: CI/CD via cargo-dist — ci.yml ✅, release.yml ❌, docs.yml ✅
+- Phase 2: CI/CD via cargo-dist — `ci.yml` ✅, `docs.yml` ✅, `docker.yml` ✅, `release.yml` ❌ + `cargo dist init` ❌
 - ~~Phase 3: mdBook documentation at docs.sqltgen.org; sqltgen.org redirects there~~ ✅
-- Phase 4: Distribution — crates.io, Homebrew, AUR, Scoop, .deb, .rpm
+- Phase 4: Distribution — Homebrew (via cargo-dist) ❌, crates.io ❌, AUR ❌, Scoop ❌, .deb ❌, .rpm ❌
 - Phase 5 (future): Full landing page + WASM playground at sqltgen.org
