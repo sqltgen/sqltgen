@@ -1,7 +1,15 @@
 [package]
 name = "sqltgen"
-version = "0.0.20260310"
+version = "0.1.0-rc.1"
 edition = "2021"
+description = "Generate type-safe database access code in multiple languages from annotated SQL"
+license = "Apache-2.0"
+repository = "https://github.com/sqltgen/sqltgen"
+homepage = "https://sqltgen.org"
+documentation = "https://docs.sqltgen.org"
+readme = "README.md"
+keywords = ["sql", "codegen", "database", "type-safe"]
+categories = ["database", "command-line-utilities", "development-tools"]
 
 [lib]
 name = "sqltgen"
@@ -19,3 +27,28 @@ indoc     = "2"
 serde     = { version = "1", features = ["derive"] }
 serde_json = "1"
 sqlparser = "0.61"
+
+# Config for 'dist'
+[workspace.metadata.dist]
+# The preferred dist version to use in CI (Cargo.toml SemVer syntax)
+cargo-dist-version = "0.31.0"
+# CI backends to support
+ci = "github"
+# The installers to generate for each app
+installers = ["shell", "powershell"]
+# Target platforms to build apps for (Rust target-triple syntax)
+targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
+# Which actions to run on pull requests
+pr-run-mode = "plan"
+# Whether to publish prereleases to package managers
+publish-prereleases = true
+# Path that installers should place binaries in
+install-path = "CARGO_HOME"
+# Whether to install an updater program
+install-updater = false
+# crates.io publish is intentionally disabled — sqltgen ships only via cargo-dist's
+# self-managed channels (GitHub Releases, shell/PowerShell installers).
+
+[profile.dist]
+inherits = "release"
+lto = "thin"
