@@ -1,0 +1,24 @@
+[package]
+name = "xtask"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "xtask"
+path = "src/main.rs"
+
+[dependencies]
+anyhow             = "1"
+clap               = { version = "4", features = ["derive"] }
+# crates.io rust-code-analysis 0.0.25 is broken: tree-sitter-rust=0.20.3 pulls a
+# newer tree-sitter (0.26) than rust-code-analysis itself can compile against.
+# master has the version pins fixed; pinned to a known-good commit for build
+# stability.
+rust-code-analysis = { git = "https://github.com/mozilla/rust-code-analysis", rev = "37e5d83c056c8cbf827223d5814a93c5218df1a9" }
+serde              = { version = "1", features = ["derive"] }
+serde_json         = { version = "1", features = ["preserve_order"] }
+walkdir            = "2"
+
+[dev-dependencies]
+tempfile           = "3"

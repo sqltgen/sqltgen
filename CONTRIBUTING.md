@@ -86,6 +86,34 @@ CI will reject PRs with formatter diffs or clippy warnings.
 - Functions over 100 lines are not accepted; split them.
 - Each file should have a single clear responsibility.
 
+### Quality ratchet
+
+A snapshot of structural code-quality metrics is committed at
+`quality-report.json` and enforced by CI via the `quality-gate` job.
+
+- **What's measured.** Function length, function cognitive/cyclomatic
+  complexity, function arg count, file length, functions per file, files
+  per module. Thresholds and per-entity excesses live in the JSON file.
+- **What's enforced.** Two rules per metric category: (1) no entity
+  present in both old and new reports may regress individually, and
+  (2) the per-category total of excesses may not increase. Improvements
+  in one category cannot pay for regressions in another.
+- **When you change code.** Run `make quality-generate` and commit the
+  refreshed `quality-report.json` alongside your code. CI will fail if the
+  committed file is out of sync (`make quality-check`) or if the ratchet
+  rules are violated against `main` (`make quality-ratchet`).
+- **Threshold edits.** Changing a threshold is a policy move; it must
+  land in its own PR after the codebase complies.
+
+Local quick-reference:
+
+```sh
+make quality-generate   # refresh quality-report.json
+make quality-check      # fail if the file is out of sync
+make quality-ratchet    # compare against origin/main
+make quality            # quality-check + quality-ratchet
+```
+
 ### Error handling
 
 - **Recoverable errors** (unknown type, unsupported syntax): emit a warning with

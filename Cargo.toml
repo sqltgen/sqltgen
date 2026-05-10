@@ -1,3 +1,7 @@
+[workspace]
+members = [".", "xtask"]
+default-members = ["."]
+
 [package]
 name = "sqltgen"
 version = "0.0.20260310"

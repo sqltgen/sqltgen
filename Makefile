@@ -134,6 +134,8 @@ e2e-db-up:
 e2e-db-down:
 	docker compose -f tests/e2e/docker-compose.yml down
 
+.PHONY: quality quality-generate quality-check quality-ratchet ci-quality
+
 # ── CI targets ────────────────────────────────────────────────────────────────
 
 ci-build:
@@ -143,10 +145,10 @@ ci-fmt:
 	cargo fmt --check
 
 ci-clippy:
-	cargo clippy -- -D warnings
+	cargo clippy --workspace --all-targets -- -D warnings
 
 ci-test:
-	cargo test
+	cargo test --workspace
 
 ci-check-suite:
 	python tests/e2e/check_suite.py --ci
@@ -168,6 +170,21 @@ ci-runtime-mysql: ci-build
 	$(MAKE) e2e-runtime-mysql
 
 ci-runtime-db: ci-runtime-postgresql ci-runtime-mysql
+
+# ── Quality ratchet ───────────────────────────────────────────────────────────
+
+quality-generate:
+	cargo xtask quality generate
+
+quality-check:
+	cargo xtask quality check
+
+quality-ratchet:
+	cargo xtask quality ratchet --base origin/main
+
+quality: quality-check quality-ratchet
+
+ci-quality: quality
 
 # ── PostgreSQL database ───────────────────────────────────────────────────────
 
