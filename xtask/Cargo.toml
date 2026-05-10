@@ -1,3 +1,9 @@
+# xtask is its own workspace so it stays isolated from sqltgen's Cargo.toml.
+# Making sqltgen/Cargo.toml a workspace root would force every standalone
+# crate under examples/ and tests/e2e/fixtures/ to add an empty `[workspace]`
+# table; keeping xtask self-contained avoids that.
+[workspace]
+
 [package]
 name = "xtask"
 version = "0.0.0"

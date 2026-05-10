@@ -143,12 +143,15 @@ ci-build:
 
 ci-fmt:
 	cargo fmt --check
+	cargo fmt --manifest-path xtask/Cargo.toml --check
 
 ci-clippy:
-	cargo clippy --workspace --all-targets -- -D warnings
+	cargo clippy --all-targets -- -D warnings
+	cargo clippy --manifest-path xtask/Cargo.toml --all-targets -- -D warnings
 
 ci-test:
-	cargo test --workspace
+	cargo test
+	cargo test --manifest-path xtask/Cargo.toml
 
 ci-check-suite:
 	python tests/e2e/check_suite.py --ci

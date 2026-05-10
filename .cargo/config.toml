@@ -1,5 +1,5 @@
 [alias]
-xtask = "run --quiet --package xtask --"
+xtask = "run --quiet --manifest-path xtask/Cargo.toml --"
 
 # xtask depends on a git source; fetch via the git CLI so that user-level
 # url-rewrite rules (e.g. https → ssh) and credential helpers are honored.
