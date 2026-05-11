@@ -44,12 +44,12 @@ impl Codegen for JavaCodegen {
 
 #[cfg(test)]
 fn java_type(sql_type: &crate::ir::SqlType, nullable: bool) -> String {
-    typemap::java_type_pub(sql_type, nullable)
+    typemap::build_java_type_map(&crate::config::OutputConfig::default()).java_type(sql_type, nullable)
 }
 
 #[cfg(test)]
 fn resultset_read_expr(sql_type: &crate::ir::SqlType, nullable: bool, idx: usize) -> String {
-    typemap::resultset_read_expr_pub(sql_type, nullable, idx)
+    typemap::build_java_type_map(&crate::config::OutputConfig::default()).read_expr(sql_type, nullable, idx)
 }
 
 #[cfg(test)]
