@@ -9,6 +9,7 @@ use crate::ir::SqlType;
 
 mod adapter;
 mod core;
+mod imports;
 mod typemap;
 
 /// Database engine target for Go output.

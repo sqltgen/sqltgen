@@ -10,8 +10,8 @@
     "module_files": 20
   },
   "totals": {
-    "file_functions": 382,
-    "file_lines": 3249,
+    "file_functions": 378,
+    "file_lines": 3174,
     "function_args": 85,
     "function_cognitive": 365,
     "function_cyclomatic": 737,
@@ -21,7 +21,7 @@
   "violations": {
     "file_functions": {
       "src/backend/common.rs": 10,
-      "src/backend/go/core.rs": 40,
+      "src/backend/go/core.rs": 36,
       "src/backend/go/tests/params.rs": 2,
       "src/backend/java/core.rs": 21,
       "src/backend/java/typemap.rs": 18,
@@ -50,7 +50,7 @@
     },
     "file_lines": {
       "src/backend/common.rs": 125,
-      "src/backend/go/core.rs": 477,
+      "src/backend/go/core.rs": 402,
       "src/backend/java/core.rs": 212,
       "src/backend/java/tests/type_overrides.rs": 17,
       "src/backend/java/typemap.rs": 168,
@@ -134,7 +134,7 @@
       "src/backend/go/core.rs::collect_query_imports": 11,
       "src/backend/go/core.rs::emit_standard_query_func": 4,
       "src/backend/go/core.rs::scan_plan": 1,
-      "src/backend/go/core.rs::write": 4,
+      "src/backend/go/imports.rs::write": 4,
       "src/backend/java/core.rs::generate_core_files": 17,
       "src/backend/java/typemap.rs::read_expr": 3,
       "src/backend/jdbc.rs::collect_override_metadata": 37,
@@ -182,7 +182,7 @@
       "src/backend/go/core.rs::emit_scan_many": 7,
       "src/backend/go/core.rs::emit_scan_one": 4,
       "src/backend/go/core.rs::emit_standard_query_func": 19,
-      "src/backend/go/core.rs::write": 4,
+      "src/backend/go/imports.rs::write": 4,
       "src/backend/go/typemap.rs::go_default_entry": 10,
       "src/backend/java/core.rs::emit_java_querier": 11,
       "src/backend/java/core.rs::emit_java_querier_method": 6,
