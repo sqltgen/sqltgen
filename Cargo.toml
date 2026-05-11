@@ -28,6 +28,15 @@ serde     = { version = "1", features = ["derive"] }
 serde_json = "1"
 sqlparser = "0.61"
 
+# sqltgen is a single-crate package, but the [workspace.metadata.dist] config
+# cargo-dist requires below implicitly makes this Cargo.toml a workspace root.
+# The standalone Rust crates under tests/e2e/fixtures/ and examples/rust/ must
+# stay out of this workspace — exclude them here so future fixtures and example
+# crates added under those paths don't need to declare empty [workspace] tables
+# of their own. xtask has its own [workspace] declaration and is unaffected.
+[workspace]
+exclude = ["tests/e2e/fixtures", "examples/rust"]
+
 # Config for 'dist'
 [workspace.metadata.dist]
 # The preferred dist version to use in CI (Cargo.toml SemVer syntax)
