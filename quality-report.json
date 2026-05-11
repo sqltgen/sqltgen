@@ -10,12 +10,12 @@
     "module_files": 20
   },
   "totals": {
-    "file_functions": 394,
-    "file_lines": 3484,
+    "file_functions": 382,
+    "file_lines": 3309,
     "function_args": 85,
     "function_cognitive": 385,
     "function_cyclomatic": 755,
-    "function_lines": 956,
+    "function_lines": 875,
     "module_files": 0
   },
   "violations": {
@@ -24,7 +24,7 @@
       "src/backend/go/core.rs": 40,
       "src/backend/go/tests/params.rs": 2,
       "src/backend/java/core.rs": 21,
-      "src/backend/java/typemap.rs": 30,
+      "src/backend/java/typemap.rs": 18,
       "src/backend/jdbc.rs": 7,
       "src/backend/kotlin/core.rs": 26,
       "src/backend/kotlin/tests/types.rs": 6,
@@ -53,7 +53,7 @@
       "src/backend/go/core.rs": 477,
       "src/backend/java/core.rs": 212,
       "src/backend/java/tests/type_overrides.rs": 17,
-      "src/backend/java/typemap.rs": 343,
+      "src/backend/java/typemap.rs": 168,
       "src/backend/jdbc.rs": 92,
       "src/backend/kotlin/core.rs": 290,
       "src/backend/kotlin/typemap.rs": 95,
@@ -262,7 +262,7 @@
       "src/backend/go/core.rs::emit_standard_query_func": 10,
       "src/backend/go/typemap.rs::go_default_entry": 98,
       "src/backend/java/core.rs::generate_core_files": 67,
-      "src/backend/java/typemap.rs::java_type_info": 161,
+      "src/backend/java/typemap.rs::java_type_info": 80,
       "src/backend/java/typemap.rs::try_preset_java": 2,
       "src/backend/jdbc.rs::emit_jdbc_binds": 4,
       "src/backend/kotlin/core.rs::generate_core_files": 61,

@@ -318,82 +318,36 @@ fn resolve_read_exprs(defaults: &JavaTypeInfo, field_ov: Option<&ResolvedType>) 
     (read, read_nullable, array_elem)
 }
 
+/// Builder for a Java JDBC primitive entry: same shape for every non-nullable
+/// primitive (boolean, short, int, long, float, double). Each takes a
+/// language-level type, its boxed name, the `ResultSet.getX` call, and the
+/// JDBC-helper used to coalesce `wasNull` checks.
+fn primitive(field_type: &'static str, field_type_boxed: &'static str, scalar_read: &'static str, nullable_helper: &'static str) -> JavaTypeInfo {
+    JavaTypeInfo {
+        field_type,
+        field_type_boxed,
+        scalar_read,
+        nullable_helper: Some(nullable_helper),
+        uses_get_object: false,
+        array_elem: None,
+        array_raw: "it.toString()",
+        default_write: None,
+    }
+}
+
 fn java_type_info(sql_type: &SqlType) -> JavaTypeInfo {
     match sql_type {
-        SqlType::Boolean => JavaTypeInfo {
-            field_type: "boolean",
-            field_type_boxed: "Boolean",
-            scalar_read: "rs.getBoolean({idx})",
-            nullable_helper: Some("getNullableBoolean"),
-            uses_get_object: false,
-            array_elem: None,
-            array_raw: "it.toString()",
-            default_write: None,
-        },
-        SqlType::SmallInt => JavaTypeInfo {
-            field_type: "short",
-            field_type_boxed: "Short",
-            scalar_read: "rs.getShort({idx})",
-            nullable_helper: Some("getNullableShort"),
-            uses_get_object: false,
-            array_elem: None,
-            array_raw: "it.toString()",
-            default_write: None,
-        },
-        SqlType::Integer => JavaTypeInfo {
-            field_type: "int",
-            field_type_boxed: "Integer",
-            scalar_read: "rs.getInt({idx})",
-            nullable_helper: Some("getNullableInt"),
-            uses_get_object: false,
-            array_elem: None,
-            array_raw: "it.toString()",
-            default_write: None,
-        },
-        SqlType::BigInt => JavaTypeInfo {
-            field_type: "long",
-            field_type_boxed: "Long",
-            scalar_read: "rs.getLong({idx})",
-            nullable_helper: Some("getNullableLong"),
-            uses_get_object: false,
-            array_elem: None,
-            array_raw: "it.toString()",
-            default_write: None,
-        },
+        SqlType::Boolean => primitive("boolean", "Boolean", "rs.getBoolean({idx})", "getNullableBoolean"),
+        SqlType::SmallInt => primitive("short", "Short", "rs.getShort({idx})", "getNullableShort"),
+        SqlType::Integer => primitive("int", "Integer", "rs.getInt({idx})", "getNullableInt"),
+        SqlType::BigInt => primitive("long", "Long", "rs.getLong({idx})", "getNullableLong"),
         // MySQL UNSIGNED integers are widened to the next signed Java integer that
         // fits the entire unsigned range. BIGINT UNSIGNED has no Java primitive
         // wide enough, so it maps to java.math.BigInteger; users who know their
         // values fit in long can opt into it via a type override (lossy).
-        SqlType::TinyIntUnsigned => JavaTypeInfo {
-            field_type: "short",
-            field_type_boxed: "Short",
-            scalar_read: "rs.getShort({idx})",
-            nullable_helper: Some("getNullableShort"),
-            uses_get_object: false,
-            array_elem: None,
-            array_raw: "it.toString()",
-            default_write: None,
-        },
-        SqlType::SmallIntUnsigned => JavaTypeInfo {
-            field_type: "int",
-            field_type_boxed: "Integer",
-            scalar_read: "rs.getInt({idx})",
-            nullable_helper: Some("getNullableInt"),
-            uses_get_object: false,
-            array_elem: None,
-            array_raw: "it.toString()",
-            default_write: None,
-        },
-        SqlType::IntegerUnsigned => JavaTypeInfo {
-            field_type: "long",
-            field_type_boxed: "Long",
-            scalar_read: "rs.getLong({idx})",
-            nullable_helper: Some("getNullableLong"),
-            uses_get_object: false,
-            array_elem: None,
-            array_raw: "it.toString()",
-            default_write: None,
-        },
+        SqlType::TinyIntUnsigned => primitive("short", "Short", "rs.getShort({idx})", "getNullableShort"),
+        SqlType::SmallIntUnsigned => primitive("int", "Integer", "rs.getInt({idx})", "getNullableInt"),
+        SqlType::IntegerUnsigned => primitive("long", "Long", "rs.getLong({idx})", "getNullableLong"),
         SqlType::BigIntUnsigned => JavaTypeInfo {
             field_type: "java.math.BigInteger",
             field_type_boxed: "java.math.BigInteger",
@@ -407,26 +361,8 @@ fn java_type_info(sql_type: &SqlType) -> JavaTypeInfo {
             // time and pair with `setBigDecimal` (see jdbc_setter).
             default_write: Some("new java.math.BigDecimal({value})"),
         },
-        SqlType::Real => JavaTypeInfo {
-            field_type: "float",
-            field_type_boxed: "Float",
-            scalar_read: "rs.getFloat({idx})",
-            nullable_helper: Some("getNullableFloat"),
-            uses_get_object: false,
-            array_elem: None,
-            array_raw: "it.toString()",
-            default_write: None,
-        },
-        SqlType::Double => JavaTypeInfo {
-            field_type: "double",
-            field_type_boxed: "Double",
-            scalar_read: "rs.getDouble({idx})",
-            nullable_helper: Some("getNullableDouble"),
-            uses_get_object: false,
-            array_elem: None,
-            array_raw: "it.toString()",
-            default_write: None,
-        },
+        SqlType::Real => primitive("float", "Float", "rs.getFloat({idx})", "getNullableFloat"),
+        SqlType::Double => primitive("double", "Double", "rs.getDouble({idx})", "getNullableDouble"),
         SqlType::Decimal => JavaTypeInfo {
             field_type: "java.math.BigDecimal",
             field_type_boxed: "java.math.BigDecimal",
@@ -530,44 +466,33 @@ fn java_type_info(sql_type: &SqlType) -> JavaTypeInfo {
     }
 }
 
-/// Test shim: check whether the given SQL type uses `getObject` by default.
-///
-/// Matches the logic in `uses_get_object` from `jdbc.rs` for the Java backend.
-#[cfg(test)]
-pub(super) fn java_type_pub(sql_type: &SqlType, nullable: bool) -> String {
-    let map = build_java_type_map(&crate::config::OutputConfig::default());
-    map.java_type(sql_type, nullable)
-}
-
-#[cfg(test)]
-pub(super) fn resultset_read_expr_pub(sql_type: &SqlType, nullable: bool, idx: usize) -> String {
-    let map = build_java_type_map(&crate::config::OutputConfig::default());
-    map.read_expr(sql_type, nullable, idx)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ir::SqlType;
 
+    fn java_type(sql_type: &SqlType, nullable: bool) -> String {
+        build_java_type_map(&crate::config::OutputConfig::default()).java_type(sql_type, nullable)
+    }
+
     fn read(sql_type: SqlType, nullable: bool) -> String {
-        resultset_read_expr_pub(&sql_type, nullable, 1)
+        build_java_type_map(&crate::config::OutputConfig::default()).read_expr(&sql_type, nullable, 1)
     }
 
     #[test]
     fn test_unsigned_integer_widening() {
         // TINYINT UNSIGNED (0..255) does not fit in Java byte, widens to short.
-        assert_eq!(java_type_pub(&SqlType::TinyIntUnsigned, false), "short");
-        assert_eq!(java_type_pub(&SqlType::TinyIntUnsigned, true), "Short");
+        assert_eq!(java_type(&SqlType::TinyIntUnsigned, false), "short");
+        assert_eq!(java_type(&SqlType::TinyIntUnsigned, true), "Short");
         // SMALLINT UNSIGNED (0..65535) does not fit in Java short, widens to int.
-        assert_eq!(java_type_pub(&SqlType::SmallIntUnsigned, false), "int");
-        assert_eq!(java_type_pub(&SqlType::SmallIntUnsigned, true), "Integer");
+        assert_eq!(java_type(&SqlType::SmallIntUnsigned, false), "int");
+        assert_eq!(java_type(&SqlType::SmallIntUnsigned, true), "Integer");
         // INT UNSIGNED (0..2^32-1) does not fit in Java int, widens to long.
-        assert_eq!(java_type_pub(&SqlType::IntegerUnsigned, false), "long");
-        assert_eq!(java_type_pub(&SqlType::IntegerUnsigned, true), "Long");
+        assert_eq!(java_type(&SqlType::IntegerUnsigned, false), "long");
+        assert_eq!(java_type(&SqlType::IntegerUnsigned, true), "Long");
         // BIGINT UNSIGNED (0..2^64-1) exceeds Java long; default to BigInteger.
-        assert_eq!(java_type_pub(&SqlType::BigIntUnsigned, false), "java.math.BigInteger");
-        assert_eq!(java_type_pub(&SqlType::BigIntUnsigned, true), "java.math.BigInteger");
+        assert_eq!(java_type(&SqlType::BigIntUnsigned, false), "java.math.BigInteger");
+        assert_eq!(java_type(&SqlType::BigIntUnsigned, true), "java.math.BigInteger");
     }
 
     #[test]
