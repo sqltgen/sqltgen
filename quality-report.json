@@ -13,9 +13,9 @@
     "file_functions": 382,
     "file_lines": 3249,
     "function_args": 85,
-    "function_cognitive": 385,
-    "function_cyclomatic": 755,
-    "function_lines": 705,
+    "function_cognitive": 367,
+    "function_cyclomatic": 753,
+    "function_lines": 684,
     "module_files": 0
   },
   "violations": {
@@ -163,7 +163,7 @@
       "src/frontend/common/query/resolve.rs::resolve_case": 4,
       "src/frontend/common/query/resolve.rs::resolve_projection": 10,
       "src/frontend/common/query/resolve_functions.rs::resolve_coalesce": 5,
-      "src/frontend/common/query/select.rs::build_source_provenance": 23,
+      "src/frontend/common/query/select.rs::build_source_provenance": 5,
       "src/frontend/common/query/select.rs::select_wildcard_source": 3,
       "src/frontend/common/query/tables.rs::collect_table_list": 7,
       "src/frontend/common/schema.rs::process_statement": 5,
@@ -241,7 +241,6 @@
       "src/frontend/common/query/resolve.rs::resolve_projection": 5,
       "src/frontend/common/query/resolve_functions.rs::resolve_aggregate_function": 4,
       "src/frontend/common/query/resolve_functions.rs::resolve_function": 3,
-      "src/frontend/common/query/select.rs::build_source_provenance": 2,
       "src/frontend/common/query/select.rs::select_wildcard_source": 3,
       "src/frontend/common/schema.rs::parse_schema_impl": 2,
       "src/frontend/common/schema.rs::process_statement": 19,
@@ -279,7 +278,6 @@
       "src/frontend/common/query/params.rs::collect_params_from_expr": 35,
       "src/frontend/common/query/params.rs::mark_is_null_nullable": 8,
       "src/frontend/common/query/resolve.rs::resolve_expr": 33,
-      "src/frontend/common/query/select.rs::build_source_provenance": 21,
       "src/frontend/common/schema.rs::process_statement": 16,
       "src/main.rs::run_generate": 20
     },
