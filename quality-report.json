@@ -15,7 +15,7 @@
     "function_args": 85,
     "function_cognitive": 385,
     "function_cyclomatic": 755,
-    "function_lines": 803,
+    "function_lines": 705,
     "module_files": 0
   },
   "violations": {
@@ -260,7 +260,6 @@
       "src/backend/go/core.rs::build_queries_file": 8,
       "src/backend/go/core.rs::emit_dynamic_list_body": 5,
       "src/backend/go/core.rs::emit_standard_query_func": 10,
-      "src/backend/go/typemap.rs::go_default_entry": 98,
       "src/backend/java/core.rs::generate_core_files": 67,
       "src/backend/java/typemap.rs::java_type_info": 80,
       "src/backend/java/typemap.rs::try_preset_java": 2,

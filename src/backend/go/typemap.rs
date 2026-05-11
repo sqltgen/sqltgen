@@ -139,109 +139,49 @@ fn apply_overrides(default: GoTypeEntry, field_ov: Option<&crate::config::Resolv
     GoTypeEntry { field_type, field_type_nullable, param_type, param_type_nullable, import, import_nullable }
 }
 
+/// Default entry where the nullable form is one of the `sql.NullX` helpers from
+/// `database/sql`. The non-nullable field and param types are both `go_type`.
+fn sql_null_entry(go_type: &str, null_type: &str) -> GoTypeEntry {
+    GoTypeEntry {
+        field_type: go_type.into(),
+        field_type_nullable: null_type.into(),
+        param_type: go_type.into(),
+        param_type_nullable: null_type.into(),
+        import: None,
+        import_nullable: Some("\"database/sql\"".to_string()),
+    }
+}
+
+/// Default entry where the nullable form is a Go pointer (`*T`). Used for types
+/// without a `sql.NullX` counterpart (unsigned integers, `float32`, `[]byte`).
+fn pointer_null_entry(go_type: &str) -> GoTypeEntry {
+    GoTypeEntry {
+        field_type: go_type.into(),
+        field_type_nullable: format!("*{go_type}"),
+        param_type: go_type.into(),
+        param_type_nullable: format!("*{go_type}"),
+        import: None,
+        import_nullable: None,
+    }
+}
+
 fn go_default_entry(sql_type: &SqlType, json_mode: GoJsonMode) -> GoTypeEntry {
-    let db_sql = Some("\"database/sql\"".to_string());
-    let time_imp = Some("\"time\"".to_string());
     match sql_type {
-        SqlType::Boolean => GoTypeEntry {
-            field_type: "bool".into(),
-            field_type_nullable: "sql.NullBool".into(),
-            param_type: "bool".into(),
-            param_type_nullable: "sql.NullBool".into(),
-            import: None,
-            import_nullable: db_sql,
-        },
-        SqlType::SmallInt => GoTypeEntry {
-            field_type: "int16".into(),
-            field_type_nullable: "sql.NullInt16".into(),
-            param_type: "int16".into(),
-            param_type_nullable: "sql.NullInt16".into(),
-            import: None,
-            import_nullable: db_sql,
-        },
-        SqlType::Integer => GoTypeEntry {
-            field_type: "int32".into(),
-            field_type_nullable: "sql.NullInt32".into(),
-            param_type: "int32".into(),
-            param_type_nullable: "sql.NullInt32".into(),
-            import: None,
-            import_nullable: db_sql,
-        },
-        SqlType::BigInt => GoTypeEntry {
-            field_type: "int64".into(),
-            field_type_nullable: "sql.NullInt64".into(),
-            param_type: "int64".into(),
-            param_type_nullable: "sql.NullInt64".into(),
-            import: None,
-            import_nullable: db_sql,
-        },
-        // MySQL UNSIGNED integers map to native Go unsigned widths. database/sql has
-        // no NullUintN helpers, so nullable forms use pointer types (the same pattern
-        // used for `Real`/`float32`).
-        SqlType::TinyIntUnsigned => GoTypeEntry {
-            field_type: "uint8".into(),
-            field_type_nullable: "*uint8".into(),
-            param_type: "uint8".into(),
-            param_type_nullable: "*uint8".into(),
-            import: None,
-            import_nullable: None,
-        },
-        SqlType::SmallIntUnsigned => GoTypeEntry {
-            field_type: "uint16".into(),
-            field_type_nullable: "*uint16".into(),
-            param_type: "uint16".into(),
-            param_type_nullable: "*uint16".into(),
-            import: None,
-            import_nullable: None,
-        },
-        SqlType::IntegerUnsigned => GoTypeEntry {
-            field_type: "uint32".into(),
-            field_type_nullable: "*uint32".into(),
-            param_type: "uint32".into(),
-            param_type_nullable: "*uint32".into(),
-            import: None,
-            import_nullable: None,
-        },
-        SqlType::BigIntUnsigned => GoTypeEntry {
-            field_type: "uint64".into(),
-            field_type_nullable: "*uint64".into(),
-            param_type: "uint64".into(),
-            param_type_nullable: "*uint64".into(),
-            import: None,
-            import_nullable: None,
-        },
-        SqlType::Real => GoTypeEntry {
-            field_type: "float32".into(),
-            field_type_nullable: "*float32".into(),
-            param_type: "float32".into(),
-            param_type_nullable: "*float32".into(),
-            import: None,
-            import_nullable: None,
-        },
-        SqlType::Double => GoTypeEntry {
-            field_type: "float64".into(),
-            field_type_nullable: "sql.NullFloat64".into(),
-            param_type: "float64".into(),
-            param_type_nullable: "sql.NullFloat64".into(),
-            import: None,
-            import_nullable: db_sql,
-        },
-        SqlType::Decimal | SqlType::Interval | SqlType::Uuid => GoTypeEntry {
-            field_type: "string".into(),
-            field_type_nullable: "sql.NullString".into(),
-            param_type: "string".into(),
-            param_type_nullable: "sql.NullString".into(),
-            import: None,
-            import_nullable: db_sql,
-        },
-        SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_) => GoTypeEntry {
-            field_type: "string".into(),
-            field_type_nullable: "sql.NullString".into(),
-            param_type: "string".into(),
-            param_type_nullable: "sql.NullString".into(),
-            import: None,
-            import_nullable: db_sql,
-        },
+        SqlType::Boolean => sql_null_entry("bool", "sql.NullBool"),
+        SqlType::SmallInt => sql_null_entry("int16", "sql.NullInt16"),
+        SqlType::Integer => sql_null_entry("int32", "sql.NullInt32"),
+        SqlType::BigInt => sql_null_entry("int64", "sql.NullInt64"),
+        // MySQL UNSIGNED integers map to native Go unsigned widths. database/sql
+        // has no NullUintN helpers, so nullable forms use pointer types (the
+        // same pattern used for `Real`/`float32`).
+        SqlType::TinyIntUnsigned => pointer_null_entry("uint8"),
+        SqlType::SmallIntUnsigned => pointer_null_entry("uint16"),
+        SqlType::IntegerUnsigned => pointer_null_entry("uint32"),
+        SqlType::BigIntUnsigned => pointer_null_entry("uint64"),
+        SqlType::Real => pointer_null_entry("float32"),
+        SqlType::Double => sql_null_entry("float64", "sql.NullFloat64"),
+        SqlType::Decimal | SqlType::Interval | SqlType::Uuid => sql_null_entry("string", "sql.NullString"),
+        SqlType::Text | SqlType::Char(_) | SqlType::VarChar(_) => sql_null_entry("string", "sql.NullString"),
         SqlType::Bytes => GoTypeEntry {
             field_type: "[]byte".into(),
             field_type_nullable: "[]byte".into(),
@@ -250,31 +190,12 @@ fn go_default_entry(sql_type: &SqlType, json_mode: GoJsonMode) -> GoTypeEntry {
             import: None,
             import_nullable: None, // nil slice represents NULL
         },
-        SqlType::Date | SqlType::Time | SqlType::Timestamp | SqlType::TimestampTz => GoTypeEntry {
-            field_type: "time.Time".into(),
-            field_type_nullable: "sql.NullTime".into(),
-            param_type: "time.Time".into(),
-            param_type_nullable: "sql.NullTime".into(),
-            import: time_imp,
-            import_nullable: db_sql,
+        SqlType::Date | SqlType::Time | SqlType::Timestamp | SqlType::TimestampTz => {
+            GoTypeEntry { import: Some("\"time\"".to_string()), ..sql_null_entry("time.Time", "sql.NullTime") }
         },
         SqlType::Json | SqlType::Jsonb => match json_mode {
-            GoJsonMode::Bytes => GoTypeEntry {
-                field_type: "[]byte".into(),
-                field_type_nullable: "*[]byte".into(),
-                param_type: "[]byte".into(),
-                param_type_nullable: "*[]byte".into(),
-                import: None,
-                import_nullable: None,
-            },
-            GoJsonMode::String => GoTypeEntry {
-                field_type: "string".into(),
-                field_type_nullable: "sql.NullString".into(),
-                param_type: "string".into(),
-                param_type_nullable: "sql.NullString".into(),
-                import: None,
-                import_nullable: db_sql,
-            },
+            GoJsonMode::Bytes => pointer_null_entry("[]byte"),
+            GoJsonMode::String => sql_null_entry("string", "sql.NullString"),
         },
         SqlType::Custom(_) => GoTypeEntry {
             field_type: "any".into(),
