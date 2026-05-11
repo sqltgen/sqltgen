@@ -76,15 +76,8 @@ fn read_schema_ddl(path: &Path, stop_marker: Option<&str>) -> anyhow::Result<Str
 
 fn run_generate(config_path: &Path) -> anyhow::Result<()> {
     let cfg = SqltgenConfig::load(config_path)?;
-
     let base_dir = config_path.parent().unwrap_or(Path::new("."));
-
-    // Select dialect parser
-    let parser: Box<dyn DialectParser> = match cfg.engine {
-        Engine::Postgresql => Box::new(PostgresParser),
-        Engine::Sqlite => Box::new(SqliteParser),
-        Engine::Mysql => Box::new(MysqlParser),
-    };
+    let parser = pick_parser(cfg.engine);
 
     // Effective default schema: user override > engine default
     let default_schema = cfg.default_schema.as_deref().or(cfg.engine.default_schema());
@@ -96,9 +89,8 @@ fn run_generate(config_path: &Path) -> anyhow::Result<()> {
     schema.default_schema = default_schema.map(|s| s.to_string());
 
     // Read and parse queries (supports multiple files / globs)
-    let query_paths = cfg.expand_queries(base_dir)?;
     let mut queries = Vec::new();
-    for (query_path, group) in query_paths {
+    for (query_path, group) in cfg.expand_queries(base_dir)? {
         let queries_sql = std::fs::read_to_string(&query_path).with_context(|| format!("reading queries file: {}", query_path.display()))?;
         let mut parsed = parser.parse_queries(&queries_sql, &schema, default_schema)?;
         for q in &mut parsed {
@@ -113,35 +105,53 @@ fn run_generate(config_path: &Path) -> anyhow::Result<()> {
 
     // Run each configured codegen target
     for (lang, output_config) in &cfg.gen {
-        let driver = output_config.driver.as_deref();
-        let codegen: Box<dyn Codegen> = match lang {
-            Language::Java => Box::new(backend::java::JavaCodegen { target: backend::jdbc::JdbcTarget::from_engine_and_driver(cfg.engine, driver)? }),
-            Language::Kotlin => Box::new(backend::kotlin::KotlinCodegen { target: backend::jdbc::JdbcTarget::from_engine_and_driver(cfg.engine, driver)? }),
-            Language::Rust => Box::new(backend::rust::RustCodegen { target: backend::rust::RustTarget::from_engine_and_driver(cfg.engine, driver)? }),
-            Language::Go => Box::new(backend::go::GoCodegen { target: backend::go::GoTarget::from_engine_and_driver(cfg.engine, driver)? }),
-            Language::Python => Box::new(backend::python::PythonCodegen { target: backend::python::PythonTarget::from_engine_and_driver(cfg.engine, driver)? }),
-            Language::TypeScript => Box::new(backend::typescript::TypeScriptCodegen {
-                target: backend::typescript::JsTarget::from_engine_and_driver(cfg.engine, driver)?,
-                output: backend::typescript::JsOutput::TypeScript,
-            }),
-            Language::JavaScript => Box::new(backend::typescript::TypeScriptCodegen {
-                target: backend::typescript::JsTarget::from_engine_and_driver(cfg.engine, driver)?,
-                output: backend::typescript::JsOutput::JavaScript,
-            }),
-        };
-
+        let codegen = pick_codegen(lang, cfg.engine, output_config.driver.as_deref())?;
         let files = codegen.generate(&schema, &queries, output_config)?;
-
-        for file in files {
-            let dest = base_dir.join(&file.path);
-            if let Some(parent) = dest.parent() {
-                std::fs::create_dir_all(parent).with_context(|| format!("creating directory: {}", parent.display()))?;
-            }
-            std::fs::write(&dest, &file.content).with_context(|| format!("writing file: {}", dest.display()))?;
-            println!("wrote {}", dest.display());
-        }
+        write_generated(base_dir, files)?;
     }
 
+    Ok(())
+}
+
+/// Construct the dialect parser for `engine`.
+fn pick_parser(engine: Engine) -> Box<dyn DialectParser> {
+    match engine {
+        Engine::Postgresql => Box::new(PostgresParser),
+        Engine::Sqlite => Box::new(SqliteParser),
+        Engine::Mysql => Box::new(MysqlParser),
+    }
+}
+
+/// Construct the codegen backend for `lang`, configured for the given engine and
+/// (optional) driver override.
+fn pick_codegen(lang: &Language, engine: Engine, driver: Option<&str>) -> anyhow::Result<Box<dyn Codegen>> {
+    Ok(match lang {
+        Language::Java => Box::new(backend::java::JavaCodegen { target: backend::jdbc::JdbcTarget::from_engine_and_driver(engine, driver)? }),
+        Language::Kotlin => Box::new(backend::kotlin::KotlinCodegen { target: backend::jdbc::JdbcTarget::from_engine_and_driver(engine, driver)? }),
+        Language::Rust => Box::new(backend::rust::RustCodegen { target: backend::rust::RustTarget::from_engine_and_driver(engine, driver)? }),
+        Language::Go => Box::new(backend::go::GoCodegen { target: backend::go::GoTarget::from_engine_and_driver(engine, driver)? }),
+        Language::Python => Box::new(backend::python::PythonCodegen { target: backend::python::PythonTarget::from_engine_and_driver(engine, driver)? }),
+        Language::TypeScript => Box::new(backend::typescript::TypeScriptCodegen {
+            target: backend::typescript::JsTarget::from_engine_and_driver(engine, driver)?,
+            output: backend::typescript::JsOutput::TypeScript,
+        }),
+        Language::JavaScript => Box::new(backend::typescript::TypeScriptCodegen {
+            target: backend::typescript::JsTarget::from_engine_and_driver(engine, driver)?,
+            output: backend::typescript::JsOutput::JavaScript,
+        }),
+    })
+}
+
+/// Write generated files under `base_dir`, creating parent directories as needed.
+fn write_generated(base_dir: &Path, files: Vec<sqltgen::backend::GeneratedFile>) -> anyhow::Result<()> {
+    for file in files {
+        let dest = base_dir.join(&file.path);
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent).with_context(|| format!("creating directory: {}", parent.display()))?;
+        }
+        std::fs::write(&dest, &file.content).with_context(|| format!("writing file: {}", dest.display()))?;
+        println!("wrote {}", dest.display());
+    }
     Ok(())
 }
 
