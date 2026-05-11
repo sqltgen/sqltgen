@@ -97,18 +97,14 @@ pub(super) fn build_kotlin_type_map(config: &OutputConfig) -> KotlinTypeMap {
     let mut map = HashMap::with_capacity(types.len());
     for sql_type in &types {
         let defaults = kotlin_type_info(sql_type);
-        let field_ov = get_type_override_kotlin(sql_type, TypeVariant::Field, config);
-        let param_ov = get_type_override_kotlin(sql_type, TypeVariant::Param, config);
+        let field_ov = resolve_type_override(sql_type, TypeVariant::Field, config, Language::Kotlin, try_preset_kotlin);
+        let param_ov = resolve_type_override(sql_type, TypeVariant::Param, config, Language::Kotlin, try_preset_kotlin);
         map.insert(sql_type_key(sql_type), build_entry(&defaults, field_ov.as_ref(), param_ov.as_ref()));
     }
     KotlinTypeMap(map)
 }
 
 // ─── Override resolution ──────────────────────────────────────────────────────
-
-fn get_type_override_kotlin(sql_type: &SqlType, variant: TypeVariant, config: &OutputConfig) -> Option<ResolvedType> {
-    resolve_type_override(sql_type, variant, config, Language::Kotlin, try_preset_kotlin)
-}
 
 fn try_preset_kotlin(name: &str) -> Option<ResolvedType> {
     match name {
@@ -203,74 +199,34 @@ struct KotlinTypeInfo {
     default_write: Option<&'static str>,
 }
 
+/// Builder for a Kotlin JDBC primitive entry: same shape for every non-nullable
+/// primitive (Boolean, Short, Int, Long, Float, Double). Takes the Kotlin type
+/// name, the `ResultSet.getX` call, and the JDBC helper used to coalesce
+/// `wasNull` checks.
+fn primitive(name: &'static str, scalar_read: &'static str, nullable_helper: &'static str) -> KotlinTypeInfo {
+    KotlinTypeInfo {
+        name,
+        scalar_read,
+        nullable_helper: Some(nullable_helper),
+        uses_get_object: false,
+        array_elem: None,
+        array_raw: "it.toString()",
+        default_write: None,
+    }
+}
+
 fn kotlin_type_info(sql_type: &SqlType) -> KotlinTypeInfo {
     match sql_type {
-        SqlType::Boolean => KotlinTypeInfo {
-            name: "Boolean",
-            scalar_read: "rs.getBoolean({idx})",
-            nullable_helper: Some("getNullableBoolean"),
-            uses_get_object: false,
-            array_elem: None,
-            array_raw: "it.toString()",
-            default_write: None,
-        },
-        SqlType::SmallInt => KotlinTypeInfo {
-            name: "Short",
-            scalar_read: "rs.getShort({idx})",
-            nullable_helper: Some("getNullableShort"),
-            uses_get_object: false,
-            array_elem: None,
-            array_raw: "it.toString()",
-            default_write: None,
-        },
-        SqlType::Integer => KotlinTypeInfo {
-            name: "Int",
-            scalar_read: "rs.getInt({idx})",
-            nullable_helper: Some("getNullableInt"),
-            uses_get_object: false,
-            array_elem: None,
-            array_raw: "it.toString()",
-            default_write: None,
-        },
-        SqlType::BigInt => KotlinTypeInfo {
-            name: "Long",
-            scalar_read: "rs.getLong({idx})",
-            nullable_helper: Some("getNullableLong"),
-            uses_get_object: false,
-            array_elem: None,
-            array_raw: "it.toString()",
-            default_write: None,
-        },
+        SqlType::Boolean => primitive("Boolean", "rs.getBoolean({idx})", "getNullableBoolean"),
+        SqlType::SmallInt => primitive("Short", "rs.getShort({idx})", "getNullableShort"),
+        SqlType::Integer => primitive("Int", "rs.getInt({idx})", "getNullableInt"),
+        SqlType::BigInt => primitive("Long", "rs.getLong({idx})", "getNullableLong"),
         // MySQL UNSIGNED integers widen to the next signed Kotlin integer that
         // covers the full unsigned range. BIGINT UNSIGNED has no Kotlin
         // primitive wide enough; map to java.math.BigInteger by default.
-        SqlType::TinyIntUnsigned => KotlinTypeInfo {
-            name: "Short",
-            scalar_read: "rs.getShort({idx})",
-            nullable_helper: Some("getNullableShort"),
-            uses_get_object: false,
-            array_elem: None,
-            array_raw: "it.toString()",
-            default_write: None,
-        },
-        SqlType::SmallIntUnsigned => KotlinTypeInfo {
-            name: "Int",
-            scalar_read: "rs.getInt({idx})",
-            nullable_helper: Some("getNullableInt"),
-            uses_get_object: false,
-            array_elem: None,
-            array_raw: "it.toString()",
-            default_write: None,
-        },
-        SqlType::IntegerUnsigned => KotlinTypeInfo {
-            name: "Long",
-            scalar_read: "rs.getLong({idx})",
-            nullable_helper: Some("getNullableLong"),
-            uses_get_object: false,
-            array_elem: None,
-            array_raw: "it.toString()",
-            default_write: None,
-        },
+        SqlType::TinyIntUnsigned => primitive("Short", "rs.getShort({idx})", "getNullableShort"),
+        SqlType::SmallIntUnsigned => primitive("Int", "rs.getInt({idx})", "getNullableInt"),
+        SqlType::IntegerUnsigned => primitive("Long", "rs.getLong({idx})", "getNullableLong"),
         SqlType::BigIntUnsigned => KotlinTypeInfo {
             name: "java.math.BigInteger",
             scalar_read: "rs.getObject({idx}, java.math.BigInteger::class.java)",
@@ -283,24 +239,8 @@ fn kotlin_type_info(sql_type: &SqlType) -> KotlinTypeInfo {
             // time and pair with `setBigDecimal` (see jdbc_setter).
             default_write: Some("java.math.BigDecimal({value})"),
         },
-        SqlType::Real => KotlinTypeInfo {
-            name: "Float",
-            scalar_read: "rs.getFloat({idx})",
-            nullable_helper: Some("getNullableFloat"),
-            uses_get_object: false,
-            array_elem: None,
-            array_raw: "it.toString()",
-            default_write: None,
-        },
-        SqlType::Double => KotlinTypeInfo {
-            name: "Double",
-            scalar_read: "rs.getDouble({idx})",
-            nullable_helper: Some("getNullableDouble"),
-            uses_get_object: false,
-            array_elem: None,
-            array_raw: "it.toString()",
-            default_write: None,
-        },
+        SqlType::Real => primitive("Float", "rs.getFloat({idx})", "getNullableFloat"),
+        SqlType::Double => primitive("Double", "rs.getDouble({idx})", "getNullableDouble"),
         SqlType::Decimal => KotlinTypeInfo {
             name: "java.math.BigDecimal",
             scalar_read: "rs.getBigDecimal({idx})",

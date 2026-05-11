@@ -11,11 +11,11 @@
   },
   "totals": {
     "file_functions": 382,
-    "file_lines": 3309,
+    "file_lines": 3249,
     "function_args": 85,
     "function_cognitive": 385,
     "function_cyclomatic": 755,
-    "function_lines": 875,
+    "function_lines": 803,
     "module_files": 0
   },
   "violations": {
@@ -56,7 +56,7 @@
       "src/backend/java/typemap.rs": 168,
       "src/backend/jdbc.rs": 92,
       "src/backend/kotlin/core.rs": 290,
-      "src/backend/kotlin/typemap.rs": 95,
+      "src/backend/kotlin/typemap.rs": 35,
       "src/backend/python/core.rs": 264,
       "src/backend/python/tests/generate.rs": 15,
       "src/backend/rust/core.rs": 200,
@@ -266,7 +266,7 @@
       "src/backend/java/typemap.rs::try_preset_java": 2,
       "src/backend/jdbc.rs::emit_jdbc_binds": 4,
       "src/backend/kotlin/core.rs::generate_core_files": 61,
-      "src/backend/kotlin/typemap.rs::kotlin_type_info": 140,
+      "src/backend/kotlin/typemap.rs::kotlin_type_info": 68,
       "src/backend/python/adapter.rs::resolve_python_contract": 9,
       "src/backend/python/core.rs::build_queries_file": 65,
       "src/backend/python/core.rs::generate_core_files": 47,
