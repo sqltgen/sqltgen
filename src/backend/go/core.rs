@@ -1,4 +1,3 @@
-use std::collections::BTreeSet;
 use std::fmt::Write;
 use std::path::PathBuf;
 
@@ -13,6 +12,7 @@ use crate::config::{ListParamStrategy, OutputConfig};
 use crate::ir::{EnumType, Parameter, Query, QueryCmd, ResultColumn, Schema, SqlType};
 
 use super::adapter::GoDriverAdapter;
+use super::imports::GoImports;
 use super::typemap::GoTypeMap;
 
 /// All data needed for a single `generate()` call, bundled to reduce parameter threading.
@@ -36,81 +36,6 @@ pub(super) fn package_name(config: &OutputConfig) -> String {
         return config.package.clone();
     }
     PathBuf::from(&config.out).file_name().and_then(|n| n.to_str()).unwrap_or("db").to_string()
-}
-
-// ─── Import tracking ──────────────────────────────────────────────────────────
-
-#[derive(Default)]
-struct GoImports {
-    context: bool,
-    database_sql: bool,
-    encoding_json: bool,
-    fmt: bool,
-    strings: bool,
-    time: bool,
-    extra: BTreeSet<String>,
-}
-
-impl GoImports {
-    /// Add an import path. Standard-library paths recognised here are promoted
-    /// to dedicated bool flags; everything else goes into `extra`.
-    fn add_import(&mut self, imp: Option<String>) {
-        match imp.as_deref() {
-            Some("\"time\"") => self.time = true,
-            Some("\"database/sql\"") => self.database_sql = true,
-            Some(s) => {
-                self.extra.insert(s.to_string());
-            },
-            None => {},
-        }
-    }
-
-    /// Return true if any import is needed.
-    fn has_any(&self) -> bool {
-        self.context || self.database_sql || self.encoding_json || self.fmt || self.strings || self.time || !self.extra.is_empty()
-    }
-
-    fn write(&self, src: &mut String) {
-        let mut std_imports: Vec<&str> = Vec::new();
-        if self.context {
-            std_imports.push("\"context\"");
-        }
-        if self.database_sql {
-            std_imports.push("\"database/sql\"");
-        }
-        if self.encoding_json {
-            std_imports.push("\"encoding/json\"");
-        }
-        if self.fmt {
-            std_imports.push("\"fmt\"");
-        }
-        if self.strings {
-            std_imports.push("\"strings\"");
-        }
-        if self.time {
-            std_imports.push("\"time\"");
-        }
-
-        let extra: Vec<&str> = self.extra.iter().map(|s| s.as_str()).collect();
-
-        if std_imports.is_empty() && extra.is_empty() {
-            return;
-        }
-
-        src.push_str("import (\n");
-        for imp in &std_imports {
-            src.push_str(&format!("\t{imp}\n"));
-        }
-        if !extra.is_empty() {
-            if !std_imports.is_empty() {
-                src.push('\n');
-            }
-            for imp in &extra {
-                src.push_str(&format!("\t{imp}\n"));
-            }
-        }
-        src.push_str(")\n");
-    }
 }
 
 // ─── Field name ───────────────────────────────────────────────────────────────
