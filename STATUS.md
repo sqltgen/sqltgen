@@ -221,8 +221,11 @@ See `PLAN.md` → Roadmap section for full distribution plan.
 - License (Apache 2.0)
 - README, CHANGELOG, CONTRIBUTING
 - mdBook documentation under `docs/src/` + `docs.yml` deploy action
-- `ci.yml` — build/test/clippy/fmt on PRs
+- `ci.yml` — build/test/clippy/fmt + `quality-gate` snapshot ratchet on PRs
 - `docker.yml` — Docker image build
+- Code-quality ratchet: structural metrics (function/file size, complexity, args)
+  snapshot-gated via `quality-report.json`; `cargo xtask quality {generate,check,
+  ratchet}`; rules ensure no entity worsens and no per-category total grows
 - All Tier 1 correctness bugs cleared (CASE WHEN, COALESCE/NULLIF, aggregate, INSERT...SELECT, UPDATE...FROM, schema-qualified tables, MySQL TINYINT(1) boolean, model/query file collision)
 - Enum support (`CREATE TYPE AS ENUM` + arrays) across all 7 backends with e2e runtime tests
 - MySQL UNSIGNED integers with type widening across all 7 backends with e2e runtime tests
