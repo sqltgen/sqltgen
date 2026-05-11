@@ -13,9 +13,9 @@
     "file_functions": 382,
     "file_lines": 3249,
     "function_args": 85,
-    "function_cognitive": 367,
-    "function_cyclomatic": 753,
-    "function_lines": 684,
+    "function_cognitive": 365,
+    "function_cyclomatic": 737,
+    "function_lines": 664,
     "module_files": 0
   },
   "violations": {
@@ -166,8 +166,7 @@
       "src/frontend/common/query/select.rs::build_source_provenance": 5,
       "src/frontend/common/query/select.rs::select_wildcard_source": 3,
       "src/frontend/common/query/tables.rs::collect_table_list": 7,
-      "src/frontend/common/schema.rs::process_statement": 5,
-      "src/main.rs::run_generate": 2
+      "src/frontend/common/schema.rs::process_statement": 5
     },
     "function_cyclomatic": {
       "src/backend/common.rs::infer_table": 4,
@@ -252,8 +251,9 @@
       "src/frontend/postgres/typemap.rs::map_custom": 3,
       "src/frontend/sqlite/typemap.rs::map": 1,
       "src/frontend/sqlite/typemap.rs::map_custom": 2,
+      "src/main.rs::pick_codegen": 5,
       "src/main.rs::read_schema_ddl": 6,
-      "src/main.rs::run_generate": 26
+      "src/main.rs::run_generate": 5
     },
     "function_lines": {
       "src/backend/go/core.rs::build_queries_file": 8,
@@ -278,8 +278,7 @@
       "src/frontend/common/query/params.rs::collect_params_from_expr": 35,
       "src/frontend/common/query/params.rs::mark_is_null_nullable": 8,
       "src/frontend/common/query/resolve.rs::resolve_expr": 33,
-      "src/frontend/common/schema.rs::process_statement": 16,
-      "src/main.rs::run_generate": 20
+      "src/frontend/common/schema.rs::process_statement": 16
     },
     "module_files": {}
   }
