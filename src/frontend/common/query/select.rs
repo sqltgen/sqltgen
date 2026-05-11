@@ -127,26 +127,9 @@ pub(super) fn build_source_provenance(
         let mut cte_tables: Vec<Table> = Vec::new();
         for cte in &with.cte_tables {
             let cte_name = ident_to_str(&cte.alias.name);
-            if let SetExpr::Select(select) = cte.query.body.as_ref() {
-                // Recursively resolve provenance within this CTE's own body.
-                let inner_prov = build_source_provenance(cte.query.with.as_ref(), &select.from, schema, &cte_tables, config);
-                // Merge: outer provenance (earlier CTEs) + inner (this CTE's internals).
-                let mut merged = provenance.clone();
-                merged.extend(inner_prov);
-                let all_tables = collect_from_tables(select, schema, &cte_tables, config);
-                if !all_tables.is_empty() {
-                    let alias_map = build_alias_map(&all_tables);
-                    let source_scope = WildcardSourceScope {
-                        alias_map: &alias_map,
-                        all_tables: &all_tables,
-                        schema,
-                        provenance: &merged,
-                        default_schema: config.default_schema.as_deref(),
-                    };
-                    if let Some(source) = select_wildcard_source(select, &source_scope) {
-                        provenance.insert(cte_name.clone(), source);
-                    }
-                }
+            let enclosing = EnclosingScope { provenance: &provenance, ctes: &cte_tables };
+            if let Some(source) = resolve_subquery_wildcard_source(&cte.query, &enclosing, schema, config) {
+                provenance.insert(cte_name.clone(), source);
             }
             // Extend the local CTE list so subsequent CTEs can reference this one.
             let cols = apply_cte_alias_columns(derived_cols(&cte.query, schema, &cte_tables, config), &cte.alias.columns);
@@ -160,29 +143,42 @@ pub(super) fn build_source_provenance(
     for twj in from {
         if let sqlparser::ast::TableFactor::Derived { subquery, alias: Some(a), .. } = &twj.relation {
             let alias_name = ident_to_str(&a.name);
-            if let SetExpr::Select(select) = subquery.body.as_ref() {
-                let inner_prov = build_source_provenance(subquery.with.as_ref(), &select.from, schema, ctes, config);
-                let mut merged = provenance.clone();
-                merged.extend(inner_prov);
-                let all_tables = collect_from_tables(select, schema, ctes, config);
-                if !all_tables.is_empty() {
-                    let alias_map = build_alias_map(&all_tables);
-                    let source_scope = WildcardSourceScope {
-                        alias_map: &alias_map,
-                        all_tables: &all_tables,
-                        schema,
-                        provenance: &merged,
-                        default_schema: config.default_schema.as_deref(),
-                    };
-                    if let Some(source) = select_wildcard_source(select, &source_scope) {
-                        provenance.insert(alias_name, source);
-                    }
-                }
+            let enclosing = EnclosingScope { provenance: &provenance, ctes };
+            if let Some(source) = resolve_subquery_wildcard_source(subquery, &enclosing, schema, config) {
+                provenance.insert(alias_name, source);
             }
         }
     }
 
     provenance
+}
+
+/// Wildcard-source context inherited by a subquery from its surroundings:
+/// the provenance already resolved for sibling sources, plus the CTE scope
+/// the subquery can reference.
+struct EnclosingScope<'a> {
+    provenance: &'a HashMap<String, SourceTable>,
+    ctes: &'a [Table],
+}
+
+/// Resolve the wildcard source table for a subquery (a CTE body or a `(SELECT ...)`
+/// derived table). Returns `None` when the subquery is not a single SELECT, has no
+/// FROM tables, or cannot be unambiguously attributed to one source table.
+fn resolve_subquery_wildcard_source(subquery: &SqlQuery, enclosing: &EnclosingScope<'_>, schema: &Schema, config: &ResolverConfig) -> Option<SourceTable> {
+    let SetExpr::Select(select) = subquery.body.as_ref() else {
+        return None;
+    };
+    let inner_prov = build_source_provenance(subquery.with.as_ref(), &select.from, schema, enclosing.ctes, config);
+    let mut merged = enclosing.provenance.clone();
+    merged.extend(inner_prov);
+    let all_tables = collect_from_tables(select, schema, enclosing.ctes, config);
+    if all_tables.is_empty() {
+        return None;
+    }
+    let alias_map = build_alias_map(&all_tables);
+    let source_scope =
+        WildcardSourceScope { alias_map: &alias_map, all_tables: &all_tables, schema, provenance: &merged, default_schema: config.default_schema.as_deref() };
+    select_wildcard_source(select, &source_scope)
 }
 
 /// Handle `Statement::Query` where the body is a set operation (UNION/INTERSECT/EXCEPT).
