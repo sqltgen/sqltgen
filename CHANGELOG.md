@@ -80,6 +80,19 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
   occurred when a table name matched a query group name.
 
 ### Changed
+- **Shell installer install path is now `~/.local/bin`** (was `$CARGO_HOME/bin`,
+  i.e. `~/.cargo/bin`). The previous default assumed the user had the Rust
+  toolchain installed and `~/.cargo/bin` on `PATH`; for users without rustup
+  the installed binary was effectively invisible until they re-sourced their
+  shell profile. `~/.local/bin` follows the XDG user-bin convention used by
+  pipx, uv, and `pip --user`, and is on `PATH` by default on most modern
+  Linux distros and macOS. For a system-wide install, run the installer with
+  `SQLTGEN_INSTALL_DIR=/usr/local` under `sudo`:
+  ```sh
+  curl --proto '=https' --tlsv1.2 -LsSf \
+    https://github.com/sqltgen/sqltgen/releases/download/<tag>/sqltgen-installer.sh \
+    | sudo env SQLTGEN_INSTALL_DIR=/usr/local sh
+  ```
 - **Pre-resolved type map refactor (all backends)** — each backend now builds a
   `<Lang>TypeMap` once before codegen, with all override, preset, and default
   resolution at construction time. Emitters are pure consumers and no longer call
@@ -89,6 +102,20 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
   during migration (see Fixed below).
 
 ### Fixed
+- **`sqltgen --version` / `-V`** — the CLI now reports its version. Previously
+  the `version` attribute was missing from the `clap` derive, so the only way to
+  identify a binary was to read its filename or rebuild against a known
+  `Cargo.toml`. With `version` enabled, clap pulls from `CARGO_PKG_VERSION`
+  automatically; `--version` and `-V` print e.g. `sqltgen 0.1.0-rc.2`.
+
+### Changed
+- **Installer drops binaries into `~/.local/bin`** instead of `CARGO_HOME`
+  (`~/.cargo/bin`). `~/.local/bin` is the XDG user-bin convention also used by
+  pipx, uv, and `pip --user`, and is on `PATH` by default on most modern Linux
+  distros and macOS. Users without a Rust toolchain installed (and therefore
+  without `~/.cargo/bin` on `PATH`) now get a working install out of the box
+  from the shell installer. For a system-wide install, run the installer with
+  `sudo` and `SQLTGEN_INSTALL_DIR=/usr/local`.
 - **`DROP FUNCTION` now matches by argument signature** — previously,
   `DROP FUNCTION fn(t1)` removed every overload named `fn` in the schema,
   ignoring the argument list. With overloaded functions (e.g. `fn(bigint)` and

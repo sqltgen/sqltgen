@@ -8,7 +8,7 @@ use sqltgen::config::{Engine, Language, SqltgenConfig};
 use sqltgen::frontend::{mysql::MysqlParser, postgres::PostgresParser, sqlite::SqliteParser, DialectParser};
 
 #[derive(Parser)]
-#[command(name = "sqltgen", about = "SQL-to-code generator")]
+#[command(name = "sqltgen", version, about = "SQL-to-code generator")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
