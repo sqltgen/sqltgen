@@ -10,6 +10,15 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
 
 ## [Unreleased]
 
+_No unreleased changes yet._
+
+## [0.1.0-rc.2] — 2026-05-11
+
+First tagged release. Distributed via GitHub Releases with cargo-dist:
+cross-compiled binaries for Linux x86_64/aarch64, macOS x86_64/aarch64,
+and Windows x86_64, plus shell and PowerShell installers. Install with
+`curl -fsSL https://sqltgen.org/install.sh | sh`.
+
 ### Added
 - **`sqltgen.org/install.sh` convenience URL** — a short, stable URL that
   forwards to the cargo-dist shell installer on the latest GitHub Release.
@@ -414,5 +423,6 @@ First public release.
 - `make run-all` at the repo root runs all examples using one shared container per
   engine (1× PG, 1× MySQL, no containers for SQLite)
 
-[Unreleased]: https://github.com/sqltgen/sqltgen/compare/v0.0.20260310...HEAD
+[Unreleased]: https://github.com/sqltgen/sqltgen/compare/v0.1.0-rc.2...HEAD
+[0.1.0-rc.2]: https://github.com/sqltgen/sqltgen/releases/tag/v0.1.0-rc.2
 [0.0.20260310]: https://github.com/sqltgen/sqltgen/releases/tag/v0.0.20260310
