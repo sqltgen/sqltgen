@@ -246,6 +246,21 @@ from that line onward is ignored when building the schema:
 Common values: `"-- migrate:down"` (dbmate), `"-- +goose Down"` (goose),
 `"-- +migrate Down"` (golang-migrate).
 
+Most migration tools also keep their own bookkeeping table in the schema dump
+(dbmate's `schema_migrations`, Flyway's `flyway_schema_history`, etc.). To
+keep those out of the generated models, list them in `ignore_tables`:
+
+```json
+{
+  "schema": "migrations/schema.sql",
+  "ignore_tables": ["schema_migrations"]
+}
+```
+
+The match is by bare table name (no schema qualifier). Filtering happens after
+the schema is parsed, so queries that reference an ignored table still get
+correctly typed result columns — only the model class emission is suppressed.
+
 The `queries` field accepts a string (single file), an array of paths/globs, or
 a **grouped map** that names each group explicitly:
 
