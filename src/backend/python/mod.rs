@@ -2,10 +2,7 @@ use crate::backend::manifest::build_manifest_file;
 use crate::backend::naming::to_snake_case;
 use crate::backend::{Codegen, GeneratedFile};
 use crate::config::OutputConfig;
-use crate::ir::{Query, Schema};
-
-#[cfg(test)]
-use crate::ir::SqlType;
+use crate::ir::{Query, Schema, SqlType};
 
 mod adapter;
 mod core;
@@ -66,8 +63,11 @@ impl Codegen for PythonCodegen {
         let strategy = config.list_params.clone().unwrap_or_default();
         let ctx = core::GenerationContext { schema, queries, config, contract: &contract, type_map: &type_map, strategy };
 
+        let needs_enum_array_parser = queries
+            .iter()
+            .any(|q| q.result_columns.iter().any(|col| matches!(&col.sql_type, SqlType::Array(inner) if matches!(inner.as_ref(), SqlType::Enum(_)))));
         let mut files = Vec::new();
-        files.push(adapter::emit_helper_file(&contract, config));
+        files.push(adapter::emit_helper_file(&contract, config, needs_enum_array_parser));
         files.extend(core::generate_core_files(&ctx)?);
 
         if let Some(manifest) = build_manifest_file(
