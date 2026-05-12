@@ -10,6 +10,31 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
 
 ## [Unreleased]
 
+### Changed
+- **Strict schema loader** — when `schema:` points at a directory, each
+  `.sql` file is parsed independently in lexicographic filename order
+  instead of being concatenated. A bare `CREATE TABLE`, `CREATE VIEW`,
+  `CREATE TYPE`, or `CREATE FUNCTION` (TVF) that re-defines an existing
+  object now errors out with both source locations
+  (`file:line` for the original definition and the redefinition).
+  `IF NOT EXISTS` and `OR REPLACE` keep their PostgreSQL semantics
+  (silent skip and replace, respectively). Previously, duplicate
+  definitions were accepted silently, which produced duplicate model
+  imports in the generated code and could disrupt query row-shape
+  matching when a dbmate-style `schema.sql` dump was loaded alongside
+  the numbered migrations that produced it.
+- **Python output is now pyright-strict clean** — generated code passes
+  `pyright --strict` on a realistic schema. The runtime helper
+  (`sqltgen.py`) declares a `_Connection` Protocol instead of typing
+  `conn` as bare `Any`, parameterizes all `tuple` and `list` types,
+  and uses `Generator[T, None, None]` rather than the
+  `@contextmanager`-deprecated `Iterator[T]`. The PostgreSQL enum-array
+  parser is now emitted only when at least one generated query reads
+  an `enum[]` column. `models/__init__.py`, `queries/__init__.py`, and
+  the top-level package `__init__.py` emit a `__all__ = [...]`
+  re-export list so pyright no longer flags every barrel import as
+  unused.
+
 ### Added
 - **`sqltgen.org/install.sh` convenience URL** — a short, stable URL that
   forwards to the cargo-dist shell installer on the latest GitHub Release.

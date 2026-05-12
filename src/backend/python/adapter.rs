@@ -122,6 +122,14 @@ pub(super) fn resolve_python_contract(target: &PythonTarget) -> PythonCoreContra
 }
 
 /// Emit the engine-specific helper module selected by the contract.
-pub(super) fn emit_helper_file(contract: &PythonCoreContract, config: &OutputConfig) -> GeneratedFile {
-    GeneratedFile { path: PathBuf::from(&config.out).join("sqltgen.py"), content: contract.helper_source.to_string() }
+///
+/// `needs_enum_array_parser` controls whether the `_parse_enum_array` helper
+/// is appended to the file. It is only required when at least one generated
+/// query module reads a column of type `enum[]`.
+pub(super) fn emit_helper_file(contract: &PythonCoreContract, config: &OutputConfig, needs_enum_array_parser: bool) -> GeneratedFile {
+    let mut content = String::from(contract.helper_source);
+    if needs_enum_array_parser {
+        content.push_str(include_str!("_sqltgen_enum_array.py"));
+    }
+    GeneratedFile { path: PathBuf::from(&config.out).join("sqltgen.py"), content }
 }

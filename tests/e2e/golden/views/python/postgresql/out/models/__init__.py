@@ -3,3 +3,10 @@ from .author import Author
 from .book import Book
 from .book_summaries import BookSummaries
 from .sci_fi_books import SciFiBooks
+
+__all__ = [
+    "Author",
+    "Book",
+    "BookSummaries",
+    "SciFiBooks",
+]

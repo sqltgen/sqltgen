@@ -1,29 +1,22 @@
-use sqlparser::ast::{ArgMode, DataType, DropFunction, ObjectType, Statement, UserDefinedTypeRepresentation};
 use sqlparser::dialect::Dialect;
-use sqlparser::parser::Parser;
-use sqlparser::tokenizer::{Token, Tokenizer};
 
-use super::{apply_alter_table, apply_drop_tables, build_column, build_create_table, obj_name_to_str, obj_schema_to_str, DdlDialect};
+use super::schema_loader::{collect_in_arg_types, parse_one_file, ParseConfig, PendingView, SchemaOrigins, SchemaState};
+use super::{obj_name_to_str, obj_schema_to_str, DdlDialect};
 use crate::frontend::common::query::{resolve_view_columns, ResolverConfig};
-use crate::ir::schema_matches;
-use crate::ir::{EnumType, ScalarFunction, Schema, SqlType, Table};
-
-/// A `CREATE VIEW` statement collected during pass 1 for resolution in pass 2.
-struct PendingView {
-    name: String,
-    schema: Option<String>,
-    query: Box<sqlparser::ast::Query>,
-}
+use crate::frontend::SchemaFile;
+use crate::ir::{schema_matches, ScalarFunction, Schema, SqlType, Table};
 
 /// Shared schema-parsing implementation used by all dialect frontends.
 ///
-/// Tokenizes the DDL first, then parses each statement individually so that
-/// unsupported statements (e.g. `CREATE FUNCTION … LEAKPROOF`) can be skipped
-/// without aborting the entire parse.
+/// Tokenizes each input file individually so that unsupported statements
+/// (e.g. `CREATE FUNCTION … LEAKPROOF`) can be skipped without aborting
+/// the entire parse, and so collision errors point at the original
+/// `file:line` location.
 ///
 /// Pass 1 processes `CREATE TABLE`, `ALTER TABLE`, `DROP TABLE`,
-/// `CREATE FUNCTION`, and `DROP FUNCTION` in order. `CREATE VIEW` statements
-/// are collected into a pending list.
+/// `CREATE FUNCTION`, and `DROP FUNCTION` in order, with strict
+/// postgres-like collision detection on relations and types.
+/// `CREATE VIEW` statements are collected into a pending list.
 ///
 /// Pass 2 resolves each pending view against the completed table list, in
 /// declaration order, so that a view defined after the tables it references
@@ -33,34 +26,21 @@ struct PendingView {
 /// `ddl_dialect`     — the dialect-specific type mapper and `ALTER TABLE` caps.
 /// `resolver_config` — the dialect-specific expression resolver config, used to
 ///                     infer view column types from the SELECT body.
-pub(crate) fn parse_schema_impl(ddl: &str, sql_dialect: &dyn Dialect, ddl_dialect: DdlDialect, resolver_config: &ResolverConfig) -> anyhow::Result<Schema> {
-    let tokens = Tokenizer::new(sql_dialect, ddl).tokenize_with_location().map_err(|e| anyhow::anyhow!("DDL tokenize error: {e}"))?;
-
-    let mut parser = Parser::new(sql_dialect).with_tokens_with_locations(tokens);
+pub(crate) fn parse_schema_impl(
+    files: &[SchemaFile],
+    sql_dialect: &dyn Dialect,
+    ddl_dialect: DdlDialect,
+    resolver_config: &ResolverConfig,
+) -> anyhow::Result<Schema> {
     let mut schema = Schema::default();
     let mut pending_views: Vec<PendingView> = Vec::new();
+    let mut origins = SchemaOrigins::default();
 
     // ── Pass 1: tables, functions, and collecting views ───────────────────────
-    loop {
-        // Consume any inter-statement semicolons.
-        while parser.consume_token(&Token::SemiColon) {}
-
-        if matches!(parser.peek_token().token, Token::EOF) {
-            break;
-        }
-
-        match parser.parse_statement() {
-            Ok(stmt) => process_statement(&stmt, &mut schema, ddl_dialect, &mut pending_views, resolver_config.default_schema.as_deref()),
-            Err(_) => {
-                // Skip to the next semicolon so we can recover and continue.
-                loop {
-                    match parser.next_token().token {
-                        Token::SemiColon | Token::EOF => break,
-                        _ => {},
-                    }
-                }
-            },
-        }
+    let cfg = ParseConfig { sql_dialect, ddl_dialect, default_schema: resolver_config.default_schema.as_deref() };
+    for file in files {
+        let mut state = SchemaState { schema: &mut schema, pending_views: &mut pending_views, origins: &mut origins };
+        parse_one_file(file, &cfg, &mut state)?;
     }
 
     // ── Pass 1.5: resolve enum column types ────────────────────────────────────
@@ -80,79 +60,8 @@ pub(crate) fn parse_schema_impl(ddl: &str, sql_dialect: &dyn Dialect, ddl_dialec
     Ok(schema)
 }
 
-/// Applies a single DDL statement to the in-progress schema.
-///
-/// `CREATE VIEW` statements are not applied here; they are stored in
-/// `pending_views` for resolution in pass 2.
-fn process_statement(stmt: &Statement, schema: &mut Schema, dialect: DdlDialect, pending_views: &mut Vec<PendingView>, default_schema: Option<&str>) {
-    match stmt {
-        Statement::CreateTable(ct) => schema.tables.push(build_create_table(&ct.name, &ct.columns, &ct.constraints, dialect)),
-        Statement::AlterTable(a) => apply_alter_table(&a.name, &a.operations, &mut schema.tables, dialect, default_schema),
-        Statement::Drop { object_type: ObjectType::Table, names, .. } => apply_drop_tables(names, &mut schema.tables, default_schema),
-        Statement::CreateView(v) => {
-            let name = obj_name_to_str(&v.name);
-            let schema_name = obj_schema_to_str(&v.name);
-            if v.or_replace {
-                pending_views.retain(|view| !(view.name == name && schema_matches(schema_name.as_deref(), view.schema.as_deref(), default_schema)));
-            }
-            pending_views.push(PendingView { name, schema: schema_name, query: v.query.clone() });
-        },
-        Statement::Drop { object_type: ObjectType::View, names, .. } => apply_drop_views(names, pending_views, default_schema),
-        Statement::CreateFunction(f) => {
-            let name = obj_name_to_str(&f.name);
-            let schema_name = obj_schema_to_str(&f.name);
-            match &f.return_type {
-                // Table-valued function: RETURNS TABLE(col1 type, col2 type, ...)
-                Some(DataType::Table(Some(col_defs))) => {
-                    let columns = col_defs.iter().map(|cd| build_column(cd, dialect.map_type)).collect();
-                    if f.or_replace {
-                        schema
-                            .tables
-                            .retain(|t| !(t.is_view() && t.name == name && schema_matches(schema_name.as_deref(), t.schema.as_deref(), default_schema)));
-                    }
-                    let mut tvf = Table::view(name, columns);
-                    tvf.schema = schema_name;
-                    schema.tables.push(tvf);
-                },
-                // RETURNS TABLE without column list — skip.
-                Some(DataType::Table(None)) => {},
-                // Scalar function.
-                Some(dt) => {
-                    let return_type = (dialect.map_type)(dt);
-                    let param_types: Vec<SqlType> = f
-                        .args
-                        .as_deref()
-                        .unwrap_or(&[])
-                        .iter()
-                        .filter(|a| matches!(a.mode, None | Some(ArgMode::In)))
-                        .map(|a| (dialect.map_type)(&a.data_type))
-                        .collect();
-                    if f.or_replace {
-                        schema.functions.retain(|g| {
-                            g.name != name
-                                || g.param_types.len() != param_types.len()
-                                || !schema_matches(schema_name.as_deref(), g.schema.as_deref(), default_schema)
-                        });
-                    }
-                    schema.functions.push(ScalarFunction { name, schema: schema_name, return_type, param_types });
-                },
-                // No return type — skip.
-                None => {},
-            }
-        },
-        Statement::DropFunction(DropFunction { func_desc, .. }) => apply_drop_functions(func_desc, &mut schema.functions, dialect, default_schema),
-        Statement::CreateType { name, representation: Some(UserDefinedTypeRepresentation::Enum { labels }) } => {
-            let enum_name = obj_name_to_str(name);
-            let enum_schema = obj_schema_to_str(name);
-            let variants: Vec<String> = labels.iter().map(|l| l.value.clone()).collect();
-            schema.enums.push(EnumType { name: enum_name, schema: enum_schema, variants });
-        },
-        _ => {},
-    }
-}
-
 /// Remove every pending view named in `names` from the pass-1 view list.
-fn apply_drop_views(names: &[sqlparser::ast::ObjectName], pending_views: &mut Vec<PendingView>, default_schema: Option<&str>) {
+pub(super) fn apply_drop_views(names: &[sqlparser::ast::ObjectName], pending_views: &mut Vec<PendingView>, default_schema: Option<&str>) {
     for name in names {
         let view_name = obj_name_to_str(name);
         let view_schema = obj_schema_to_str(name);
@@ -162,27 +71,20 @@ fn apply_drop_views(names: &[sqlparser::ast::ObjectName], pending_views: &mut Ve
 
 /// Remove every function named in `func_desc` from the in-progress function list.
 ///
-/// PostgreSQL overloads functions by argument signature, so a single name can
-/// resolve to multiple distinct functions. Matching rules:
-/// - `DROP FUNCTION fn(t1, t2, …)` — match name + schema + IN-arg type list.
-///   Only the exact overload is removed; sibling overloads with a different
-///   signature are preserved.
-/// - `DROP FUNCTION fn` — no arg list given; match name + schema only. This
-///   mirrors the existing limitation around `CREATE OR REPLACE FUNCTION`,
-///   which matches by arity rather than full signature.
-///
-/// `OUT` parameters are excluded because PostgreSQL uses only IN/INOUT/VARIADIC
-/// for overload resolution. (`INOUT` is currently treated as not-IN by
-/// [`process_statement`]'s `CreateFunction` branch; that asymmetry is a known
-/// limitation tracked separately and should not be silently fixed here.)
-fn apply_drop_functions(func_desc: &[sqlparser::ast::FunctionDesc], functions: &mut Vec<ScalarFunction>, dialect: DdlDialect, default_schema: Option<&str>) {
+/// PostgreSQL overloads functions by argument signature. Matching rules:
+/// - `DROP FUNCTION fn(t1, t2, …)` matches name + schema + IN-arg type list,
+///   so sibling overloads with a different signature are preserved.
+/// - `DROP FUNCTION fn` (no arg list) matches name + schema only.
+pub(super) fn apply_drop_functions(
+    func_desc: &[sqlparser::ast::FunctionDesc],
+    functions: &mut Vec<ScalarFunction>,
+    dialect: DdlDialect,
+    default_schema: Option<&str>,
+) {
     for desc in func_desc {
         let name = obj_name_to_str(&desc.name);
         let schema = obj_schema_to_str(&desc.name);
-        let arg_types: Option<Vec<SqlType>> = desc
-            .args
-            .as_ref()
-            .map(|args| args.iter().filter(|a| matches!(a.mode, None | Some(ArgMode::In))).map(|a| (dialect.map_type)(&a.data_type)).collect());
+        let arg_types: Option<Vec<SqlType>> = desc.args.as_ref().map(|args| collect_in_arg_types(args, dialect));
         functions.retain(|f| {
             let same_name = f.name == name && schema_matches(schema.as_deref(), f.schema.as_deref(), default_schema);
             if !same_name {

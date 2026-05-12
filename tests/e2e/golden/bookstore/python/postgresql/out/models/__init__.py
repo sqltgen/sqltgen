@@ -6,3 +6,13 @@ from .sale import Sale
 from .sale_item import SaleItem
 from .product import Product
 from .book_summaries import BookSummaries
+
+__all__ = [
+    "Author",
+    "Book",
+    "Customer",
+    "Sale",
+    "SaleItem",
+    "Product",
+    "BookSummaries",
+]

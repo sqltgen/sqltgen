@@ -4,17 +4,18 @@ use crate::frontend::common::query::ResolverConfig;
 use crate::frontend::common::schema::parse_schema_impl;
 use crate::frontend::common::{AlterCaps, DdlDialect};
 use crate::frontend::mysql::typemap;
+use crate::frontend::SchemaFile;
 use crate::ir::{Schema, SqlType};
 
-/// Parses MySQL DDL into a [Schema].
+/// Parses MySQL DDL across one or more source files into a [Schema].
 ///
 /// Processes `CREATE TABLE`, `ALTER TABLE`, `DROP TABLE`, `CREATE FUNCTION`,
 /// `DROP FUNCTION`, and `CREATE VIEW` statements. Delegates to the shared
 /// [`parse_schema_impl`] with the MySQL dialect, full `ALTER TABLE`
 /// capabilities, and the MySQL type mapper and resolver config.
-pub(crate) fn parse_schema(ddl: &str, default_schema: Option<&str>) -> anyhow::Result<Schema> {
+pub(crate) fn parse_schema_files(files: &[SchemaFile], default_schema: Option<&str>) -> anyhow::Result<Schema> {
     parse_schema_impl(
-        ddl,
+        files,
         &MySqlDialect {},
         DdlDialect { map_type: typemap::map, alter_caps: AlterCaps::ALL },
         &ResolverConfig {
@@ -32,6 +33,11 @@ pub(crate) fn parse_schema(ddl: &str, default_schema: Option<&str>) -> anyhow::R
 mod tests {
     use super::*;
     use crate::ir::SqlType;
+
+    /// Convenience for tests with a single in-memory DDL string.
+    fn parse_schema(ddl: &str, default_schema: Option<&str>) -> anyhow::Result<Schema> {
+        parse_schema_files(&[SchemaFile::inline(ddl)], default_schema)
+    }
 
     #[test]
     fn parses_simple_table() {

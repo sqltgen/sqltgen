@@ -225,6 +225,13 @@ cargo build --release
 The `schema` field accepts a directory; files are loaded in lexicographic order
 (ideal for numbered migration files like `001_create_users.sql`).
 
+DDL statements are applied with PostgreSQL-like strictness across the loaded
+files: a bare `CREATE TABLE` (or `CREATE VIEW` / `CREATE TYPE` / `CREATE FUNCTION`)
+that re-defines an existing object is reported as an error pointing at both
+source locations. `IF NOT EXISTS` and `OR REPLACE` are honored. This catches
+mixed inputs like a `schema.sql` dump sitting alongside the migrations that
+produced it.
+
 If your migration files contain both an "up" and a "down" section, set
 `schema_stop_marker` to the comment that begins the down section. Everything
 from that line onward is ignored when building the schema:
