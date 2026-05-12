@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+use std::path::PathBuf;
+
 use sqlparser::ast::{ArgMode, DataType, DropFunction, ObjectType, Statement, UserDefinedTypeRepresentation};
 use sqlparser::dialect::Dialect;
 use sqlparser::parser::Parser;
@@ -5,6 +8,7 @@ use sqlparser::tokenizer::{Token, Tokenizer};
 
 use super::{apply_alter_table, apply_drop_tables, build_column, build_create_table, obj_name_to_str, obj_schema_to_str, DdlDialect};
 use crate::frontend::common::query::{resolve_view_columns, ResolverConfig};
+use crate::frontend::SchemaFile;
 use crate::ir::schema_matches;
 use crate::ir::{EnumType, ScalarFunction, Schema, SqlType, Table};
 
@@ -13,6 +17,58 @@ struct PendingView {
     name: String,
     schema: Option<String>,
     query: Box<sqlparser::ast::Query>,
+}
+
+/// Location of a DDL statement in its source file. Used only for error
+/// reporting; never stored on the IR.
+#[derive(Debug, Clone)]
+struct SourceLoc {
+    file: PathBuf,
+    line: u64,
+}
+
+impl std::fmt::Display for SourceLoc {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}", self.file.display(), self.line)
+    }
+}
+
+/// Tracks where each top-level relation/type was first registered, so that a
+/// later collision can be reported with both source locations.
+#[derive(Default)]
+struct SchemaOrigins {
+    /// Tables, views, and TVFs share the postgres "relation" namespace.
+    relations: HashMap<RelationKey, SourceLoc>,
+    enums: HashMap<RelationKey, SourceLoc>,
+}
+
+/// Normalized lookup key for collision detection.
+///
+/// `schema` carries the *effective* schema name — unqualified names are
+/// resolved against `default_schema` before keying so that `users` and
+/// `public.users` collide when `default_schema = "public"`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct RelationKey {
+    schema: Option<String>,
+    name: String,
+}
+
+impl RelationKey {
+    fn new(schema: Option<&str>, name: &str, default_schema: Option<&str>) -> Self {
+        let effective = schema.map(|s| s.to_string()).or_else(|| default_schema.map(|s| s.to_string()));
+        Self { schema: effective, name: name.to_string() }
+    }
+
+    fn qualified_display(&self) -> String {
+        match &self.schema {
+            Some(s) => format!("{s}.{}", self.name),
+            None => self.name.clone(),
+        }
+    }
+}
+
+fn collision_error(kind: &str, key: &RelationKey, first: &SourceLoc, second: &SourceLoc) -> anyhow::Error {
+    anyhow::anyhow!("{kind} \"{}\" defined at {first} and redefined at {second}", key.qualified_display())
 }
 
 /// Shared schema-parsing implementation used by all dialect frontends.
@@ -33,33 +89,47 @@ struct PendingView {
 /// `ddl_dialect`     — the dialect-specific type mapper and `ALTER TABLE` caps.
 /// `resolver_config` — the dialect-specific expression resolver config, used to
 ///                     infer view column types from the SELECT body.
-pub(crate) fn parse_schema_impl(ddl: &str, sql_dialect: &dyn Dialect, ddl_dialect: DdlDialect, resolver_config: &ResolverConfig) -> anyhow::Result<Schema> {
-    let tokens = Tokenizer::new(sql_dialect, ddl).tokenize_with_location().map_err(|e| anyhow::anyhow!("DDL tokenize error: {e}"))?;
-
-    let mut parser = Parser::new(sql_dialect).with_tokens_with_locations(tokens);
+pub(crate) fn parse_schema_impl(
+    files: &[SchemaFile],
+    sql_dialect: &dyn Dialect,
+    ddl_dialect: DdlDialect,
+    resolver_config: &ResolverConfig,
+) -> anyhow::Result<Schema> {
     let mut schema = Schema::default();
     let mut pending_views: Vec<PendingView> = Vec::new();
+    let mut origins = SchemaOrigins::default();
 
     // ── Pass 1: tables, functions, and collecting views ───────────────────────
-    loop {
-        // Consume any inter-statement semicolons.
-        while parser.consume_token(&Token::SemiColon) {}
+    for file in files {
+        let tokens = Tokenizer::new(sql_dialect, &file.content)
+            .tokenize_with_location()
+            .map_err(|e| anyhow::anyhow!("DDL tokenize error in {}: {e}", file.path.display()))?;
+        let mut parser = Parser::new(sql_dialect).with_tokens_with_locations(tokens);
 
-        if matches!(parser.peek_token().token, Token::EOF) {
-            break;
-        }
+        loop {
+            while parser.consume_token(&Token::SemiColon) {}
 
-        match parser.parse_statement() {
-            Ok(stmt) => process_statement(&stmt, &mut schema, ddl_dialect, &mut pending_views, resolver_config.default_schema.as_deref()),
-            Err(_) => {
-                // Skip to the next semicolon so we can recover and continue.
-                loop {
-                    match parser.next_token().token {
-                        Token::SemiColon | Token::EOF => break,
-                        _ => {},
+            if matches!(parser.peek_token().token, Token::EOF) {
+                break;
+            }
+
+            let stmt_line = parser.peek_token().span.start.line;
+            let loc = SourceLoc { file: file.path.clone(), line: stmt_line };
+
+            match parser.parse_statement() {
+                Ok(stmt) => {
+                    process_statement(&stmt, &mut schema, ddl_dialect, &mut pending_views, resolver_config.default_schema.as_deref(), &mut origins, &loc)?
+                },
+                Err(_) => {
+                    // Skip to the next semicolon so we can recover and continue.
+                    loop {
+                        match parser.next_token().token {
+                            Token::SemiColon | Token::EOF => break,
+                            _ => {},
+                        }
                     }
-                }
-            },
+                },
+            }
         }
     }
 
@@ -84,20 +154,60 @@ pub(crate) fn parse_schema_impl(ddl: &str, sql_dialect: &dyn Dialect, ddl_dialec
 ///
 /// `CREATE VIEW` statements are not applied here; they are stored in
 /// `pending_views` for resolution in pass 2.
-fn process_statement(stmt: &Statement, schema: &mut Schema, dialect: DdlDialect, pending_views: &mut Vec<PendingView>, default_schema: Option<&str>) {
+///
+/// Bare `CREATE TABLE` / `CREATE VIEW` / `CREATE TYPE` / `CREATE FUNCTION`
+/// statements that re-define an existing object are reported as collisions.
+/// `IF NOT EXISTS` and `OR REPLACE` keep their PostgreSQL semantics.
+fn process_statement(
+    stmt: &Statement,
+    schema: &mut Schema,
+    dialect: DdlDialect,
+    pending_views: &mut Vec<PendingView>,
+    default_schema: Option<&str>,
+    origins: &mut SchemaOrigins,
+    loc: &SourceLoc,
+) -> anyhow::Result<()> {
     match stmt {
-        Statement::CreateTable(ct) => schema.tables.push(build_create_table(&ct.name, &ct.columns, &ct.constraints, dialect)),
+        Statement::CreateTable(ct) => {
+            let table = build_create_table(&ct.name, &ct.columns, &ct.constraints, dialect);
+            let key = RelationKey::new(table.schema.as_deref(), &table.name, default_schema);
+            if let Some(first) = origins.relations.get(&key) {
+                if ct.if_not_exists {
+                    return Ok(());
+                }
+                return Err(collision_error("table", &key, first, loc));
+            }
+            origins.relations.insert(key, loc.clone());
+            schema.tables.push(table);
+        },
         Statement::AlterTable(a) => apply_alter_table(&a.name, &a.operations, &mut schema.tables, dialect, default_schema),
-        Statement::Drop { object_type: ObjectType::Table, names, .. } => apply_drop_tables(names, &mut schema.tables, default_schema),
+        Statement::Drop { object_type: ObjectType::Table, names, .. } => {
+            apply_drop_tables(names, &mut schema.tables, default_schema);
+            for name in names {
+                let key = RelationKey::new(obj_schema_to_str(name).as_deref(), &obj_name_to_str(name), default_schema);
+                origins.relations.remove(&key);
+            }
+        },
         Statement::CreateView(v) => {
             let name = obj_name_to_str(&v.name);
             let schema_name = obj_schema_to_str(&v.name);
+            let key = RelationKey::new(schema_name.as_deref(), &name, default_schema);
             if v.or_replace {
                 pending_views.retain(|view| !(view.name == name && schema_matches(schema_name.as_deref(), view.schema.as_deref(), default_schema)));
+                origins.relations.remove(&key);
+            } else if let Some(first) = origins.relations.get(&key) {
+                return Err(collision_error("view", &key, first, loc));
             }
+            origins.relations.insert(key, loc.clone());
             pending_views.push(PendingView { name, schema: schema_name, query: v.query.clone() });
         },
-        Statement::Drop { object_type: ObjectType::View, names, .. } => apply_drop_views(names, pending_views, default_schema),
+        Statement::Drop { object_type: ObjectType::View, names, .. } => {
+            apply_drop_views(names, pending_views, default_schema);
+            for name in names {
+                let key = RelationKey::new(obj_schema_to_str(name).as_deref(), &obj_name_to_str(name), default_schema);
+                origins.relations.remove(&key);
+            }
+        },
         Statement::CreateFunction(f) => {
             let name = obj_name_to_str(&f.name);
             let schema_name = obj_schema_to_str(&f.name);
@@ -105,11 +215,16 @@ fn process_statement(stmt: &Statement, schema: &mut Schema, dialect: DdlDialect,
                 // Table-valued function: RETURNS TABLE(col1 type, col2 type, ...)
                 Some(DataType::Table(Some(col_defs))) => {
                     let columns = col_defs.iter().map(|cd| build_column(cd, dialect.map_type)).collect();
+                    let key = RelationKey::new(schema_name.as_deref(), &name, default_schema);
                     if f.or_replace {
                         schema
                             .tables
                             .retain(|t| !(t.is_view() && t.name == name && schema_matches(schema_name.as_deref(), t.schema.as_deref(), default_schema)));
+                        origins.relations.remove(&key);
+                    } else if let Some(first) = origins.relations.get(&key) {
+                        return Err(collision_error("function", &key, first, loc));
                     }
+                    origins.relations.insert(key, loc.clone());
                     let mut tvf = Table::view(name, columns);
                     tvf.schema = schema_name;
                     schema.tables.push(tvf);
@@ -144,11 +259,17 @@ fn process_statement(stmt: &Statement, schema: &mut Schema, dialect: DdlDialect,
         Statement::CreateType { name, representation: Some(UserDefinedTypeRepresentation::Enum { labels }) } => {
             let enum_name = obj_name_to_str(name);
             let enum_schema = obj_schema_to_str(name);
+            let key = RelationKey::new(enum_schema.as_deref(), &enum_name, default_schema);
+            if let Some(first) = origins.enums.get(&key) {
+                return Err(collision_error("type", &key, first, loc));
+            }
+            origins.enums.insert(key, loc.clone());
             let variants: Vec<String> = labels.iter().map(|l| l.value.clone()).collect();
             schema.enums.push(EnumType { name: enum_name, schema: enum_schema, variants });
         },
         _ => {},
     }
+    Ok(())
 }
 
 /// Remove every pending view named in `names` from the pass-1 view list.

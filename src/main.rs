@@ -5,7 +5,7 @@ use clap::{Parser, Subcommand};
 
 use sqltgen::backend::{self, Codegen};
 use sqltgen::config::{Engine, Language, SqltgenConfig};
-use sqltgen::frontend::{mysql::MysqlParser, postgres::PostgresParser, sqlite::SqliteParser, DialectParser};
+use sqltgen::frontend::{mysql::MysqlParser, postgres::PostgresParser, sqlite::SqliteParser, DialectParser, SchemaFile};
 
 #[derive(Parser)]
 #[command(name = "sqltgen", version, about = "SQL-to-code generator")]
@@ -47,7 +47,13 @@ fn strip_after_marker(content: &str, stop_marker: &str) -> String {
     out
 }
 
-fn read_schema_ddl(path: &Path, stop_marker: Option<&str>) -> anyhow::Result<String> {
+/// Read schema input as one or more [`SchemaFile`]s.
+///
+/// If `path` is a directory, every `*.sql` file inside it is loaded as its
+/// own `SchemaFile` in lexicographic filename order — preserved so that
+/// collision errors are deterministic. Otherwise `path` is loaded as a
+/// single `SchemaFile`.
+fn read_schema_files(path: &Path, stop_marker: Option<&str>) -> anyhow::Result<Vec<SchemaFile>> {
     let extract = |raw: String| match stop_marker {
         Some(marker) => strip_after_marker(&raw, marker),
         None => raw,
@@ -61,16 +67,15 @@ fn read_schema_ddl(path: &Path, stop_marker: Option<&str>) -> anyhow::Result<Str
             .filter(|p| p.extension().is_some_and(|ext| ext == "sql"))
             .collect();
         entries.sort();
-        let mut ddl = String::new();
-        for entry in &entries {
-            let raw = std::fs::read_to_string(entry).with_context(|| format!("reading schema file: {}", entry.display()))?;
-            ddl.push_str(&extract(raw));
-            ddl.push('\n');
+        let mut files = Vec::with_capacity(entries.len());
+        for entry in entries {
+            let raw = std::fs::read_to_string(&entry).with_context(|| format!("reading schema file: {}", entry.display()))?;
+            files.push(SchemaFile { path: entry, content: extract(raw) });
         }
-        Ok(ddl)
+        Ok(files)
     } else {
         let raw = std::fs::read_to_string(path).with_context(|| format!("reading schema file: {}", path.display()))?;
-        Ok(extract(raw))
+        Ok(vec![SchemaFile { path: path.to_path_buf(), content: extract(raw) }])
     }
 }
 
@@ -84,8 +89,8 @@ fn run_generate(config_path: &Path) -> anyhow::Result<()> {
 
     // Read and parse schema (supports single file or directory of .sql files)
     let schema_path = base_dir.join(&cfg.schema);
-    let ddl = read_schema_ddl(&schema_path, cfg.schema_stop_marker.as_deref())?;
-    let mut schema = parser.parse_schema(&ddl, default_schema)?;
+    let schema_files = read_schema_files(&schema_path, cfg.schema_stop_marker.as_deref())?;
+    let mut schema = parser.parse_schema_files(&schema_files, default_schema)?;
     schema.default_schema = default_schema.map(|s| s.to_string());
 
     // Read and parse queries (supports multiple files / globs)

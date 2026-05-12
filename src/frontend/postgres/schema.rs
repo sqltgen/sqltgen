@@ -4,18 +4,19 @@ use crate::frontend::common::query::ResolverConfig;
 use crate::frontend::common::schema::parse_schema_impl;
 use crate::frontend::common::{AlterCaps, DdlDialect};
 use crate::frontend::postgres::typemap;
+use crate::frontend::SchemaFile;
 use crate::ir::{Schema, SqlType};
 
-/// Parses PostgreSQL DDL into a [Schema].
+/// Parses PostgreSQL DDL across one or more source files into a [Schema].
 ///
 /// Processes `CREATE TABLE`, `ALTER TABLE`, `DROP TABLE`, `CREATE FUNCTION`,
 /// `DROP FUNCTION`, and `CREATE VIEW` statements. Delegates to the shared
 /// [`parse_schema_impl`] with the PostgreSQL dialect, full `ALTER TABLE`
 /// capabilities, and the PostgreSQL type mapper and resolver config.
-pub(crate) fn parse_schema(ddl: &str, default_schema: Option<&str>) -> anyhow::Result<Schema> {
+pub(crate) fn parse_schema_files(files: &[SchemaFile], default_schema: Option<&str>) -> anyhow::Result<Schema> {
     let ds = default_schema.unwrap_or("public");
     parse_schema_impl(
-        ddl,
+        files,
         &PostgreSqlDialect {},
         DdlDialect { map_type: typemap::map, alter_caps: AlterCaps::ALL },
         &ResolverConfig {
@@ -26,6 +27,12 @@ pub(crate) fn parse_schema(ddl: &str, default_schema: Option<&str>) -> anyhow::R
             ..ResolverConfig::default()
         },
     )
+}
+
+/// Convenience for tests with a single in-memory DDL string.
+#[cfg(test)]
+pub(crate) fn parse_schema(ddl: &str, default_schema: Option<&str>) -> anyhow::Result<Schema> {
+    parse_schema_files(&[SchemaFile::inline(ddl)], default_schema)
 }
 
 #[cfg(test)]
@@ -927,5 +934,86 @@ mod tests {
         let schema = parse_schema(ddl, None).unwrap();
         let col = &schema.tables[0].columns[1];
         assert_eq!(col.sql_type, SqlType::Custom("citext".to_string()));
+    }
+
+    // ── Strict schema loader: collision detection ────────────────────────────
+
+    #[test]
+    fn test_duplicate_create_table_errors() {
+        let ddl = r#"
+            CREATE TABLE users (id BIGSERIAL PRIMARY KEY);
+            CREATE TABLE users (id BIGSERIAL PRIMARY KEY);
+        "#;
+        let err = parse_schema(ddl, None).expect_err("expected collision error");
+        let msg = err.to_string();
+        assert!(msg.starts_with("table \"public.users\" defined at "), "got: {msg}");
+        assert!(msg.contains("<input>:2"), "missing first loc: {msg}");
+        assert!(msg.contains("<input>:3"), "missing second loc: {msg}");
+    }
+
+    #[test]
+    fn test_duplicate_create_table_if_not_exists_silently_skipped() {
+        let ddl = r#"
+            CREATE TABLE users (id BIGSERIAL PRIMARY KEY);
+            CREATE TABLE IF NOT EXISTS users (id BIGSERIAL PRIMARY KEY, extra TEXT);
+        "#;
+        let schema = parse_schema(ddl, None).unwrap();
+        assert_eq!(schema.tables.len(), 1);
+        assert_eq!(schema.tables[0].columns.len(), 1, "second CREATE must be skipped wholesale");
+    }
+
+    #[test]
+    fn test_drop_then_recreate_does_not_collide() {
+        let ddl = r#"
+            CREATE TABLE users (id BIGSERIAL PRIMARY KEY);
+            DROP TABLE users;
+            CREATE TABLE users (id BIGSERIAL PRIMARY KEY, name TEXT);
+        "#;
+        let schema = parse_schema(ddl, None).unwrap();
+        assert_eq!(schema.tables.len(), 1);
+        assert_eq!(schema.tables[0].columns.len(), 2);
+    }
+
+    #[test]
+    fn test_qualified_vs_unqualified_collide_via_default_schema() {
+        // public.users + plain users (default_schema=public) should collide.
+        let ddl = r#"
+            CREATE TABLE public.users (id BIGSERIAL PRIMARY KEY);
+            CREATE TABLE users (id BIGSERIAL PRIMARY KEY);
+        "#;
+        let err = parse_schema(ddl, None).expect_err("expected collision");
+        assert!(err.to_string().contains("table \"public.users\""), "{err}");
+    }
+
+    #[test]
+    fn test_same_name_in_different_schemas_does_not_collide() {
+        let ddl = r#"
+            CREATE TABLE public.users (id BIGSERIAL PRIMARY KEY);
+            CREATE TABLE internal.users (id BIGINT PRIMARY KEY);
+        "#;
+        let schema = parse_schema(ddl, None).unwrap();
+        assert_eq!(schema.tables.len(), 2);
+    }
+
+    #[test]
+    fn test_duplicate_create_type_errors() {
+        let ddl = r#"
+            CREATE TYPE status AS ENUM ('a', 'b');
+            CREATE TYPE status AS ENUM ('c', 'd');
+        "#;
+        let err = parse_schema(ddl, None).expect_err("expected collision");
+        assert!(err.to_string().contains("type \"public.status\""), "{err}");
+    }
+
+    #[test]
+    fn test_cross_file_collision_reports_both_paths() {
+        let files = vec![
+            SchemaFile { path: std::path::PathBuf::from("a.sql"), content: "CREATE TABLE users (id BIGSERIAL PRIMARY KEY);\n".into() },
+            SchemaFile { path: std::path::PathBuf::from("b.sql"), content: "\nCREATE TABLE users (id BIGSERIAL PRIMARY KEY);\n".into() },
+        ];
+        let err = parse_schema_files(&files, None).expect_err("expected collision");
+        let msg = err.to_string();
+        assert!(msg.contains("a.sql:1"), "missing first file:line: {msg}");
+        assert!(msg.contains("b.sql:2"), "missing second file:line: {msg}");
     }
 }

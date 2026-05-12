@@ -10,6 +10,20 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
 
 ## [Unreleased]
 
+### Changed
+- **Strict schema loader** — when `schema:` points at a directory, each
+  `.sql` file is parsed independently in lexicographic filename order
+  instead of being concatenated. A bare `CREATE TABLE`, `CREATE VIEW`,
+  `CREATE TYPE`, or `CREATE FUNCTION` (TVF) that re-defines an existing
+  object now errors out with both source locations
+  (`file:line` for the original definition and the redefinition).
+  `IF NOT EXISTS` and `OR REPLACE` keep their PostgreSQL semantics
+  (silent skip and replace, respectively). Previously, duplicate
+  definitions were accepted silently, which produced duplicate model
+  imports in the generated code and could disrupt query row-shape
+  matching when a dbmate-style `schema.sql` dump was loaded alongside
+  the numbered migrations that produced it.
+
 ### Added
 - **`sqltgen.org/install.sh` convenience URL** — a short, stable URL that
   forwards to the cargo-dist shell installer on the latest GitHub Release.

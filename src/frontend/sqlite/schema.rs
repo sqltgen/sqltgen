@@ -4,22 +4,29 @@ use crate::frontend::common::query::ResolverConfig;
 use crate::frontend::common::schema::parse_schema_impl;
 use crate::frontend::common::{AlterCaps, DdlDialect};
 use crate::frontend::sqlite::typemap;
+use crate::frontend::SchemaFile;
 use crate::ir::Schema;
 
-/// Parses SQLite DDL into a [Schema].
+/// Parses SQLite DDL across one or more source files into a [Schema].
 ///
 /// Processes `CREATE TABLE`, `ALTER TABLE`, `DROP TABLE`, and `CREATE VIEW`
 /// statements. Delegates to the shared [`parse_schema_impl`] with the SQLite
 /// dialect, limited `ALTER TABLE` capabilities, and the SQLite type mapper and
 /// resolver config.
-pub(crate) fn parse_schema(ddl: &str, default_schema: Option<&str>) -> anyhow::Result<Schema> {
+pub(crate) fn parse_schema_files(files: &[SchemaFile], default_schema: Option<&str>) -> anyhow::Result<Schema> {
     let ds = default_schema.unwrap_or("main");
     parse_schema_impl(
-        ddl,
+        files,
         &SQLiteDialect {},
         DdlDialect { map_type: typemap::map, alter_caps: AlterCaps::SQLITE },
         &ResolverConfig { typemap: typemap::map, default_schema: Some(ds.to_string()), ..ResolverConfig::default() },
     )
+}
+
+/// Convenience for tests with a single in-memory DDL string.
+#[cfg(test)]
+pub(crate) fn parse_schema(ddl: &str, default_schema: Option<&str>) -> anyhow::Result<Schema> {
+    parse_schema_files(&[SchemaFile::inline(ddl)], default_schema)
 }
 
 #[cfg(test)]
