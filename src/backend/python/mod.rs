@@ -6,6 +6,7 @@ use crate::ir::{Query, Schema, SqlType};
 
 mod adapter;
 mod core;
+mod init_files;
 mod typemap;
 
 pub enum PythonTarget {

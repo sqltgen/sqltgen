@@ -11,11 +11,11 @@
   },
   "totals": {
     "file_functions": 378,
-    "file_lines": 3174,
-    "function_args": 85,
-    "function_cognitive": 365,
-    "function_cyclomatic": 737,
-    "function_lines": 664,
+    "file_lines": 3172,
+    "function_args": 84,
+    "function_cognitive": 356,
+    "function_cyclomatic": 715,
+    "function_lines": 645,
     "module_files": 0
   },
   "violations": {
@@ -57,7 +57,7 @@
       "src/backend/jdbc.rs": 92,
       "src/backend/kotlin/core.rs": 290,
       "src/backend/kotlin/typemap.rs": 35,
-      "src/backend/python/core.rs": 264,
+      "src/backend/python/core.rs": 262,
       "src/backend/python/tests/generate.rs": 15,
       "src/backend/rust/core.rs": 200,
       "src/backend/typescript/adapter.rs": 226,
@@ -125,7 +125,6 @@
       "src/frontend/common/query/select.rs::build_set_operation": 3,
       "src/frontend/common/query/select.rs::build_source_provenance": 1,
       "src/frontend/common/query/tables.rs::collect_table_factor": 1,
-      "src/frontend/common/schema.rs::process_statement": 1,
       "src/ir/query.rs::new": 1
     },
     "function_cognitive": {
@@ -145,7 +144,7 @@
       "src/backend/kotlin/typemap.rs::kotlin_param_type": 3,
       "src/backend/python/core.rs::build_queries_file": 22,
       "src/backend/python/core.rs::emit_python_querier": 1,
-      "src/backend/python/core.rs::generate_core_files": 13,
+      "src/backend/python/core.rs::generate_core_files": 9,
       "src/backend/rust/core.rs::emit_rust_sqlx_call": 5,
       "src/backend/rust/core.rs::generate_core_files": 34,
       "src/backend/sql_rewrite.rs::parse_placeholder_indices": 1,
@@ -165,8 +164,7 @@
       "src/frontend/common/query/resolve_functions.rs::resolve_coalesce": 5,
       "src/frontend/common/query/select.rs::build_source_provenance": 5,
       "src/frontend/common/query/select.rs::select_wildcard_source": 3,
-      "src/frontend/common/query/tables.rs::collect_table_list": 7,
-      "src/frontend/common/schema.rs::process_statement": 5
+      "src/frontend/common/query/tables.rs::collect_table_list": 7
     },
     "function_cyclomatic": {
       "src/backend/common.rs::infer_table": 4,
@@ -201,7 +199,7 @@
       "src/backend/python/core.rs::emit_python_list_query": 6,
       "src/backend/python/core.rs::emit_python_querier": 5,
       "src/backend/python/core.rs::emit_python_result_block": 1,
-      "src/backend/python/core.rs::generate_core_files": 28,
+      "src/backend/python/core.rs::generate_core_files": 21,
       "src/backend/python/typemap.rs::python_default_entry": 8,
       "src/backend/rust/core.rs::emit_rust_enum": 1,
       "src/backend/rust/core.rs::emit_rust_querier": 3,
@@ -241,8 +239,8 @@
       "src/frontend/common/query/resolve_functions.rs::resolve_aggregate_function": 4,
       "src/frontend/common/query/resolve_functions.rs::resolve_function": 3,
       "src/frontend/common/query/select.rs::select_wildcard_source": 3,
-      "src/frontend/common/schema.rs::parse_schema_impl": 2,
-      "src/frontend/common/schema.rs::process_statement": 19,
+      "src/frontend/common/schema_loader.rs::apply_create_function": 4,
+      "src/frontend/common/schema_loader.rs::process_statement": 2,
       "src/frontend/common/typemap.rs::map_common": 1,
       "src/frontend/common/typemap.rs::map_custom_common": 3,
       "src/frontend/mysql/typemap.rs::map": 11,
@@ -252,7 +250,7 @@
       "src/frontend/sqlite/typemap.rs::map": 1,
       "src/frontend/sqlite/typemap.rs::map_custom": 2,
       "src/main.rs::pick_codegen": 5,
-      "src/main.rs::read_schema_ddl": 6,
+      "src/main.rs::read_schema_files": 6,
       "src/main.rs::run_generate": 5
     },
     "function_lines": {
@@ -267,7 +265,7 @@
       "src/backend/kotlin/typemap.rs::kotlin_type_info": 68,
       "src/backend/python/adapter.rs::resolve_python_contract": 9,
       "src/backend/python/core.rs::build_queries_file": 65,
-      "src/backend/python/core.rs::generate_core_files": 47,
+      "src/backend/python/core.rs::generate_core_files": 44,
       "src/backend/rust/core.rs::emit_rust_enum": 10,
       "src/backend/rust/core.rs::generate_core_files": 89,
       "src/backend/typescript/adapter.rs::build_helper_file": 12,
@@ -277,8 +275,7 @@
       "src/frontend/common/query/params.rs::collect_function_params": 2,
       "src/frontend/common/query/params.rs::collect_params_from_expr": 35,
       "src/frontend/common/query/params.rs::mark_is_null_nullable": 8,
-      "src/frontend/common/query/resolve.rs::resolve_expr": 33,
-      "src/frontend/common/schema.rs::process_statement": 16
+      "src/frontend/common/query/resolve.rs::resolve_expr": 33
     },
     "module_files": {}
   }

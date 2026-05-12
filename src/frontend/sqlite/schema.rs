@@ -23,16 +23,15 @@ pub(crate) fn parse_schema_files(files: &[SchemaFile], default_schema: Option<&s
     )
 }
 
-/// Convenience for tests with a single in-memory DDL string.
-#[cfg(test)]
-pub(crate) fn parse_schema(ddl: &str, default_schema: Option<&str>) -> anyhow::Result<Schema> {
-    parse_schema_files(&[SchemaFile::inline(ddl)], default_schema)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ir::SqlType;
+
+    /// Convenience for tests with a single in-memory DDL string.
+    fn parse_schema(ddl: &str, default_schema: Option<&str>) -> anyhow::Result<Schema> {
+        parse_schema_files(&[SchemaFile::inline(ddl)], default_schema)
+    }
 
     #[test]
     fn parses_simple_table() {

@@ -1,6 +1,7 @@
 pub(crate) mod named_params;
 pub(crate) mod query;
 pub(crate) mod schema;
+mod schema_loader;
 pub(crate) mod typemap;
 
 use sqlparser::ast::{
