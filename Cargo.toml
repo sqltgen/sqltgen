@@ -1,6 +1,6 @@
 [package]
 name = "sqltgen"
-version = "0.1.0-rc.1"
+version = "0.1.0-rc.2"
 edition = "2021"
 description = "Generate type-safe database access code in multiple languages from annotated SQL"
 license = "Apache-2.0"
@@ -51,8 +51,13 @@ targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-apple-da
 pr-run-mode = "plan"
 # Whether to publish prereleases to package managers
 publish-prereleases = true
-# Path that installers should place binaries in
-install-path = "CARGO_HOME"
+# Path that installers should place binaries in. ~/.local/bin is the XDG
+# user-bin convention used by pipx, uv, and pip --user; it is on PATH by
+# default on most modern Linux distros and macOS, so users who do not have
+# the Rust toolchain installed (and therefore lack ~/.cargo/bin on PATH)
+# get a working install out of the box. For a system-wide install, run the
+# installer under sudo with SQLTGEN_INSTALL_DIR=/usr/local set.
+install-path = "~/.local/bin"
 # Whether to install an updater program
 install-updater = false
 # crates.io publish is intentionally disabled — sqltgen ships only via cargo-dist's
