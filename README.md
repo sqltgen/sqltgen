@@ -159,6 +159,34 @@ SELECT * FROM book WHERE id IN (@ids);
 
 ## Installation
 
+### Pre-built binary (Linux / macOS)
+
+The shell installer detects your platform, downloads the right archive from
+the latest GitHub Release, and installs the binary to `~/.local/bin`:
+
+```sh
+curl -fsSL https://sqltgen.org/install.sh | sh
+```
+
+For a system-wide install, pass `SQLTGEN_INSTALL_DIR`:
+
+```sh
+curl -fsSL https://sqltgen.org/install.sh | sudo env SQLTGEN_INSTALL_DIR=/usr/local sh
+```
+
+To pin to a specific release tag instead of "latest", use the full GitHub URL:
+
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf \
+  https://github.com/sqltgen/sqltgen/releases/download/v0.1.0-rc.2/sqltgen-installer.sh | sh
+```
+
+### Pre-built binary (Windows)
+
+```powershell
+irm https://github.com/sqltgen/sqltgen/releases/latest/download/sqltgen-installer.ps1 | iex
+```
+
 ### Build from source
 
 ```sh
@@ -168,13 +196,9 @@ cargo build --release
 # binary: ./target/release/sqltgen
 ```
 
-### cargo install
-
-```sh
-cargo install sqltgen
-```
-
-> Distribution packages (Homebrew, AUR, etc.) are planned for the v0.1.0 release.
+> `cargo install sqltgen` is not yet supported — crates.io publish is deferred.
+> Other distribution packages (Homebrew tap, AUR, Scoop, `.deb`, `.rpm`) are
+> planned alongside the v0.1.0 stable release.
 
 ---
 
