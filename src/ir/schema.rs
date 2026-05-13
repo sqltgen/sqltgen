@@ -65,6 +65,15 @@ impl Schema {
         self.enums.iter().map(|e| e.name.clone()).collect()
     }
 
+    /// Remove every table whose bare name appears in `names`. No-op when empty.
+    pub fn drop_tables_by_name(&mut self, names: &[String]) {
+        if names.is_empty() {
+            return;
+        }
+        let ignore: std::collections::HashSet<&str> = names.iter().map(String::as_str).collect();
+        self.tables.retain(|t| !ignore.contains(t.name.as_str()));
+    }
+
     /// Resolve all `Custom(name)` → `Enum(name)` in table columns for known enums.
     ///
     /// Must be called after all DDL statements are processed (pass 1) and before
@@ -273,5 +282,29 @@ mod tests {
         assert_eq!(t1.columns[0].name, "a");
         let t2 = schema.find_table(Some("s2"), "t", None).unwrap();
         assert_eq!(t2.columns[0].name, "b");
+    }
+
+    // ─── Schema::drop_tables_by_name ────────────────────────────────────────
+
+    #[test]
+    fn test_drop_tables_by_name_removes_named_tables() {
+        let mut schema = Schema::with_tables(vec![Table::new("users", vec![]), Table::new("schema_migrations", vec![])]);
+        schema.drop_tables_by_name(&["schema_migrations".to_string()]);
+        assert_eq!(schema.tables.len(), 1);
+        assert_eq!(schema.tables[0].name, "users");
+    }
+
+    #[test]
+    fn test_drop_tables_by_name_no_op_when_empty() {
+        let mut schema = Schema::with_tables(vec![Table::new("users", vec![])]);
+        schema.drop_tables_by_name(&[]);
+        assert_eq!(schema.tables.len(), 1);
+    }
+
+    #[test]
+    fn test_drop_tables_by_name_no_op_when_no_match() {
+        let mut schema = Schema::with_tables(vec![Table::new("users", vec![])]);
+        schema.drop_tables_by_name(&["not_a_table".to_string()]);
+        assert_eq!(schema.tables.len(), 1);
     }
 }

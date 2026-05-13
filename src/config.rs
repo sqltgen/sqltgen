@@ -17,18 +17,18 @@ pub struct SqltgenConfig {
     pub queries: QueryPaths,
     /// Map from target language to output config.
     pub gen: HashMap<Language, OutputConfig>,
-    /// Comment marker that ends the "up" section in migration files containing
-    /// both up and down sections. Lines from this marker onward are ignored.
-    ///
-    /// Examples: `"-- migrate:down"` (dbmate), `"-- +goose Down"` (goose),
-    /// `"-- +migrate Down"` (golang-migrate).
+    /// Comment marker for the down section of an up/down migration file; lines
+    /// from this marker onward are skipped. E.g. `"-- migrate:down"` (dbmate),
+    /// `"-- +goose Down"` (goose), `"-- +migrate Down"` (golang-migrate).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub schema_stop_marker: Option<String>,
-    /// Schema name to use when matching unqualified table references against
-    /// schema-qualified tables (and vice versa). Falls back to the engine
-    /// default (`"public"` for PostgreSQL, `"main"` for SQLite) when omitted.
+    /// Default schema for resolving unqualified table references. Falls back to
+    /// the engine default (`"public"` for PostgreSQL, `"main"` for SQLite).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_schema: Option<String>,
+    /// Bare table names to skip during schema parsing (e.g. `schema_migrations`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ignore_tables: Vec<String>,
 }
 
 /// One or more glob patterns for a single named query group.
@@ -551,6 +551,7 @@ mod tests {
             gen: HashMap::new(),
             schema_stop_marker: None,
             default_schema: None,
+            ignore_tables: Vec::new(),
         };
 
         let paths: Vec<PathBuf> = cfg.expand_queries(&root).unwrap().into_iter().map(|(p, _)| p).collect();
@@ -612,6 +613,7 @@ mod tests {
             gen: HashMap::new(),
             schema_stop_marker: None,
             default_schema: None,
+            ignore_tables: Vec::new(),
         };
         let pairs = cfg.expand_queries(&root).unwrap();
         let groups: Vec<&str> = pairs.iter().map(|(_, g)| g.as_str()).collect();
@@ -638,6 +640,7 @@ mod tests {
             gen: HashMap::new(),
             schema_stop_marker: None,
             default_schema: None,
+            ignore_tables: Vec::new(),
         };
         let pairs = cfg.expand_queries(&root).unwrap();
         assert_eq!(pairs.len(), 1);
@@ -667,6 +670,7 @@ mod tests {
             gen: HashMap::new(),
             schema_stop_marker: None,
             default_schema: None,
+            ignore_tables: Vec::new(),
         };
         let pairs = cfg.expand_queries(&root).unwrap();
         assert_eq!(pairs.len(), 2);
@@ -674,6 +678,33 @@ mod tests {
         assert!(groups.contains(&"users"), "Grouped variant must assign map key as group");
         assert!(groups.contains(&"posts"), "Grouped variant must assign map key as group");
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn ignore_tables_defaults_to_empty_when_omitted() {
+        let json = r#"{
+            "version": "1",
+            "engine": "postgresql",
+            "schema": "schema.sql",
+            "queries": "queries.sql",
+            "gen": {}
+        }"#;
+        let cfg = SqltgenConfig::from_json(json).unwrap();
+        assert!(cfg.ignore_tables.is_empty());
+    }
+
+    #[test]
+    fn ignore_tables_deserializes_from_config() {
+        let json = r#"{
+            "version": "1",
+            "engine": "postgresql",
+            "schema": "schema.sql",
+            "queries": "queries.sql",
+            "ignore_tables": ["schema_migrations", "flyway_schema_history"],
+            "gen": {}
+        }"#;
+        let cfg = SqltgenConfig::from_json(json).unwrap();
+        assert_eq!(cfg.ignore_tables, vec!["schema_migrations".to_string(), "flyway_schema_history".to_string()]);
     }
 
     #[test]

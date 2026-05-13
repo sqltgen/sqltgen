@@ -108,6 +108,12 @@ fn run_generate(config_path: &Path) -> anyhow::Result<()> {
     let enum_names = schema.enum_names();
     sqltgen::ir::resolve_enum_in_queries(&mut queries, &enum_names);
 
+    // Drop tables the user asked to ignore (e.g. migration-tracking tables like
+    // dbmate's `schema_migrations`). Filtering happens after query parsing so
+    // queries that reference the table still get correctly typed result columns;
+    // it just suppresses model emission for the ignored name.
+    schema.drop_tables_by_name(&cfg.ignore_tables);
+
     // Run each configured codegen target
     for (lang, output_config) in &cfg.gen {
         let codegen = pick_codegen(lang, cfg.engine, output_config.driver.as_deref())?;

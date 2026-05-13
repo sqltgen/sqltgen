@@ -10,6 +10,17 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
 
 ## [Unreleased]
 
+### Added
+- **`ignore_tables` config option** — a list of table names to silently
+  skip during schema parsing. Match is by bare table name (no schema
+  qualifier). Filtering happens after the schema is parsed, so queries
+  that reference an ignored table still get correctly typed result
+  columns; only the model class emission is suppressed. Useful for
+  excluding migration-tracking tables that live in the schema dump but
+  should not appear as generated models — e.g. dbmate's
+  `schema_migrations`, Flyway's `flyway_schema_history`,
+  golang-migrate's `schema_migrations`.
+
 ### Changed
 - **Strict schema loader** — when `schema:` points at a directory, each
   `.sql` file is parsed independently in lexicographic filename order
