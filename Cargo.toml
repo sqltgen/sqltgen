@@ -1,6 +1,6 @@
 [package]
 name = "sqltgen"
-version = "0.1.0-rc.2"
+version = "0.1.0-rc.3"
 edition = "2021"
 description = "Generate type-safe database access code in multiple languages from annotated SQL"
 license = "Apache-2.0"

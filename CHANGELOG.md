@@ -10,6 +10,10 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
 
 ## [Unreleased]
 
+_No unreleased changes yet._
+
+## [0.1.0-rc.3] — 2026-05-12
+
 ### Added
 - **`ignore_tables` config option** — a list of table names to silently
   skip during schema parsing. Match is by bare table name (no schema
