@@ -2,6 +2,7 @@ use sqlparser::ast::Statement;
 use sqlparser::dialect::Dialect;
 use sqlparser::parser::Parser;
 
+use crate::backend::sql_rewrite::split_at_in_clause;
 use crate::frontend::common::named_params;
 use crate::ir::{Query, Schema};
 
@@ -79,18 +80,20 @@ fn build_query_with_dialect(
     Ok(query)
 }
 
-/// Populate `native_list_sql` and `native_list_bind` for each list parameter.
+/// Populate `native_list_sql`, `native_list_bind` and `list_expandable` for each
+/// list parameter.
 ///
-/// Called after parameter types and names are fully resolved. Only executes
-/// when `config.native_list_sql` is `Some`.
+/// `list_expandable` is `true` only when the placeholder appears in an `IN ($N)`
+/// clause and can therefore be runtime-expanded into `IN (?,?,…)`. A `type[]` param
+/// used as a real array (`unnest`, `<> ALL`, …) is not expandable.
 fn apply_native_list_sql(query: &mut Query, config: &ResolverConfig) {
     let Some(rewrite) = config.native_list_sql else { return };
-    for p in &mut query.params {
-        if p.is_list {
-            if let Some((sql, bind)) = rewrite(p, &query.sql) {
-                p.native_list_sql = Some(sql);
-                p.native_list_bind = Some(bind);
-            }
+    let sql = query.sql.clone();
+    for p in query.params.iter_mut().filter(|p| p.is_list) {
+        p.list_expandable = split_at_in_clause(&sql, p.index).is_some();
+        if let Some((native_sql, bind)) = rewrite(p, &sql) {
+            p.native_list_sql = Some(native_sql);
+            p.native_list_bind = Some(bind);
         }
     }
 }
