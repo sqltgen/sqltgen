@@ -3,12 +3,16 @@
 All notable changes to sqltgen will be documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
-While pre-release, sqltgen uses date-based versions (`0.0.YYYYMMDD`).
-Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+sqltgen follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+(Earlier pre-release snapshots used date-based versions, `0.0.YYYYMMDD`.)
 
 ---
 
 ## [Unreleased]
+
+## [0.1.0] — 2026-06-02
+
+First stable release.
 
 ### Fixed
 - **`type[]` parameter used as a real array is no longer mis-rewritten as an

@@ -233,7 +233,7 @@ See `PLAN.md` → Roadmap section for full distribution plan.
 - Upsert (ON CONFLICT / ON DUPLICATE KEY UPDATE)
 - Window function type inference, recursive CTE param collection
 - Snapshot-as-gate runtime test infrastructure
-- `release.yml` + `cargo dist init` — cross-compiled binaries (5 targets) + shell/PowerShell installers attached to GitHub Releases; first release tagged `v0.1.0-rc.2` (task 005)
+- `release.yml` + `cargo dist init` — cross-compiled binaries (5 targets) + shell/PowerShell installers attached to GitHub Releases; first stable release tagged `v0.1.0` (task 005)
 
 **Pending:**
 - Tier 2 distribution channels (AUR, Scoop, .deb, .rpm) (task 007)
