@@ -10,7 +10,7 @@
     "module_files": 20
   },
   "totals": {
-    "file_functions": 376,
+    "file_functions": 375,
     "file_lines": 3148,
     "function_args": 83,
     "function_cognitive": 337,
@@ -31,7 +31,7 @@
       "src/backend/kotlin/typemap.rs": 2,
       "src/backend/python/core.rs": 38,
       "src/backend/python/tests/generate.rs": 5,
-      "src/backend/rust/core.rs": 11,
+      "src/backend/rust/core.rs": 10,
       "src/backend/typescript/adapter.rs": 42,
       "src/backend/typescript/core.rs": 28,
       "src/backend/typescript/typemap.rs": 2,

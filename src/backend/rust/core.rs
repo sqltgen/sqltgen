@@ -316,31 +316,40 @@ fn emit_rust_native_json_bind(
     emit_rust_sqlx_call(src, query, "sql", &bind_refs, row_type)
 }
 
-/// Emit the shared tail of a dynamic list query: build SQL, bind scalars, bind list.
+/// Emit the body of a dynamic list query: build SQL, bind scalars, bind the list.
+///
+/// A missing `IN` clause is a hard error: only `IN (@a)` lists are expandable — a
+/// `type[]` used as a real array reaches the native bind path instead.
 fn emit_rust_dynamic_query(src: &mut String, query: &Query, row_type: &str, list_param: &Parameter, adapter: &dyn RustDriverAdapter) -> anyhow::Result<()> {
-    let scalar_params: Vec<&Parameter> = query.params.iter().filter(|p| !p.is_list).collect();
     let lp_name = to_snake_case(&list_param.name);
-    let (before, after) = split_at_in_clause(&query.sql, list_param.index).unwrap_or_else(|| (query.sql.clone(), String::new()));
+    let Some((before, after)) = split_at_in_clause(&query.sql, list_param.index) else {
+        anyhow::bail!("list parameter '{}' is not used in an IN (...) clause and cannot be expanded with the dynamic list strategy", list_param.name);
+    };
     let before_esc = adapter.normalize_sql(&before).replace('"', "\\\"").replace('\n', " ");
     let after_esc = adapter.normalize_sql(&after).replace('"', "\\\"").replace('\n', " ");
     writeln!(src, r#"    let sql = format!("{before_esc}IN ({{placeholders}}){after_esc}");"#)?;
-    writeln!(src, "    let mut q = sqlx::query_as::<_, {row_type}>(&sql);")?;
-    for sp in &scalar_params {
+
+    let (builder, tail) = rust_dynamic_call_parts(&query.cmd, row_type);
+    writeln!(src, "    let mut q = {builder};")?;
+    for sp in query.params.iter().filter(|p| !p.is_list) {
         writeln!(src, "    q = q.bind({});", to_snake_case(&sp.name))?;
     }
-    push_indented(
-        src,
-        "    ",
-        &formatdoc!(
-            r#"
-        for v in {lp_name} {{
-            q = q.bind(v);
-        }}
-    "#
-        ),
-    );
-    writeln!(src, "    q.{}.await", fetch_method(query))?;
+    push_indented(src, "    ", &formatdoc!("\n    for v in {lp_name} {{\n        q = q.bind(v);\n    }}\n"));
+    writeln!(src, "    {tail}")?;
     Ok(())
+}
+
+/// The `(query builder expr, terminal expr)` pair for a dynamic list query.
+///
+/// `:one`/`:many` use `query_as` + a fetch terminal; `:exec`/`:execrows` use
+/// `query` + an `execute(...).await.map(...)` terminal.
+fn rust_dynamic_call_parts(cmd: &QueryCmd, row_type: &str) -> (String, &'static str) {
+    match cmd {
+        QueryCmd::One => (format!("sqlx::query_as::<_, {row_type}>(&sql)"), "q.fetch_optional(pool).await"),
+        QueryCmd::Many => (format!("sqlx::query_as::<_, {row_type}>(&sql)"), "q.fetch_all(pool).await"),
+        QueryCmd::Exec => ("sqlx::query(&sql)".to_string(), "q.execute(pool).await.map(|_| ())"),
+        QueryCmd::ExecRows => ("sqlx::query(&sql)".to_string(), "q.execute(pool).await.map(|r| r.rows_affected())"),
+    }
 }
 
 /// Generate inline Rust code that builds a JSON array string from a list parameter.
@@ -354,15 +363,6 @@ fn json_list_expr(lp_name: &str, sql_type: &SqlType) -> String {
         _ => "x.to_string()".to_string(),
     };
     format!(r#"format!("[{{}}]", {lp_name}.iter().map(|x| {elem}).collect::<Vec<_>>().join(","))"#)
-}
-
-fn fetch_method(query: &Query) -> &'static str {
-    match query.cmd {
-        QueryCmd::One => "fetch_optional(pool)",
-        QueryCmd::Many => "fetch_all(pool)",
-        QueryCmd::Exec => "execute(pool).map(|_| ())",
-        QueryCmd::ExecRows => "execute(pool).map(|r| r.rows_affected())",
-    }
 }
 
 /// Build the `name: type` signature fragment for a single parameter.

@@ -22,12 +22,15 @@ pub(crate) fn parse_queries(sql: &str, schema: &Schema, default_schema: Option<&
     )
 }
 
-/// Compute the PostgreSQL native list SQL: replace `IN ($N)` with `= ANY($N)`.
+/// Compute the PostgreSQL native list SQL for a list parameter.
 ///
-/// Returns the rewritten SQL and [`NativeListBind::Array`] (pg passes the list
-/// directly to the driver), or `None` if the IN clause is not found.
+/// PostgreSQL always binds a list as a single SQL array ([`NativeListBind::Array`]),
+/// so this never returns `None`:
+/// - `IN ($N)` is rewritten to `= ANY($N)` so the slice binds to one placeholder.
+/// - Any other use (`unnest($N)`, `<> ALL($N)`, an explicit `= ANY($N)`) is already
+///   an array context, so the SQL is left untouched and the slice binds as-is.
 fn pg_native_list_sql(p: &Parameter, sql: &str) -> Option<(String, NativeListBind)> {
-    let rewritten = replace_list_in_clause(sql, p.index, &format!("= ANY(${})", p.index))?;
+    let rewritten = replace_list_in_clause(sql, p.index, &format!("= ANY(${})", p.index)).unwrap_or_else(|| sql.to_string());
     Some((rewritten, NativeListBind::Array))
 }
 
@@ -276,6 +279,29 @@ mod tests {
         assert_eq!(q.params[0].name, "ids");
         assert!(q.params[0].is_list, "annotation must set is_list");
         assert_eq!(q.params[0].sql_type, SqlType::BigInt);
+    }
+
+    // ─── list_expandable: IN-list vs direct array (bug #128) ──────────────────
+
+    #[test]
+    fn test_in_clause_list_param_is_expandable() {
+        let sql = "-- name: GetByIds :many\n-- @ids bigint[] not null\nSELECT id, name FROM users WHERE id IN (@ids);";
+        let q = &parse_queries(sql, &make_schema(), None).unwrap()[0];
+        assert!(q.params[0].is_list);
+        assert!(q.params[0].list_expandable, "an IN (@ids) list param must be expandable");
+        assert_eq!(q.params[0].native_list_sql.as_deref(), Some("SELECT id, name FROM users WHERE id = ANY($1)"));
+    }
+
+    #[test]
+    fn test_direct_array_param_is_not_expandable() {
+        // `<> ALL(@ids::bigint[])` uses the param as a real array, so it must not be
+        // flagged expandable and its native SQL must be left untouched.
+        let sql = "-- name: GetByIds :many\n-- @ids bigint[] not null\nSELECT id, name FROM users WHERE id <> ALL(@ids::bigint[]);";
+        let q = &parse_queries(sql, &make_schema(), None).unwrap()[0];
+        assert!(q.params[0].is_list);
+        assert!(!q.params[0].list_expandable, "a direct-array param must not be expandable");
+        assert_eq!(q.params[0].native_list_bind, Some(NativeListBind::Array));
+        assert_eq!(q.params[0].native_list_sql.as_deref(), Some("SELECT id, name FROM users WHERE id <> ALL($1::bigint[])"));
     }
 
     // ─── Bug: INSERT … SELECT param inference ────────────────────────────────

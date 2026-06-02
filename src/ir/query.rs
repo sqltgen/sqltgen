@@ -129,6 +129,14 @@ pub struct Parameter {
     /// annotated with `-- @name type[] [not null]`.  The generated function
     /// accepts a collection type; the SQL is rewritten per the configured strategy.
     pub is_list: bool,
+    /// True when this list parameter appears inside an `IN (@name)` clause and can
+    /// therefore be runtime-expanded into `IN (?,?,…)`.
+    ///
+    /// False when a `type[]` param is used as a real SQL array (`unnest`, `= ANY`,
+    /// `<> ALL`): such a param must always bind the whole slice as a single array
+    /// value, so the configured [`ListParamStrategy`](crate::config::ListParamStrategy)
+    /// does not apply to it. Meaningless for non-list parameters (`false`).
+    pub list_expandable: bool,
     /// Pre-computed SQL with the dialect-specific native list expansion applied.
     ///
     /// Set by each dialect frontend for every list parameter. Uses `$N`
@@ -146,12 +154,15 @@ pub struct Parameter {
 impl Parameter {
     /// Construct a scalar (non-list) parameter.
     pub fn scalar(index: usize, name: impl Into<String>, sql_type: SqlType, nullable: bool) -> Self {
-        Self { index, name: name.into(), sql_type, nullable, is_list: false, native_list_sql: None, native_list_bind: None }
+        Self { index, name: name.into(), sql_type, nullable, is_list: false, list_expandable: false, native_list_sql: None, native_list_bind: None }
     }
 
     /// Construct a list parameter (`-- @name type[] not null`).
+    ///
+    /// Defaults to `list_expandable = true`; the frontend lowers it to `false` when
+    /// the placeholder is not used inside an `IN (…)` clause (a direct array use).
     pub fn list(index: usize, name: impl Into<String>, sql_type: SqlType, nullable: bool) -> Self {
-        Self { index, name: name.into(), sql_type, nullable, is_list: true, native_list_sql: None, native_list_bind: None }
+        Self { index, name: name.into(), sql_type, nullable, is_list: true, list_expandable: true, native_list_sql: None, native_list_bind: None }
     }
 
     /// Set `native_list_sql` and `native_list_bind` together, consuming `self` (builder-style).

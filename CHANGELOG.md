@@ -11,6 +11,20 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
 ## [Unreleased]
 
 ### Fixed
+- **`type[]` parameter used as a real array is no longer mis-rewritten as an
+  `IN (...)` list** — a list parameter applied directly to a PostgreSQL array
+  context (`unnest($1::bigint[], …)`, `= ANY($1)`, `<> ALL($1::bigint[])`) now
+  binds the whole slice as a single array argument with the SQL left
+  structurally intact, instead of being treated as an expandable `IN (@ids)`
+  list. Previously such a parameter had a stray `IN ({placeholders})` fragment
+  spliced onto the end of the whole query, bound its array elements one-by-one
+  (leaving the array cast unbound), and — for `:exec` — emitted
+  `query_as::<_, serde_json::Value>` with a misordered `.map(|_| ()).await`,
+  none of which compiled. The frontend now distinguishes an expandable `IN (@a)`
+  list from a direct array value, and a non-expandable array always binds
+  natively regardless of the configured list-param strategy. The Rust/sqlx
+  dynamic-list path also now uses the correct `sqlx::query(...)` exec path for
+  `:exec`/`:execrows` (no `query_as`, `.await` before `.map`).
 - **Parameter and row-type inference for `UPDATE … FROM` / `DELETE … USING`
   inside data-modifying CTEs** — parameters that reference a joined table's
   column (e.g. `WHERE o.account_id = $1`) are now typed from that column

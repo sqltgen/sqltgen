@@ -36,11 +36,15 @@ pub enum ListAction {
 
 /// Resolve the list-param action for a given strategy and parameter.
 ///
-/// Returns [`ListAction::Dynamic`] when the strategy is Dynamic, or when Native
-/// was requested but the IR has no `native_list_sql` for this parameter (i.e. the
-/// dialect frontend did not produce one).
+/// The native binding is used when either the `Native` strategy is configured, or
+/// the parameter is **not expandable** — a `type[]` param used as a real SQL array
+/// (`unnest`, `<> ALL`, …) can only bind as a single array, so dynamic `IN (?,?,…)`
+/// expansion does not apply to it regardless of the configured strategy.
+///
+/// Returns [`ListAction::Dynamic`] otherwise — i.e. for an expandable `IN (@a)`
+/// param under the `Dynamic` strategy, or when no `native_list_sql` is available.
 pub fn resolve(strategy: &ListParamStrategy, lp: &Parameter) -> ListAction {
-    if *strategy == ListParamStrategy::Native {
+    if *strategy == ListParamStrategy::Native || !lp.list_expandable {
         if let (Some(native_sql), Some(bind)) = (&lp.native_list_sql, &lp.native_list_bind) {
             return match bind {
                 NativeListBind::Array => ListAction::SqlArrayBind(native_sql.clone()),
@@ -86,6 +90,18 @@ mod tests {
     fn test_dynamic_strategy_returns_dynamic() {
         let lp = make_param(Some("SELECT ..."), Some(NativeListBind::Array));
         assert!(matches!(resolve(&ListParamStrategy::Dynamic, &lp), ListAction::Dynamic));
+    }
+
+    #[test]
+    fn test_non_expandable_param_binds_native_even_under_dynamic_strategy() {
+        // A `type[]` param used as a real array (`unnest`, `<> ALL`) is not
+        // expandable, so it must bind as a single array regardless of strategy.
+        let mut lp = make_param(Some("SELECT * FROM unnest($1::bigint[])"), Some(NativeListBind::Array));
+        lp.list_expandable = false;
+        match resolve(&ListParamStrategy::Dynamic, &lp) {
+            ListAction::SqlArrayBind(sql) => assert!(sql.contains("unnest($1")),
+            _ => panic!("non-expandable array param must bind as a native array, not expand"),
+        }
     }
 
     #[test]
