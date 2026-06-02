@@ -18,7 +18,7 @@ use crate::frontend::common::{obj_name_to_str, obj_schema_to_str};
 use crate::ir::{NativeListBind, Parameter, Schema, SqlType, Table};
 #[cfg(test)]
 use crate::ir::{Query, QueryCmd};
-use sqlparser::ast::{Delete, Insert, TableFactor, TableObject};
+use sqlparser::ast::{Insert, TableObject};
 
 pub(super) use types::ParamMapping;
 use types::UserFunctions;
@@ -35,7 +35,7 @@ pub(super) use ctes::{apply_cte_alias_columns, build_cte_scope, collect_cte_para
 pub(super) use derived::{derived_cols, resolve_view_columns};
 pub(crate) use dispatch::parse_queries_with_config;
 pub(super) use returning::resolve_returning;
-pub(super) use tables::{build_alias_map, collect_from_tables, collect_table_list, update_from_tables};
+pub(super) use tables::{build_alias_map, collect_from_tables, delete_table_scope, update_from_tables, update_table_scope};
 pub(super) use utils::{build_params, count_params, placeholder_idx, unresolved_query};
 
 /// Dialect-agnostic type inference configuration.
@@ -118,17 +118,6 @@ pub(super) fn insert_table_ref(ins: &Insert) -> (Option<String>, String) {
         TableObject::TableName(name) => (obj_schema_to_str(name), obj_name_to_str(name)),
         _ => (None, String::new()),
     }
-}
-
-/// Returns `(schema, table_name)` for a DELETE statement's target table.
-pub(super) fn delete_table_ref(del: &Delete) -> Option<(Option<String>, String)> {
-    let tables = match &del.from {
-        sqlparser::ast::FromTable::WithFromKeyword(t) | sqlparser::ast::FromTable::WithoutKeyword(t) => t,
-    };
-    tables.first().and_then(|twj| match &twj.relation {
-        TableFactor::Table { name, .. } => Some((obj_schema_to_str(name), obj_name_to_str(name))),
-        _ => None,
-    })
 }
 
 #[cfg(test)]

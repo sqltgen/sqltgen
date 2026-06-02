@@ -1,14 +1,19 @@
-use sqlparser::ast::{Delete, Insert, Query as SqlQuery, SelectItem, SetExpr, Statement, TableFactor};
+use sqlparser::ast::{Delete, Insert, Query as SqlQuery, SelectItem, SetExpr, Statement};
 
-use crate::frontend::common::{obj_name_to_str, obj_schema_to_str};
 use crate::ir::{Column, Schema, Table};
 
 use super::resolve::resolve_projection;
-use super::{build_alias_map, collect_from_tables, delete_table_ref, insert_table_ref, resolve_returning, ParamMapping, ResolverConfig, ResolverContext};
+use super::{
+    build_alias_map, collect_from_tables, delete_table_scope, insert_table_ref, resolve_returning, update_table_scope, ParamMapping, ResolverConfig,
+    ResolverContext,
+};
 
 /// Convert RETURNING result columns to `Column` values (no primary-key flag).
-fn returning_to_columns(returning: &[SelectItem], table: &Table, config: &ResolverConfig) -> Vec<Column> {
-    resolve_returning(returning, table, config).into_iter().map(Column::from).collect()
+///
+/// `all_tables` is the full DML table scope so qualified `RETURNING` references
+/// (e.g. `i.owner_id`, `o.id AS x`) resolve against the right table.
+fn returning_to_columns(returning: &[SelectItem], all_tables: &[(Table, Option<String>)], config: &ResolverConfig) -> Vec<Column> {
+    resolve_returning(returning, all_tables, config).into_iter().map(Column::from).collect()
 }
 
 /// Resolve RETURNING columns for an INSERT CTE body.
@@ -16,23 +21,21 @@ fn returning_cols_for_insert(ins: &Insert, schema: &Schema, config: &ResolverCon
     let (ins_schema, ins_name) = insert_table_ref(ins);
     let Some(table) = schema.find_table(ins_schema.as_deref(), &ins_name, config.default_schema.as_deref()) else { return vec![] };
     let Some(returning) = &ins.returning else { return vec![] };
-    returning_to_columns(returning, table, config)
+    returning_to_columns(returning, &[(table.clone(), None)], config)
 }
 
-/// Resolve RETURNING columns for an UPDATE CTE body.
-fn returning_cols_for_update(u: &sqlparser::ast::Update, schema: &Schema, config: &ResolverConfig) -> Vec<Column> {
-    let TableFactor::Table { name, .. } = &u.table.relation else { return vec![] };
-    let Some(table) = schema.find_table(obj_schema_to_str(name).as_deref(), &obj_name_to_str(name), config.default_schema.as_deref()) else { return vec![] };
+/// Resolve RETURNING columns for an UPDATE CTE body, typing qualified references
+/// against the target table and any `UPDATE … FROM` tables.
+fn returning_cols_for_update(u: &sqlparser::ast::Update, schema: &Schema, ctes: &[Table], config: &ResolverConfig) -> Vec<Column> {
     let Some(returning) = &u.returning else { return vec![] };
-    returning_to_columns(returning, table, config)
+    returning_to_columns(returning, &update_table_scope(u, schema, ctes, config), config)
 }
 
-/// Resolve RETURNING columns for a DELETE CTE body.
-fn returning_cols_for_delete(del: &Delete, schema: &Schema, config: &ResolverConfig) -> Vec<Column> {
-    let Some((del_schema, del_name)) = delete_table_ref(del) else { return vec![] };
-    let Some(table) = schema.find_table(del_schema.as_deref(), &del_name, config.default_schema.as_deref()) else { return vec![] };
+/// Resolve RETURNING columns for a DELETE CTE body, typing qualified references
+/// against the target table and any `DELETE … USING` tables.
+fn returning_cols_for_delete(del: &Delete, schema: &Schema, ctes: &[Table], config: &ResolverConfig) -> Vec<Column> {
     let Some(returning) = &del.returning else { return vec![] };
-    returning_to_columns(returning, table, config)
+    returning_to_columns(returning, &delete_table_scope(del, schema, ctes, config), config)
 }
 
 /// Resolve the column types for a `CREATE VIEW` body.
@@ -48,8 +51,8 @@ pub(in crate::frontend::common) fn derived_cols(subquery: &SqlQuery, schema: &Sc
     // In those cases the CTE output is the RETURNING clause, not a SELECT projection.
     match subquery.body.as_ref() {
         SetExpr::Insert(Statement::Insert(ins)) => return returning_cols_for_insert(ins, schema, config),
-        SetExpr::Update(Statement::Update(u)) => return returning_cols_for_update(u, schema, config),
-        SetExpr::Delete(Statement::Delete(del)) => return returning_cols_for_delete(del, schema, config),
+        SetExpr::Update(Statement::Update(u)) => return returning_cols_for_update(u, schema, ctes, config),
+        SetExpr::Delete(Statement::Delete(del)) => return returning_cols_for_delete(del, schema, ctes, config),
         SetExpr::Insert(_) | SetExpr::Update(_) | SetExpr::Delete(_) => return vec![],
         _ => {},
     }
