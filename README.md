@@ -178,7 +178,7 @@ To pin to a specific release tag instead of "latest", use the full GitHub URL:
 
 ```sh
 curl --proto '=https' --tlsv1.2 -LsSf \
-  https://github.com/sqltgen/sqltgen/releases/download/v0.1.0-rc.2/sqltgen-installer.sh | sh
+  https://github.com/sqltgen/sqltgen/releases/download/v0.1.0/sqltgen-installer.sh | sh
 ```
 
 ### Pre-built binary (Windows)

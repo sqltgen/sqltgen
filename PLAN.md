@@ -175,7 +175,7 @@ Identified from the [sqlc documentation](https://docs.sqlc.dev).
 ## Open-source launch
 
 - ~~Phase 1: License, CHANGELOG, CONTRIBUTING, README~~ ✅
-- ~~Phase 2: CI/CD via cargo-dist — `ci.yml` ✅, `docs.yml` ✅, `docker.yml` ✅, `release.yml` ✅ + `cargo dist init` ✅~~ ✅ (first release `v0.1.0-rc.2`)
+- ~~Phase 2: CI/CD via cargo-dist — `ci.yml` ✅, `docs.yml` ✅, `docker.yml` ✅, `release.yml` ✅ + `cargo dist init` ✅~~ ✅ (first stable release `v0.1.0`)
 - ~~Phase 3: mdBook documentation at docs.sqltgen.org; sqltgen.org redirects there~~ ✅
 - Phase 4: Distribution — Homebrew (via cargo-dist) ❌, crates.io ❌, AUR ❌, Scoop ❌, .deb ❌, .rpm ❌
 - Phase 5 (future): Full landing page + WASM playground at sqltgen.org
