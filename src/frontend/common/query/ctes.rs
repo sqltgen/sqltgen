@@ -1,11 +1,11 @@
-use sqlparser::ast::{SetExpr, Statement, TableAliasColumnDef, TableFactor, With};
+use sqlparser::ast::{SetExpr, Statement, TableAliasColumnDef, With};
 
-use crate::frontend::common::{ident_to_str, obj_name_to_str, obj_schema_to_str};
+use crate::frontend::common::ident_to_str;
 use crate::ir::{Column, Schema, Table};
 
-use super::dml::{collect_delete_where_params, collect_insert_value_params, collect_returning_params, collect_update_params};
+use super::dml::{collect_delete_params, collect_insert_value_params, collect_returning_params, collect_update_params};
 use super::params::{collect_limit_offset_params, collect_set_expr_params};
-use super::{delete_table_ref, derived_cols, insert_table_ref, ParamMapping, ResolverConfig};
+use super::{build_alias_map, delete_table_scope, derived_cols, insert_table_ref, update_table_scope, ParamMapping, ResolverConfig, ResolverContext};
 
 /// Collect typed parameter mappings from the bodies of all CTEs in `with`.
 ///
@@ -28,22 +28,17 @@ pub(in crate::frontend::common) fn collect_cte_params(
         match cte.query.body.as_ref() {
             SetExpr::Update(Statement::Update(u)) => {
                 collect_update_params(u, &local_ctes, schema, config, mapping, query_name);
-                if let TableFactor::Table { name, .. } = &u.table.relation {
-                    if let Some(table) = schema.find_table(obj_schema_to_str(name).as_deref(), &obj_name_to_str(name), config.default_schema.as_deref()) {
-                        if let Some(items) = u.returning.as_deref() {
-                            collect_returning_params(items, table, config, mapping, query_name);
-                        }
-                    }
+                if let Some(items) = u.returning.as_deref() {
+                    let scope = update_table_scope(u, schema, &local_ctes, config);
+                    collect_returning_params(items, &scope, config, mapping, query_name);
                 }
             },
             SetExpr::Delete(Statement::Delete(del)) => {
-                collect_delete_where_params(del, schema, config, mapping, query_name);
-                if let Some((del_schema, del_name)) = delete_table_ref(del) {
-                    if let Some(table) = schema.find_table(del_schema.as_deref(), &del_name, config.default_schema.as_deref()) {
-                        if let Some(items) = del.returning.as_deref() {
-                            collect_returning_params(items, table, config, mapping, query_name);
-                        }
-                    }
+                let scope = delete_table_scope(del, schema, &local_ctes, config);
+                let alias_map = build_alias_map(&scope);
+                collect_delete_params(del, &mut ResolverContext::new(&alias_map, &scope, schema, config, mapping, query_name));
+                if let Some(items) = del.returning.as_deref() {
+                    collect_returning_params(items, &scope, config, mapping, query_name);
                 }
             },
             SetExpr::Insert(Statement::Insert(ins)) => {
@@ -51,7 +46,8 @@ pub(in crate::frontend::common) fn collect_cte_params(
                 let (ins_schema, ins_name) = insert_table_ref(ins);
                 if let Some(table) = schema.find_table(ins_schema.as_deref(), &ins_name, config.default_schema.as_deref()) {
                     if let Some(items) = ins.returning.as_deref() {
-                        collect_returning_params(items, table, config, mapping, query_name);
+                        let scope = vec![(table.clone(), None)];
+                        collect_returning_params(items, &scope, config, mapping, query_name);
                     }
                 }
             },

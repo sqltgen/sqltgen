@@ -1,11 +1,52 @@
 use std::collections::HashMap;
 
-use sqlparser::ast::{JoinOperator, Select, TableFactor, TableWithJoins, UpdateTableFromKind};
+use sqlparser::ast::{Delete, FromTable, JoinOperator, Select, TableFactor, TableWithJoins, Update, UpdateTableFromKind};
 
 use crate::frontend::common::{ident_to_str, obj_name_to_str, obj_schema_to_str};
 use crate::ir::{Schema, Table};
 
 use super::{derived_cols, ResolverConfig};
+
+/// Build the resolver table scope for an `UPDATE`: the target table (carrying
+/// its alias, if any) followed by every table in the `FROM` clause.
+///
+/// The same scope types WHERE/SET parameters and `RETURNING` result columns, so
+/// references to a `FROM`-joined table (e.g. `o.account_id`, `RETURNING i.id`)
+/// resolve correctly. The first entry is always the UPDATE target.
+pub(in crate::frontend::common) fn update_table_scope(u: &Update, schema: &Schema, ctes: &[Table], config: &ResolverConfig) -> Vec<(Table, Option<String>)> {
+    let TableFactor::Table { name, alias, .. } = &u.table.relation else { return vec![] };
+    let Some(table) = schema.find_table(obj_schema_to_str(name).as_deref(), &obj_name_to_str(name), config.default_schema.as_deref()) else {
+        return vec![];
+    };
+    let target_alias = alias.as_ref().map(|a| ident_to_str(&a.name));
+    let mut all_tables = vec![(table.clone(), target_alias)];
+    all_tables.extend(collect_table_list(update_from_tables(&u.from), schema, ctes, config));
+    all_tables
+}
+
+/// Build the resolver table scope for a `DELETE`: the target table (carrying its
+/// alias, if any) followed by every table in the `USING` clause.
+///
+/// Mirrors [`update_table_scope`] so `DELETE … USING` parameters and aliased
+/// `RETURNING` columns (e.g. `o.account_id`, `RETURNING o.id AS owner_id`) can be
+/// typed from the joined table. The first entry is always the DELETE target.
+pub(in crate::frontend::common) fn delete_table_scope(del: &Delete, schema: &Schema, ctes: &[Table], config: &ResolverConfig) -> Vec<(Table, Option<String>)> {
+    let tables = match &del.from {
+        FromTable::WithFromKeyword(t) | FromTable::WithoutKeyword(t) => t,
+    };
+    let Some(TableFactor::Table { name, alias, .. }) = tables.first().map(|twj| &twj.relation) else {
+        return vec![];
+    };
+    let Some(table) = schema.find_table(obj_schema_to_str(name).as_deref(), &obj_name_to_str(name), config.default_schema.as_deref()) else {
+        return vec![];
+    };
+    let target_alias = alias.as_ref().map(|a| ident_to_str(&a.name));
+    let mut all_tables = vec![(table.clone(), target_alias)];
+    if let Some(using) = &del.using {
+        all_tables.extend(collect_table_list(using, schema, ctes, config));
+    }
+    all_tables
+}
 
 /// Extract the FROM tables from an `UPDATE … FROM` clause.
 ///

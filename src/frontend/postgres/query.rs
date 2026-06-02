@@ -458,6 +458,85 @@ mod tests {
         assert_eq!(p3.sql_type, SqlType::BigInt, "$3 in CTE UPDATE RETURNING id + $3 must be BigInt");
     }
 
+    // ─── CTE DML: UPDATE…FROM / DELETE…USING param + row type inference ───────
+
+    fn make_item_owner_schema() -> Schema {
+        Schema {
+            tables: vec![
+                Table::new(
+                    "item",
+                    vec![
+                        Column::new_primary_key("id", SqlType::BigInt),
+                        Column::new_not_nullable("owner_id", SqlType::BigInt),
+                        Column::new_not_nullable("label", SqlType::Text),
+                    ],
+                ),
+                Table::new(
+                    "owner",
+                    vec![
+                        Column::new_primary_key("id", SqlType::BigInt),
+                        Column::new_not_nullable("account_id", SqlType::BigInt),
+                        Column::new_not_nullable("num_items", SqlType::BigInt),
+                        Column::new("ts_updated", SqlType::Timestamp),
+                    ],
+                ),
+            ],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_cte_update_from_param_inference() {
+        // Query A: a :one CTE whose body is UPDATE … FROM other. Params that
+        // reference the FROM-joined table's columns (`o.account_id = @account_id`)
+        // must infer that column's type, not fall back to Text.
+        let sql = "-- name: RenameItem :one\n\
+            WITH upd AS (\
+              UPDATE item i SET label = @label \
+              FROM owner o \
+              WHERE o.id = i.owner_id AND o.account_id = @account_id AND i.id = @item_id \
+              RETURNING i.owner_id\
+            ) SELECT owner_id FROM upd;";
+        let q = &parse_queries(sql, &make_item_owner_schema(), None).unwrap()[0];
+
+        let account_id = q.params.iter().find(|p| p.name == "account_id").expect("account_id param");
+        assert_eq!(account_id.sql_type, SqlType::BigInt, "@account_id must infer owner.account_id (BigInt), not Text");
+        let item_id = q.params.iter().find(|p| p.name == "item_id").expect("item_id param");
+        assert_eq!(item_id.sql_type, SqlType::BigInt, "@item_id must infer item.id (BigInt), not Text");
+
+        // The outer SELECT projects a column produced by the CTE's RETURNING
+        // (qualified `i.owner_id`). It must resolve to a typed result column so
+        // the Rust backend emits a named Row struct, not serde_json::Value.
+        assert_eq!(q.result_columns.len(), 1, "outer SELECT must resolve one result column");
+        assert_eq!(q.result_columns[0].name, "owner_id");
+        assert_eq!(q.result_columns[0].sql_type, SqlType::BigInt, "owner_id must resolve to item.owner_id (BigInt)");
+    }
+
+    #[test]
+    fn test_cte_delete_using_param_and_aliased_returning() {
+        // Query B: a :one CTE whose body is DELETE … USING other. Params that
+        // reference the target alias (`i.id = @item_id`) or the USING table
+        // (`o.account_id = @account_id`) must infer their column types. The
+        // aliased RETURNING column (`o.id AS owner_id`) must resolve too.
+        let sql = "-- name: DeleteItem :one\n\
+            WITH del AS (\
+              DELETE FROM item i \
+              USING owner o \
+              WHERE i.id = @item_id AND o.id = i.owner_id AND o.account_id = @account_id \
+              RETURNING o.id AS owner_id\
+            ) SELECT owner_id FROM del;";
+        let q = &parse_queries(sql, &make_item_owner_schema(), None).unwrap()[0];
+
+        let item_id = q.params.iter().find(|p| p.name == "item_id").expect("item_id param");
+        assert_eq!(item_id.sql_type, SqlType::BigInt, "@item_id must infer item.id (BigInt), not Text");
+        let account_id = q.params.iter().find(|p| p.name == "account_id").expect("account_id param");
+        assert_eq!(account_id.sql_type, SqlType::BigInt, "@account_id must infer owner.account_id (BigInt), not Text");
+
+        assert_eq!(q.result_columns.len(), 1, "outer SELECT must resolve one result column");
+        assert_eq!(q.result_columns[0].name, "owner_id");
+        assert_eq!(q.result_columns[0].sql_type, SqlType::BigInt, "owner_id must resolve to owner.id (BigInt)");
+    }
+
     // ─── Repro 4: nullable predicate context (regression guard) ──────────────
 
     #[test]

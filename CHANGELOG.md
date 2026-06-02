@@ -10,7 +10,18 @@ Post-release it will switch to [Semantic Versioning](https://semver.org/spec/v2.
 
 ## [Unreleased]
 
-_No unreleased changes yet._
+### Fixed
+- **Parameter and row-type inference for `UPDATE … FROM` / `DELETE … USING`
+  inside data-modifying CTEs** — parameters that reference a joined table's
+  column (e.g. `WHERE o.account_id = $1`) are now typed from that column
+  instead of falling back to the string default, and qualified or aliased
+  `RETURNING` columns (e.g. `RETURNING i.owner_id`, `RETURNING o.id AS owner_id`)
+  now resolve their types. Previously the `:one`/`:many` result row collapsed to
+  the unknown-type fallback (e.g. `serde_json::Value` in Rust), which did not
+  compile. The target-table alias in `DELETE … USING` (`WHERE i.id = $1`) is now
+  resolved as well. Internally, `UPDATE`/`DELETE` parameter collection and
+  `RETURNING` resolution share a single table-scope builder, so both see the
+  same target alias and `FROM`/`USING` tables.
 
 ## [0.1.0-rc.3] — 2026-05-12
 
