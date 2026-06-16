@@ -116,7 +116,7 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | Join / CTE / RETURNING row type | ✅ `{Query}Row` record | ✅ `{Query}Row` data class | ✅ `{Query}Row` struct | ✅ `{Query}Row` struct | ✅ `{Query}Row` dataclass | ✅ `{Query}Row` interface | ✅ `{Query}Row` typedef |
 | Nullable params | ✅ `setObject` | ✅ `setObject` | — | ✅ `sql.NullX` | — | ✅ pass `null` | ✅ pass `null` |
 | Typed result getters (Date, UUID…) | ✅ `getObject(n, T.class)` | ✅ `getObject(n, T::class.java)` | ✅ | ✅ `rows.Scan` | — positional unpacking | ✅ driver handles | ✅ driver handles |
-| Transaction support (`with_tx`) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Transaction support | ❌ | ❌ | ✅ free fns accept any `Executor` | ❌ | ❌ | ❌ | ❌ |
 | Querier object / class wrapper | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 ---

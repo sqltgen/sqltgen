@@ -31,7 +31,10 @@ pub struct GetBestCustomersRow {
     pub total_spent: Option<rust_decimal::Decimal>,
 }
 
-pub async fn create_author(pool: &DbPool, name: String, bio: Option<String>, birth_year: Option<i32>) -> Result<(), sqlx::Error> {
+pub async fn create_author<'e, E>(executor: E, name: String, bio: Option<String>, birth_year: Option<i32>) -> Result<(), sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::MySql>,
+{
     let sql = r##"
         INSERT INTO author (name, bio, birth_year)
         VALUES (?, ?, ?)
@@ -40,12 +43,15 @@ pub async fn create_author(pool: &DbPool, name: String, bio: Option<String>, bir
         .bind(name)
         .bind(bio)
         .bind(birth_year)
-        .execute(pool)
+        .execute(executor)
         .await
         .map(|_| ())
 }
 
-pub async fn get_author(pool: &DbPool, id: i64) -> Result<Option<Author>, sqlx::Error> {
+pub async fn get_author<'e, E>(executor: E, id: i64) -> Result<Option<Author>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::MySql>,
+{
     let sql = r##"
         SELECT id, name, bio, birth_year
         FROM author
@@ -53,45 +59,57 @@ pub async fn get_author(pool: &DbPool, id: i64) -> Result<Option<Author>, sqlx::
     "##;
     sqlx::query_as::<_, Author>(sql)
         .bind(id)
-        .fetch_optional(pool)
+        .fetch_optional(executor)
         .await
 }
 
-pub async fn list_authors(pool: &DbPool) -> Result<Vec<Author>, sqlx::Error> {
+pub async fn list_authors<'e, E>(executor: E) -> Result<Vec<Author>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::MySql>,
+{
     let sql = r##"
         SELECT id, name, bio, birth_year
         FROM author
         ORDER BY name
     "##;
     sqlx::query_as::<_, Author>(sql)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 
-pub async fn update_author_bio(pool: &DbPool, bio: Option<String>, id: i64) -> Result<(), sqlx::Error> {
+pub async fn update_author_bio<'e, E>(executor: E, bio: Option<String>, id: i64) -> Result<(), sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::MySql>,
+{
     let sql = r##"
         UPDATE author SET bio = ? WHERE id = ?
     "##;
     sqlx::query(sql)
         .bind(bio)
         .bind(id)
-        .execute(pool)
+        .execute(executor)
         .await
         .map(|_| ())
 }
 
-pub async fn delete_author(pool: &DbPool, id: i64) -> Result<(), sqlx::Error> {
+pub async fn delete_author<'e, E>(executor: E, id: i64) -> Result<(), sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::MySql>,
+{
     let sql = r##"
         DELETE FROM author WHERE id = ?
     "##;
     sqlx::query(sql)
         .bind(id)
-        .execute(pool)
+        .execute(executor)
         .await
         .map(|_| ())
 }
 
-pub async fn create_book(pool: &DbPool, author_id: i64, title: String, genre: String, price: rust_decimal::Decimal, published_at: Option<time::Date>) -> Result<(), sqlx::Error> {
+pub async fn create_book<'e, E>(executor: E, author_id: i64, title: String, genre: String, price: rust_decimal::Decimal, published_at: Option<time::Date>) -> Result<(), sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::MySql>,
+{
     let sql = r##"
         INSERT INTO book (author_id, title, genre, price, published_at)
         VALUES (?, ?, ?, ?, ?)
@@ -102,12 +120,15 @@ pub async fn create_book(pool: &DbPool, author_id: i64, title: String, genre: St
         .bind(genre)
         .bind(price)
         .bind(published_at)
-        .execute(pool)
+        .execute(executor)
         .await
         .map(|_| ())
 }
 
-pub async fn get_book(pool: &DbPool, id: i64) -> Result<Option<Book>, sqlx::Error> {
+pub async fn get_book<'e, E>(executor: E, id: i64) -> Result<Option<Book>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::MySql>,
+{
     let sql = r##"
         SELECT id, author_id, title, genre, price, published_at
         FROM book
@@ -115,11 +136,14 @@ pub async fn get_book(pool: &DbPool, id: i64) -> Result<Option<Book>, sqlx::Erro
     "##;
     sqlx::query_as::<_, Book>(sql)
         .bind(id)
-        .fetch_optional(pool)
+        .fetch_optional(executor)
         .await
 }
 
-pub async fn get_books_by_ids(pool: &DbPool, ids: &[i64]) -> Result<Vec<Book>, sqlx::Error> {
+pub async fn get_books_by_ids<'e, E>(executor: E, ids: &[i64]) -> Result<Vec<Book>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::MySql>,
+{
     let sql = r##"
         SELECT id, author_id, title, genre, price, published_at
         FROM book
@@ -129,11 +153,14 @@ pub async fn get_books_by_ids(pool: &DbPool, ids: &[i64]) -> Result<Vec<Book>, s
     let ids_json = format!("[{}]", ids.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(","));
     sqlx::query_as::<_, Book>(sql)
         .bind(ids_json)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 
-pub async fn list_books_by_genre(pool: &DbPool, genre: String) -> Result<Vec<Book>, sqlx::Error> {
+pub async fn list_books_by_genre<'e, E>(executor: E, genre: String) -> Result<Vec<Book>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::MySql>,
+{
     let sql = r##"
         SELECT id, author_id, title, genre, price, published_at
         FROM book
@@ -142,11 +169,14 @@ pub async fn list_books_by_genre(pool: &DbPool, genre: String) -> Result<Vec<Boo
     "##;
     sqlx::query_as::<_, Book>(sql)
         .bind(genre)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 
-pub async fn list_books_by_genre_or_all(pool: &DbPool, genre: String) -> Result<Vec<Book>, sqlx::Error> {
+pub async fn list_books_by_genre_or_all<'e, E>(executor: E, genre: String) -> Result<Vec<Book>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::MySql>,
+{
     let sql = r##"
         SELECT id, author_id, title, genre, price, published_at
         FROM book
@@ -156,11 +186,14 @@ pub async fn list_books_by_genre_or_all(pool: &DbPool, genre: String) -> Result<
     sqlx::query_as::<_, Book>(sql)
         .bind(genre.clone())
         .bind(genre)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 
-pub async fn create_customer(pool: &DbPool, name: String, email: String) -> Result<(), sqlx::Error> {
+pub async fn create_customer<'e, E>(executor: E, name: String, email: String) -> Result<(), sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::MySql>,
+{
     let sql = r##"
         INSERT INTO customer (name, email)
         VALUES (?, ?)
@@ -168,24 +201,30 @@ pub async fn create_customer(pool: &DbPool, name: String, email: String) -> Resu
     sqlx::query(sql)
         .bind(name)
         .bind(email)
-        .execute(pool)
+        .execute(executor)
         .await
         .map(|_| ())
 }
 
-pub async fn create_sale(pool: &DbPool, customer_id: i64) -> Result<(), sqlx::Error> {
+pub async fn create_sale<'e, E>(executor: E, customer_id: i64) -> Result<(), sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::MySql>,
+{
     let sql = r##"
         INSERT INTO sale (customer_id)
         VALUES (?)
     "##;
     sqlx::query(sql)
         .bind(customer_id)
-        .execute(pool)
+        .execute(executor)
         .await
         .map(|_| ())
 }
 
-pub async fn add_sale_item(pool: &DbPool, sale_id: i64, book_id: i64, quantity: i32, unit_price: rust_decimal::Decimal) -> Result<(), sqlx::Error> {
+pub async fn add_sale_item<'e, E>(executor: E, sale_id: i64, book_id: i64, quantity: i32, unit_price: rust_decimal::Decimal) -> Result<(), sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::MySql>,
+{
     let sql = r##"
         INSERT INTO sale_item (sale_id, book_id, quantity, unit_price)
         VALUES (?, ?, ?, ?)
@@ -195,12 +234,15 @@ pub async fn add_sale_item(pool: &DbPool, sale_id: i64, book_id: i64, quantity: 
         .bind(book_id)
         .bind(quantity)
         .bind(unit_price)
-        .execute(pool)
+        .execute(executor)
         .await
         .map(|_| ())
 }
 
-pub async fn list_books_with_author(pool: &DbPool) -> Result<Vec<ListBooksWithAuthorRow>, sqlx::Error> {
+pub async fn list_books_with_author<'e, E>(executor: E) -> Result<Vec<ListBooksWithAuthorRow>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::MySql>,
+{
     let sql = r##"
         SELECT b.id, b.title, b.genre, b.price, b.published_at,
                a.name AS author_name, a.bio AS author_bio
@@ -209,11 +251,14 @@ pub async fn list_books_with_author(pool: &DbPool) -> Result<Vec<ListBooksWithAu
         ORDER BY b.title
     "##;
     sqlx::query_as::<_, ListBooksWithAuthorRow>(sql)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 
-pub async fn get_books_never_ordered(pool: &DbPool) -> Result<Vec<Book>, sqlx::Error> {
+pub async fn get_books_never_ordered<'e, E>(executor: E) -> Result<Vec<Book>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::MySql>,
+{
     let sql = r##"
         SELECT b.id, b.author_id, b.title, b.genre, b.price, b.published_at
         FROM book b
@@ -222,11 +267,14 @@ pub async fn get_books_never_ordered(pool: &DbPool) -> Result<Vec<Book>, sqlx::E
         ORDER BY b.title
     "##;
     sqlx::query_as::<_, Book>(sql)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 
-pub async fn get_top_selling_books(pool: &DbPool) -> Result<Vec<GetTopSellingBooksRow>, sqlx::Error> {
+pub async fn get_top_selling_books<'e, E>(executor: E) -> Result<Vec<GetTopSellingBooksRow>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::MySql>,
+{
     let sql = r##"
         WITH book_sales AS (
             SELECT book_id,
@@ -241,11 +289,14 @@ pub async fn get_top_selling_books(pool: &DbPool) -> Result<Vec<GetTopSellingBoo
         ORDER BY bs.units_sold DESC
     "##;
     sqlx::query_as::<_, GetTopSellingBooksRow>(sql)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 
-pub async fn get_best_customers(pool: &DbPool) -> Result<Vec<GetBestCustomersRow>, sqlx::Error> {
+pub async fn get_best_customers<'e, E>(executor: E) -> Result<Vec<GetBestCustomersRow>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::MySql>,
+{
     let sql = r##"
         WITH customer_spend AS (
             SELECT s.customer_id,
@@ -261,7 +312,7 @@ pub async fn get_best_customers(pool: &DbPool) -> Result<Vec<GetBestCustomersRow
         ORDER BY cs.total_spent DESC
     "##;
     sqlx::query_as::<_, GetBestCustomersRow>(sql)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 

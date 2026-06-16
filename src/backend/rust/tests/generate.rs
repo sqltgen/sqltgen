@@ -49,7 +49,7 @@ fn test_generate_postgres_uses_pg_pool() {
     let src = get_file(&files, "queries.rs");
     assert!(src.contains("use super::super::sqltgen::DbPool;"));
     assert!(helper.contains("pub type DbPool = sqlx::PgPool;"));
-    assert!(src.contains("pool: &DbPool"));
+    assert!(src.contains("E: sqlx::Executor<'e, Database = sqlx::Postgres>"));
 }
 
 #[test]
@@ -61,7 +61,7 @@ fn test_generate_sqlite_uses_sqlite_pool() {
     let src = get_file(&files, "queries.rs");
     assert!(src.contains("use super::super::sqltgen::DbPool;"));
     assert!(helper.contains("pub type DbPool = sqlx::SqlitePool;"));
-    assert!(src.contains("pool: &DbPool"));
+    assert!(src.contains("E: sqlx::Executor<'e, Database = sqlx::Sqlite>"));
 }
 
 // ─── generate: query commands ───────────────────────────────────────────
@@ -72,8 +72,9 @@ fn test_generate_exec_query() {
     let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.rs");
-    assert!(src.contains("pub async fn delete_user(pool: &DbPool, id: i64) -> Result<(), sqlx::Error>"));
-    assert!(src.contains(".execute(pool)"));
+    assert!(src.contains("pub async fn delete_user<'e, E>(executor: E, id: i64) -> Result<(), sqlx::Error>"));
+    assert!(src.contains("    E: sqlx::Executor<'e, Database = sqlx::Postgres>,"));
+    assert!(src.contains(".execute(executor)"));
     assert!(src.contains(".map(|_| ())"));
 }
 
@@ -83,7 +84,7 @@ fn test_generate_execrows_query() {
     let query = Query::exec_rows("DeleteUsers", "DELETE FROM user WHERE active = $1", vec![Parameter::scalar(1, "active", SqlType::Boolean, false)]);
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.rs");
-    assert!(src.contains("pub async fn delete_users(pool: &DbPool, active: bool) -> Result<u64, sqlx::Error>"));
+    assert!(src.contains("pub async fn delete_users<'e, E>(executor: E, active: bool) -> Result<u64, sqlx::Error>"));
     assert!(src.contains(".map(|r| r.rows_affected())"));
 }
 
@@ -102,8 +103,8 @@ fn test_generate_one_query_infers_table_return_type() {
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.rs");
-    assert!(src.contains("pub async fn get_user(pool: &DbPool, id: i64) -> Result<Option<User>, sqlx::Error>"));
-    assert!(src.contains(".fetch_optional(pool)"));
+    assert!(src.contains("pub async fn get_user<'e, E>(executor: E, id: i64) -> Result<Option<User>, sqlx::Error>"));
+    assert!(src.contains(".fetch_optional(executor)"));
 }
 
 #[test]
@@ -121,8 +122,8 @@ fn test_generate_many_query_infers_table_return_type() {
     );
     let files = pg().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.rs");
-    assert!(src.contains("pub async fn list_users(pool: &DbPool) -> Result<Vec<User>, sqlx::Error>"));
-    assert!(src.contains(".fetch_all(pool)"));
+    assert!(src.contains("pub async fn list_users<'e, E>(executor: E) -> Result<Vec<User>, sqlx::Error>"));
+    assert!(src.contains(".fetch_all(executor)"));
 }
 
 // ─── generate: inline row struct ────────────────────────────────────────
@@ -177,7 +178,7 @@ fn test_generate_sqlite_one_query() {
     assert!(src.contains("use super::super::sqltgen::DbPool;"));
     assert!(helper.contains("pub type DbPool = sqlx::SqlitePool;"), "SQLite helper aliases SqlitePool");
     assert!(src.contains("Result<Option<User>, sqlx::Error>"), "One returns Option");
-    assert!(src.contains(".fetch_optional(pool)"));
+    assert!(src.contains(".fetch_optional(executor)"));
 }
 
 #[test]
@@ -196,7 +197,7 @@ fn test_generate_mysql_one_query_returns_option() {
     let files = mysql().generate(&schema, &[query], &cfg()).unwrap();
     let src = get_file(&files, "queries.rs");
     assert!(src.contains("Result<Option<User>, sqlx::Error>"), "One returns Option");
-    assert!(src.contains(".fetch_optional(pool)"));
+    assert!(src.contains(".fetch_optional(executor)"));
 }
 
 #[test]
@@ -209,6 +210,40 @@ fn test_generate_querier_wrapper_is_emitted() {
     assert!(src.contains("pub fn new(pool: &'a DbPool) -> Self"));
     assert!(src.contains("pub async fn delete_user(&self, id: i64) -> Result<(), sqlx::Error>"));
     assert!(src.contains("delete_user(self.pool, id).await"));
+}
+
+// ─── generate: generic Executor signature ────────────────────────────────
+
+#[test]
+fn test_generate_free_fn_is_generic_over_executor() {
+    let schema = Schema::default();
+    let query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
+    let files = pg().generate(&schema, &[query], &cfg()).unwrap();
+    let src = get_file(&files, "queries.rs");
+    // The free function binds a generic `E: Executor` instead of a concrete `&DbPool`,
+    // so a pool or a transaction can be passed.
+    assert!(src.contains("pub async fn delete_user<'e, E>(executor: E, id: i64) -> Result<(), sqlx::Error>"));
+    assert!(src.contains("where"));
+    assert!(src.contains("    E: sqlx::Executor<'e, Database = sqlx::Postgres>,"));
+    assert!(!src.contains("pool: &DbPool"));
+    // The querier stays pool-backed and delegates the pool as the executor argument.
+    assert!(src.contains("delete_user(self.pool, id).await"));
+}
+
+#[test]
+fn test_generate_executor_database_type_per_engine() {
+    let schema = Schema::default();
+    let pg_query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = $1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
+    let sqlite_query = Query::exec("DeleteUser", "DELETE FROM user WHERE id = ?1", vec![Parameter::scalar(1, "id", SqlType::BigInt, false)]);
+
+    let pg_files = pg().generate(&schema, std::slice::from_ref(&pg_query), &cfg()).unwrap();
+    assert!(get_file(&pg_files, "queries.rs").contains("Database = sqlx::Postgres"));
+
+    let sqlite_files = sqlite().generate(&schema, &[sqlite_query], &cfg()).unwrap();
+    assert!(get_file(&sqlite_files, "queries.rs").contains("Database = sqlx::Sqlite"));
+
+    let mysql_files = mysql().generate(&schema, std::slice::from_ref(&pg_query), &cfg()).unwrap();
+    assert!(get_file(&mysql_files, "queries.rs").contains("Database = sqlx::MySql"));
 }
 
 // ─── generate: SQL embedding ─────────────────────────────────────────────

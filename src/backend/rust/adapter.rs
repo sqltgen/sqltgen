@@ -17,6 +17,13 @@ pub(super) trait RustDriverAdapter {
     /// sqlx pool type alias used in the generated `sqltgen.rs` helper file.
     fn pool_type(&self) -> &'static str;
 
+    /// sqlx `Database` marker type for this driver (e.g. `sqlx::Postgres`).
+    ///
+    /// Used as the `Database = …` bound on the generic `sqlx::Executor` parameter
+    /// of generated query functions, so they accept a pool, a pooled connection,
+    /// or a transaction interchangeably.
+    fn sqlx_database_type(&self) -> &'static str;
+
     /// Normalize SQL placeholders for this driver.
     ///
     /// Postgres preserves `$N`; SQLite and MySQL rewrite to anonymous `?`.
@@ -44,6 +51,10 @@ impl RustDriverAdapter for PgAdapter {
         "PgPool"
     }
 
+    fn sqlx_database_type(&self) -> &'static str {
+        "sqlx::Postgres"
+    }
+
     fn normalize_sql(&self, sql: &str) -> String {
         sql.to_string()
     }
@@ -68,6 +79,10 @@ impl RustDriverAdapter for SqliteAdapter {
         "SqlitePool"
     }
 
+    fn sqlx_database_type(&self) -> &'static str {
+        "sqlx::Sqlite"
+    }
+
     fn normalize_sql(&self, sql: &str) -> String {
         rewrite_to_anon_params(sql)
     }
@@ -88,6 +103,10 @@ pub(super) struct MysqlAdapter;
 impl RustDriverAdapter for MysqlAdapter {
     fn pool_type(&self) -> &'static str {
         "MySqlPool"
+    }
+
+    fn sqlx_database_type(&self) -> &'static str {
+        "sqlx::MySql"
     }
 
     fn normalize_sql(&self, sql: &str) -> String {

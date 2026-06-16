@@ -114,7 +114,7 @@ pub(super) fn generate_core_files(ctx: &GenerationContext) -> anyhow::Result<Vec
             if i > 0 {
                 writeln!(src)?;
             }
-            emit_rust_query(&mut src, query, "DbPool", ctx)?;
+            emit_rust_query(&mut src, query, ctx)?;
         }
 
         if !group_queries.is_empty() {
@@ -179,7 +179,7 @@ fn emit_row_struct(src: &mut String, query: &Query, type_map: &RustTypeMap) -> a
     Ok(())
 }
 
-fn emit_rust_query(src: &mut String, query: &Query, pool_type: &str, ctx: &GenerationContext) -> anyhow::Result<()> {
+fn emit_rust_query(src: &mut String, query: &Query, ctx: &GenerationContext) -> anyhow::Result<()> {
     let fn_name = to_snake_case(&query.name);
     let row_type = result_row_type(query, ctx.schema);
 
@@ -190,10 +190,7 @@ fn emit_rust_query(src: &mut String, query: &Query, pool_type: &str, ctx: &Gener
         QueryCmd::ExecRows => "Result<u64, sqlx::Error>".to_string(),
     };
 
-    let params_sig: String =
-        std::iter::once(format!("pool: &{pool_type}")).chain(query.params.iter().map(|p| rust_param_sig(p, ctx.type_map))).collect::<Vec<_>>().join(", ");
-
-    writeln!(src, "pub async fn {fn_name}({params_sig}) -> {return_type} {{")?;
+    emit_rust_query_signature(src, &fn_name, query, &return_type, ctx)?;
 
     let list_param = query.params.iter().find(|p| p.is_list);
     if let Some(lp) = list_param {
@@ -203,6 +200,22 @@ fn emit_rust_query(src: &mut String, query: &Query, pool_type: &str, ctx: &Gener
     }
 
     writeln!(src, "}}")?;
+    Ok(())
+}
+
+/// Emit the generic header of a free query function.
+///
+/// The function is generic over `E: sqlx::Executor` (parameterized on the
+/// driver's `Database` type) instead of taking a concrete `&DbPool`, so the
+/// same function can run against a pool, a pooled connection, or a transaction.
+fn emit_rust_query_signature(src: &mut String, fn_name: &str, query: &Query, return_type: &str, ctx: &GenerationContext) -> anyhow::Result<()> {
+    let params_sig: String =
+        std::iter::once("executor: E".to_string()).chain(query.params.iter().map(|p| rust_param_sig(p, ctx.type_map))).collect::<Vec<_>>().join(", ");
+    let db_type = ctx.adapter.sqlx_database_type();
+    writeln!(src, "pub async fn {fn_name}<'e, E>({params_sig}) -> {return_type}")?;
+    writeln!(src, "where")?;
+    writeln!(src, "    E: sqlx::Executor<'e, Database = {db_type}>,")?;
+    writeln!(src, "{{")?;
     Ok(())
 }
 
@@ -345,10 +358,10 @@ fn emit_rust_dynamic_query(src: &mut String, query: &Query, row_type: &str, list
 /// `query` + an `execute(...).await.map(...)` terminal.
 fn rust_dynamic_call_parts(cmd: &QueryCmd, row_type: &str) -> (String, &'static str) {
     match cmd {
-        QueryCmd::One => (format!("sqlx::query_as::<_, {row_type}>(&sql)"), "q.fetch_optional(pool).await"),
-        QueryCmd::Many => (format!("sqlx::query_as::<_, {row_type}>(&sql)"), "q.fetch_all(pool).await"),
-        QueryCmd::Exec => ("sqlx::query(&sql)".to_string(), "q.execute(pool).await.map(|_| ())"),
-        QueryCmd::ExecRows => ("sqlx::query(&sql)".to_string(), "q.execute(pool).await.map(|r| r.rows_affected())"),
+        QueryCmd::One => (format!("sqlx::query_as::<_, {row_type}>(&sql)"), "q.fetch_optional(executor).await"),
+        QueryCmd::Many => (format!("sqlx::query_as::<_, {row_type}>(&sql)"), "q.fetch_all(executor).await"),
+        QueryCmd::Exec => ("sqlx::query(&sql)".to_string(), "q.execute(executor).await.map(|_| ())"),
+        QueryCmd::ExecRows => ("sqlx::query(&sql)".to_string(), "q.execute(executor).await.map(|r| r.rows_affected())"),
     }
 }
 
@@ -406,7 +419,7 @@ fn emit_rust_sqlx_call(src: &mut String, query: &Query, sql_expr: &str, bind_nam
             for &name in bind_names {
                 writeln!(src, "        .bind({})", bind_expr(name, &mut remaining))?;
             }
-            writeln!(src, "        .execute(pool)")?;
+            writeln!(src, "        .execute(executor)")?;
             writeln!(src, "        .await")?;
             if matches!(query.cmd, QueryCmd::Exec) {
                 writeln!(src, "        .map(|_| ())")?;
@@ -420,9 +433,9 @@ fn emit_rust_sqlx_call(src: &mut String, query: &Query, sql_expr: &str, bind_nam
                 writeln!(src, "        .bind({})", bind_expr(name, &mut remaining))?;
             }
             if matches!(query.cmd, QueryCmd::One) {
-                writeln!(src, "        .fetch_optional(pool)")?;
+                writeln!(src, "        .fetch_optional(executor)")?;
             } else {
-                writeln!(src, "        .fetch_all(pool)")?;
+                writeln!(src, "        .fetch_all(executor)")?;
             }
             writeln!(src, "        .await")?;
         },

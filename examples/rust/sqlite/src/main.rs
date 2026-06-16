@@ -39,6 +39,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     q::add_sale_item(&pool, 2, 1, 1, 12.99).await?;
     println!("[sqlite] inserted 2 sales with items");
 
+    // Atomic transaction: the generated functions accept any `sqlx::Executor`, so the
+    // same `create_sale` / `add_sale_item` run against `&mut *tx` and commit together.
+    let mut tx = pool.begin().await?;
+    q::create_sale(&mut *tx, 1).await?;
+    q::add_sale_item(&mut *tx, 3, 5, 1, 9.99).await?;
+    tx.commit().await?;
+    println!("[sqlite] committed 1 sale + 1 item atomically via a transaction");
+
     let authors = q::list_authors(&pool).await?;
     println!("[sqlite] list_authors: {} row(s)", authors.len());
 

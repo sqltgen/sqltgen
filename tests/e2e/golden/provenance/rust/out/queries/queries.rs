@@ -2,29 +2,38 @@ use super::super::sqltgen::DbPool;
 
 use super::super::models::users::Users;
 
-pub async fn get_user_via_derived(pool: &DbPool, id: i64) -> Result<Option<Users>, sqlx::Error> {
+pub async fn get_user_via_derived<'e, E>(executor: E, id: i64) -> Result<Option<Users>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     let sql = r##"
         SELECT * FROM (SELECT * FROM users) AS sub
         WHERE sub.id = $1
     "##;
     sqlx::query_as::<_, Users>(sql)
         .bind(id)
-        .fetch_optional(pool)
+        .fetch_optional(executor)
         .await
 }
 
-pub async fn get_users_via_cte(pool: &DbPool, id: i64) -> Result<Vec<Users>, sqlx::Error> {
+pub async fn get_users_via_cte<'e, E>(executor: E, id: i64) -> Result<Vec<Users>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     let sql = r##"
         WITH recent AS (SELECT * FROM users WHERE id > $1)
         SELECT * FROM recent
     "##;
     sqlx::query_as::<_, Users>(sql)
         .bind(id)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 
-pub async fn get_users_via_chained_ctes(pool: &DbPool, id: i64) -> Result<Vec<Users>, sqlx::Error> {
+pub async fn get_users_via_chained_ctes<'e, E>(executor: E, id: i64) -> Result<Vec<Users>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     let sql = r##"
         WITH a AS (SELECT * FROM users),
              b AS (SELECT * FROM a)
@@ -33,7 +42,7 @@ pub async fn get_users_via_chained_ctes(pool: &DbPool, id: i64) -> Result<Vec<Us
     "##;
     sqlx::query_as::<_, Users>(sql)
         .bind(id)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 
