@@ -10,6 +10,16 @@ sqltgen follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- **Generated Rust query functions are now generic over `sqlx::Executor`** instead of
+  taking a concrete `&DbPool`. Each free function is emitted as
+  `pub async fn …<'e, E>(executor: E, …) where E: sqlx::Executor<'e, Database = …>`, so the
+  same function runs against a connection pool, a pooled connection, or a transaction. This
+  lets callers execute multiple generated operations atomically by passing `&mut *tx` from
+  a `sqlx::Transaction`. Existing pool call sites are unaffected — `&pool` still satisfies
+  the bound. The `Querier` wrapper remains pool-backed and delegates to these functions; a
+  transaction-aware Querier is tracked as a follow-up.
+
 ## [0.1.0] — 2026-06-02
 
 First stable release.

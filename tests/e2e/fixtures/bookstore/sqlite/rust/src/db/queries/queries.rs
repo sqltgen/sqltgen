@@ -190,7 +190,10 @@ pub struct GetBookPriceAggregatesRow {
     pub avg_price: Option<f64>,
 }
 
-pub async fn create_author(pool: &DbPool, name: String, bio: Option<String>, birth_year: Option<i32>) -> Result<(), sqlx::Error> {
+pub async fn create_author<'e, E>(executor: E, name: String, bio: Option<String>, birth_year: Option<i32>) -> Result<(), sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let sql = r##"
         INSERT INTO author (name, bio, birth_year)
         VALUES (?, ?, ?)
@@ -199,12 +202,15 @@ pub async fn create_author(pool: &DbPool, name: String, bio: Option<String>, bir
         .bind(name)
         .bind(bio)
         .bind(birth_year)
-        .execute(pool)
+        .execute(executor)
         .await
         .map(|_| ())
 }
 
-pub async fn get_author(pool: &DbPool, id: i32) -> Result<Option<Author>, sqlx::Error> {
+pub async fn get_author<'e, E>(executor: E, id: i32) -> Result<Option<Author>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let sql = r##"
         SELECT id, name, bio, birth_year
         FROM author
@@ -212,22 +218,28 @@ pub async fn get_author(pool: &DbPool, id: i32) -> Result<Option<Author>, sqlx::
     "##;
     sqlx::query_as::<_, Author>(sql)
         .bind(id)
-        .fetch_optional(pool)
+        .fetch_optional(executor)
         .await
 }
 
-pub async fn list_authors(pool: &DbPool) -> Result<Vec<Author>, sqlx::Error> {
+pub async fn list_authors<'e, E>(executor: E) -> Result<Vec<Author>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let sql = r##"
         SELECT id, name, bio, birth_year
         FROM author
         ORDER BY name
     "##;
     sqlx::query_as::<_, Author>(sql)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 
-pub async fn create_book(pool: &DbPool, author_id: i32, title: String, genre: String, price: f64, published_at: Option<String>) -> Result<(), sqlx::Error> {
+pub async fn create_book<'e, E>(executor: E, author_id: i32, title: String, genre: String, price: f64, published_at: Option<String>) -> Result<(), sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let sql = r##"
         INSERT INTO book (author_id, title, genre, price, published_at)
         VALUES (?, ?, ?, ?, ?)
@@ -238,12 +250,15 @@ pub async fn create_book(pool: &DbPool, author_id: i32, title: String, genre: St
         .bind(genre)
         .bind(price)
         .bind(published_at)
-        .execute(pool)
+        .execute(executor)
         .await
         .map(|_| ())
 }
 
-pub async fn get_book(pool: &DbPool, id: i32) -> Result<Option<Book>, sqlx::Error> {
+pub async fn get_book<'e, E>(executor: E, id: i32) -> Result<Option<Book>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let sql = r##"
         SELECT id, author_id, title, genre, price, published_at
         FROM book
@@ -251,11 +266,14 @@ pub async fn get_book(pool: &DbPool, id: i32) -> Result<Option<Book>, sqlx::Erro
     "##;
     sqlx::query_as::<_, Book>(sql)
         .bind(id)
-        .fetch_optional(pool)
+        .fetch_optional(executor)
         .await
 }
 
-pub async fn get_books_by_ids(pool: &DbPool, ids: &[i64]) -> Result<Vec<Book>, sqlx::Error> {
+pub async fn get_books_by_ids<'e, E>(executor: E, ids: &[i64]) -> Result<Vec<Book>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let sql = r##"
         SELECT id, author_id, title, genre, price, published_at
         FROM book
@@ -265,11 +283,14 @@ pub async fn get_books_by_ids(pool: &DbPool, ids: &[i64]) -> Result<Vec<Book>, s
     let ids_json = format!("[{}]", ids.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(","));
     sqlx::query_as::<_, Book>(sql)
         .bind(ids_json)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 
-pub async fn list_books_by_genre(pool: &DbPool, genre: String) -> Result<Vec<Book>, sqlx::Error> {
+pub async fn list_books_by_genre<'e, E>(executor: E, genre: String) -> Result<Vec<Book>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let sql = r##"
         SELECT id, author_id, title, genre, price, published_at
         FROM book
@@ -278,11 +299,14 @@ pub async fn list_books_by_genre(pool: &DbPool, genre: String) -> Result<Vec<Boo
     "##;
     sqlx::query_as::<_, Book>(sql)
         .bind(genre)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 
-pub async fn list_books_by_genre_or_all(pool: &DbPool, genre: Option<String>) -> Result<Vec<Book>, sqlx::Error> {
+pub async fn list_books_by_genre_or_all<'e, E>(executor: E, genre: Option<String>) -> Result<Vec<Book>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let sql = r##"
         SELECT id, author_id, title, genre, price, published_at
         FROM book
@@ -292,11 +316,14 @@ pub async fn list_books_by_genre_or_all(pool: &DbPool, genre: Option<String>) ->
     sqlx::query_as::<_, Book>(sql)
         .bind(genre.clone())
         .bind(genre)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 
-pub async fn create_customer(pool: &DbPool, name: String, email: String) -> Result<(), sqlx::Error> {
+pub async fn create_customer<'e, E>(executor: E, name: String, email: String) -> Result<(), sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let sql = r##"
         INSERT INTO customer (name, email)
         VALUES (?, ?)
@@ -304,24 +331,30 @@ pub async fn create_customer(pool: &DbPool, name: String, email: String) -> Resu
     sqlx::query(sql)
         .bind(name)
         .bind(email)
-        .execute(pool)
+        .execute(executor)
         .await
         .map(|_| ())
 }
 
-pub async fn create_sale(pool: &DbPool, customer_id: i32) -> Result<(), sqlx::Error> {
+pub async fn create_sale<'e, E>(executor: E, customer_id: i32) -> Result<(), sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let sql = r##"
         INSERT INTO sale (customer_id)
         VALUES (?)
     "##;
     sqlx::query(sql)
         .bind(customer_id)
-        .execute(pool)
+        .execute(executor)
         .await
         .map(|_| ())
 }
 
-pub async fn add_sale_item(pool: &DbPool, sale_id: i32, book_id: i32, quantity: i32, unit_price: f64) -> Result<(), sqlx::Error> {
+pub async fn add_sale_item<'e, E>(executor: E, sale_id: i32, book_id: i32, quantity: i32, unit_price: f64) -> Result<(), sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let sql = r##"
         INSERT INTO sale_item (sale_id, book_id, quantity, unit_price)
         VALUES (?, ?, ?, ?)
@@ -331,12 +364,15 @@ pub async fn add_sale_item(pool: &DbPool, sale_id: i32, book_id: i32, quantity: 
         .bind(book_id)
         .bind(quantity)
         .bind(unit_price)
-        .execute(pool)
+        .execute(executor)
         .await
         .map(|_| ())
 }
 
-pub async fn list_books_with_author(pool: &DbPool) -> Result<Vec<ListBooksWithAuthorRow>, sqlx::Error> {
+pub async fn list_books_with_author<'e, E>(executor: E) -> Result<Vec<ListBooksWithAuthorRow>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let sql = r##"
         SELECT b.id, b.title, b.genre, b.price, b.published_at,
                a.name AS author_name, a.bio AS author_bio
@@ -345,11 +381,14 @@ pub async fn list_books_with_author(pool: &DbPool) -> Result<Vec<ListBooksWithAu
         ORDER BY b.title
     "##;
     sqlx::query_as::<_, ListBooksWithAuthorRow>(sql)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 
-pub async fn get_books_never_ordered(pool: &DbPool) -> Result<Vec<Book>, sqlx::Error> {
+pub async fn get_books_never_ordered<'e, E>(executor: E) -> Result<Vec<Book>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let sql = r##"
         SELECT b.id, b.author_id, b.title, b.genre, b.price, b.published_at
         FROM book b
@@ -358,11 +397,14 @@ pub async fn get_books_never_ordered(pool: &DbPool) -> Result<Vec<Book>, sqlx::E
         ORDER BY b.title
     "##;
     sqlx::query_as::<_, Book>(sql)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 
-pub async fn get_top_selling_books(pool: &DbPool) -> Result<Vec<GetTopSellingBooksRow>, sqlx::Error> {
+pub async fn get_top_selling_books<'e, E>(executor: E) -> Result<Vec<GetTopSellingBooksRow>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let sql = r##"
         WITH book_sales AS (
             SELECT book_id,
@@ -377,11 +419,14 @@ pub async fn get_top_selling_books(pool: &DbPool) -> Result<Vec<GetTopSellingBoo
         ORDER BY bs.units_sold DESC
     "##;
     sqlx::query_as::<_, GetTopSellingBooksRow>(sql)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 
-pub async fn get_best_customers(pool: &DbPool) -> Result<Vec<GetBestCustomersRow>, sqlx::Error> {
+pub async fn get_best_customers<'e, E>(executor: E) -> Result<Vec<GetBestCustomersRow>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let sql = r##"
         WITH customer_spend AS (
             SELECT s.customer_id,
@@ -397,11 +442,14 @@ pub async fn get_best_customers(pool: &DbPool) -> Result<Vec<GetBestCustomersRow
         ORDER BY cs.total_spent DESC
     "##;
     sqlx::query_as::<_, GetBestCustomersRow>(sql)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 
-pub async fn count_books_by_genre(pool: &DbPool) -> Result<Vec<CountBooksByGenreRow>, sqlx::Error> {
+pub async fn count_books_by_genre<'e, E>(executor: E) -> Result<Vec<CountBooksByGenreRow>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let sql = r##"
         SELECT genre, COUNT(*) AS book_count
         FROM book
@@ -409,11 +457,14 @@ pub async fn count_books_by_genre(pool: &DbPool) -> Result<Vec<CountBooksByGenre
         ORDER BY genre
     "##;
     sqlx::query_as::<_, CountBooksByGenreRow>(sql)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 
-pub async fn list_books_with_limit(pool: &DbPool, limit: i64, offset: i64) -> Result<Vec<ListBooksWithLimitRow>, sqlx::Error> {
+pub async fn list_books_with_limit<'e, E>(executor: E, limit: i64, offset: i64) -> Result<Vec<ListBooksWithLimitRow>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let sql = r##"
         SELECT id, title, genre, price
         FROM book
@@ -423,11 +474,14 @@ pub async fn list_books_with_limit(pool: &DbPool, limit: i64, offset: i64) -> Re
     sqlx::query_as::<_, ListBooksWithLimitRow>(sql)
         .bind(limit)
         .bind(offset)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 
-pub async fn search_books_by_title(pool: &DbPool, title: String) -> Result<Vec<SearchBooksByTitleRow>, sqlx::Error> {
+pub async fn search_books_by_title<'e, E>(executor: E, title: String) -> Result<Vec<SearchBooksByTitleRow>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let sql = r##"
         SELECT id, title, genre, price
         FROM book
@@ -436,11 +490,14 @@ pub async fn search_books_by_title(pool: &DbPool, title: String) -> Result<Vec<S
     "##;
     sqlx::query_as::<_, SearchBooksByTitleRow>(sql)
         .bind(title)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 
-pub async fn get_books_by_price_range(pool: &DbPool, price: f64, price_2: f64) -> Result<Vec<GetBooksByPriceRangeRow>, sqlx::Error> {
+pub async fn get_books_by_price_range<'e, E>(executor: E, price: f64, price_2: f64) -> Result<Vec<GetBooksByPriceRangeRow>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let sql = r##"
         SELECT id, title, genre, price
         FROM book
@@ -450,11 +507,14 @@ pub async fn get_books_by_price_range(pool: &DbPool, price: f64, price_2: f64) -
     sqlx::query_as::<_, GetBooksByPriceRangeRow>(sql)
         .bind(price)
         .bind(price_2)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 
-pub async fn get_books_in_genres(pool: &DbPool, genre: String, genre_2: String, genre_3: String) -> Result<Vec<GetBooksInGenresRow>, sqlx::Error> {
+pub async fn get_books_in_genres<'e, E>(executor: E, genre: String, genre_2: String, genre_3: String) -> Result<Vec<GetBooksInGenresRow>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let sql = r##"
         SELECT id, title, genre, price
         FROM book
@@ -465,11 +525,14 @@ pub async fn get_books_in_genres(pool: &DbPool, genre: String, genre_2: String, 
         .bind(genre)
         .bind(genre_2)
         .bind(genre_3)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 
-pub async fn get_book_price_label(pool: &DbPool, price: f64) -> Result<Vec<GetBookPriceLabelRow>, sqlx::Error> {
+pub async fn get_book_price_label<'e, E>(executor: E, price: f64) -> Result<Vec<GetBookPriceLabelRow>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let sql = r##"
         SELECT id, title, price,
                CASE WHEN price > ? THEN 'expensive' ELSE 'affordable' END AS price_label
@@ -478,11 +541,14 @@ pub async fn get_book_price_label(pool: &DbPool, price: f64) -> Result<Vec<GetBo
     "##;
     sqlx::query_as::<_, GetBookPriceLabelRow>(sql)
         .bind(price)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 
-pub async fn get_book_price_or_default(pool: &DbPool, price: Option<f64>) -> Result<Vec<GetBookPriceOrDefaultRow>, sqlx::Error> {
+pub async fn get_book_price_or_default<'e, E>(executor: E, price: Option<f64>) -> Result<Vec<GetBookPriceOrDefaultRow>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let sql = r##"
         SELECT id, title, COALESCE(price, ?) AS effective_price
         FROM book
@@ -490,22 +556,28 @@ pub async fn get_book_price_or_default(pool: &DbPool, price: Option<f64>) -> Res
     "##;
     sqlx::query_as::<_, GetBookPriceOrDefaultRow>(sql)
         .bind(price)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 
-pub async fn delete_book_by_id(pool: &DbPool, id: i32) -> Result<u64, sqlx::Error> {
+pub async fn delete_book_by_id<'e, E>(executor: E, id: i32) -> Result<u64, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let sql = r##"
         DELETE FROM book WHERE id = ?
     "##;
     sqlx::query(sql)
         .bind(id)
-        .execute(pool)
+        .execute(executor)
         .await
         .map(|r| r.rows_affected())
 }
 
-pub async fn get_genres_with_many_books(pool: &DbPool, count: i64) -> Result<Vec<GetGenresWithManyBooksRow>, sqlx::Error> {
+pub async fn get_genres_with_many_books<'e, E>(executor: E, count: i64) -> Result<Vec<GetGenresWithManyBooksRow>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let sql = r##"
         SELECT genre, COUNT(*) AS book_count
         FROM book
@@ -515,11 +587,14 @@ pub async fn get_genres_with_many_books(pool: &DbPool, count: i64) -> Result<Vec
     "##;
     sqlx::query_as::<_, GetGenresWithManyBooksRow>(sql)
         .bind(count)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 
-pub async fn get_books_by_author_param(pool: &DbPool, birth_year: Option<i32>) -> Result<Vec<GetBooksByAuthorParamRow>, sqlx::Error> {
+pub async fn get_books_by_author_param<'e, E>(executor: E, birth_year: Option<i32>) -> Result<Vec<GetBooksByAuthorParamRow>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let sql = r##"
         SELECT b.id, b.title, b.price
         FROM book b
@@ -528,22 +603,28 @@ pub async fn get_books_by_author_param(pool: &DbPool, birth_year: Option<i32>) -
     "##;
     sqlx::query_as::<_, GetBooksByAuthorParamRow>(sql)
         .bind(birth_year)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 
-pub async fn get_all_book_fields(pool: &DbPool) -> Result<Vec<Book>, sqlx::Error> {
+pub async fn get_all_book_fields<'e, E>(executor: E) -> Result<Vec<Book>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let sql = r##"
         SELECT b.*
         FROM book b
         ORDER BY b.id
     "##;
     sqlx::query_as::<_, Book>(sql)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 
-pub async fn get_books_not_by_author(pool: &DbPool, name: String) -> Result<Vec<GetBooksNotByAuthorRow>, sqlx::Error> {
+pub async fn get_books_not_by_author<'e, E>(executor: E, name: String) -> Result<Vec<GetBooksNotByAuthorRow>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let sql = r##"
         SELECT id, title, genre
         FROM book
@@ -552,11 +633,14 @@ pub async fn get_books_not_by_author(pool: &DbPool, name: String) -> Result<Vec<
     "##;
     sqlx::query_as::<_, GetBooksNotByAuthorRow>(sql)
         .bind(name)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 
-pub async fn get_books_with_recent_sales(pool: &DbPool, ordered_at: time::PrimitiveDateTime) -> Result<Vec<GetBooksWithRecentSalesRow>, sqlx::Error> {
+pub async fn get_books_with_recent_sales<'e, E>(executor: E, ordered_at: time::PrimitiveDateTime) -> Result<Vec<GetBooksWithRecentSalesRow>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let sql = r##"
         SELECT id, title, genre
         FROM book
@@ -569,11 +653,14 @@ pub async fn get_books_with_recent_sales(pool: &DbPool, ordered_at: time::Primit
     "##;
     sqlx::query_as::<_, GetBooksWithRecentSalesRow>(sql)
         .bind(ordered_at)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 
-pub async fn get_book_with_author_name(pool: &DbPool) -> Result<Vec<GetBookWithAuthorNameRow>, sqlx::Error> {
+pub async fn get_book_with_author_name<'e, E>(executor: E) -> Result<Vec<GetBookWithAuthorNameRow>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let sql = r##"
         SELECT b.id, b.title,
                (SELECT a.name FROM author a WHERE a.id = b.author_id) AS author_name
@@ -581,11 +668,14 @@ pub async fn get_book_with_author_name(pool: &DbPool) -> Result<Vec<GetBookWithA
         ORDER BY b.title
     "##;
     sqlx::query_as::<_, GetBookWithAuthorNameRow>(sql)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 
-pub async fn get_author_stats(pool: &DbPool) -> Result<Vec<GetAuthorStatsRow>, sqlx::Error> {
+pub async fn get_author_stats<'e, E>(executor: E) -> Result<Vec<GetAuthorStatsRow>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let sql = r##"
         WITH book_counts AS (
             SELECT author_id, COUNT(*) AS num_books
@@ -607,11 +697,14 @@ pub async fn get_author_stats(pool: &DbPool) -> Result<Vec<GetAuthorStatsRow>, s
         ORDER BY a.name
     "##;
     sqlx::query_as::<_, GetAuthorStatsRow>(sql)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 
-pub async fn get_product(pool: &DbPool, id: String) -> Result<Option<Product>, sqlx::Error> {
+pub async fn get_product<'e, E>(executor: E, id: String) -> Result<Option<Product>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let sql = r##"
         SELECT id, sku, name, active, weight_kg, rating, metadata,
                thumbnail, created_at, stock_count
@@ -620,11 +713,14 @@ pub async fn get_product(pool: &DbPool, id: String) -> Result<Option<Product>, s
     "##;
     sqlx::query_as::<_, Product>(sql)
         .bind(id)
-        .fetch_optional(pool)
+        .fetch_optional(executor)
         .await
 }
 
-pub async fn list_active_products(pool: &DbPool, active: i32) -> Result<Vec<ListActiveProductsRow>, sqlx::Error> {
+pub async fn list_active_products<'e, E>(executor: E, active: i32) -> Result<Vec<ListActiveProductsRow>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let sql = r##"
         SELECT id, sku, name, active, weight_kg, rating, metadata,
                created_at, stock_count
@@ -634,11 +730,14 @@ pub async fn list_active_products(pool: &DbPool, active: i32) -> Result<Vec<List
     "##;
     sqlx::query_as::<_, ListActiveProductsRow>(sql)
         .bind(active)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 
-pub async fn get_authors_with_null_bio(pool: &DbPool) -> Result<Vec<GetAuthorsWithNullBioRow>, sqlx::Error> {
+pub async fn get_authors_with_null_bio<'e, E>(executor: E) -> Result<Vec<GetAuthorsWithNullBioRow>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let sql = r##"
         SELECT id, name, birth_year
         FROM author
@@ -646,11 +745,14 @@ pub async fn get_authors_with_null_bio(pool: &DbPool) -> Result<Vec<GetAuthorsWi
         ORDER BY name
     "##;
     sqlx::query_as::<_, GetAuthorsWithNullBioRow>(sql)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 
-pub async fn get_authors_with_bio(pool: &DbPool) -> Result<Vec<Author>, sqlx::Error> {
+pub async fn get_authors_with_bio<'e, E>(executor: E) -> Result<Vec<Author>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let sql = r##"
         SELECT id, name, bio, birth_year
         FROM author
@@ -658,11 +760,14 @@ pub async fn get_authors_with_bio(pool: &DbPool) -> Result<Vec<Author>, sqlx::Er
         ORDER BY name
     "##;
     sqlx::query_as::<_, Author>(sql)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 
-pub async fn get_books_published_between(pool: &DbPool, published_at: Option<String>, published_at_2: Option<String>) -> Result<Vec<GetBooksPublishedBetweenRow>, sqlx::Error> {
+pub async fn get_books_published_between<'e, E>(executor: E, published_at: Option<String>, published_at_2: Option<String>) -> Result<Vec<GetBooksPublishedBetweenRow>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let sql = r##"
         SELECT id, title, genre, price, published_at
         FROM book
@@ -673,22 +778,28 @@ pub async fn get_books_published_between(pool: &DbPool, published_at: Option<Str
     sqlx::query_as::<_, GetBooksPublishedBetweenRow>(sql)
         .bind(published_at)
         .bind(published_at_2)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 
-pub async fn get_distinct_genres(pool: &DbPool) -> Result<Vec<GetDistinctGenresRow>, sqlx::Error> {
+pub async fn get_distinct_genres<'e, E>(executor: E) -> Result<Vec<GetDistinctGenresRow>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let sql = r##"
         SELECT DISTINCT genre
         FROM book
         ORDER BY genre
     "##;
     sqlx::query_as::<_, GetDistinctGenresRow>(sql)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 
-pub async fn get_books_with_sales_count(pool: &DbPool) -> Result<Vec<GetBooksWithSalesCountRow>, sqlx::Error> {
+pub async fn get_books_with_sales_count<'e, E>(executor: E) -> Result<Vec<GetBooksWithSalesCountRow>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let sql = r##"
         SELECT b.id, b.title, b.genre,
                COALESCE(SUM(si.quantity), 0) AS total_quantity
@@ -698,11 +809,14 @@ pub async fn get_books_with_sales_count(pool: &DbPool) -> Result<Vec<GetBooksWit
         ORDER BY total_quantity DESC, b.title
     "##;
     sqlx::query_as::<_, GetBooksWithSalesCountRow>(sql)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 
-pub async fn count_sale_items(pool: &DbPool, sale_id: i32) -> Result<Option<CountSaleItemsRow>, sqlx::Error> {
+pub async fn count_sale_items<'e, E>(executor: E, sale_id: i32) -> Result<Option<CountSaleItemsRow>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let sql = r##"
         SELECT COUNT(*) AS item_count
         FROM sale_item
@@ -710,34 +824,43 @@ pub async fn count_sale_items(pool: &DbPool, sale_id: i32) -> Result<Option<Coun
     "##;
     sqlx::query_as::<_, CountSaleItemsRow>(sql)
         .bind(sale_id)
-        .fetch_optional(pool)
+        .fetch_optional(executor)
         .await
 }
 
-pub async fn update_author_bio(pool: &DbPool, bio: Option<String>, id: i32) -> Result<(), sqlx::Error> {
+pub async fn update_author_bio<'e, E>(executor: E, bio: Option<String>, id: i32) -> Result<(), sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let sql = r##"
         UPDATE author SET bio = ? WHERE id = ?
     "##;
     sqlx::query(sql)
         .bind(bio)
         .bind(id)
-        .execute(pool)
+        .execute(executor)
         .await
         .map(|_| ())
 }
 
-pub async fn delete_author(pool: &DbPool, id: i32) -> Result<(), sqlx::Error> {
+pub async fn delete_author<'e, E>(executor: E, id: i32) -> Result<(), sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let sql = r##"
         DELETE FROM author WHERE id = ?
     "##;
     sqlx::query(sql)
         .bind(id)
-        .execute(pool)
+        .execute(executor)
         .await
         .map(|_| ())
 }
 
-pub async fn insert_product(pool: &DbPool, id: String, sku: String, name: String, active: i32, weight_kg: Option<f32>, rating: Option<f32>, metadata: Option<String>, thumbnail: Option<Vec<u8>>, stock_count: i32) -> Result<(), sqlx::Error> {
+pub async fn insert_product<'e, E>(executor: E, id: String, sku: String, name: String, active: i32, weight_kg: Option<f32>, rating: Option<f32>, metadata: Option<String>, thumbnail: Option<Vec<u8>>, stock_count: i32) -> Result<(), sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let sql = r##"
         INSERT INTO product (id, sku, name, active, weight_kg, rating, metadata, thumbnail, stock_count)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -752,12 +875,15 @@ pub async fn insert_product(pool: &DbPool, id: String, sku: String, name: String
         .bind(metadata)
         .bind(thumbnail)
         .bind(stock_count)
-        .execute(pool)
+        .execute(executor)
         .await
         .map(|_| ())
 }
 
-pub async fn upsert_product(pool: &DbPool, id: String, sku: String, name: String, active: i32, metadata: Option<String>, stock_count: i32) -> Result<(), sqlx::Error> {
+pub async fn upsert_product<'e, E>(executor: E, id: String, sku: String, name: String, active: i32, metadata: Option<String>, stock_count: i32) -> Result<(), sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let sql = r##"
         INSERT INTO product (id, sku, name, active, metadata, stock_count)
         VALUES (?, ?, ?, ?, ?, ?)
@@ -774,12 +900,15 @@ pub async fn upsert_product(pool: &DbPool, id: String, sku: String, name: String
         .bind(active)
         .bind(metadata)
         .bind(stock_count)
-        .execute(pool)
+        .execute(executor)
         .await
         .map(|_| ())
 }
 
-pub async fn get_sale_item_quantity_aggregates(pool: &DbPool) -> Result<Option<GetSaleItemQuantityAggregatesRow>, sqlx::Error> {
+pub async fn get_sale_item_quantity_aggregates<'e, E>(executor: E) -> Result<Option<GetSaleItemQuantityAggregatesRow>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let sql = r##"
         SELECT MIN(quantity)  AS min_qty,
                MAX(quantity)  AS max_qty,
@@ -788,11 +917,14 @@ pub async fn get_sale_item_quantity_aggregates(pool: &DbPool) -> Result<Option<G
         FROM sale_item
     "##;
     sqlx::query_as::<_, GetSaleItemQuantityAggregatesRow>(sql)
-        .fetch_optional(pool)
+        .fetch_optional(executor)
         .await
 }
 
-pub async fn get_book_price_aggregates(pool: &DbPool) -> Result<Option<GetBookPriceAggregatesRow>, sqlx::Error> {
+pub async fn get_book_price_aggregates<'e, E>(executor: E) -> Result<Option<GetBookPriceAggregatesRow>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let sql = r##"
         SELECT MIN(price)  AS min_price,
                MAX(price)  AS max_price,
@@ -801,7 +933,7 @@ pub async fn get_book_price_aggregates(pool: &DbPool) -> Result<Option<GetBookPr
         FROM book
     "##;
     sqlx::query_as::<_, GetBookPriceAggregatesRow>(sql)
-        .fetch_optional(pool)
+        .fetch_optional(executor)
         .await
 }
 

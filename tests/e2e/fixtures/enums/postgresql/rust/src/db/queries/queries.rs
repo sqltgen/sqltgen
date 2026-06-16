@@ -50,7 +50,10 @@ pub struct GetTaskTagsRow {
     pub tags: Vec<Priority>,
 }
 
-pub async fn create_task(pool: &DbPool, title: String, priority: Priority, status: Status, description: Option<String>) -> Result<Option<Task>, sqlx::Error> {
+pub async fn create_task<'e, E>(executor: E, title: String, priority: Priority, status: Status, description: Option<String>) -> Result<Option<Task>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     let sql = r##"
         INSERT INTO task (title, priority, status, description)
         VALUES ($1, $2, $3, $4)
@@ -61,11 +64,14 @@ pub async fn create_task(pool: &DbPool, title: String, priority: Priority, statu
         .bind(priority)
         .bind(status)
         .bind(description)
-        .fetch_optional(pool)
+        .fetch_optional(executor)
         .await
 }
 
-pub async fn get_task(pool: &DbPool, id: i64) -> Result<Option<GetTaskRow>, sqlx::Error> {
+pub async fn get_task<'e, E>(executor: E, id: i64) -> Result<Option<GetTaskRow>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     let sql = r##"
         SELECT id, title, priority, status, description
         FROM task
@@ -73,11 +79,14 @@ pub async fn get_task(pool: &DbPool, id: i64) -> Result<Option<GetTaskRow>, sqlx
     "##;
     sqlx::query_as::<_, GetTaskRow>(sql)
         .bind(id)
-        .fetch_optional(pool)
+        .fetch_optional(executor)
         .await
 }
 
-pub async fn list_tasks_by_priority(pool: &DbPool, priority: Priority) -> Result<Vec<ListTasksByPriorityRow>, sqlx::Error> {
+pub async fn list_tasks_by_priority<'e, E>(executor: E, priority: Priority) -> Result<Vec<ListTasksByPriorityRow>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     let sql = r##"
         SELECT id, title, priority, status
         FROM task
@@ -86,11 +95,14 @@ pub async fn list_tasks_by_priority(pool: &DbPool, priority: Priority) -> Result
     "##;
     sqlx::query_as::<_, ListTasksByPriorityRow>(sql)
         .bind(priority)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 
-pub async fn list_tasks_by_status(pool: &DbPool, status: Status) -> Result<Vec<ListTasksByStatusRow>, sqlx::Error> {
+pub async fn list_tasks_by_status<'e, E>(executor: E, status: Status) -> Result<Vec<ListTasksByStatusRow>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     let sql = r##"
         SELECT id, title, priority, status
         FROM task
@@ -99,11 +111,14 @@ pub async fn list_tasks_by_status(pool: &DbPool, status: Status) -> Result<Vec<L
     "##;
     sqlx::query_as::<_, ListTasksByStatusRow>(sql)
         .bind(status)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 
-pub async fn update_task_status(pool: &DbPool, status: Status, id: i64) -> Result<Option<Task>, sqlx::Error> {
+pub async fn update_task_status<'e, E>(executor: E, status: Status, id: i64) -> Result<Option<Task>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     let sql = r##"
         UPDATE task SET status = $1 WHERE id = $2
         RETURNING *
@@ -111,11 +126,14 @@ pub async fn update_task_status(pool: &DbPool, status: Status, id: i64) -> Resul
     sqlx::query_as::<_, Task>(sql)
         .bind(status)
         .bind(id)
-        .fetch_optional(pool)
+        .fetch_optional(executor)
         .await
 }
 
-pub async fn list_tasks_by_priority_or_all(pool: &DbPool, priority: Option<Priority>) -> Result<Vec<ListTasksByPriorityOrAllRow>, sqlx::Error> {
+pub async fn list_tasks_by_priority_or_all<'e, E>(executor: E, priority: Option<Priority>) -> Result<Vec<ListTasksByPriorityOrAllRow>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     let sql = r##"
         SELECT id, title, priority, status
         FROM task
@@ -124,11 +142,14 @@ pub async fn list_tasks_by_priority_or_all(pool: &DbPool, priority: Option<Prior
     "##;
     sqlx::query_as::<_, ListTasksByPriorityOrAllRow>(sql)
         .bind(priority)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 
-pub async fn count_by_status(pool: &DbPool) -> Result<Vec<CountByStatusRow>, sqlx::Error> {
+pub async fn count_by_status<'e, E>(executor: E) -> Result<Vec<CountByStatusRow>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     let sql = r##"
         SELECT status, COUNT(*) AS task_count
         FROM task
@@ -136,11 +157,14 @@ pub async fn count_by_status(pool: &DbPool) -> Result<Vec<CountByStatusRow>, sql
         ORDER BY status
     "##;
     sqlx::query_as::<_, CountByStatusRow>(sql)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 
-pub async fn create_task_with_tags(pool: &DbPool, title: String, priority: Priority, status: Status, description: Option<String>, tags: Vec<Priority>) -> Result<Option<Task>, sqlx::Error> {
+pub async fn create_task_with_tags<'e, E>(executor: E, title: String, priority: Priority, status: Status, description: Option<String>, tags: Vec<Priority>) -> Result<Option<Task>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     let sql = r##"
         INSERT INTO task (title, priority, status, description, tags)
         VALUES ($1, $2, $3, $4, $5)
@@ -152,11 +176,14 @@ pub async fn create_task_with_tags(pool: &DbPool, title: String, priority: Prior
         .bind(status)
         .bind(description)
         .bind(tags)
-        .fetch_optional(pool)
+        .fetch_optional(executor)
         .await
 }
 
-pub async fn get_task_tags(pool: &DbPool, id: i64) -> Result<Option<GetTaskTagsRow>, sqlx::Error> {
+pub async fn get_task_tags<'e, E>(executor: E, id: i64) -> Result<Option<GetTaskTagsRow>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     let sql = r##"
         SELECT id, title, tags
         FROM task
@@ -164,11 +191,14 @@ pub async fn get_task_tags(pool: &DbPool, id: i64) -> Result<Option<GetTaskTagsR
     "##;
     sqlx::query_as::<_, GetTaskTagsRow>(sql)
         .bind(id)
-        .fetch_optional(pool)
+        .fetch_optional(executor)
         .await
 }
 
-pub async fn update_task_tags(pool: &DbPool, tags: Vec<Priority>, id: i64) -> Result<Option<Task>, sqlx::Error> {
+pub async fn update_task_tags<'e, E>(executor: E, tags: Vec<Priority>, id: i64) -> Result<Option<Task>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     let sql = r##"
         UPDATE task SET tags = $1 WHERE id = $2
         RETURNING *
@@ -176,17 +206,20 @@ pub async fn update_task_tags(pool: &DbPool, tags: Vec<Priority>, id: i64) -> Re
     sqlx::query_as::<_, Task>(sql)
         .bind(tags)
         .bind(id)
-        .fetch_optional(pool)
+        .fetch_optional(executor)
         .await
 }
 
-pub async fn delete_task(pool: &DbPool, id: i64) -> Result<(), sqlx::Error> {
+pub async fn delete_task<'e, E>(executor: E, id: i64) -> Result<(), sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     let sql = r##"
         DELETE FROM task WHERE id = $1
     "##;
     sqlx::query(sql)
         .bind(id)
-        .execute(pool)
+        .execute(executor)
         .await
         .map(|_| ())
 }

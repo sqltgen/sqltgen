@@ -2,7 +2,8 @@
 
 sqltgen generates async Rust code using [sqlx](https://github.com/launchbadge/sqlx).
 Model structs derive `sqlx::FromRow`. Query functions are `async fn` returning
-`Result<…, sqlx::Error>`.
+`Result<…, sqlx::Error>`, generic over `sqlx::Executor` so they accept a pool or a
+transaction.
 
 ## Configuration
 
@@ -50,41 +51,45 @@ pub struct Author {
 
 ### Query functions
 
+Each function is generic over `sqlx::Executor`, so the same function runs against a
+connection pool, a pooled connection, or a transaction. The `Database` bound is fixed
+to the configured engine (`sqlx::Postgres` / `sqlx::Sqlite` / `sqlx::MySql`).
+
 ```rust
 // src/db/queries.rs
-use sqlx::PgPool;
 use super::author::Author;
 
-pub async fn get_author(pool: &PgPool, id: i64)
-        -> Result<Option<Author>, sqlx::Error> {
+pub async fn get_author<'e, E>(executor: E, id: i64)
+        -> Result<Option<Author>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     sqlx::query_as::<_, Author>(SQL_GET_AUTHOR)
         .bind(id)
-        .fetch_optional(pool)
+        .fetch_optional(executor)
         .await
 }
 
-pub async fn list_authors(pool: &PgPool)
-        -> Result<Vec<Author>, sqlx::Error> {
+pub async fn list_authors<'e, E>(executor: E)
+        -> Result<Vec<Author>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     sqlx::query_as::<_, Author>(SQL_LIST_AUTHORS)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 
-pub async fn delete_author(pool: &PgPool, id: i64)
-        -> Result<(), sqlx::Error> {
+pub async fn delete_author<'e, E>(executor: E, id: i64)
+        -> Result<(), sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     sqlx::query(SQL_DELETE_AUTHOR)
         .bind(id)
-        .execute(pool)
+        .execute(executor)
         .await
         .map(|_| ())
-}
-
-pub async fn count_authors(pool: &PgPool)
-        -> Result<u64, sqlx::Error> {
-    sqlx::query(SQL_COUNT_AUTHORS)
-        .execute(pool)
-        .await
-        .map(|r| r.rows_affected())
 }
 ```
 
@@ -136,13 +141,30 @@ async fn main() -> Result<(), sqlx::Error> {
 }
 ```
 
-### Pool types per dialect
+`&pool` satisfies the `Executor` bound, so the call sites are unchanged from a
+concrete-pool API.
 
-| Dialect | Pool type |
-|---|---|
-| PostgreSQL | `sqlx::PgPool` |
-| SQLite | `sqlx::SqlitePool` |
-| MySQL | `sqlx::MySqlPool` |
+### Inside a transaction
+
+Because the functions are generic over `Executor`, pass `&mut *tx` to run several
+generated operations in one transaction and commit them atomically:
+
+```rust
+let mut tx = pool.begin().await?;
+queries::create_sale(&mut *tx, customer_id).await?;
+queries::add_sale_item(&mut *tx, book_id, qty, price).await?;
+tx.commit().await?;   // both statements commit together, or neither
+```
+
+### Database type per dialect
+
+The `Database` bound on each function's `Executor` is fixed to the configured engine:
+
+| Dialect | Pool type | `Database` bound |
+|---|---|---|
+| PostgreSQL | `sqlx::PgPool` | `sqlx::Postgres` |
+| SQLite | `sqlx::SqlitePool` | `sqlx::Sqlite` |
+| MySQL | `sqlx::MySqlPool` | `sqlx::MySql` |
 
 ## Inline row types
 
@@ -160,8 +182,11 @@ pub struct ListBooksWithAuthorRow {
     pub author_bio: Option<String>,
 }
 
-pub async fn list_books_with_author(pool: &PgPool)
-        -> Result<Vec<ListBooksWithAuthorRow>, sqlx::Error> { … }
+pub async fn list_books_with_author<'e, E>(executor: E)
+        -> Result<Vec<ListBooksWithAuthorRow>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{ … }
 ```
 
 ## List parameters
@@ -170,11 +195,14 @@ For PostgreSQL, list parameters use `= ANY($1)` with a slice bind:
 
 ```rust
 // generated
-pub async fn get_books_by_ids(pool: &PgPool, ids: &[i64])
-        -> Result<Vec<Book>, sqlx::Error> {
+pub async fn get_books_by_ids<'e, E>(executor: E, ids: &[i64])
+        -> Result<Vec<Book>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     sqlx::query_as::<_, Book>(SQL_GET_BOOKS_BY_IDS)
         .bind(ids)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 ```
@@ -183,12 +211,15 @@ For SQLite and MySQL, the `native` strategy uses `json_each` / `JSON_TABLE`
 with a JSON-serialized string:
 
 ```rust
-pub async fn get_books_by_ids(pool: &SqlitePool, ids: &[i64])
-        -> Result<Vec<Book>, sqlx::Error> {
+pub async fn get_books_by_ids<'e, E>(executor: E, ids: &[i64])
+        -> Result<Vec<Book>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let ids_json = serde_json::to_string(ids).unwrap();
     sqlx::query_as::<_, Book>(SQL_GET_BOOKS_BY_IDS)
         .bind(ids_json)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 ```

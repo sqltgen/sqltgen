@@ -9,7 +9,10 @@ pub struct DeleteAuthorRow {
     pub name: String,
 }
 
-pub async fn create_author(pool: &DbPool, name: String, bio: Option<String>, birth_year: Option<i32>) -> Result<Option<Author>, sqlx::Error> {
+pub async fn create_author<'e, E>(executor: E, name: String, bio: Option<String>, birth_year: Option<i32>) -> Result<Option<Author>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     let sql = r##"
         INSERT INTO author (name, bio, birth_year)
         VALUES ($1, $2, $3)
@@ -19,11 +22,14 @@ pub async fn create_author(pool: &DbPool, name: String, bio: Option<String>, bir
         .bind(name)
         .bind(bio)
         .bind(birth_year)
-        .fetch_optional(pool)
+        .fetch_optional(executor)
         .await
 }
 
-pub async fn get_author(pool: &DbPool, id: i64) -> Result<Option<Author>, sqlx::Error> {
+pub async fn get_author<'e, E>(executor: E, id: i64) -> Result<Option<Author>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     let sql = r##"
         SELECT id, name, bio, birth_year
         FROM author
@@ -31,11 +37,14 @@ pub async fn get_author(pool: &DbPool, id: i64) -> Result<Option<Author>, sqlx::
     "##;
     sqlx::query_as::<_, Author>(sql)
         .bind(id)
-        .fetch_optional(pool)
+        .fetch_optional(executor)
         .await
 }
 
-pub async fn update_author_bio(pool: &DbPool, bio: Option<String>, id: i64) -> Result<Option<Author>, sqlx::Error> {
+pub async fn update_author_bio<'e, E>(executor: E, bio: Option<String>, id: i64) -> Result<Option<Author>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     let sql = r##"
         UPDATE author SET bio = $1 WHERE id = $2
         RETURNING *
@@ -43,22 +52,28 @@ pub async fn update_author_bio(pool: &DbPool, bio: Option<String>, id: i64) -> R
     sqlx::query_as::<_, Author>(sql)
         .bind(bio)
         .bind(id)
-        .fetch_optional(pool)
+        .fetch_optional(executor)
         .await
 }
 
-pub async fn delete_author(pool: &DbPool, id: i64) -> Result<Option<DeleteAuthorRow>, sqlx::Error> {
+pub async fn delete_author<'e, E>(executor: E, id: i64) -> Result<Option<DeleteAuthorRow>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     let sql = r##"
         DELETE FROM author WHERE id = $1
         RETURNING id, name
     "##;
     sqlx::query_as::<_, DeleteAuthorRow>(sql)
         .bind(id)
-        .fetch_optional(pool)
+        .fetch_optional(executor)
         .await
 }
 
-pub async fn create_book(pool: &DbPool, author_id: i64, title: String, genre: String, price: rust_decimal::Decimal, published_at: Option<time::Date>) -> Result<Option<Book>, sqlx::Error> {
+pub async fn create_book<'e, E>(executor: E, author_id: i64, title: String, genre: String, price: rust_decimal::Decimal, published_at: Option<time::Date>) -> Result<Option<Book>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     let sql = r##"
         INSERT INTO book (author_id, title, genre, price, published_at)
         VALUES ($1, $2, $3, $4, $5)
@@ -70,7 +85,7 @@ pub async fn create_book(pool: &DbPool, author_id: i64, title: String, genre: St
         .bind(genre)
         .bind(price)
         .bind(published_at)
-        .fetch_optional(pool)
+        .fetch_optional(executor)
         .await
 }
 

@@ -79,7 +79,7 @@ SQL files
 |---|---|---|
 | `java/` | ✅ | Record classes + `Queries` class with JDBC methods + `Querier` DataSource wrapper; compile-time adapter contract drives language-constant selection |
 | `kotlin/` | ✅ | Data classes + `Queries` object with JDBC methods + `Querier` DataSource wrapper; compile-time adapter contract drives language-constant selection |
-| `rust/` | ✅ | `sqlx` async functions + `#[derive(FromRow)]` structs + `Querier` pool wrapper; compile-time adapter contract emits `_sqltgen.rs` helper + engine-agnostic core query modules |
+| `rust/` | ✅ | `sqlx` async functions generic over `Executor` (pool or transaction) + `#[derive(FromRow)]` structs + `Querier` pool wrapper; compile-time adapter contract emits `_sqltgen.rs` helper + engine-agnostic core query modules |
 | `python.rs` | ✅ | `@dataclass` models + `Querier`; engine differences resolved via compile-time adapter contract + generated helper module |
 | `go.rs` | ✅ | `database/sql` structs + query functions + `Querier` wrapper; two-layer adapter/core architecture; `pq.Array` + dynamic expansion for list params |
 | `typescript.rs` | ✅ | TypeScript (interfaces) + JavaScript (JSDoc) output; pg / better-sqlite3 / mysql2 drivers; emits `_sqltgen` runtime helper + `Querier` wrapper |
@@ -128,7 +128,9 @@ _None — all blockers resolved._
 
 ### Medium priority (post-launch)
 
-1. **Transaction support** — `with_tx(tx)` on Querier. (task 037)
+1. **Transaction support** — Rust free functions are generic over `sqlx::Executor`, so a
+   pool or a transaction (`&mut *tx`) can be passed; a transaction-aware Querier is still
+   open. (task 037)
 2. **Params struct** — `{Query}Params` + `QueriesParams` for queries with many params. (task 036)
 3. **`:execresult` / `:execlastid`** — return driver result / last insert ID. (task 039)
 4. **Driver-agnostic scan wrappers** — sqltgen owns the API; drivers are transport. (task 121, umbrella for 115/120)

@@ -19,7 +19,10 @@ pub struct CountEventsRow {
     pub total: i64,
 }
 
-pub async fn get_event(pool: &DbPool, id: i64) -> Result<Option<Event>, sqlx::Error> {
+pub async fn get_event<'e, E>(executor: E, id: i64) -> Result<Option<Event>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     let sql = r##"
         SELECT id, name, payload, meta, doc_id, created_at, scheduled_at, event_date, event_time
         FROM event
@@ -27,22 +30,28 @@ pub async fn get_event(pool: &DbPool, id: i64) -> Result<Option<Event>, sqlx::Er
     "##;
     sqlx::query_as::<_, Event>(sql)
         .bind(id)
-        .fetch_optional(pool)
+        .fetch_optional(executor)
         .await
 }
 
-pub async fn list_events(pool: &DbPool) -> Result<Vec<Event>, sqlx::Error> {
+pub async fn list_events<'e, E>(executor: E) -> Result<Vec<Event>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     let sql = r##"
         SELECT id, name, payload, meta, doc_id, created_at, scheduled_at, event_date, event_time
         FROM event
         ORDER BY id
     "##;
     sqlx::query_as::<_, Event>(sql)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 
-pub async fn insert_event(pool: &DbPool, name: String, payload: serde_json::Value, meta: Option<serde_json::Value>, doc_id: uuid::Uuid, created_at: time::PrimitiveDateTime, scheduled_at: Option<time::OffsetDateTime>, event_date: Option<time::Date>, event_time: Option<time::Time>) -> Result<(), sqlx::Error> {
+pub async fn insert_event<'e, E>(executor: E, name: String, payload: serde_json::Value, meta: Option<serde_json::Value>, doc_id: uuid::Uuid, created_at: time::PrimitiveDateTime, scheduled_at: Option<time::OffsetDateTime>, event_date: Option<time::Date>, event_time: Option<time::Time>) -> Result<(), sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     let sql = r##"
         INSERT INTO event (name, payload, meta, doc_id, created_at, scheduled_at, event_date, event_time)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -56,12 +65,15 @@ pub async fn insert_event(pool: &DbPool, name: String, payload: serde_json::Valu
         .bind(scheduled_at)
         .bind(event_date)
         .bind(event_time)
-        .execute(pool)
+        .execute(executor)
         .await
         .map(|_| ())
 }
 
-pub async fn update_payload(pool: &DbPool, payload: serde_json::Value, meta: Option<serde_json::Value>, id: i64) -> Result<(), sqlx::Error> {
+pub async fn update_payload<'e, E>(executor: E, payload: serde_json::Value, meta: Option<serde_json::Value>, id: i64) -> Result<(), sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     let sql = r##"
         UPDATE event SET payload = $1, meta = $2 WHERE id = $3
     "##;
@@ -69,32 +81,41 @@ pub async fn update_payload(pool: &DbPool, payload: serde_json::Value, meta: Opt
         .bind(payload)
         .bind(meta)
         .bind(id)
-        .execute(pool)
+        .execute(executor)
         .await
         .map(|_| ())
 }
 
-pub async fn find_by_date(pool: &DbPool, event_date: Option<time::Date>) -> Result<Option<FindByDateRow>, sqlx::Error> {
+pub async fn find_by_date<'e, E>(executor: E, event_date: Option<time::Date>) -> Result<Option<FindByDateRow>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     let sql = r##"
         SELECT id, name FROM event WHERE event_date = $1
     "##;
     sqlx::query_as::<_, FindByDateRow>(sql)
         .bind(event_date)
-        .fetch_optional(pool)
+        .fetch_optional(executor)
         .await
 }
 
-pub async fn find_by_uuid(pool: &DbPool, doc_id: uuid::Uuid) -> Result<Option<FindByUuidRow>, sqlx::Error> {
+pub async fn find_by_uuid<'e, E>(executor: E, doc_id: uuid::Uuid) -> Result<Option<FindByUuidRow>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     let sql = r##"
         SELECT id, name FROM event WHERE doc_id = $1
     "##;
     sqlx::query_as::<_, FindByUuidRow>(sql)
         .bind(doc_id)
-        .fetch_optional(pool)
+        .fetch_optional(executor)
         .await
 }
 
-pub async fn insert_event_rows(pool: &DbPool, name: String, payload: serde_json::Value, meta: Option<serde_json::Value>, doc_id: uuid::Uuid, created_at: time::PrimitiveDateTime, scheduled_at: Option<time::OffsetDateTime>, event_date: Option<time::Date>, event_time: Option<time::Time>) -> Result<u64, sqlx::Error> {
+pub async fn insert_event_rows<'e, E>(executor: E, name: String, payload: serde_json::Value, meta: Option<serde_json::Value>, doc_id: uuid::Uuid, created_at: time::PrimitiveDateTime, scheduled_at: Option<time::OffsetDateTime>, event_date: Option<time::Date>, event_time: Option<time::Time>) -> Result<u64, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     let sql = r##"
         INSERT INTO event (name, payload, meta, doc_id, created_at, scheduled_at, event_date, event_time)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -108,12 +129,15 @@ pub async fn insert_event_rows(pool: &DbPool, name: String, payload: serde_json:
         .bind(scheduled_at)
         .bind(event_date)
         .bind(event_time)
-        .execute(pool)
+        .execute(executor)
         .await
         .map(|r| r.rows_affected())
 }
 
-pub async fn get_events_by_date_range(pool: &DbPool, created_at: time::PrimitiveDateTime, created_at_2: time::PrimitiveDateTime) -> Result<Vec<Event>, sqlx::Error> {
+pub async fn get_events_by_date_range<'e, E>(executor: E, created_at: time::PrimitiveDateTime, created_at_2: time::PrimitiveDateTime) -> Result<Vec<Event>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     let sql = r##"
         SELECT id, name, payload, meta, doc_id, created_at, scheduled_at, event_date, event_time
         FROM event
@@ -123,28 +147,34 @@ pub async fn get_events_by_date_range(pool: &DbPool, created_at: time::Primitive
     sqlx::query_as::<_, Event>(sql)
         .bind(created_at)
         .bind(created_at_2)
-        .fetch_all(pool)
+        .fetch_all(executor)
         .await
 }
 
-pub async fn count_events(pool: &DbPool, created_at: time::PrimitiveDateTime) -> Result<Option<CountEventsRow>, sqlx::Error> {
+pub async fn count_events<'e, E>(executor: E, created_at: time::PrimitiveDateTime) -> Result<Option<CountEventsRow>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     let sql = r##"
         SELECT COUNT(*) AS total FROM event WHERE created_at > $1
     "##;
     sqlx::query_as::<_, CountEventsRow>(sql)
         .bind(created_at)
-        .fetch_optional(pool)
+        .fetch_optional(executor)
         .await
 }
 
-pub async fn update_event_date(pool: &DbPool, event_date: Option<time::Date>, id: i64) -> Result<(), sqlx::Error> {
+pub async fn update_event_date<'e, E>(executor: E, event_date: Option<time::Date>, id: i64) -> Result<(), sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     let sql = r##"
         UPDATE event SET event_date = $1 WHERE id = $2
     "##;
     sqlx::query(sql)
         .bind(event_date)
         .bind(id)
-        .execute(pool)
+        .execute(executor)
         .await
         .map(|_| ())
 }
