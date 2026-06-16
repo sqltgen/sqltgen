@@ -190,8 +190,11 @@ fn emit_rust_query(src: &mut String, query: &Query, ctx: &GenerationContext) -> 
         QueryCmd::ExecRows => "Result<u64, sqlx::Error>".to_string(),
     };
 
-    emit_rust_query_signature(src, &fn_name, query, &return_type, ctx)?;
-
+    // Generic over `E: sqlx::Executor` (not a concrete `&DbPool`) so a pool or transaction works; the `Database` bound comes from the adapter.
+    let params_sig: String =
+        std::iter::once("executor: E".to_string()).chain(query.params.iter().map(|p| rust_param_sig(p, ctx.type_map))).collect::<Vec<_>>().join(", ");
+    let db_type = ctx.adapter.sqlx_database_type();
+    writeln!(src, "pub async fn {fn_name}<'e, E>({params_sig}) -> {return_type}\nwhere\n    E: sqlx::Executor<'e, Database = {db_type}>,\n{{")?;
     let list_param = query.params.iter().find(|p| p.is_list);
     if let Some(lp) = list_param {
         emit_rust_list_query(src, query, &row_type, ctx, lp)?;
@@ -200,22 +203,6 @@ fn emit_rust_query(src: &mut String, query: &Query, ctx: &GenerationContext) -> 
     }
 
     writeln!(src, "}}")?;
-    Ok(())
-}
-
-/// Emit the generic header of a free query function.
-///
-/// The function is generic over `E: sqlx::Executor` (parameterized on the
-/// driver's `Database` type) instead of taking a concrete `&DbPool`, so the
-/// same function can run against a pool, a pooled connection, or a transaction.
-fn emit_rust_query_signature(src: &mut String, fn_name: &str, query: &Query, return_type: &str, ctx: &GenerationContext) -> anyhow::Result<()> {
-    let params_sig: String =
-        std::iter::once("executor: E".to_string()).chain(query.params.iter().map(|p| rust_param_sig(p, ctx.type_map))).collect::<Vec<_>>().join(", ");
-    let db_type = ctx.adapter.sqlx_database_type();
-    writeln!(src, "pub async fn {fn_name}<'e, E>({params_sig}) -> {return_type}")?;
-    writeln!(src, "where")?;
-    writeln!(src, "    E: sqlx::Executor<'e, Database = {db_type}>,")?;
-    writeln!(src, "{{")?;
     Ok(())
 }
 
