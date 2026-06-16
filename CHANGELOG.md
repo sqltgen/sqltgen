@@ -10,13 +10,7 @@ sqltgen follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Security
-- **Bumped the `esbuild` dev dependency to `0.28.1`** across the TypeScript examples
-  and TypeScript end-to-end test fixtures, clearing two advisories
-  (`GHSA-gv7w-rqvm-qjhr`, `GHSA-g7r4-m6w7-qqqr`). `esbuild` is pulled in transitively
-  via `tsx` and is development-scope only — it is not part of any generated code, so
-  this does not affect projects that consume sqltgen's output. The bump rides on
-  `tsx@4.22.x`, which declares `esbuild ~0.28.0`; no version pin or override was needed.
+## [0.1.1] — 2026-06-16
 
 ### Changed
 - **Generated Rust query functions are now generic over `sqlx::Executor`** instead of
@@ -27,6 +21,14 @@ sqltgen follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   a `sqlx::Transaction`. Existing pool call sites are unaffected — `&pool` still satisfies
   the bound. The `Querier` wrapper remains pool-backed and delegates to these functions; a
   transaction-aware Querier is tracked as a follow-up.
+
+### Security
+- **Bumped the `esbuild` dev dependency to `0.28.1`** across the TypeScript examples
+  and TypeScript end-to-end test fixtures, clearing two advisories
+  (`GHSA-gv7w-rqvm-qjhr`, `GHSA-g7r4-m6w7-qqqr`). `esbuild` is pulled in transitively
+  via `tsx` and is development-scope only — it is not part of any generated code, so
+  this does not affect projects that consume sqltgen's output. The bump rides on
+  `tsx@4.22.x`, which declares `esbuild ~0.28.0`; no version pin or override was needed.
 
 ## [0.1.0] — 2026-06-02
 
