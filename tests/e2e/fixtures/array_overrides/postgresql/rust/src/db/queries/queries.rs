@@ -2,7 +2,10 @@ use super::super::sqltgen::DbPool;
 
 use super::super::models::record::Record;
 
-pub async fn insert_record(pool: &DbPool, label: String, timestamps: Vec<time::PrimitiveDateTime>, uuids: Vec<uuid::Uuid>) -> Result<(), sqlx::Error> {
+pub async fn insert_record<'e, E>(executor: E, label: String, timestamps: Vec<time::PrimitiveDateTime>, uuids: Vec<uuid::Uuid>) -> Result<(), sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     let sql = r##"
         INSERT INTO record (label, timestamps, uuids)
         VALUES ($1, $2, $3)
@@ -11,12 +14,15 @@ pub async fn insert_record(pool: &DbPool, label: String, timestamps: Vec<time::P
         .bind(label)
         .bind(timestamps)
         .bind(uuids)
-        .execute(pool)
+        .execute(executor)
         .await
         .map(|_| ())
 }
 
-pub async fn get_record(pool: &DbPool, id: i64) -> Result<Option<Record>, sqlx::Error> {
+pub async fn get_record<'e, E>(executor: E, id: i64) -> Result<Option<Record>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
     let sql = r##"
         SELECT id, label, timestamps, uuids
         FROM record
@@ -24,7 +30,7 @@ pub async fn get_record(pool: &DbPool, id: i64) -> Result<Option<Record>, sqlx::
     "##;
     sqlx::query_as::<_, Record>(sql)
         .bind(id)
-        .fetch_optional(pool)
+        .fetch_optional(executor)
         .await
 }
 
