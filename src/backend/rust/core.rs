@@ -129,7 +129,7 @@ pub(super) fn generate_core_files(ctx: &GenerationContext) -> anyhow::Result<Vec
     // Root mod.rs
     {
         let mut src = String::new();
-        writeln!(src, "#![allow(dead_code)]")?;
+        writeln!(src, "#![allow(dead_code)]\n#![allow(clippy::too_many_arguments)]\n#![allow(clippy::module_inception)]")?;
         writeln!(src)?;
         writeln!(src, "pub mod sqltgen;")?;
         if !ctx.schema.tables.is_empty() || !ctx.schema.enums.is_empty() {
