@@ -10,6 +10,8 @@ sqltgen follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.2] — 2026-10-07
+
 ### Fixed
 - **Generated Rust no longer fails `cargo clippy -- -D warnings`.** The generated crate
   root now emits `#![allow(clippy::too_many_arguments)]` and
