@@ -1,3 +1,4 @@
+#[rustfmt::skip]
 mod db;
 
 use db::queries::queries as q;

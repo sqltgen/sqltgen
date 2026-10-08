@@ -11,6 +11,11 @@ sqltgen follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Fixed
+- **Generated Rust no longer fails `cargo clippy -- -D warnings`.** The generated crate
+  root now emits `#![allow(clippy::too_many_arguments)]` and
+  `#![allow(clippy::module_inception)]` (alongside the existing `dead_code` allow), which
+  propagate to the generated submodules. This covers wide querier methods and a query group
+  named after its module (`queries::queries`) without any action from the consumer.
 - **Computed generated columns are now nullable unless declared `NOT NULL`.** A column
   defined as `GENERATED ALWAYS AS (expr)` (PostgreSQL `STORED`; SQLite/MySQL `VIRTUAL` or
   `STORED`) was always inferred as non-nullable, so a row where the expression yields NULL
@@ -18,6 +23,14 @@ sqltgen follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   column's own `NULL`/`NOT NULL` constraint, in both `CREATE TABLE` and
   `ALTER TABLE … ADD COLUMN`. Identity columns (`GENERATED … AS IDENTITY`) remain
   non-nullable.
+
+### Documentation
+- **Documented how to keep generated Rust out of a project's `cargo fmt --check` gate.**
+  Because a formatter's rules depend on the consuming project's own `rustfmt.toml` (which the
+  generator cannot know), sqltgen does not try to shape output to any particular profile.
+  Instead, apply `#[rustfmt::skip]` to the `mod` declaration that includes the generated
+  module — it exempts the whole generated tree from `cargo fmt` on stable Rust, regardless of
+  the project's rustfmt configuration. See the Rust language guide.
 
 ## [0.1.1] — 2026-06-16
 

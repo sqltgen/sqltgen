@@ -16,6 +16,7 @@ pub fn mysql() -> RustCodegen {
 mod architecture;
 mod generate;
 mod grouping;
+mod lints;
 mod list_params;
 mod params;
 mod type_overrides;

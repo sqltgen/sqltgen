@@ -108,6 +108,33 @@ pub mod queries;
 mod _sqltgen;
 ```
 
+### Lints and formatting
+
+**Clippy** — the generated crate root carries crate-wide allows that propagate to the
+submodules, so the generated module passes `cargo clippy -- -D warnings` with no action
+on your part:
+
+```rust
+#![allow(dead_code)]
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::module_inception)]
+```
+
+**rustfmt** — a formatter's output depends on *your* project's `rustfmt.toml`, which the
+generator cannot know, so sqltgen does not shape the generated code to any particular
+profile. Keep it out of `cargo fmt --check` by applying `#[rustfmt::skip]` to the `mod`
+declaration where you include the generated module:
+
+```rust
+#[rustfmt::skip]
+pub mod db; // wherever you pull in the generated output directory
+```
+
+`#[rustfmt::skip]` on the `mod` declaration exempts the whole generated tree (the module
+file and all its submodules) from `cargo fmt` on stable Rust, regardless of your rustfmt
+configuration. (The `ignore` option in `rustfmt.toml` is nightly-only, so this attribute
+is the portable way to do it.)
+
 ## Wiring up
 
 ### Cargo.toml

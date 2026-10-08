@@ -204,8 +204,8 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 
 | Layer | Tests |
 |---|---|
-| Library unit tests (`cargo test --lib`) | 971 |
-| Integration tests (`cargo test --tests`, includes lib) | 1027 |
+| Library unit tests (`cargo test --lib`) | 972 |
+| Integration tests (`cargo test --tests`, includes lib) | 1028 |
 | **Rust total** | **1000+** |
 | E2E runtime fixtures (filesystem-driven, snapshot-gated) | 9 fixtures × 7 langs × {sqlite, postgresql, mysql} where applicable |
 
