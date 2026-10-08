@@ -171,6 +171,39 @@ mod tests {
         assert!(!col.nullable);
     }
 
+    #[test]
+    fn parses_generated_stored_column_nullability() {
+        let ddl = r#"
+            CREATE TABLE book (
+                id          INTEGER PRIMARY KEY,
+                title       TEXT,
+                upper_title TEXT GENERATED ALWAYS AS (upper(title)) STORED,
+                title_len   INTEGER GENERATED ALWAYS AS (length(title)) STORED NOT NULL
+            );
+        "#;
+
+        let schema = parse_schema(ddl, None).unwrap();
+        let t = &schema.tables[0];
+        let col = |n: &str| t.columns.iter().find(|c| c.name == n).unwrap();
+        assert!(col("upper_title").nullable);
+        assert!(!col("title_len").nullable);
+    }
+
+    #[test]
+    fn alter_add_generated_stored_column_nullability() {
+        let ddl = r#"
+            CREATE TABLE book (id INTEGER PRIMARY KEY, title TEXT);
+            ALTER TABLE book ADD COLUMN lower_title TEXT GENERATED ALWAYS AS (lower(title)) STORED;
+            ALTER TABLE book ADD COLUMN title_len INTEGER GENERATED ALWAYS AS (length(title)) STORED NOT NULL;
+        "#;
+
+        let schema = parse_schema(ddl, None).unwrap();
+        let t = &schema.tables[0];
+        let col = |n: &str| t.columns.iter().find(|c| c.name == n).unwrap();
+        assert!(col("lower_title").nullable);
+        assert!(!col("title_len").nullable);
+    }
+
     // ─── ALTER TABLE tests ───────────────────────────────────────────────────
 
     #[test]
