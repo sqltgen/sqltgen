@@ -10,6 +10,15 @@ sqltgen follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **Computed generated columns are now nullable unless declared `NOT NULL`.** A column
+  defined as `GENERATED ALWAYS AS (expr)` (PostgreSQL `STORED`; SQLite/MySQL `VIRTUAL` or
+  `STORED`) was always inferred as non-nullable, so a row where the expression yields NULL
+  failed to decode into the generated non-optional field. Nullability now follows the
+  column's own `NULL`/`NOT NULL` constraint, in both `CREATE TABLE` and
+  `ALTER TABLE … ADD COLUMN`. Identity columns (`GENERATED … AS IDENTITY`) remain
+  non-nullable.
+
 ## [0.1.1] — 2026-06-16
 
 ### Changed

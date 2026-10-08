@@ -119,6 +119,25 @@ mod tests {
     }
 
     #[test]
+    fn generated_column_nullability() {
+        let ddl = "
+            CREATE TABLE book (
+                id          INTEGER PRIMARY KEY,
+                title       TEXT,
+                upper_title TEXT GENERATED ALWAYS AS (upper(title)) VIRTUAL,
+                title_len   INTEGER AS (length(title)) STORED NOT NULL
+            );
+            ALTER TABLE book ADD COLUMN lower_title TEXT AS (lower(title));
+        ";
+        let schema = parse_schema(ddl, None).unwrap();
+        let t = &schema.tables[0];
+        let col = |n: &str| t.columns.iter().find(|c| c.name == n).unwrap();
+        assert!(col("upper_title").nullable);
+        assert!(!col("title_len").nullable);
+        assert!(col("lower_title").nullable);
+    }
+
+    #[test]
     fn alter_rename_column() {
         let ddl = "
             CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
