@@ -18,6 +18,7 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 | `DEFAULT` | ✅ (parsed, ignored) | ✅ (parsed, ignored) | ✅ (parsed, ignored) |
 | `AUTO_INCREMENT` | — | — | ✅ (parsed, ignored) |
 | `GENERATED … AS IDENTITY` | ✅ (parsed, ignored) | — | — |
+| `GENERATED ALWAYS AS (expr)` (computed) | ✅ (nullable unless `NOT NULL`) | ✅ (nullable unless `NOT NULL`) | ✅ (nullable unless `NOT NULL`) |
 | Multiple tables per file | ✅ | ✅ | ✅ |
 | Schema from directory of migration files | ✅ | ✅ | ✅ |
 | Type: boolean | ✅ | ✅ (INTEGER affinity) | ✅ |
@@ -203,8 +204,8 @@ Legend: ✅ done · ⚠️ partial/known issue · 🚧 stub · ❌ not started
 
 | Layer | Tests |
 |---|---|
-| Library unit tests (`cargo test --lib`) | 965 |
-| Integration tests (`cargo test --tests`, includes lib) | 1021 |
+| Library unit tests (`cargo test --lib`) | 972 |
+| Integration tests (`cargo test --tests`, includes lib) | 1028 |
 | **Rust total** | **1000+** |
 | E2E runtime fixtures (filesystem-driven, snapshot-gated) | 9 fixtures × 7 langs × {sqlite, postgresql, mysql} where applicable |
 

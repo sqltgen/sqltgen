@@ -16,6 +16,13 @@ sqltgen follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `#![allow(clippy::module_inception)]` (alongside the existing `dead_code` allow), which
   propagate to the generated submodules. This covers wide querier methods and a query group
   named after its module (`queries::queries`) without any action from the consumer.
+- **Computed generated columns are now nullable unless declared `NOT NULL`.** A column
+  defined as `GENERATED ALWAYS AS (expr)` (PostgreSQL `STORED`; SQLite/MySQL `VIRTUAL` or
+  `STORED`) was always inferred as non-nullable, so a row where the expression yields NULL
+  failed to decode into the generated non-optional field. Nullability now follows the
+  column's own `NULL`/`NOT NULL` constraint, in both `CREATE TABLE` and
+  `ALTER TABLE … ADD COLUMN`. Identity columns (`GENERATED … AS IDENTITY`) remain
+  non-nullable.
 
 ### Documentation
 - **Documented how to keep generated Rust out of a project's `cargo fmt --check` gate.**

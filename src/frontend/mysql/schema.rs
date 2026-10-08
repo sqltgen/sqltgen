@@ -222,6 +222,25 @@ mod tests {
     }
 
     #[test]
+    fn generated_column_nullability() {
+        let ddl = "
+            CREATE TABLE book (
+                id          BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                title       VARCHAR(255),
+                upper_title VARCHAR(255) GENERATED ALWAYS AS (UPPER(title)) VIRTUAL,
+                title_len   INT AS (CHAR_LENGTH(title)) STORED NOT NULL
+            );
+            ALTER TABLE book ADD COLUMN lower_title VARCHAR(255) GENERATED ALWAYS AS (LOWER(title)) STORED;
+        ";
+        let schema = parse_schema(ddl, None).unwrap();
+        let t = &schema.tables[0];
+        let col = |n: &str| t.columns.iter().find(|c| c.name == n).unwrap();
+        assert!(col("upper_title").nullable);
+        assert!(!col("title_len").nullable);
+        assert!(col("lower_title").nullable);
+    }
+
+    #[test]
     fn alter_drop_column() {
         let ddl = "
             CREATE TABLE users (id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) NOT NULL, bio TEXT);
